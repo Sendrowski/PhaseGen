@@ -1,0 +1,13 @@
+name: base-phase-type-theory
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - matplotlib
+  - seaborn
+  - numpy
+  - pandas
+  - scipy
+  - msprime
+  - sympy
+  - jsonpickle

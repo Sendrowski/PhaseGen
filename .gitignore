@@ -1,0 +1,5 @@
+/.snakemake/
+/scratch/
+/reports/
+/resources/
+/slurm/logs/
