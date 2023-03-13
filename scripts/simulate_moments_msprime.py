@@ -15,20 +15,33 @@ import JSON
 try:
     testing = False
     n = snakemake.params.n
+    pop_sizes = snakemake.params.pop_sizes
+    times = snakemake.params.times
     num_replicates = snakemake.params.num_replicates
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
-    n = 10  # sample size
-    num_replicates = 10000  # number of samples
+    n = 5  # sample size
+    pop_sizes = [0.12, 1, 0.01, 10]
+    times = [0, 0.3, 1, 1.4]
+    num_replicates = 100000  # number of samples
     out = "scratch/msprime.json"
 
-g: Generator = ms.simulate(
-    sample_size=n,
+# configure demography
+d = ms.Demography()
+d.add_population(initial_size=pop_sizes[0])
+
+for i in range(1, len(pop_sizes)):
+    d.add_population_parameters_change(time=times[i], initial_size=pop_sizes[i])
+
+# simulate trees
+g: Generator = ms.sim_ancestry(
+    samples=n,
     num_replicates=num_replicates,
-    Ne=0.5,
-    model=ms.StandardCoalescent()
+    demography=d,
+    model=ms.StandardCoalescent(),
+    ploidy=1
 )
 
 ts: tskit.TreeSequence
@@ -39,11 +52,13 @@ for i, ts in enumerate(g):
     total_branch_lengths[i] = t.total_branch_length
     heights[i] = t.time(t.root)
 
+# get moments of tree height
 height = dict(
     mu=np.mean(heights),
     var=np.var(heights)
 )
 
+# get moments of branch length
 total_branch_length = dict(
     mu=np.mean(total_branch_lengths),
     var=np.var(total_branch_lengths)
