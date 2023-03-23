@@ -20,8 +20,8 @@ except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    times = [0, 0.1]
-    pop_sizes = [10, 0.1]
+    times = [0, 0.3, 1, 1.4]
+    pop_sizes = [0.12, 1, 0.01, 10]
     alpha = np.eye(1, n - 1, 0)[0]
     out = "scratch/ph.json"
 
@@ -40,8 +40,8 @@ height = dict(
 cd = cd.set_reward(rewards.TotalBranchLength())
 
 total_branch_length = dict(
-    #mu=cd.mean,
-    #var=cd.var()
+    mu=cd.mean,
+    var=cd.var
 )
 
 if testing:

@@ -24,8 +24,8 @@ except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    times = [0, 0.1]
-    pop_sizes = [10, 0.1]
+    times = [0, 0.3, 1, 1.4]
+    pop_sizes = [0.12, 1, 0.01, 10]
     start_time = 0
     end_time = None
     num_replicates = 100000
@@ -60,7 +60,7 @@ for i, ts in enumerate(g):
 height = dict(
     mu=np.mean(heights),
     var=np.var(heights),
-    mu2=np.mean(heights ** 2),
+    mu2=np.mean(heights ** 2)
 )
 
 if end_time is not None:
@@ -68,14 +68,14 @@ if end_time is not None:
     time_in_absorption = dict(
         mu=np.mean(end_time - heights[heights != end_time]),
         var=np.var(end_time - heights[heights != end_time]),
-        mu2=np.mean((end_time - heights[heights != end_time]) ** 2),
+        mu2=np.mean((end_time - heights[heights != end_time]) ** 2)
     )
 
 # get moments of branch length
 total_branch_length = dict(
     mu=np.mean(total_branch_lengths),
     var=np.var(total_branch_lengths),
-    mu2=np.mean(total_branch_lengths ** 2),
+    mu2=np.mean(total_branch_lengths ** 2)
 )
 
 JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)

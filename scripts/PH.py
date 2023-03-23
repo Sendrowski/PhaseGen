@@ -210,6 +210,7 @@ class CoalescentDistribution(PhaseTypeDistribution):
         # self.Ne ** k is the rescaling due to population size
         return (self.Ne ** k) * factorial(k) * alpha @ matrix_power(self.U, k) @ self.e
 
+    @cached_property
     def mean(self, alpha: np.ndarray = None) -> float:
         """
         Get the mean absorption time.
@@ -218,6 +219,7 @@ class CoalescentDistribution(PhaseTypeDistribution):
         """
         return self.nth_moment(1, alpha)
 
+    @cached_property
     def var(self, alpha: np.ndarray = None) -> float:
         """
         Get the variance in the absorption time.
@@ -474,8 +476,24 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
         # scale by Ne
         return self.Ne ** 2 * U
 
-    @property
-    def mean_and_var(self, **kwargs) -> (float, float):
+    def nth_moment(self, k: int, alpha: np.ndarray = None) -> float:
+        """
+        Get the nth moment.
+        Only the first two moments are currently implemented.
+        :param k:
+        :param alpha:
+        :return:
+        """
+        if k == 1:
+            return self.mean_and_var[0] if alpha is None else self.mean_and_var(alpha)[0]
+
+        if k == 2:
+            return self.mean_and_var[1] if alpha is None else self.mean_and_var(alpha)[1]
+
+        raise NotImplementedError('Only the first second moments are implemented.')
+
+    @cached_property
+    def mean_and_var(self, alpha: np.ndarray = None) -> (float, float):
         """
         Calculate the first and second moments in the absorption time.
 
@@ -484,25 +502,23 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
         We can get the expected absorption time by conditioning on the endpoint
         and determining the amount of time we spend in the absorbing state.
         We can get the absorption probability from the transition matrix.
-        :param **kwargs:
-        :type **kwargs:
         :return:
         """
+        if alpha is None:
+            alpha = self.alpha
 
         # absorption times conditional on when the epoch ends
         absorption_times = np.zeros(self.n_epochs)
 
-        # second moments in absorption time
+        # conditional second moments in absorption time
         absorption_m2 = np.zeros(self.n_epochs)
 
         # unconditional absorption probabilities
         absorption_probs = np.zeros(self.n_epochs)
 
-        # probability of not having reach the absorbing state until now
+        # Probability of not having reached the absorbing state until
+        # the current epoch.
         no_absorption = np.zeros(self.n_epochs)
-
-        # initial state of current epoch
-        alpha = self.alpha
 
         # iterate over epochs
         for i in range(self.n_epochs):
@@ -579,14 +595,6 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
         m2 = np.dot(total_absorption_probs, total_absorption_m2)
 
         return mean, m2
-
-    @property
-    def mean(self, **kwargs) -> float:
-        return self.mean_and_var[0]
-
-    @property
-    def var(self, **kwargs) -> float:
-        return self.mean_and_var[1] - self.mean ** 2
 
     def set_reward(self, r: Union[rewards.Reward, np.ndarray, List]) -> 'VariablePopulationSizeCoalescentDistribution':
         """
