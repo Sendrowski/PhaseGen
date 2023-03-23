@@ -25,3 +25,12 @@ rule simulate_moments_msprime:
         "envs/base.yaml"
     script:
         "scripts/simulate_moments_msprime.py"
+
+# simulate moments using phase-type theory and msprime
+rule simulate_moments:
+    output:
+        "results/simulations/comp/{n}_variable/moments.json"
+    params:
+        n=lambda w: int(w.n),
+        pop_sizes=[0.12, 1, 0.01, 10],
+        times=[0, 0.3, 1, 1.4]

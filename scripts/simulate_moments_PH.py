@@ -20,27 +20,27 @@ except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    pop_sizes = [0.12, 1, 0.01, 10]
-    times = [0, 0.3, 1, 1.4]
+    times = [0, 0.1]
+    pop_sizes = [10, 0.1]
     alpha = np.eye(1, n - 1, 0)[0]
     out = "scratch/ph.json"
 
 cd = VariablePopulationSizeCoalescentDistribution(
-    model=StandardCoalscent(),
+    model=StandardCoalescent(),
     n=n,
     alpha=alpha,
     demography=PiecewiseConstantDemography(pop_sizes=pop_sizes, times=times)
 )
 
 height = dict(
-    mu=cd.mean(),
-    #var=cd.var()
+    mu=cd.mean,
+    var=cd.var
 )
 
 cd = cd.set_reward(rewards.TotalBranchLength())
 
 total_branch_length = dict(
-    mu=cd.mean(),
+    #mu=cd.mean,
     #var=cd.var()
 )
 
@@ -50,5 +50,3 @@ if testing:
     #cd.plot_f(u_max=100)
 
 JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)
-
-pass

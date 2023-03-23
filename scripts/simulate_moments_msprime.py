@@ -17,15 +17,18 @@ try:
     n = snakemake.params.n
     pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
+    end_time = snakemake.params.end_time
     num_replicates = snakemake.params.num_replicates
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    pop_sizes = [0.12, 1, 0.01, 10]
-    times = [0, 0.3, 1, 1.4]
-    num_replicates = 100000  # number of samples
+    times = [0, 0.1]
+    pop_sizes = [10, 0.1]
+    start_time = 0
+    end_time = None
+    num_replicates = 100000
     out = "scratch/msprime.json"
 
 # configure demography
@@ -41,27 +44,40 @@ g: Generator = ms.sim_ancestry(
     num_replicates=num_replicates,
     demography=d,
     model=ms.StandardCoalescent(),
-    ploidy=1
+    ploidy=1,
+    start_time=start_time,
+    end_time=end_time
 )
 
 ts: tskit.TreeSequence
 heights = np.zeros(num_replicates)
 total_branch_lengths = np.zeros(num_replicates)
 for i, ts in enumerate(g):
-    t: tskit.Tree = ts.first()
-    total_branch_lengths[i] = t.total_branch_length
-    heights[i] = t.time(t.root)
+    total_branch_lengths[i] = ts.first().total_branch_length
+    heights[i] = ts.max_time
 
 # get moments of tree height
 height = dict(
     mu=np.mean(heights),
-    var=np.var(heights)
+    var=np.var(heights),
+    mu2=np.mean(heights ** 2),
 )
+
+if end_time is not None:
+    # get moments of time spent in absorbing state
+    time_in_absorption = dict(
+        mu=np.mean(end_time - heights[heights != end_time]),
+        var=np.var(end_time - heights[heights != end_time]),
+        mu2=np.mean((end_time - heights[heights != end_time]) ** 2),
+    )
 
 # get moments of branch length
 total_branch_length = dict(
     mu=np.mean(total_branch_lengths),
-    var=np.var(total_branch_lengths)
+    var=np.var(total_branch_lengths),
+    mu2=np.mean(total_branch_lengths ** 2),
 )
 
 JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)
+
+pass

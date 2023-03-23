@@ -4,7 +4,7 @@ from numpy import testing
 
 class PhaseTypeTest(unittest.TestCase):
     def test_diagonalize(self):
-        cd = CoalescentDistribution(StandardCoalscent(), n=10, alpha=CoalescentDistribution.e_i(10, 0))
+        cd = CoalescentDistribution(StandardCoalescent(), n=10, alpha=CoalescentDistribution.e_i(10, 0))
 
         U, lam, U_inv = cd.diagonalize(cd.S)
 

@@ -1,16 +1,17 @@
 from abc import ABC, abstractmethod
-
-import numpy as np
-import sympy as sp
-import rewards
-from typing import Callable, Union
-from scipy.linalg import expm, eig, fractional_matrix_power
-from numpy.linalg import inv, matrix_power
-from math import factorial
-import seaborn as sns
-from typing import List
-import matplotlib.pyplot as plt
 from functools import cached_property
+from math import factorial
+from typing import Callable, Union
+from typing import List
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import sympy as sp
+from numpy.linalg import inv, matrix_power
+from scipy.linalg import expm, fractional_matrix_power
+
+import rewards
 
 
 class CoalescentModel(ABC):
@@ -19,7 +20,7 @@ class CoalescentModel(ABC):
         pass
 
 
-class StandardCoalscent(CoalescentModel):
+class StandardCoalescent(CoalescentModel):
     def get_rate(self, i: int, j: int):
         if j == 2:
             return i * (i - 1) / 2
@@ -37,9 +38,9 @@ class LambdaCoalescent(CoalescentModel):
 
     def get_rate(self, i: int, j: int):
         x = sp.symbols('x')
-        integrant = x ** (i - 2) * (1 - x) ** (j - i)
+        integrand = x ** (i - 2) * (1 - x) ** (j - i)
 
-        integral = sp.Integral(integrant * self.get_density()(x), (x, 0, 1))
+        integral = sp.Integral(integrand * self.get_density()(x), (x, 0, 1))
         return float(integral.doit())
 
 
@@ -125,7 +126,7 @@ class CoalescentDistribution(PhaseTypeDistribution):
             return model.get_rate(n - i, j + 1 - i)
 
         # Define sub-intensity matrix.
-        # Dividing by Ne here produces instable results for small population
+        # Dividing by Ne here produces unstable results for small population
         # sizes (Ne < 1). We thus add it later to the moments.
         S = np.fromfunction(np.vectorize(matrix_indices_to_rates), (n - 1, n - 1))
 
@@ -300,6 +301,8 @@ class CoalescentDistribution(PhaseTypeDistribution):
     def show_and_save(file: str = None, show=True) -> plt.axis:
         """
         Show and save plot.
+        :param file:
+        :type file:
         :param show:
         :return:
         """
@@ -313,56 +316,6 @@ class CoalescentDistribution(PhaseTypeDistribution):
 
         # return axis
         return plt.gca()
-
-    def get_I_van_loan(self, i, j, tau):
-        """
-        Use Van Loan's method to evaluate the integral I(a, b, alpha, beta)
-        in equation 3 in https://doi.org/10.1239/jap/1324046009
-        :param i:
-        :param j:
-        :param tau:
-        :return:
-        """
-        # determine B so that TBT[a, b] describes the probabilities
-        # of transitioning from state a to alpha to beta to b.
-        # TODO this is numerically very unstable.
-        B = self.T_inv_full @ self.T_full[:, [j]] @ self.T_full[[i], :] @ self.T_inv_full
-        # B2 = expm(-self.S_full + self.S_full[:, [j]] + self.S_full[[i], :]) - self.S_full
-
-        # construct matrix consisting of B and the rate matrices
-        O = np.zeros((self.n, self.n))
-        A = np.concatenate([np.concatenate([self.S_full, B], axis=1),
-                            np.concatenate([O, self.S_full], axis=1)], axis=0)
-
-        # compute matrix exponential of A to determine I(a, b, alpha, beta)
-        return fractional_matrix_power(expm(A), tau)[:self.n, self.n:]
-
-    def get_sojourn_times(self, i: int, tau: float) -> np.ndarray:
-        """
-        Get the endpoint-conditioned amount of time spent in state i.
-        U[a, b] describes the amount of time spent in state i,
-        given that the state was ´a´ at time 0 and ´b´ at time tau.
-        :param j:
-        :param tau:
-        :return:
-        """
-        # obtain matrix G using Van Loan's method
-        G = self.get_I_van_loan(i, i, tau / self.Ne)
-
-        # get transition probabilities over time tau
-        T_tau = fractional_matrix_power(self.T_full, tau / self.Ne)
-
-        # for states where T_tau == 0, i.e. for impossible transitions,
-        # we have a sojourn time of 0
-        not_zero = T_tau != 0
-
-        # initialize matrix
-        U = np.zeros_like(self.T_full)
-
-        # divide by transition probabilities to normalize G
-        U[not_zero] = G[not_zero] / T_tau[not_zero]
-
-        return self.pop_sizes[i] * U
 
     @staticmethod
     def e_i(n: int, i: int = 0) -> np.ndarray:
@@ -401,20 +354,146 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
             self.pop_sizes = [self.Ne]
             self.n_epochs = 1
 
-    def mean(self) -> float:
+    def get_I_mean(self, i, j, tau):
         """
-        Calculate the mean absorption time.
+        Use Van Loan's method to evaluate the integral I(a, b, i=alpha, j=beta)
+        in equation (3) in https://doi.org/10.1239/jap/1324046009. Van Loan's method
+        is described in section 4 of this paper.
+        :param i:
+        :param j:
+        :param tau:
+        :return:
+        """
+        # determine B so that TBT[a, b] describes the probabilities
+        # of transitioning from state a to alpha to beta to b.
+        # TODO this is numerically very unstable.
+        B = self.T_inv_full @ self.T_full[:, [j]] @ self.T_full[[i], :] @ self.T_inv_full
+        # B2 = expm(-self.S_full + self.S_full[:, [j]] + self.S_full[[i], :]) - self.S_full
+
+        # construct matrix consisting of B and the rate matrices
+        Q = self.S_full
+        O = np.zeros((self.n, self.n))
+        A = np.concatenate([np.concatenate([Q, B], axis=1),
+                            np.concatenate([O, Q], axis=1)], axis=0)
+
+        # compute matrix exponential of A to determine integral
+        return fractional_matrix_power(expm(A), tau)[:self.n, self.n:]
+
+    def get_I_var(self, i, j, k, l, tau):
+        """
+        Use Van Loan's method to evaluate the integral I(a, b, i=alpha, j=beta, k=gamma, l=delta)
+        in equation (4) in https://doi.org/10.1239/jap/1324046009.  Van Loan's method
+        is described in section 4 of this paper.
+        :param i:
+        :param j:
+        :param k:
+        :param l:
+        :param tau:
+        :return:
+        """
+        # determine B so that TBT[a, b] describes the probabilities
+        # of transitioning from state a to alpha to beta to b.
+        # TODO this is numerically very unstable.
+        # TODO check if B1 and B2 are correct
+        B1 = self.T_inv_full @ self.T_full[:, [j]] @ self.T_full[[i], :] @ self.T_inv_full
+        B2 = self.T_inv_full @ self.T_full[:, [l]] @ self.T_full[[k], :] @ self.T_inv_full
+
+        # construct matrix consisting of B and the rate matrices
+        Q = self.S_full
+        O = np.zeros((self.n, self.n))
+        A = np.concatenate([np.concatenate([Q, B1, O], axis=1),
+                            np.concatenate([O, Q, B2], axis=1),
+                            np.concatenate([O, O, Q], axis=1)], axis=0)
+
+        # compute matrix exponential of A to determine integral
+        var = fractional_matrix_power(expm(A), tau)[:self.n, 2 * self.n:]
+
+        return var
+
+    def get_mean_sojourn_times(self, i: int, tau: float) -> np.ndarray:
+        """
+        Get the endpoint-conditioned amount of time spent in state i.
+        U[a, b] describes the amount of time spent in state i,
+        given that the state was ´a´ at time 0 and ´b´ at time tau.
+        :param i:
+        :param tau:
+        :return:
+        """
+        # obtain matrix G using Van Loan's method
+        G = self.get_I_mean(i, i, tau / self.Ne)
+
+        # get transition probabilities over time tau
+        T_tau = fractional_matrix_power(self.T_full, tau / self.Ne)
+
+        # for states where T_tau == 0, i.e. for impossible transitions,
+        # we have a sojourn time of 0
+        not_zero = T_tau != 0
+
+        # initialize matrix
+        U = np.zeros_like(G)
+
+        # divide by transition probabilities to normalize G
+        U[not_zero] = G[not_zero] / T_tau[not_zero]
+
+        # scale by Ne
+        mean = self.Ne * U
+
+        return mean
+
+    def get_covarying_sojourn_times(self, i: int, j: int, tau: float) -> np.ndarray:
+        """
+        :param i:
+        :param j:
+        :param tau:
+        :return:
+        """
+        # obtain matrix G using Van Loan's method
+        G1 = self.get_I_var(i, i, j, j, tau / self.Ne)
+
+        # obtain same matrix with states switched as in
+        # https://doi.org/10.2202/1544-6115.1127
+        G2 = self.get_I_var(j, j, i, i, tau / self.Ne)
+
+        # add matrices
+        G = G1 + G2
+
+        # get transition probabilities over time tau
+        T_tau = fractional_matrix_power(self.T_full, tau / self.Ne)
+
+        # for states where T_tau == 0, i.e. for impossible transitions,
+        # we have a sojourn time of 0
+        not_zero = T_tau != 0
+
+        # initialize matrix
+        U = np.zeros_like(G)
+
+        # divide by transition probabilities to normalize G
+        # as in https://doi.org/10.2202/1544-6115.1127
+        U[not_zero] = G[not_zero] / T_tau[not_zero]
+
+        # scale by Ne
+        return self.Ne ** 2 * U
+
+    @property
+    def mean_and_var(self, **kwargs) -> (float, float):
+        """
+        Calculate the first and second moments in the absorption time.
 
         We need the absorption probability in a certain epoch and
         the expected absorption time conditional on absorption in that epoch.
         We can get the expected absorption time by conditioning on the endpoint
         and determining the amount of time we spend in the absorbing state.
         We can get the absorption probability from the transition matrix.
+        :param **kwargs:
+        :type **kwargs:
         :return:
         """
 
         # absorption times conditional on when the epoch ends
         absorption_times = np.zeros(self.n_epochs)
+
+        # second moments in absorption time
+        absorption_m2 = np.zeros(self.n_epochs)
 
         # unconditional absorption probabilities
         absorption_probs = np.zeros(self.n_epochs)
@@ -427,7 +506,7 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
 
         # iterate over epochs
         for i in range(self.n_epochs):
-            # set Ne
+            # set Ne of current epoch
             self.set_Ne(self.pop_sizes[i])
 
             # probability of not having reach the absorbing state until now
@@ -440,20 +519,28 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
                 # current population size
                 tau = self.times[i + 1] - self.times[i]
 
-                # get sojourn time for absorbing state
-                A = self.get_sojourn_times(i=self.n - 1, tau=tau)
+                # sojourn time for absorbing state
+                M = self.get_mean_sojourn_times(i=self.n - 1, tau=tau)
 
                 # Get absorption time depending on initial states.
                 # Note that we skip the absorbing state for now as
                 # we currently do not allow the chain to start in it.
-                # A[:-1, -1] describes the time in the absorbing state,
+                # M[:-1, -1] describes the time in the absorbing state,
                 # given that it starts in state i at time 0 and ends in
                 # the absorbing state at time tau.
                 # Distributing these times according to alpha,
-                # we thus obtain the expected time spent in the
+                # we obtain the expected time spent in the
                 # absorbing state given absorption at time tau.
-                # 1 - minus this is then the expected absorption time.
-                absorption_times[i] = tau - np.dot(alpha, A[:-1, -1])
+                # tau minus this is then the expected absorption time.
+                absorption_times[i] = tau - np.dot(alpha, M[:-1, -1])
+
+                # second moment in sojourn time for absorbing state
+                M2 = self.get_covarying_sojourn_times(i=self.n - 1, j=self.n - 1, tau=tau)
+
+                # M2[:-1, -1] is the second moment in the time spent in the absorbing
+                # state. We convert it here to the second moment in the absorption time
+                # and multiply by the initial states as done for the mean.
+                absorption_m2[i] = np.dot(alpha, M2[:-1, -1]) + 2 * tau * absorption_times[i] - tau ** 2
 
                 # Get probability of states at time tau.
                 # These are the initial state probabilities for the next epoch.
@@ -468,15 +555,54 @@ class VariablePopulationSizeCoalescentDistribution(CoalescentDistribution):
                 # reached absorption yet.
                 alpha /= np.sum(alpha)
 
-            # for the last epoch we can simply calculate the mean
             else:
-                # get unconditional mean absorption time and probability
-                absorption_times[i] = super().mean(alpha=alpha)
+                # for the last epoch we can simply calculate the unconditional moments
+                absorption_m2[i] = super().nth_moment(alpha=alpha, k=2)
+                absorption_times[i] = super().nth_moment(alpha=alpha, k=1)
                 absorption_probs[i] = 1
 
-        total_absorption_times = absorption_times + self.times
+        # Calculate total absorption probabilities i.e. the probability
+        # of absorption in epoch i
         total_absorption_probs = no_absorption * absorption_probs
 
-        mean = np.dot(total_absorption_probs, total_absorption_times)
+        # The total absorption times are the absorption times within
+        # each epoch plus the times spent in the previous epochs
+        total_absorption_times = absorption_times + self.times
 
-        return mean
+        # Here we adjust the second moment by the time spent in the
+        # previous epochs
+        total_absorption_m2 = absorption_m2 + self.times ** 2 + 2 * self.times * absorption_times
+
+        # We finally get the unconditional moments by multiplying
+        # with their total absorption probabilities and summing up
+        mean = np.dot(total_absorption_probs, total_absorption_times)
+        m2 = np.dot(total_absorption_probs, total_absorption_m2)
+
+        return mean, m2
+
+    @property
+    def mean(self, **kwargs) -> float:
+        return self.mean_and_var[0]
+
+    @property
+    def var(self, **kwargs) -> float:
+        return self.mean_and_var[1] - self.mean ** 2
+
+    def set_reward(self, r: Union[rewards.Reward, np.ndarray, List]) -> 'VariablePopulationSizeCoalescentDistribution':
+        """
+        Change the reward.
+        :param r:
+        :return:
+        """
+        if isinstance(r, rewards.Reward):
+            r = r.get_reward(self.n)
+
+        # create a new instance
+        # TODO this can be improved
+        return VariablePopulationSizeCoalescentDistribution(
+            model=self.model,
+            n=self.n,
+            alpha=self.alpha,
+            r=r,
+            demography=self.demography
+        )
