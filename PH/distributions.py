@@ -183,7 +183,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def F(t: float) -> float:
-            return 1 - (self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * t) * self.cd.e)[0]
+            return 1 - float((self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * t) * self.cd.e)[0, 0])
 
         return np.vectorize(F)(t)
 
@@ -195,7 +195,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def f(u: float) -> float:
-            return self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * u) * self.s
+            return float((self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * u) * self.s)[0, 0])
 
         return np.vectorize(f)(u)
 
@@ -487,6 +487,22 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
         return mean, m2
 
+    def F(self, t) -> float | np.ndarray:
+        """
+        TODO implement this
+        :param t:
+        :return:
+        """
+        pass
+
+    def f(self, u) -> float | np.ndarray:
+        """
+        TODO implement this
+        :param u:
+        :return:
+        """
+        pass
+
 
 class CoalescentDistribution(PhaseTypeDistribution):
     pass
@@ -563,7 +579,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         )
 
     @cached_property
-    def total_branch_lengths(self) -> ConstantPopSizeDistribution:
+    def total_branch_length(self) -> ConstantPopSizeDistribution:
         """
         Reward used to compute the total branch length.
         :return:
@@ -624,7 +640,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
 
         # compute resolvent
         I = mp.eye(self.n - 1)
-        P = mp.inverse(I - float(1 / lam) * self.total_branch_lengths.S)
+        P = mp.inverse(I - float(1 / lam) * self.total_branch_length.S)
         p = self.e - P * self.e
 
         sfs = np.zeros(self.n + 1)
@@ -681,7 +697,7 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
         )
 
     @cached_property
-    def total_branch_lengths(self) -> VariablePopSizeDistribution:
+    def total_branch_length(self) -> VariablePopSizeDistribution:
         """
         Reward used to compute the total branch length.
         :return:

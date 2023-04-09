@@ -182,6 +182,10 @@ class Simulator:
             height=dict(
                 mu=cd.tree_height.mean,
                 var=cd.tree_height.var
+            ),
+            total_branch_length=dict(
+                mu=cd.total_branch_length.mean,
+                var=cd.total_branch_length.var
             )
         )
 
