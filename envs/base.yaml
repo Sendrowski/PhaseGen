@@ -11,3 +11,10 @@ dependencies:
   - msprime
   - sympy
   - jsonpickle
+  - mpmath
+  - tqdm
+  - multiprocess
+  - pytest-xdist
+  - pip
+  - pip:
+    - pytest-pycharm

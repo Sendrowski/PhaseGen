@@ -12,7 +12,7 @@ rule simulate_moments_PH:
     conda:
         "envs/base.yaml"
     script:
-        "scripts/simulate_moments_PH.py"
+        "scripts/simulate_moments_PH_numpy.py"
 
 # simulate moments using msprime
 rule simulate_moments_msprime:

@@ -6,10 +6,14 @@ __author__ = "Janek Sendrowski"
 __contact__ = "j.sendrowski18@gmail.com"
 __date__ = "2023-02-25"
 
-import JSON
-from PH import *
+import numpy as np
 
 try:
+    import sys
+
+    # necessary to import dfe module
+    sys.path.append('.')
+
     testing = False
     n = snakemake.params.n
     pop_sizes = snakemake.params.pop_sizes
@@ -20,10 +24,13 @@ except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    times = [0, 0.3, 1, 1.4]
-    pop_sizes = [0.12, 1, 0.01, 10]
+    pop_sizes = [1, 0.00000001]
+    times = [0, 1]
     alpha = np.eye(1, n - 1, 0)[0]
     out = "scratch/ph.json"
+
+from PH import JSON, VariablePopulationSizeCoalescentDistribution, StandardCoalescent, PiecewiseConstantDemography, \
+    rewards
 
 cd = VariablePopulationSizeCoalescentDistribution(
     model=StandardCoalescent(),
@@ -46,7 +53,7 @@ total_branch_length = dict(
 
 if testing:
     pass
-    #cd.plot_F(t_max=100)
-    #cd.plot_f(u_max=100)
+    # cd.plot_F(t_max=100)
+    # cd.plot_f(u_max=100)
 
 JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)

@@ -10,26 +10,33 @@ import msprime as ms
 import numpy as np
 import tskit
 from typing import Generator
-import JSON
 
 try:
+    import sys
+
+    # necessary to import dfe module
+    sys.path.append('.')
+
     testing = False
     n = snakemake.params.n
     pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
+    start_time = snakemake.params.start_time
     end_time = snakemake.params.end_time
     num_replicates = snakemake.params.num_replicates
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
-    n = 5  # sample size
+    n = 10  # sample size
     times = [0, 0.3, 1, 1.4]
-    pop_sizes = [0.12, 1, 0.01, 10]
+    pop_sizes = [1.2, 10, 0.8, 10]
     start_time = 0
     end_time = None
-    num_replicates = 100000
+    num_replicates = 1000000
     out = "scratch/msprime.json"
+
+from PH import JSON
 
 # configure demography
 d = ms.Demography()
