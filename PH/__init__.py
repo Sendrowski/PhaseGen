@@ -8,24 +8,26 @@ __date__ = "2023-04-09"
 
 __version__ = 'alpha'
 
-from .PH import CoalescentDistribution, VariablePopulationSizeCoalescentDistribution
+from .distributions import ConstantPopSizeDistribution, VariablePopSizeDistribution
 
-from .PH import Demography, PiecewiseConstantDemography
+from .distributions import ConstantPopSizeCoalescent, VariablePopSizeCoalescent
 
-from .PH import CoalescentModel, StandardCoalescent, BetaCoalescent
+from .demography import Demography, PiecewiseConstantDemography
 
-from .PH import set_precision
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
+
+from .distributions import set_precision
 
 from .simulator import Simulator
 
 __all__ = [
-    'CoalescentDistribution',
-    'VariablePopulationSizeCoalescentDistribution',
-    'Demography',
+    'ConstantPopSizeDistribution',
+    'VariablePopSizeDistribution',
+    'ConstantPopSizeCoalescent',
+    'VariablePopSizeCoalescent',
     'PiecewiseConstantDemography',
-    'CoalescentModel',
     'StandardCoalescent',
     'BetaCoalescent',
-    'set_precision'
-    'Simulator',
+    'set_precision',
+    'Simulator'
 ]

@@ -1,10 +1,13 @@
+from typing import Generator, List, Callable
+
 import msprime as ms
+import multiprocess as mp
 import numpy as np
 import tskit
-from typing import Generator, List, Callable
-from PH import JSON, PH
-import multiprocess as mp
 from tqdm import tqdm
+
+from .distributions import PiecewiseConstantDemography, StandardCoalescent, VariablePopSizeCoalescent
+from scripts import json_handlers
 
 
 def parallelize(
@@ -168,17 +171,17 @@ class Simulator:
         Simulate moments using phase-type theory.
         :return:
         """
-        cd = PH.VariablePopulationSizeCoalescentDistribution(
-            model=PH.StandardCoalescent(),
+        cd = VariablePopSizeCoalescent(
+            model=StandardCoalescent(),
             n=self.n,
             alpha=self.alpha,
-            demography=PH.PiecewiseConstantDemography(pop_sizes=self.pop_sizes, times=self.times)
+            demography=PiecewiseConstantDemography(pop_sizes=self.pop_sizes, times=self.times)
         )
 
         self.ph = dict(
             height=dict(
-                mu=cd.mean,
-                var=cd.var
+                mu=cd.tree_height.mean,
+                var=cd.tree_height.var
             )
         )
 
@@ -188,4 +191,4 @@ class Simulator:
         :param file:
         :return:
         """
-        JSON.save(self.__dict__, file)
+        json_handlers.save(self.__dict__, file)

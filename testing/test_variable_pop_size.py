@@ -2,7 +2,7 @@ from PH import Simulator
 from custom_test_case import CustomTestCase
 
 
-class PhaseTypeTestCase(CustomTestCase):
+class VariablePopSizeTestCase(CustomTestCase):
 
     def test_moments_height_scenario_1(self):
         s = Simulator(

@@ -29,10 +29,11 @@ except NameError:
     alpha = np.eye(1, n - 1, 0)[0]
     out = "scratch/ph.json"
 
-from PH import JSON, VariablePopulationSizeCoalescentDistribution, StandardCoalescent, PiecewiseConstantDemography, \
+from PH import VariablePopSizeConstantPopSizeCoalescentDistribution, StandardCoalescent, PiecewiseConstantDemography, \
     rewards
+from scripts import json_handlers
 
-cd = VariablePopulationSizeCoalescentDistribution(
+cd = VariablePopSizeConstantPopSizeCoalescentDistribution(
     model=StandardCoalescent(),
     n=n,
     alpha=alpha,

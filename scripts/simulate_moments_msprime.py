@@ -36,7 +36,7 @@ except NameError:
     num_replicates = 1000000
     out = "scratch/msprime.json"
 
-from PH import JSON
+from scripts import json_handlers
 
 # configure demography
 d = ms.Demography()
