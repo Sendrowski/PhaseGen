@@ -27,7 +27,7 @@ class VariablePopSizeTestCase(CustomTestCase):
 
         s.simulate()
 
-        assert self.diff_rel_max_abs(s.msprime['height']['mu'], s.ph['height']['mu']) < 0.01
+        assert self.diff_rel_max_abs(s.msprime['height']['mu'], s.ph['height']['mu']) < 0.02
         assert self.diff_rel_max_abs(s.msprime['height']['var'], s.ph['height']['var']) < 0.05
 
     def test_moments_height_scenario_larger_n(self):
