@@ -1,6 +1,6 @@
 import PH
 from PH import Comparison, ConstantPopSizeCoalescent, BetaCoalescent, StandardCoalescent
-from custom_test_case import CustomTestCase
+from custom_test_case import CustomTestCase, add_method_name_as_title
 
 
 class ConstantPopSizeTestCase(CustomTestCase):
@@ -69,6 +69,7 @@ class ConstantPopSizeTestCase(CustomTestCase):
 
         cd.sfs(theta=2)
 
+    @add_method_name_as_title
     def test_plot_f_tree_height(self):
         s = Comparison(
             n=4,
@@ -77,10 +78,11 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.tree_height.plot_f(show=False, label='PH var')
+        s.ph.tree_height.plot_f(show=False, clear=False, label='PH var')
         s.ph_const.tree_height.plot_f(show=False, clear=False, label='PH const')
         s.msprime.tree_height.plot_f(clear=False, label='msprime')
 
+    @add_method_name_as_title
     def test_plot_F_tree_height(self):
         s = Comparison(
             n=4,
@@ -89,10 +91,11 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.tree_height.plot_F(show=False, label='PH var')
+        s.ph.tree_height.plot_F(show=False, clear=False, label='PH var')
         s.ph_const.tree_height.plot_F(show=False, clear=False, label='PH const')
         s.msprime.tree_height.plot_F(clear=False, label='msprime')
 
+    @add_method_name_as_title
     def test_plot_F_tree_height_large_Ne(self):
         s = Comparison(
             n=4,
@@ -101,10 +104,11 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.tree_height.plot_F(show=False, label='PH var')
+        s.ph.tree_height.plot_F(show=False, clear=False, label='PH var')
         s.ph_const.tree_height.plot_F(show=False, clear=False, label='PH const')
         s.msprime.tree_height.plot_F(clear=False, label='msprime')
 
+    @add_method_name_as_title
     def test_plot_f_total_branch_length(self):
         s = Comparison(
             n=4,
@@ -113,10 +117,11 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.total_branch_length.plot_f(show=False, label='PH var')
+        s.ph.total_branch_length.plot_f(show=False, clear=False, label='PH var')
         s.ph_const.total_branch_length.plot_f(show=False, clear=False, label='PH const')
         s.msprime.total_branch_length.plot_f(clear=False, label='msprime')
 
+    @add_method_name_as_title
     def test_plot_F_total_branch_length(self):
         s = Comparison(
             n=4,
@@ -125,6 +130,6 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.total_branch_length.plot_F(show=False, label='PH var')
+        s.ph.total_branch_length.plot_F(show=False, clear=False, label='PH var')
         s.ph_const.total_branch_length.plot_F(show=False, clear=False, label='PH const')
         s.msprime.total_branch_length.plot_F(clear=False, label='msprime')

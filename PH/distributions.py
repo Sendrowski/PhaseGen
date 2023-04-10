@@ -9,9 +9,7 @@ import numpy as np
 import tskit
 from matplotlib import pyplot as plt
 from multiprocess import Pool
-from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
-from scipy.stats import gaussian_kde
 from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel
@@ -207,6 +205,9 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     def __init__(self, cd: 'ConstantPopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
         self.cd = cd
         self.r = np.array(r)
+
+        # TODO this needs to be found
+        self.time_scaling = np.mean(1 / r)
 
         # reward matrix
         self.R = mp.inverse(mp.diag(self.r))
@@ -606,10 +607,10 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
             # Ne of current epoch
             Ne = self.cd.pop_sizes[i]
 
-            tau = self.cd.times[i + 1] - self.cd.times[i]
+            tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne / self.time_scaling
 
             # update alpha for the time spent in the current epoch
-            alphas[i + 1] = alphas[i] * fractional_power(self.T, tau / Ne)
+            alphas[i + 1] = alphas[i] * fractional_power(self.T, tau)
 
         return alphas
 
@@ -623,6 +624,9 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         alphas = self.get_alphas()
 
         def F(t: float) -> float:
+            # apply time scaling due to reward
+            t *= self.time_scaling
+
             # determine index of last epoch given t
             j = np.sum(times <= t) - 1
 
@@ -631,7 +635,8 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
             start_time = times[j]
 
             # cumulative distribution function at time t
-            return 1 - float((alphas[j] * fractional_power(self.T, (t - start_time) / Ne) * self.cd.e)[0, 0])
+            tau = (t - start_time) / Ne / self.time_scaling
+            return 1 - float((alphas[j] * fractional_power(self.T, tau) * self.cd.e)[0, 0])
 
         return np.vectorize(F)(t)
 
@@ -645,6 +650,9 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         alphas = self.get_alphas()
 
         def f(u: float) -> float:
+            # apply time scaling due to reward
+            u *= self.time_scaling
+
             # determine index of last epoch
             j = np.sum(times <= u) - 1
 
@@ -653,7 +661,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
             start_time = times[j]
 
             # compute density for the current epoch
-            density = float((alphas[j] * fractional_power(self.T, u - start_time) * self.s)[0, 0]) / Ne
+            density = float((alphas[j] * fractional_power(self.T, (u - start_time)) * self.s)[0, 0]) / Ne
 
             return density
 
