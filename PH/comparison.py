@@ -2,7 +2,8 @@ from typing import List
 
 import numpy as np
 
-from .distributions import PiecewiseConstantDemography, VariablePopSizeCoalescent, MsprimeCoalescent
+from .distributions import PiecewiseConstantDemography, VariablePopSizeCoalescent, MsprimeCoalescent, \
+    ConstantPopSizeCoalescent
 
 
 class Comparison:
@@ -36,6 +37,12 @@ class Comparison:
                 pop_sizes=pop_sizes,
                 times=times
             ),
+            alpha=alpha
+        )
+
+        self.ph_const = ConstantPopSizeCoalescent(
+            n=n,
+            Ne=float(np.mean(pop_sizes)),
             alpha=alpha
         )
 

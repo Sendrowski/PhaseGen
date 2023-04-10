@@ -9,6 +9,8 @@ import numpy as np
 import tskit
 from matplotlib import pyplot as plt
 from multiprocess import Pool
+from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
 
@@ -51,7 +53,7 @@ def to_numpy(m: mp.matrix) -> np.ndarray:
     return np.array([[float(m[i, j]) for j in range(m.cols)] for i in range(m.rows)])
 
 
-def fractional_matrix_power(m: mp.matrix, p: float) -> mp.matrix:
+def fractional_power(m: mp.matrix, p: float) -> mp.matrix:
     """
     Fractional power of mpmath matrix using exponentials.
     TODO this produces complex value with small negative parts
@@ -282,10 +284,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         :param alpha:
         :return:
         """
-        if alpha is None:
-            alpha = self.cd.alpha
-        else:
-            alpha = mp.matrix(alpha)
+        alpha = self.cd.get_alpha(alpha)
 
         # self.Ne ** k is the rescaling due to population size
         return float(self.cd.Ne ** k * factorial(k) * (alpha * self.U ** k * self.cd.e)[0, 0])
@@ -316,7 +315,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def F(t: float) -> float:
-            return 1 - float((self.cd.alpha.T * fractional_matrix_power(self.T, self.cd.Ne * t) * self.cd.e)[0, 0])
+            return 1 - float((self.cd.alpha * fractional_power(self.T, t / self.cd.Ne) * self.cd.e)[0, 0])
 
         return np.vectorize(F)(t)
 
@@ -328,7 +327,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def f(u: float) -> float:
-            return float((self.cd.alpha.T * fractional_matrix_power(self.T, self.cd.Ne * u) * self.s)[0, 0])
+            return float((self.cd.alpha * fractional_power(self.T, u) * self.s)[0, 0]) / self.cd.Ne
 
         return np.vectorize(f)(u)
 
@@ -455,7 +454,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :rtype:
         """
         # get transition probabilities over time tau
-        T_tau = fractional_matrix_power(self.T_full, tau / self.cd.Ne)
+        T_tau = fractional_power(self.T_full, tau / self.cd.Ne)
 
         # mpmath fails on division by zero, so we iterate through here.
         U = mp.zeros(G.rows, G.cols)
@@ -480,10 +479,10 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :return:
         """
         if k == 1:
-            return self.mean_and_m2[0] if alpha is None else self.mean_and_m2(np.matrix(alpha).T)[0]
+            return self.mean_and_m2[0] if alpha is None else self.mean_and_m2(np.matrix(alpha))[0]
 
         if k == 2:
-            return self.mean_and_m2[1] if alpha is None else self.mean_and_m2(np.matrix(alpha).T)[1]
+            return self.mean_and_m2[1] if alpha is None else self.mean_and_m2(np.matrix(alpha))[1]
 
         raise NotImplementedError('Only the first second moments are implemented.')
 
@@ -499,10 +498,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         We can get the absorption probability from the transition matrix.
         :return:
         """
-        if alpha is None:
-            alpha = mp.matrix(self.cd.alpha).T
-        else:
-            alpha = mp.matrix(alpha).T
+        alpha = self.cd.get_alpha(alpha)
 
         # absorption times conditional on when the epoch ends
         absorption_times = np.zeros(self.cd.n_epochs)
@@ -558,7 +554,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
                 # Get probability of states at time tau.
                 # These are the initial state probabilities for the next epoch.
-                alpha = (alpha * fractional_matrix_power(self.T, tau / self.cd.pop_sizes[i]))
+                alpha = (alpha * fractional_power(self.T, tau / self.cd.pop_sizes[i]))
 
                 # absorption probability in current state
                 absorption_probs[i] = 1 - float(np.sum(alpha))
@@ -594,21 +590,74 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
         return mean, m2
 
+    def get_alphas(self) -> np.ndarray:
+        """
+        Get initial values at beginning of epochs.
+        :return:
+        :rtype:
+        """
+
+        # initial values at beginning of epochs.
+        alphas = np.zeros(self.cd.n_epochs, dtype=mp.matrix)
+        alphas[0] = self.cd.alpha
+
+        # iterate through epochs and compute initial values
+        for i in range(self.cd.n_epochs - 1):
+            # Ne of current epoch
+            Ne = self.cd.pop_sizes[i]
+
+            tau = self.cd.times[i + 1] - self.cd.times[i]
+
+            # update alpha for the time spent in the current epoch
+            alphas[i + 1] = alphas[i] * fractional_power(self.T, tau / Ne)
+
+        return alphas
+
     def F(self, t) -> float | np.ndarray:
         """
-        TODO implement this
+        Cumulative distribution function.
         :param t:
         :return:
         """
-        return super().F(t)
+        times = self.cd.times
+        alphas = self.get_alphas()
+
+        def F(t: float) -> float:
+            # determine index of last epoch given t
+            j = np.sum(times <= t) - 1
+
+            # Ne and start time of the last epoch
+            Ne = self.cd.pop_sizes[j]
+            start_time = times[j]
+
+            # cumulative distribution function at time t
+            return 1 - float((alphas[j] * fractional_power(self.T, (t - start_time) / Ne) * self.cd.e)[0, 0])
+
+        return np.vectorize(F)(t)
 
     def f(self, u) -> float | np.ndarray:
         """
-        TODO implement this
+        Density function.
         :param u:
         :return:
         """
-        return super().f(u)
+        times = self.cd.times
+        alphas = self.get_alphas()
+
+        def f(u: float) -> float:
+            # determine index of last epoch
+            j = np.sum(times <= u) - 1
+
+            # Ne and start time of the last epoch
+            Ne = self.cd.pop_sizes[j]
+            start_time = times[j]
+
+            # compute density for the current epoch
+            density = float((alphas[j] * fractional_power(self.T, u - start_time) * self.s)[0, 0]) / Ne
+
+            return density
+
+        return np.vectorize(f)(u)
 
 
 class EmpiricalDistribution(ProbabilityDistribution):
@@ -633,7 +682,7 @@ class EmpiricalDistribution(ProbabilityDistribution):
         """
         return float(np.var(self.samples))
 
-    def F(self, t) -> float | np.ndarray:
+    def F(self, t: float | np.ndarray) -> float | np.ndarray:
         """
         Cumulative distribution function.
         :param t:
@@ -644,13 +693,25 @@ class EmpiricalDistribution(ProbabilityDistribution):
 
         return np.interp(t, x, y)
 
-    def f(self, u) -> float | np.ndarray:
+    def f(self, u: float | np.ndarray, n_bins: int = 10000, sigma: float = 2) -> float | np.ndarray:
         """
         Density function.
+        :param sigma:
+        :type sigma:
+        :param n_bins:
+        :type n_bins:
         :param u:
         :return:
         """
-        return gaussian_kde(self.samples)(u)
+        hist, bin_edges = np.histogram(self.samples, range=(0, max(self.samples)), bins=n_bins, density=True)
+
+        # use proper bins for y values
+        y = hist[np.sum(bin_edges <= u[:, None], axis=1) - 2]
+
+        # smooth using gaussian filter
+        smoothed = gaussian_filter1d(y, sigma=sigma)
+
+        return smoothed
 
 
 class CoalescentDistribution:
@@ -770,7 +831,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
             r=np.arange(2, self.n + 1)[::-1]
         )
 
-    def set_alpha(self, alpha: np.ndarray | List | mp.matrix = None):
+    def set_alpha(self, alpha: np.ndarray | list | mp.matrix = None):
         """
         Set the initial state.
         :param alpha:
@@ -783,12 +844,26 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
 
         # initial conditions
         if alpha is None:
-            self.alpha = e_i(self.n - 1, 0)
-        elif isinstance(alpha, (np.ndarray, list)):
-            self.alpha = mp.matrix(alpha)
+            self.alpha = e_i(self.n - 1, 0).T
         else:
-            # assume we have instance of mp.matrix
-            self.alpha = alpha
+            self.alpha = self.get_alpha(alpha)
+
+    def get_alpha(self, alpha: np.ndarray | list | mp.matrix = None):
+        """
+        Convenience function for obtaining alpha.
+        :param alpha:
+        :type alpha:
+        :return:
+        :rtype:
+        """
+        if alpha is None:
+            return self.alpha
+
+        if isinstance(alpha, (np.ndarray, list)):
+            return mp.matrix(alpha).T
+
+        # assume alpha is of type mp.matrix
+        return alpha
 
     def set_Ne(self, Ne: int | float):
         """
@@ -810,10 +885,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         :return:
         :rtype:
         """
-        if alpha is None:
-            alpha = self.alpha
-        else:
-            alpha = mp.matrix(alpha)
+        alpha = self.get_alpha(alpha)
 
         lam = theta / 2
 
@@ -829,7 +901,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         # TODO for all entries to sum up to 1 we need n -> inf
         # TODO can we simply normalize?
         for i in range(self.n):
-            sfs[i] = (alpha.T * P_i * p)[0, 0]
+            sfs[i] = (alpha * P_i * p)[0, 0]
             P_i *= P
 
         return sfs

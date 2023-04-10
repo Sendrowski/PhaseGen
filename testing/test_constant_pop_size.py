@@ -1,6 +1,3 @@
-import matplotlib.pyplot as plt
-import numpy as np
-
 import PH
 from PH import Comparison, ConstantPopSizeCoalescent, BetaCoalescent, StandardCoalescent
 from custom_test_case import CustomTestCase
@@ -80,7 +77,8 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.tree_height.plot_f(show=False, label='PH')
+        s.ph.tree_height.plot_f(show=False, label='PH var')
+        s.ph_const.tree_height.plot_f(show=False, clear=False, label='PH const')
         s.msprime.tree_height.plot_f(clear=False, label='msprime')
 
     def test_plot_F_tree_height(self):
@@ -91,7 +89,20 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.tree_height.plot_F(show=False, label='PH')
+        s.ph.tree_height.plot_F(show=False, label='PH var')
+        s.ph_const.tree_height.plot_F(show=False, clear=False, label='PH const')
+        s.msprime.tree_height.plot_F(clear=False, label='msprime')
+
+    def test_plot_F_tree_height_large_Ne(self):
+        s = Comparison(
+            n=4,
+            num_replicates=10000,
+            pop_sizes=[100],
+            times=[0]
+        )
+
+        s.ph.tree_height.plot_F(show=False, label='PH var')
+        s.ph_const.tree_height.plot_F(show=False, clear=False, label='PH const')
         s.msprime.tree_height.plot_F(clear=False, label='msprime')
 
     def test_plot_f_total_branch_length(self):
@@ -102,7 +113,8 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.total_branch_length.plot_f(show=False, label='PH')
+        s.ph.total_branch_length.plot_f(show=False, label='PH var')
+        s.ph_const.total_branch_length.plot_f(show=False, clear=False, label='PH const')
         s.msprime.total_branch_length.plot_f(clear=False, label='msprime')
 
     def test_plot_F_total_branch_length(self):
@@ -113,5 +125,6 @@ class ConstantPopSizeTestCase(CustomTestCase):
             times=[0]
         )
 
-        s.ph.total_branch_length.plot_F(show=False, label='PH')
+        s.ph.total_branch_length.plot_F(show=False, label='PH var')
+        s.ph_const.total_branch_length.plot_F(show=False, clear=False, label='PH const')
         s.msprime.total_branch_length.plot_F(clear=False, label='msprime')
