@@ -9,7 +9,7 @@ __date__ = "2023-02-25"
 
 import numpy as np
 
-from PH.simulator import Simulator
+from PH.comparison import Comparison
 
 try:
     import sys
@@ -38,7 +38,7 @@ except NameError:
     num_replicates = 10000
     out = "scratch/result.json"
 
-s = Simulator(
+s = Comparison(
     n=n,
     pop_sizes=pop_sizes,
     times=times,

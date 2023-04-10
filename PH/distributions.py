@@ -1,15 +1,20 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from functools import cached_property
 from math import factorial
-from typing import List
+from typing import Generator, List, Callable
 
 import mpmath as mp
+import msprime as ms
 import numpy as np
+import tskit
 from matplotlib import pyplot as plt
+from multiprocess import Pool
+from scipy.stats import gaussian_kde
+from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel
 from .demography import Demography, PiecewiseConstantDemography
-from .vizualization import clear_show_save, Visualization
+from .visualization import Visualization
 
 
 def set_precision(p: int):
@@ -60,8 +65,136 @@ def fractional_matrix_power(m: mp.matrix, p: float) -> mp.matrix:
     return mp.expm(float(p) * mp.logm(m)).apply(mp.re)
 
 
+def parallelize(
+        func: Callable,
+        data: List | np.ndarray,
+        parallelize: bool = True,
+        pbar: bool = True
+) -> np.ndarray:
+    """
+    Convenience function that parallelizes the given function
+    if specified or executes them sequentially otherwise.
+    :param pbar:
+    :type pbar:
+    :param parallelize:
+    :type parallelize:
+    :param data:
+    :type data:
+    :param func:
+    :type func: Callable
+    :return:
+    """
+
+    if parallelize and len(data) > 1:
+        # parallelize
+        iterator = Pool().imap(func, data)
+    else:
+        # sequentialize
+        iterator = map(func, data)
+
+    if pbar:
+        iterator = tqdm(iterator, total=len(data))
+
+    return np.array(list(iterator), dtype=object)
+
+
+def calculate_sfs(tree: tskit.trees.Tree) -> np.ndarray:
+    """
+    Calculate the SFS of given tree by looking at mutational opportunities.
+    :param tree:
+    :return:
+    """
+    sfs = np.zeros(tree.sample_size + 1)
+    for u in tree.nodes():
+        if u != tree.root:
+            t = tree.get_branch_length(u)
+            n = tree.get_num_leaves(u)
+
+            sfs[n] += t
+
+    return sfs
+
+
 class ProbabilityDistribution(ABC):
-    pass
+    @abstractmethod
+    def mean(self, alpha: np.ndarray = None) -> float:
+        """
+        Get the mean absorption time.
+        :param alpha:
+        :return:
+        """
+        pass
+
+    @abstractmethod
+    def var(self, alpha: np.ndarray = None) -> float:
+        """
+        Get the variance in the absorption time.
+        :param alpha:
+        :return:
+        """
+        pass
+
+    @abstractmethod
+    def F(self, t) -> float | np.ndarray:
+        """
+        Cumulative distribution function.
+        :param t:
+        :return:
+        """
+        pass
+
+    @abstractmethod
+    def f(self, u) -> float | np.ndarray:
+        """
+        Density function.
+        :param u:
+        :return:
+        """
+        pass
+
+    def plot_F(
+            self,
+            x=np.linspace(0, 10, 100),
+            show=True, file: str = None,
+            clear: bool = True,
+            label: str = None
+    ) -> plt.axis:
+        """
+        Plot cumulative distribution function.
+        :return:
+        """
+        Visualization.plot_func(
+            x=x,
+            y=self.F(x),
+            xlabel='t',
+            ylabel='F(t)',
+            label=label,
+            file=file,
+            show=show,
+            clear=clear
+        )
+
+    def plot_f(
+            self,
+            x=np.linspace(0, 10, 100),
+            show=True, file: str = None,
+            clear: bool = True,
+            label: str = None
+    ) -> plt.axis:
+        """
+        Plot density function.
+        :return:
+        """
+        Visualization.plot_func(
+            x=x,
+            y=self.f(x),
+            xlabel='u',
+            ylabel='f(u)',
+            label=label,
+            file=file,
+            show=show,
+            clear=clear
+        )
 
 
 class PhaseTypeDistribution(ProbabilityDistribution):
@@ -183,7 +316,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def F(t: float) -> float:
-            return 1 - float((self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * t) * self.cd.e)[0, 0])
+            return 1 - float((self.cd.alpha.T * fractional_matrix_power(self.T, self.cd.Ne * t) * self.cd.e)[0, 0])
 
         return np.vectorize(F)(t)
 
@@ -195,35 +328,9 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
 
         def f(u: float) -> float:
-            return float((self.cd.alpha * fractional_matrix_power(self.T, self.cd.Ne * u) * self.s)[0, 0])
+            return float((self.cd.alpha.T * fractional_matrix_power(self.T, self.cd.Ne * u) * self.s)[0, 0])
 
         return np.vectorize(f)(u)
-
-    @clear_show_save
-    def plot_F(self, t_min: float = 0, t_max: float = 10, show=True, file: str = None) -> plt.axis:
-        """
-        Plot cumulative distribution function.
-        :return:
-        """
-        Visualization.plot_func(
-            x=np.linspace(t_min, t_max, 100),
-            f=self.F,
-            xlabel='t',
-            ylabel='F(t)'
-        )
-
-    @clear_show_save
-    def plot_f(self, u_min: float = 0, u_max: float = 10, show=True, file: str = None) -> plt.axis:
-        """
-        Plot density function.
-        :return:
-        """
-        Visualization.plot_func(
-            x=np.linspace(u_min, u_max, 100),
-            f=self.f,
-            xlabel='u',
-            ylabel='f(u)'
-        )
 
 
 class VariablePopSizeDistribution(ConstantPopSizeDistribution):
@@ -245,9 +352,8 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         """
         # determine B so that TBT[a, b] describes the probabilities
         # of transitioning from state a to alpha to beta to b.
-        # TODO this is numerically very unstable.
+        # Note that this step required a lot of numerical precision.
         B = self.T_inv_full * self.T_full[:, j] * self.T_full[i, :] * self.T_inv_full
-        # B2 = expm(-self.S_full + self.S_full[:, [j]] + self.S_full[[i], :]) - self.S_full
 
         # construct matrix consisting of B and the rate matrices
         Q = self.S_full
@@ -275,7 +381,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         """
         # determine B so that TBT[a, b] describes the probabilities
         # of transitioning from state a to alpha to beta to b.
-        # TODO this is numerically very unstable.
+        # Note that this step required a lot of numerical precision.
         # TODO check if B1 and B2 are correct
         B1 = self.T_inv_full * self.T_full[:, j] * self.T_full[i, :] * self.T_inv_full
         B2 = self.T_inv_full * self.T_full[:, l] * self.T_full[k, :] * self.T_inv_full
@@ -447,7 +553,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
                 # M2[:-1, -1] is the second moment in the time spent in the absorbing
                 # state. We convert it here to the second moment in the absorption time
                 # and multiply by the initial states as done for the mean.
-                absorption_m2[i] = np.dot(alpha, M2[:-1, M.cols - 1]) + 2 * tau * absorption_times[i] - tau ** 2
+                absorption_m2[i] = np.dot(alpha, M2[:-1, M2.cols - 1]) + 2 * tau * absorption_times[i] - tau ** 2
 
                 # Get probability of states at time tau.
                 # These are the initial state probabilities for the next epoch.
@@ -493,7 +599,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :param t:
         :return:
         """
-        pass
+        return super().F(t)
 
     def f(self, u) -> float | np.ndarray:
         """
@@ -501,11 +607,84 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :param u:
         :return:
         """
+        return super().f(u)
+
+
+class EmpiricalDistribution(ProbabilityDistribution):
+    def __init__(self, samples: np.ndarray | list):
+        self.samples = np.array(samples, dtype=float)
+
+    @cached_property
+    def mean(self, alpha: np.ndarray = None) -> float:
+        """
+        Get the mean absorption time.
+        :param alpha:
+        :return:
+        """
+        return float(np.mean(self.samples))
+
+    @cached_property
+    def var(self, alpha: np.ndarray = None) -> float:
+        """
+        Get the variance in the absorption time.
+        :param alpha:
+        :return:
+        """
+        return float(np.var(self.samples))
+
+    def F(self, t) -> float | np.ndarray:
+        """
+        Cumulative distribution function.
+        :param t:
+        :return:
+        """
+        x = np.sort(self.samples)
+        y = np.arange(1, len(self.samples) + 1) / len(self.samples)
+
+        return np.interp(t, x, y)
+
+    def f(self, u) -> float | np.ndarray:
+        """
+        Density function.
+        :param u:
+        :return:
+        """
+        return gaussian_kde(self.samples)(u)
+
+
+class CoalescentDistribution:
+    @property
+    @abstractmethod
+    def tree_height(self) -> ProbabilityDistribution:
+        """
+        Tree height distribution.
+        :return:
+        :rtype:
+        """
         pass
 
+    @property
+    @abstractmethod
+    def total_branch_length(self) -> ProbabilityDistribution:
+        """
+        Total branch length distribution.
+        :return:
+        :rtype:
+        """
+        pass
 
-class CoalescentDistribution(PhaseTypeDistribution):
-    pass
+    @abstractmethod
+    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+        """
+        The site-frequency spectrum.
+        :param theta:
+        :type theta:
+        :param alpha:
+        :type alpha:
+        :return:
+        :rtype:
+        """
+        pass
 
 
 class ConstantPopSizeCoalescent(CoalescentDistribution):
@@ -567,8 +746,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
     @cached_property
     def tree_height(self) -> ConstantPopSizeDistribution:
         """
-        The default reward, which is also used for
-        the moments of the tree height.
+        Tree height distribution.
         :return:
         :rtype:
         """
@@ -581,7 +759,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
     @cached_property
     def total_branch_length(self) -> ConstantPopSizeDistribution:
         """
-        Reward used to compute the total branch length.
+        Total branch length distribution.
         :return:
         :rtype:
         """
@@ -604,7 +782,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
 
         # initial conditions
         if alpha is None:
-            self.alpha = e_i(self.n, 0)
+            self.alpha = e_i(self.n - 1, 0)
         elif isinstance(alpha, (np.ndarray, list)):
             self.alpha = mp.matrix(alpha)
         else:
@@ -650,7 +828,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         # TODO for all entries to sum up to 1 we need n -> inf
         # TODO can we simply normalize?
         for i in range(self.n):
-            sfs[i] = (alpha[:-1].T * P_i * p)[0, 0]
+            sfs[i] = (alpha.T * P_i * p)[0, 0]
             P_i *= P
 
         return sfs
@@ -685,8 +863,7 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
     @cached_property
     def tree_height(self) -> VariablePopSizeDistribution:
         """
-        The default reward, which is also used for
-        the moments of the tree height.
+        Tree height distribution.
         :return:
         :rtype:
         """
@@ -699,7 +876,7 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
     @cached_property
     def total_branch_length(self) -> VariablePopSizeDistribution:
         """
-        Reward used to compute the total branch length.
+        Total branch length distribution.
         :return:
         :rtype:
         """
@@ -720,3 +897,91 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
         :rtype:
         """
         pass
+
+
+class MsprimeCoalescent(CoalescentDistribution):
+    def __init__(
+            self,
+            n: int,
+            pop_sizes: np.ndarray | List,
+            times: np.ndarray | List,
+            num_replicates: int = 10000,
+            n_threads: int = 100,
+            parallelize: bool = True
+    ):
+        self.sfs = None
+        self.total_branch_lengths = None
+        self.heights = None
+
+        self.n = n
+        self.pop_sizes = pop_sizes
+        self.times = times
+        self.num_replicates = num_replicates
+        self.n_threads = n_threads
+        self.parallelize = parallelize
+
+        self.simulate()
+
+    def simulate(self) -> None:
+        """
+        Simulate moments using msprime.
+        :return:
+        """
+        # configure demography
+        d = ms.Demography()
+        d.add_population(initial_size=self.pop_sizes[0])
+
+        # add population size change is specified
+        for i in range(1, len(self.pop_sizes)):
+            d.add_population_parameters_change(time=self.times[i], initial_size=self.pop_sizes[i])
+
+        def simulate_batch(_) -> (np.ndarray, np.ndarray, np.ndarray):
+            """
+            Simulate statistics.
+            :param _:
+            :type _:
+            :return:
+            :rtype:
+            """
+            # number of replicates for one thread
+            num_replicates = self.num_replicates // self.n_threads
+
+            # simulate trees
+            g: Generator = ms.sim_ancestry(
+                samples=self.n,
+                num_replicates=num_replicates,
+                demography=d,
+                model=ms.StandardCoalescent(),
+                ploidy=1
+            )
+
+            # initialize variables
+            heights = np.zeros(num_replicates)
+            total_branch_lengths = np.zeros(num_replicates)
+            sfs = np.zeros((num_replicates, self.n + 1))
+
+            # iterate over trees and compute statistics
+            ts: tskit.TreeSequence
+            for i, ts in enumerate(g):
+                t: tskit.Tree = ts.first()
+                total_branch_lengths[i] = t.total_branch_length
+                heights[i] = t.time(t.root)
+                sfs[i] = calculate_sfs(t)
+
+            return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T])
+
+        res = np.hstack(parallelize(simulate_batch, [None] * self.n_threads, parallelize=self.parallelize))
+
+        # unpack statistics
+        self.heights, self.total_branch_lengths, self.sfs = res[0], res[1], res[2:]
+
+    @cached_property
+    def tree_height(self) -> EmpiricalDistribution:
+        return EmpiricalDistribution(samples=self.heights)
+
+    @cached_property
+    def total_branch_length(self) -> EmpiricalDistribution:
+        return EmpiricalDistribution(samples=self.total_branch_lengths)
+
+    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+        return np.mean(self.sfs, axis=1)

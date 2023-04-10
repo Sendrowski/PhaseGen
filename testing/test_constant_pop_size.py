@@ -1,9 +1,18 @@
+import matplotlib.pyplot as plt
+import numpy as np
+
 import PH
-from PH import Simulator, ConstantPopSizeCoalescent, BetaCoalescent, StandardCoalescent
+from PH import Comparison, ConstantPopSizeCoalescent, BetaCoalescent, StandardCoalescent
 from custom_test_case import CustomTestCase
 
 
 class ConstantPopSizeTestCase(CustomTestCase):
+
+    def assert_moments(self, s):
+        assert self.diff_rel_max_abs(s.msprime.tree_height.mean, s.ph.tree_height.mean) < 0.01
+        assert self.diff_rel_max_abs(s.msprime.tree_height.var, s.ph.tree_height.var) < 0.05
+        assert self.diff_rel_max_abs(s.msprime.total_branch_length.mean, s.ph.total_branch_length.mean) < 0.01
+        assert self.diff_rel_max_abs(s.msprime.total_branch_length.var, s.ph.total_branch_length.var) < 0.05
 
     def test_moments_height_standard_coalscent_n_2(self):
         s = ConstantPopSizeCoalescent(
@@ -18,54 +27,36 @@ class ConstantPopSizeTestCase(CustomTestCase):
         assert s.total_branch_length.var == 4
 
     def test_moments_height_standard_coalescent(self):
-        s = Simulator(
+        s = Comparison(
             n=4,
             num_replicates=100000,
             pop_sizes=[1],
             times=[0]
         )
 
-        s.simulate()
-
-        assert self.diff_rel_max_abs(s.msprime['height']['mu'], s.ph['height']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['height']['var'], s.ph['height']['var']) < 0.05
-
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['mu'], s.ph['total_branch_length']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['var'], s.ph['total_branch_length']['var']) < 0.05
+        self.assert_moments(s)
 
     def test_moments_height_standard_coalescent_low_pop_size(self):
-        s = Simulator(
+        s = Comparison(
             n=4,
             num_replicates=100000,
             pop_sizes=[0.001],
             times=[0]
         )
 
-        s.simulate()
-
-        assert self.diff_rel_max_abs(s.msprime['height']['mu'], s.ph['height']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['height']['var'], s.ph['height']['var']) < 0.05
-
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['mu'], s.ph['total_branch_length']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['var'], s.ph['total_branch_length']['var']) < 0.05
+        self.assert_moments(s)
 
     def test_moments_height_standard_coalescent_high_pop_size(self):
-        s = Simulator(
+        s = Comparison(
             n=4,
             num_replicates=100000,
             pop_sizes=[1000],
             times=[0]
         )
 
-        s.simulate()
+        self.assert_moments(s)
 
-        assert self.diff_rel_max_abs(s.msprime['height']['mu'], s.ph['height']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['height']['var'], s.ph['height']['var']) < 0.05
-
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['mu'], s.ph['total_branch_length']['mu']) < 0.01
-        assert self.diff_rel_max_abs(s.msprime['total_branch_length']['var'], s.ph['total_branch_length']['var']) < 0.05
-
-    def test_beta_coalescent_model(self):
+    def test_beta_coalescent_model_approaches_kingman(self):
         S1 = ConstantPopSizeCoalescent.get_rate_matrix(10, StandardCoalescent())
         S2 = ConstantPopSizeCoalescent.get_rate_matrix(10, BetaCoalescent(alpha=1.99999999))
 
@@ -82,10 +73,45 @@ class ConstantPopSizeTestCase(CustomTestCase):
         cd.sfs(theta=2)
 
     def test_plot_f_tree_height(self):
-        ConstantPopSizeCoalescent().tree_height.plot_f(show=True)
+        s = Comparison(
+            n=4,
+            num_replicates=10000,
+            pop_sizes=[1],
+            times=[0]
+        )
+
+        s.ph.tree_height.plot_f(show=False, label='PH')
+        s.msprime.tree_height.plot_f(clear=False, label='msprime')
+
+    def test_plot_F_tree_height(self):
+        s = Comparison(
+            n=4,
+            num_replicates=10000,
+            pop_sizes=[1],
+            times=[0]
+        )
+
+        s.ph.tree_height.plot_F(show=False, label='PH')
+        s.msprime.tree_height.plot_F(clear=False, label='msprime')
 
     def test_plot_f_total_branch_length(self):
-        ConstantPopSizeCoalescent().total_branch_length.plot_f(show=True)
+        s = Comparison(
+            n=4,
+            num_replicates=10000,
+            pop_sizes=[1],
+            times=[0]
+        )
 
-    def test_plot_F(self):
-        ConstantPopSizeCoalescent().tree_height.plot_F(show=True)
+        s.ph.total_branch_length.plot_f(show=False, label='PH')
+        s.msprime.total_branch_length.plot_f(clear=False, label='msprime')
+
+    def test_plot_F_total_branch_length(self):
+        s = Comparison(
+            n=4,
+            num_replicates=10000,
+            pop_sizes=[1],
+            times=[0]
+        )
+
+        s.ph.total_branch_length.plot_F(show=False, label='PH')
+        s.msprime.total_branch_length.plot_F(clear=False, label='msprime')

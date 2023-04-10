@@ -15,7 +15,8 @@ def clear_show_save(func: Callable) -> Callable:
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         # clear current figure
-        plt.clf()
+        if 'clear' not in kwargs or ('clear' in kwargs and kwargs['clear']):
+            plt.clf()
 
         # execute function
         func(*args, **kwargs)
@@ -51,8 +52,18 @@ def show_and_save(file: str = None, show=True) -> plt.axis:
 
 class Visualization:
     @staticmethod
-    def plot_func(x: np.ndarray, f: Callable, xlabel: str = 'x', ylabel: str = 'f(x)'):
-        sns.lineplot(x=x, y=f(x))
+    @clear_show_save
+    def plot_func(
+            x: np.ndarray,
+            y: Callable,
+            xlabel: str = 'x',
+            ylabel: str = 'f(x)',
+            file: str = None,
+            show: bool = None,
+            clear: bool = True,
+            label: str = None
+    ):
+        sns.lineplot(x=x, y=y, ax=plt.gca(), label=label)
 
         # set axis labels
         plt.xlabel(xlabel)

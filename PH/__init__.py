@@ -18,7 +18,7 @@ from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalesce
 
 from .distributions import set_precision
 
-from .simulator import Simulator
+from .comparison import Comparison
 
 __all__ = [
     'ConstantPopSizeDistribution',
@@ -29,5 +29,5 @@ __all__ = [
     'StandardCoalescent',
     'BetaCoalescent',
     'set_precision',
-    'Simulator'
+    'Comparison'
 ]
