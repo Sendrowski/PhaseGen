@@ -338,6 +338,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
     def __init__(self, cd: 'VariablePopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
         super().__init__(cd=cd, r=r, S=S)
 
+        # reassign to make the IDE aware of the new subclass
         self.cd = cd
 
     def get_I_mean(self, i, j, tau) -> mp.matrix:
@@ -351,7 +352,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :return:
         """
         # determine B so that TBT[a, b] describes the probabilities
-        # of transitioning from state a to alpha to beta to b.
+        # of transitioning from state 'a' to alpha to beta to 'b'.
         # Note that this step required a lot of numerical precision.
         B = self.T_inv_full * self.T_full[:, j] * self.T_full[i, :] * self.T_inv_full
 
@@ -479,15 +480,15 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :return:
         """
         if k == 1:
-            return self.mean_and_var[0] if alpha is None else self.mean_and_var(np.matrix(alpha).T)[0]
+            return self.mean_and_m2[0] if alpha is None else self.mean_and_m2(np.matrix(alpha).T)[0]
 
         if k == 2:
-            return self.mean_and_var[1] if alpha is None else self.mean_and_var(np.matrix(alpha).T)[1]
+            return self.mean_and_m2[1] if alpha is None else self.mean_and_m2(np.matrix(alpha).T)[1]
 
         raise NotImplementedError('Only the first second moments are implemented.')
 
     @cached_property
-    def mean_and_var(self, alpha: np.ndarray = None) -> (float, float):
+    def mean_and_m2(self, alpha: np.ndarray = None) -> (float, float):
         """
         Calculate the first and second moments in the absorption time.
 
@@ -557,7 +558,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
                 # Get probability of states at time tau.
                 # These are the initial state probabilities for the next epoch.
-                alpha = (alpha * fractional_matrix_power(self.T, tau / self.cd.pop_sizes[i])).apply(mp.re)
+                alpha = (alpha * fractional_matrix_power(self.T, tau / self.cd.pop_sizes[i]))
 
                 # absorption probability in current state
                 absorption_probs[i] = 1 - float(np.sum(alpha))
