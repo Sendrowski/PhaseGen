@@ -14,6 +14,7 @@ dependencies:
   - mpmath
   - tqdm
   - multiprocess
+  - pyyaml
   - pytest-xdist
   - pip
   - pip:

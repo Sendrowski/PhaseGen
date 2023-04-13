@@ -46,6 +46,4 @@ s = Comparison(
     alpha=alpha,
 )
 
-s.simulate()
-
 s.to_file(out)

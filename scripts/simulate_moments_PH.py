@@ -54,7 +54,7 @@ total_branch_length = dict(
 
 if testing:
     pass
-    # cd.plot_F(t_max=100)
-    # cd.plot_f(u_max=100)
+    # cd.plot_cdf(t_max=100)
+    # cd.plot_pdf(u_max=100)
 
 JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)

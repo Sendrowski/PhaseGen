@@ -1,36 +1,111 @@
+import re
+
+import numpy as np
+
+configs_comp = [
+    'test_moments_height_scenario_1',
+    'test_moments_height_scenario_2',
+    'test_moments_height_scenario_larger_n',
+    'test_moments_height_standard_coalescent',
+    'test_moments_height_standard_coalescent_high_Ne',
+    'test_moments_height_standard_coalescent_low_Ne'
+]
+
+configs_plot = [
+    'test_plot_cdf_const_total_branch_length',
+    'test_plot_cdf_const_tree_height',
+    'test_plot_cdf_const_tree_height_large_Ne',
+    'test_plot_cdf_var_total_branch_length',
+    'test_plot_cdf_var_total_branch_length_larger_n',
+    'test_plot_cdf_var_tree_height',
+    'test_plot_cdf_var_tree_height_larger_n',
+    'test_plot_pdf_const_total_branch_length',
+    'test_plot_pdf_const_tree_height',
+    'test_plot_pdf_var_total_branch_length',
+    'test_plot_pdf_var_total_branch_length_larger_n',
+    'test_plot_pdf_var_tree_height',
+    'test_plot_pdf_var_tree_height_n_3',
+    'test_plot_pdf_var_tree_height_n_4',
+    'test_plot_pdf_var_tree_height_n_5',
+    'test_plot_cdf_var_total_branch_length_n_3',
+    'test_plot_cdf_var_total_branch_length_n_4',
+]
+
+
+def extract_opt(str: str, name, default_value=None):
+    """
+    Extract named option from string.
+    :param str:
+    :param name:
+    :param default_value:
+    :return:
+    """
+    # named options have the following signature
+    match = re.search(f"[_./-]{name}[_:]([^_./-]*)",str)
+
+    if match:
+        return match.groups()[0]
+
+    return default_value
+
+
+wildcard_constraints:
+    opts=r'[^/]*'  # match several optional options not separated by /
+
 rule all:
     input:
-        expand("results/simulations/PH/{n}/moments.json",n=[10, 100]),
-        expand("results/simulations/msprime/{n}/moments.json",n=[10, 100]),
+        (
+            "results/comp_run.txt",
+            "results/comp_plotted.txt"
+        )
 
-# simulate moments using phase-type theory
-rule simulate_moments_PH:
+rule run_comparisons:
+    input:
+        expand("results/comparisons/configs/{config}.json",config=configs_comp),
     output:
-        "results/simulations/PH/{n}/moments.json"
-    params:
-        n=lambda w: int(w.n)
+        touch("results/comp_run.txt")
+
+rule run_plots:
+    input:
+        expand("results/comparisons/graphs/{config}.png",config=configs_plot)
+    output:
+        touch("results/comp_plotted.txt")
+
+rule compare_moments_from_config:
+    input:
+        "resources/configs/{config}.yaml"
+    output:
+        "results/comparisons/configs/{config}.json"
     conda:
         "envs/base.yaml"
     script:
-        "scripts/simulate_moments_PH_numpy.py"
+        "scripts/compare_moments_from_config.py"
 
-# simulate moments using msprime
-rule simulate_moments_msprime:
+rule compare_moments:
     output:
-        "results/simulations/msprime/{n}/moments.json"
+        "results/comparisons/opts/{opts}.json"
     params:
-        n=lambda w: int(w.n),
-        num_replicates=10000
+        n=lambda w: extract_opt(w.opts,"n",2),
+        times=lambda w: extract_opt(w.opts,"times",[0]),
+        pop_sizes=lambda w: extract_opt(w.opts,"pop_sizes",[1]),
+        alpha=lambda w: extract_opt(w.opts,"alpha",np.eye(1,extract_opt(w.opts,"n",100) - 1,0)[0]),
+        num_replicates=lambda w: extract_opt(w.opts,"num_replicates",10000),
+        n_threads=lambda w: extract_opt(w.opts,"n_threads",100),
+        parallelize=lambda w: extract_opt(w.opts,"parallelize",True),
+        models=lambda w: w.models.split('_'),
+        type="{type}",
+        dist="{dist}"
     conda:
         "envs/base.yaml"
     script:
-        "scripts/simulate_moments_msprime.py"
+        "scripts/compare_moments.py"
 
-# simulate moments using phase-type theory and msprime
-rule simulate_moments:
+rule plot_comparison:
+    input:
+        "resources/configs/{config}.yaml"
     output:
-        "results/simulations/comp/{n}_variable/moments.json"
-    params:
-        n=lambda w: int(w.n),
-        pop_sizes=[0.12, 1, 0.01, 10],
-        times=[0, 0.3, 1, 1.4]
+        "results/comparisons/graphs/{config}.png"
+    conda:
+        "envs/base.yaml"
+    script:
+        "scripts/plot_comparison_from_config.py"

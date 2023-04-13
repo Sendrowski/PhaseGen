@@ -135,7 +135,7 @@ class ProbabilityDistribution(ABC):
         pass
 
     @abstractmethod
-    def F(self, t) -> float | np.ndarray:
+    def cdf(self, t) -> float | np.ndarray:
         """
         Cumulative distribution function.
         :param t:
@@ -144,7 +144,7 @@ class ProbabilityDistribution(ABC):
         pass
 
     @abstractmethod
-    def f(self, u) -> float | np.ndarray:
+    def pdf(self, u) -> float | np.ndarray:
         """
         Density function.
         :param u:
@@ -152,9 +152,9 @@ class ProbabilityDistribution(ABC):
         """
         pass
 
-    def plot_F(
+    def plot_cdf(
             self,
-            x=np.linspace(0, 10, 100),
+            x=np.linspace(0, 20, 100),
             show=True, file: str = None,
             clear: bool = True,
             label: str = None
@@ -165,7 +165,7 @@ class ProbabilityDistribution(ABC):
         """
         Visualization.plot_func(
             x=x,
-            y=self.F(x),
+            y=self.cdf(x),
             xlabel='t',
             ylabel='F(t)',
             label=label,
@@ -174,9 +174,9 @@ class ProbabilityDistribution(ABC):
             clear=clear
         )
 
-    def plot_f(
+    def plot_pdf(
             self,
-            x=np.linspace(0, 10, 100),
+            x=np.linspace(0, 20, 100),
             show=True, file: str = None,
             clear: bool = True,
             label: str = None
@@ -187,7 +187,7 @@ class ProbabilityDistribution(ABC):
         """
         Visualization.plot_func(
             x=x,
-            y=self.f(x),
+            y=self.pdf(x),
             xlabel='u',
             ylabel='f(u)',
             label=label,
@@ -205,9 +205,6 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     def __init__(self, cd: 'ConstantPopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
         self.cd = cd
         self.r = np.array(r)
-
-        # TODO this needs to be found
-        self.time_scaling = np.mean(1 / r)
 
         # reward matrix
         self.R = mp.inverse(mp.diag(self.r))
@@ -257,7 +254,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     @cached_property
     def U(self) -> mp.matrix:
         """
-        The Green matrix
+        The Green matrix.
         :return:
         """
         return -mp.inverse(self.S)
@@ -308,29 +305,29 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
         return self.nth_moment(2, alpha) - self.nth_moment(1, alpha) ** 2
 
-    def F(self, t) -> float | np.ndarray:
+    def cdf(self, t) -> float | np.ndarray:
         """
         Cumulative distribution function.
         :param t:
         :return:
         """
 
-        def F(t: float) -> float:
+        def cdf(t: float) -> float:
             return 1 - float((self.cd.alpha * fractional_power(self.T, t / self.cd.Ne) * self.cd.e)[0, 0])
 
-        return np.vectorize(F)(t)
+        return np.vectorize(cdf)(t)
 
-    def f(self, u) -> float | np.ndarray:
+    def pdf(self, u) -> float | np.ndarray:
         """
         Density function.
         :param u:
         :return:
         """
 
-        def f(u: float) -> float:
+        def pdf(u: float) -> float:
             return float((self.cd.alpha * fractional_power(self.T, u) * self.s)[0, 0]) / self.cd.Ne
 
-        return np.vectorize(f)(u)
+        return np.vectorize(pdf)(u)
 
 
 class VariablePopSizeDistribution(ConstantPopSizeDistribution):
@@ -340,6 +337,38 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
         # reassign to make the IDE aware of the new subclass
         self.cd = cd
+
+        # initial values at beginning of epochs.
+        self.alphas = np.zeros(self.cd.n_epochs, dtype=mp.matrix)
+        self.alphas[0] = self.cd.alpha
+
+        self.times = np.zeros_like(self.cd.times)
+        self.times[0] = 0
+
+        # iterate through epochs and compute initial values
+        for i in range(0, self.cd.n_epochs - 1):
+            # Ne of current epoch
+            Ne = self.cd.pop_sizes[i]
+
+            # time spent in current epoch scaled by Ne
+            tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne
+
+            # update alpha for the time spent in the current epoch
+            self.alphas[i + 1] = self.alphas[i] * fractional_power(mp.expm(S), tau)
+
+            sojourn_times = np.zeros(self.cd.n - 1)
+            for j in range(self.cd.n - 1):
+                means = self.get_mean_sojourn_times(j, tau * Ne)[:self.cd.n - 1, :self.cd.n - 1]
+
+                # check this sums to 1 when including absorbing state
+                sojourn_times[j] = float((self.alphas[i] * means * self.alphas[i + 1].T)[0, 0])
+
+            #sojourn_times /= (tau * Ne)
+            sojourn_times /= np.sum(sojourn_times)
+            scaling = np.dot(1 / self.r, sojourn_times)
+            self.times[i + 1] = self.times[i] + (self.cd.times[i + 1] - self.cd.times[i]) / scaling
+
+        pass
 
     def get_I_mean(self, i, j, tau) -> mp.matrix:
         """
@@ -607,65 +636,56 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
             # Ne of current epoch
             Ne = self.cd.pop_sizes[i]
 
-            tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne / self.time_scaling
+            tau = (self.times[i + 1] - self.times[i]) / Ne
 
             # update alpha for the time spent in the current epoch
             alphas[i + 1] = alphas[i] * fractional_power(self.T, tau)
 
         return alphas
 
-    def F(self, t) -> float | np.ndarray:
+    def cdf(self, t) -> float | np.ndarray:
         """
         Cumulative distribution function.
         :param t:
         :return:
         """
-        times = self.cd.times
-        alphas = self.get_alphas()
+        # alphas = self.get_alphas()
+        alphas = self.alphas
 
-        def F(t: float) -> float:
-            # apply time scaling due to reward
-            t *= self.time_scaling
-
+        def cdf(t: float) -> float:
             # determine index of last epoch given t
-            j = np.sum(times <= t) - 1
+            j = np.sum(self.times <= t) - 1
 
             # Ne and start time of the last epoch
             Ne = self.cd.pop_sizes[j]
-            start_time = times[j]
+            start_time = self.times[j]
 
             # cumulative distribution function at time t
-            tau = (t - start_time) / Ne / self.time_scaling
+            tau = (t - start_time) / Ne
             return 1 - float((alphas[j] * fractional_power(self.T, tau) * self.cd.e)[0, 0])
 
-        return np.vectorize(F)(t)
+        return np.vectorize(cdf)(t)
 
-    def f(self, u) -> float | np.ndarray:
+    def pdf(self, u) -> float | np.ndarray:
         """
         Density function.
         :param u:
         :return:
         """
-        times = self.cd.times
-        alphas = self.get_alphas()
-
-        def f(u: float) -> float:
-            # apply time scaling due to reward
-            u *= self.time_scaling
-
-            # determine index of last epoch
-            j = np.sum(times <= u) - 1
+        def pdf(u: float) -> float:
+            # determine index of current epoch
+            j = np.sum(self.times <= u) - 1
 
             # Ne and start time of the last epoch
             Ne = self.cd.pop_sizes[j]
-            start_time = times[j]
+            start_time = self.times[j]
+
+            tau = (u - start_time) / Ne
 
             # compute density for the current epoch
-            density = float((alphas[j] * fractional_power(self.T, (u - start_time)) * self.s)[0, 0]) / Ne
+            return float((self.alphas[j] * fractional_power(self.T, tau) * self.s)[0, 0]) / Ne
 
-            return density
-
-        return np.vectorize(f)(u)
+        return np.vectorize(pdf)(u)
 
 
 class EmpiricalDistribution(ProbabilityDistribution):
@@ -690,7 +710,7 @@ class EmpiricalDistribution(ProbabilityDistribution):
         """
         return float(np.var(self.samples))
 
-    def F(self, t: float | np.ndarray) -> float | np.ndarray:
+    def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
         Cumulative distribution function.
         :param t:
@@ -701,7 +721,7 @@ class EmpiricalDistribution(ProbabilityDistribution):
 
         return np.interp(t, x, y)
 
-    def f(self, u: float | np.ndarray, n_bins: int = 10000, sigma: float = 2) -> float | np.ndarray:
+    def pdf(self, u: float | np.ndarray, n_bins: int = 10000, sigma: float = None) -> float | np.ndarray:
         """
         Density function.
         :param sigma:
@@ -713,13 +733,17 @@ class EmpiricalDistribution(ProbabilityDistribution):
         """
         hist, bin_edges = np.histogram(self.samples, range=(0, max(self.samples)), bins=n_bins, density=True)
 
+        # determine bins for u
+        bins = np.minimum(np.sum(bin_edges <= u[:, None], axis=1) - 1, np.full_like(u, n_bins - 1, dtype=int))
+
         # use proper bins for y values
-        y = hist[np.sum(bin_edges <= u[:, None], axis=1) - 2]
+        y = hist[bins]
 
         # smooth using gaussian filter
-        smoothed = gaussian_filter1d(y, sigma=sigma)
+        if sigma is not None:
+            y = gaussian_filter1d(y, sigma=sigma)
 
-        return smoothed
+        return y
 
 
 class CoalescentDistribution:
@@ -744,7 +768,7 @@ class CoalescentDistribution:
         pass
 
     @abstractmethod
-    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
         """
         The site-frequency spectrum.
         :param theta:
@@ -882,7 +906,7 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         # are rescaled by Ne
         self.Ne = Ne
 
-    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
         """
         Get the SFS i.e. the expected number of segregating sites.
         This follows https://doi.org/10.1016/j.tpb.2019.02.001
@@ -902,17 +926,17 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         P = mp.inverse(I - float(1 / lam) * self.total_branch_length.S)
         p = self.e - P * self.e
 
-        sfs = np.zeros(self.n + 1)
+        n_segregating = np.zeros(self.n + 1)
         P_i = I
 
         # iterate through number of segregating sites.
         # TODO for all entries to sum up to 1 we need n -> inf
         # TODO can we simply normalize?
         for i in range(self.n):
-            sfs[i] = (alpha * P_i * p)[0, 0]
+            n_segregating[i] = (alpha * P_i * p)[0, 0]
             P_i *= P
 
-        return sfs
+        return n_segregating
 
 
 class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
@@ -967,7 +991,7 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
             r=np.arange(2, self.n + 1)[::-1]
         )
 
-    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
         """
         TODO implement this
         :param theta:
@@ -1064,5 +1088,5 @@ class MsprimeCoalescent(CoalescentDistribution):
     def total_branch_length(self) -> EmpiricalDistribution:
         return EmpiricalDistribution(samples=self.total_branch_lengths)
 
-    def sfs(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
         return np.mean(self.sfs, axis=1)

@@ -20,7 +20,8 @@ class Comparison:
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
-            alpha: np.ndarray | List = None
+            alpha: np.ndarray | List = None,
+            **kwargs
     ):
         self.msprime = MsprimeCoalescent(
             n=n,
@@ -42,7 +43,7 @@ class Comparison:
 
         self.ph_const = ConstantPopSizeCoalescent(
             n=n,
-            Ne=float(np.mean(pop_sizes)),
+            Ne=pop_sizes[0],
             alpha=alpha
         )
 

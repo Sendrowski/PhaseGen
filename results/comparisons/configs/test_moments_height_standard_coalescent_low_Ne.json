@@ -1,0 +1,50 @@
+{
+    "config": {
+        "config": {
+            "n": 4,
+            "num_replicates": 100000,
+            "pop_sizes": [
+                0.001
+            ],
+            "times": [
+                0
+            ]
+        },
+        "tolerance": {
+            "tree_height": {
+                "mean": 0.01,
+                "var": 0.05
+            },
+            "total_branch_length": {
+                "mean": 0.01,
+                "var": 0.05
+            }
+        }
+    },
+    "result": {
+        "tree_height": {
+            "mean": {
+                "msprime": 0.0014953407881486893,
+                "ph": 0.0015,
+                "diff_rel_max_abs": 0.003115819409352905
+            },
+            "var": {
+                "msprime": 1.1391274308931412e-06,
+                "ph": 1.1388888888888888e-06,
+                "diff_rel_max_abs": 0.00020940765517809716
+            }
+        },
+        "total_branch_length": {
+            "mean": {
+                "msprime": 0.0036560580146284957,
+                "ph": 0.0036666666666666666,
+                "diff_rel_max_abs": 0.00290166403151261
+            },
+            "var": {
+                "msprime": 5.431657273259507e-06,
+                "ph": 5.444444444444446e-06,
+                "diff_rel_max_abs": 0.0023541933044802354
+            }
+        }
+    }
+}
