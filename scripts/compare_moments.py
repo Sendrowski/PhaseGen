@@ -6,6 +6,8 @@ __author__ = "Janek Sendrowski"
 __contact__ = "j.sendrowski18@gmail.com"
 __date__ = "2023-03-11"
 
+import numpy as np
+
 try:
     import sys
 
@@ -14,48 +16,40 @@ try:
 
     testing = False
     file = snakemake.input[0]
+    n = snakemake.params.n
+    pop_sizes = snakemake.params.pop_sizes
+    times = snakemake.params.times
+    alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
+    num_replicates = snakemake.params.get('num_replicates', 10000)
+    n_threads = snakemake.params.get('n_threads', 100)
+    parallelize = snakemake.params.get('parallelize', True)
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
-    file = "resources/configs/test_moments_height_standard_coalescent.yaml"
-    out = "scratch/test_moments_height_standard_coalescent.json"
-
-import json
-
-import yaml
+    file = "resources/configs/test_plot_pdf_var_total_branch_length_n_3.yaml"
+    n = 5  # sample size
+    times = [0, 0.3, 1, 1.4]
+    pop_sizes = [1.2, 10, 0.8, 10]
+    alpha = np.eye(1, n - 1, 0)[0]
+    num_replicates = 100000
+    n_threads = 100
+    parallelize = True
+    out = "scratch/test_comp.png"
 
 from PH import Comparison
-from comp import diff_rel_max_abs
 
-# load config from file
-with open(file, 'r') as f:
-    config = yaml.safe_load(f)
+s = Comparison(
+    n=n,
+    pop_sizes=pop_sizes,
+    times=times,
+    alpha=alpha,
+    num_replicates=num_replicates,
+    n_threads=n_threads,
+    parallelize=parallelize
+)
 
-s = Comparison(**config['config'])
+_ = s.ph.total_branch_length.mean
+_ = s.msprime.total_branch_length.mean
 
-result = {}
-
-# assign results
-for metric in ["tree_height", "total_branch_length"]:
-    result[metric] = {}
-
-    for stat in ["mean", "var"]:
-        result[metric][stat] = {}
-
-        for sim in ["msprime", "ph"]:
-            result[metric][stat][sim] = getattr(getattr(s, sim), metric).__getattribute__(stat)
-
-        result[metric][stat]["diff_rel_max_abs"] = diff_rel_max_abs(
-            result[metric][stat]["msprime"], result[metric][stat]["ph"]
-        )
-
-# save results
-with open(out, "w") as f:
-    json.dump(dict(config=config, result=result), f, indent=4)
-
-# check results
-for k1, v1 in config['tolerance'].items():
-    for k2, v2 in v1.items():
-        if not result[k1][k2]["diff_rel_max_abs"] < v2:
-            raise AssertionError(f"{result[k1][k2]['diff_rel_max_abs']} not less than {v2}.")
+pass
