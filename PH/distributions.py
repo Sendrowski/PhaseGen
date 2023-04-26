@@ -331,6 +331,9 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
 
 
 class VariablePopSizeDistribution(ConstantPopSizeDistribution):
+    """
+    TODO consider using @functools.lru_cache for caching
+    """
 
     def __init__(self, cd: 'VariablePopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
         super().__init__(cd=cd, r=r, S=S)
@@ -363,9 +366,10 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
                 # check this sums to 1 when including absorbing state
                 sojourn_times[j] = float((self.alphas[i] * means * self.alphas[i + 1].T)[0, 0])
 
-            #sojourn_times /= (tau * Ne)
+            # sojourn_times /= (tau * Ne)
             sojourn_times /= np.sum(sojourn_times)
             scaling = np.dot(1 / self.r, sojourn_times)
+            # scaling = 1
             self.times[i + 1] = self.times[i] + (self.cd.times[i + 1] - self.cd.times[i]) / scaling
 
         pass
@@ -672,6 +676,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :param u:
         :return:
         """
+
         def pdf(u: float) -> float:
             # determine index of current epoch
             j = np.sum(self.times <= u) - 1
