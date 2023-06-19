@@ -28,15 +28,13 @@ try:
 except NameError:
     # testing
     testing = True
-    n = 10  # sample size
-    times = [0, 0.3, 1, 1.4]
-    pop_sizes = [1.2, 10, 0.8, 10]
-    start_time = 0
+    n = 2  # sample size
+    times = [0]
+    pop_sizes = [1]
+    start_time = 1
     end_time = None
-    num_replicates = 1000000
+    num_replicates = 100000
     out = "scratch/msprime.json"
-
-from scripts import json_handlers
 
 # configure demography
 d = ms.Demography()
@@ -84,7 +82,5 @@ total_branch_length = dict(
     var=np.var(total_branch_lengths),
     mu2=np.mean(total_branch_lengths ** 2)
 )
-
-JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)
 
 pass

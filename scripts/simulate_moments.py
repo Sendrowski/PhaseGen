@@ -9,7 +9,7 @@ __date__ = "2023-02-25"
 
 import numpy as np
 
-from PH.comparison import Comparison
+from phasegen.comparison import Comparison
 
 try:
     import sys

@@ -1,4 +1,4 @@
-name: base-phasegen
+name: dev-phasegen
 channels:
   - conda-forge
 dependencies:
@@ -14,3 +14,12 @@ dependencies:
   - tqdm
   - multiprocess
   - pyyaml
+  - pytest-xdist
+  - pip
+  - pip:
+    - fastdfe
+    - pytest
+    - pytest-xdist
+    - pytest-cov
+    - pytest-sugar
+    - pytest-pycharm

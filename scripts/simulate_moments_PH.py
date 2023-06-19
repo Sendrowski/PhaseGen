@@ -29,7 +29,7 @@ except NameError:
     alpha = np.eye(1, n - 1, 0)[0]
     out = "scratch/ph.json"
 
-from PH import VariablePopSizeConstantPopSizeCoalescentDistribution, StandardCoalescent, PiecewiseConstantDemography, \
+from phasegen import VariablePopSizeConstantPopSizeCoalescentDistribution, StandardCoalescent, PiecewiseConstantDemography, \
     rewards
 from scripts import json_handlers
 

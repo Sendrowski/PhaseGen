@@ -27,7 +27,7 @@ import os
 import yaml
 from matplotlib import pyplot as plt
 
-from PH import Comparison
+from phasegen import Comparison
 
 # load config from file
 with open(file, 'r') as f:

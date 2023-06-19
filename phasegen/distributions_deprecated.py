@@ -1,7 +1,9 @@
+import itertools
 from abc import ABC, abstractmethod
-from functools import cached_property
+from collections import defaultdict
+from functools import cached_property, lru_cache
 from math import factorial
-from typing import Generator, List, Callable
+from typing import Generator, List, Callable, cast, Tuple, Dict
 
 import mpmath as mp
 import msprime as ms
@@ -9,6 +11,7 @@ import numpy as np
 import tskit
 from matplotlib import pyplot as plt
 from multiprocess import Pool
+from scipy.linalg import inv, expm
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
@@ -20,10 +23,9 @@ from .visualization import Visualization
 def set_precision(p: int):
     """
     Set precision to p decimal places.
+
     :param p:
-    :type p:
     :return:
-    :rtype:
     """
     mp.mp.dps = p
 
@@ -32,7 +34,7 @@ def set_precision(p: int):
 set_precision(20)
 
 
-def e_i(n: int, i: int = 0) -> np.matrix:
+def e_i(n: int, i: int = 0) -> mp.matrix:
     """
     Get the nth standard unit vector
     :return:
@@ -54,7 +56,7 @@ def to_numpy(m: mp.matrix) -> np.ndarray:
 def fractional_power(m: mp.matrix, p: float) -> mp.matrix:
     """
     Fractional power of mpmath matrix using exponentials.
-    TODO this produces complex value with small negative parts
+    TODO this sometimes produces complex values with small negative parts
     :param m:
     :type m:
     :param p:
@@ -69,19 +71,18 @@ def parallelize(
         func: Callable,
         data: List | np.ndarray,
         parallelize: bool = True,
-        pbar: bool = True
+        pbar: bool = True,
+        desc: str = None,
 ) -> np.ndarray:
     """
     Convenience function that parallelizes the given function
     if specified or executes them sequentially otherwise.
-    :param pbar:
-    :type pbar:
-    :param parallelize:
-    :type parallelize:
-    :param data:
-    :type data:
-    :param func:
-    :type func: Callable
+
+    :param func: Function to parallelize
+    :param data: Data to parallelize over
+    :param parallelize: Whether to parallelize
+    :param pbar: Whether to show a progress bar
+    :param desc: Description for tqdm progress bar
     :return:
     """
 
@@ -93,7 +94,7 @@ def parallelize(
         iterator = map(func, data)
 
     if pbar:
-        iterator = tqdm(iterator, total=len(data))
+        iterator = tqdm(iterator, total=len(data), desc=desc)
 
     return np.array(list(iterator), dtype=object)
 
@@ -113,6 +114,30 @@ def calculate_sfs(tree: tskit.trees.Tree) -> np.ndarray:
             sfs[n] += t
 
     return sfs
+
+
+def van_loan(B: mp.matrix, S: mp.matrix, tau: float) -> mp.matrix:
+    """
+    Use Van Loan's method to evaluate the integral ∫u S(u)B(u)S(u)du.
+
+    :param B: Matrix B
+    :param S: Matrix S
+    :param tau: Time to integrate over
+    :return: Evaluated integral
+    """
+    n = B.cols
+
+    O = mp.zeros(n, n)
+
+    upper = mp.matrix(S.T.tolist() + B.T.tolist()).T
+    lower = mp.matrix(O.T.tolist() + S.T.tolist()).T
+
+    A = mp.matrix(upper.tolist() + lower.tolist())
+
+    # compute matrix exponential of A to determine integral
+    V = mp.expm(float(tau) * A)
+
+    return V[:n, n:]
 
 
 class ProbabilityDistribution(ABC):
@@ -154,8 +179,9 @@ class ProbabilityDistribution(ABC):
 
     def plot_cdf(
             self,
-            x=np.linspace(0, 20, 100),
-            show=True, file: str = None,
+            x: np.ndarray = np.linspace(0, 20, 100),
+            show: bool = True,
+            file: str = None,
             clear: bool = True,
             label: str = None
     ) -> plt.axis:
@@ -163,7 +189,7 @@ class ProbabilityDistribution(ABC):
         Plot cumulative distribution function.
         :return:
         """
-        Visualization.plot_func(
+        Visualization.plot(
             x=x,
             y=self.cdf(x),
             xlabel='t',
@@ -176,8 +202,9 @@ class ProbabilityDistribution(ABC):
 
     def plot_pdf(
             self,
-            x=np.linspace(0, 20, 100),
-            show=True, file: str = None,
+            x: np.ndarray = np.linspace(0, 20, 100),
+            show=True,
+            file: str = None,
             clear: bool = True,
             label: str = None
     ) -> plt.axis:
@@ -185,7 +212,7 @@ class ProbabilityDistribution(ABC):
         Plot density function.
         :return:
         """
-        Visualization.plot_func(
+        Visualization.plot(
             x=x,
             y=self.pdf(x),
             xlabel='u',
@@ -202,6 +229,11 @@ class PhaseTypeDistribution(ProbabilityDistribution):
 
 
 class ConstantPopSizeDistribution(PhaseTypeDistribution):
+    """
+    Class for calculating statistics under a constant population size coalescent.
+
+    TODO deprecate class complete to avoid implementing SFS?
+    """
     def __init__(self, cd: 'ConstantPopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
         self.cd = cd
         self.r = np.array(r)
@@ -219,6 +251,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     def S_full(self) -> mp.matrix:
         """
         Full intensity matrix
+
         :return:
         """
         upper = mp.matrix(self.S.T.tolist() + self.s.T.tolist()).T
@@ -230,6 +263,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     def T(self) -> mp.matrix:
         """
         The transition matrix.
+
         :return:
         """
         return mp.expm(self.S)
@@ -238,14 +272,32 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
     def T_full(self) -> mp.matrix:
         """
         The full transition matrix
+
         :return:
         """
         return mp.expm(self.S_full)
 
     @cached_property
+    def R_full(self):
+        """
+        The rewards matrix including the absorbing state.
+
+        :return:
+        """
+        O = mp.zeros(1, 1)
+
+        upper = mp.matrix(self.R.T.tolist() + O.T.tolist()).T
+        lower = mp.matrix(O.T.tolist() + O.T.tolist()).T
+
+        A = mp.matrix(upper.tolist() + lower.tolist())
+
+        return A
+
+    @cached_property
     def t(self) -> mp.matrix:
         """
         The exit probability vector.
+
         :return:
         :rtype:
         """
@@ -332,7 +384,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
 
 class VariablePopSizeDistribution(ConstantPopSizeDistribution):
     """
-    TODO consider using @functools.lru_cache for caching
+    Distribution of absorption times for a variable population size coalescent.
     """
 
     def __init__(self, cd: 'VariablePopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
@@ -341,44 +393,12 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         # reassign to make the IDE aware of the new subclass
         self.cd = cd
 
-        # initial values at beginning of epochs.
-        self.alphas = np.zeros(self.cd.n_epochs, dtype=mp.matrix)
-        self.alphas[0] = self.cd.alpha
-
-        self.times = np.zeros_like(self.cd.times)
-        self.times[0] = 0
-
-        # iterate through epochs and compute initial values
-        for i in range(0, self.cd.n_epochs - 1):
-            # Ne of current epoch
-            Ne = self.cd.pop_sizes[i]
-
-            # time spent in current epoch scaled by Ne
-            tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne
-
-            # update alpha for the time spent in the current epoch
-            self.alphas[i + 1] = self.alphas[i] * fractional_power(mp.expm(S), tau)
-
-            sojourn_times = np.zeros(self.cd.n - 1)
-            for j in range(self.cd.n - 1):
-                means = self.get_mean_sojourn_times(j, tau * Ne)[:self.cd.n - 1, :self.cd.n - 1]
-
-                # check this sums to 1 when including absorbing state
-                sojourn_times[j] = float((self.alphas[i] * means * self.alphas[i + 1].T)[0, 0])
-
-            # sojourn_times /= (tau * Ne)
-            sojourn_times /= np.sum(sojourn_times)
-            scaling = np.dot(1 / self.r, sojourn_times)
-            # scaling = 1
-            self.times[i + 1] = self.times[i] + (self.cd.times[i + 1] - self.cd.times[i]) / scaling
-
-        pass
-
     def get_I_mean(self, i, j, tau) -> mp.matrix:
         """
         Use Van Loan's method to evaluate the integral I(a, b, i=alpha, j=beta)
         in equation (3) in https://doi.org/10.1239/jap/1324046009. Van Loan's method
         is described in section 4 of this paper.
+
         :param i:
         :param j:
         :param tau:
@@ -386,7 +406,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         """
         # determine B so that TBT[a, b] describes the probabilities
         # of transitioning from state 'a' to alpha to beta to 'b'.
-        # Note that this step required a lot of numerical precision.
+        # Note that this step requires a lot of numerical precision.
         B = self.T_inv_full * self.T_full[:, j] * self.T_full[i, :] * self.T_inv_full
 
         # construct matrix consisting of B and the rate matrices
@@ -406,6 +426,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         Use Van Loan's method to evaluate the integral I(a, b, i=alpha, j=beta, k=gamma, l=delta)
         in equation (4) in https://doi.org/10.1239/jap/1324046009.  Van Loan's method
         is described in section 4 of this paper.
+
         :param i:
         :param j:
         :param k:
@@ -415,7 +436,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         """
         # determine B so that TBT[a, b] describes the probabilities
         # of transitioning from state a to alpha to beta to b.
-        # Note that this step required a lot of numerical precision.
+        # Note that this step requires a lot of numerical precision.
         # TODO check if B1 and B2 are correct
         B1 = self.T_inv_full * self.T_full[:, j] * self.T_full[i, :] * self.T_inv_full
         B2 = self.T_inv_full * self.T_full[:, l] * self.T_full[k, :] * self.T_inv_full
@@ -436,12 +457,12 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
     def get_mean_sojourn_times(self, i: int, tau: float) -> mp.matrix:
         """
-        Get the endpoint-conditioned amount of time spent in state i.
-        U[a, b] describes the amount of time spent in state i,
-        given that the state was ´a´ at time 0 and ´b´ at time tau.
-        :param i:
-        :param tau:
-        :return:
+        Get the endpoint-conditioned amount of time spent in state ``i``.
+
+        :param i: State for which to compute the sojourn time.
+        :param tau: Time interval for which to compute the sojourn time.
+        :return: ``U[a, b]`` describes the amount of time spent in state ``i``,
+            given that the state was ``a`` at time 0 and ``b`` at time tau.
         """
         # obtain matrix G using Van Loan's method
         G = self.get_I_mean(i, i, tau / self.cd.Ne)
@@ -513,10 +534,10 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         :return:
         """
         if k == 1:
-            return self.mean_and_m2[0] if alpha is None else self.mean_and_m2(np.matrix(alpha))[0]
+            return self.mean_and_m2[0] if alpha is None else self.mean_and_m2(mp.matrix(alpha))[0]
 
         if k == 2:
-            return self.mean_and_m2[1] if alpha is None else self.mean_and_m2(np.matrix(alpha))[1]
+            return self.mean_and_m2[1] if alpha is None else self.mean_and_m2(mp.matrix(alpha))[1]
 
         raise NotImplementedError('Only the first second moments are implemented.')
 
@@ -562,8 +583,9 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
                 # current population size
                 tau = self.cd.times[i + 1] - self.cd.times[i]
 
-                # sojourn time for absorbing state
-                M = self.get_mean_sojourn_times(i=self.cd.n - 1, tau=tau)
+                B = mp.eye(self.cd.n)
+                B[self.cd.n - 1, self.cd.n - 1] = 0
+                N = self.normalize_by_T_tau(van_loan(S=self.S_full, B=B, tau=tau / self.cd.Ne), tau)
 
                 # Get absorption time depending on initial states.
                 # Note that we skip the absorbing state for now as
@@ -576,7 +598,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
                 # absorbing state given absorption at time tau.
                 # tau minus this is then the expected absorption time.
                 # Note that M[:-1, -1] did not work for mpmath
-                absorption_times[i] = tau - np.dot(alpha, M[:-1, M.cols - 1])
+                absorption_times[i] = np.dot(alpha, N[:-1, N.cols - 1])
 
                 # second moment in sojourn time for absorbing state
                 M2 = self.get_covarying_sojourn_times(i=self.cd.n - 1, j=self.cd.n - 1, tau=tau)
@@ -619,8 +641,8 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
 
         # We finally get the unconditional moments by multiplying
         # with their total absorption probabilities and summing up
-        mean = np.dot(total_absorption_probs, total_absorption_times)
-        m2 = np.dot(total_absorption_probs, total_absorption_m2)
+        mean = (total_absorption_probs * total_absorption_times).sum()
+        m2 = (total_absorption_probs * total_absorption_m2).sum()
 
         return mean, m2
 
@@ -693,27 +715,446 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         return np.vectorize(pdf)(u)
 
 
+class VariablePopSizeDistributionManual(VariablePopSizeDistribution):
+
+    def __init__(self, cd: 'VariablePopSizeCoalescent', r: np.ndarray | List, S: mp.matrix):
+        """
+        Restore the original intensity matrix.
+
+        :return:
+        """
+        self.cd = cd
+        self.r = np.array(r)
+
+        # reward matrix
+        self.R = mp.inverse(mp.diag(self.r))
+
+        # sub-intensity matrix with reward applied
+        self.S = S
+
+        # exit rate vector
+        self.s = -self.S * self.cd.e
+
+    @cached_property
+    def mean_and_m2(self, alpha: np.ndarray = None) -> (float, float):
+        """
+        Calculate the first and second moments in the absorption time.
+
+        We need the absorption probability in a certain epoch and
+        the expected absorption time conditional on absorption in that epoch.
+        We can get the expected absorption time by conditioning on the endpoint
+        and determining the amount of time we spend in the absorbing state.
+        We can get the absorption probability from the transition matrix.
+
+        :param alpha: Initial state probabilities
+        :return:
+        """
+        alpha = self.cd.get_alpha(alpha)
+
+        # absorption times conditional on when the epoch ends
+        absorption_times = np.zeros(self.cd.n_epochs)
+
+        # sojourn times in the non-absorbing states per epoch given that no absorption has occurred
+        sojourn_times = np.zeros((self.cd.n_epochs, self.cd.n - 1))
+
+        # sojourn times in the non-absorbing states per epoch given that no absorption has occurred
+        sojourn_times_complete = np.zeros((self.cd.n_epochs, self.cd.n - 1))
+
+        # conditional second moments in absorption time
+        absorption_m2 = np.zeros(self.cd.n_epochs)
+
+        # second moments in sojourn time in non-absorbing states per epoch
+        sojourn_m2 = np.zeros((self.cd.n_epochs, self.cd.n - 1))
+
+        # unconditional absorption probabilities
+        absorption_probs = np.zeros(self.cd.n_epochs)
+
+        # Probability of not having reached the absorbing state until
+        # the current epoch.
+        no_absorption = np.zeros(self.cd.n_epochs)
+
+        # iterate over epochs
+        for i in range(self.cd.n_epochs):
+            # set Ne of current epoch
+            self.cd.set_Ne(self.cd.pop_sizes[i])
+
+            # probability of not having reach the absorbing state until now
+            no_absorption[i] = np.prod(1 - absorption_probs[:i])
+
+            # we need to end-point condition all but the last epoch
+            if i < self.cd.n_epochs - 1:
+
+                # determine tau, the amount of time spend with the
+                # current population size
+                tau = self.cd.times[i + 1] - self.cd.times[i]
+            else:
+                # for the last epoch we set tau to a large value
+                tau = 1000000
+
+            # Get probability of states at time tau.
+            # These are the initial state probabilities for the next epoch.
+            alpha_next = (alpha * fractional_power(self.T, tau / self.cd.pop_sizes[i]))
+
+            # sojourn time for absorbing state
+            M = self.get_mean_sojourn_times(i=self.cd.n - 1, tau=tau)
+
+            # tau minus this is the expected absorption time.
+            absorption_times[i] = tau - np.dot(alpha, M[:-1, M.cols - 1])
+
+            for j in range(self.cd.n - 1):
+                # Mi[:-1, -1] describes the time spent in state j
+                # given that it starts in state i at time 0 and ends in
+                # the absorbing state at time tau.
+                # Distributing these times according to alpha,
+                # we obtain the expected time spent in the
+                # absorbing state given absorption at time tau.
+                # Note that Mi[:-1, -1] did not work for mpmath
+                Mi = self.get_mean_sojourn_times(i=j, tau=tau)
+                sojourn_times[i][j] = np.dot(alpha, Mi[:-1, Mi.cols - 1])
+                sojourn_times_complete[i][j] = float((alpha * Mi[:-1, :-1] * (alpha_next / np.sum(alpha_next)).T)[0, 0])
+
+            sojourn_times_complete[i] /= sojourn_times_complete[i].sum() / tau
+
+            # second moment in sojourn time for absorbing state
+            M2 = self.get_covarying_sojourn_times(i=self.cd.n - 1, j=self.cd.n - 1, tau=tau)
+
+            # M2[:-1, -1] is the second moment in the time spent in the absorbing
+            # state. We convert it here to the second moment in the absorption time
+            # and multiply by the initial states as done for the mean.
+            absorption_m2[i] = np.dot(alpha, M2[:-1, M2.cols - 1]) + 2 * tau * absorption_times[i] - tau ** 2
+
+            for j in range(self.cd.n - 1):
+                # M2i[:-1, -1] is the second moment of time spent in the state j.
+                M2i = self.get_covarying_sojourn_times(i=j, j=j, tau=tau)
+                sojourn_m2[i][j] = np.dot(alpha, M2i[:-1, M2i.cols - 1])
+
+            # absorption probability in current state
+            absorption_probs[i] = 1 - float(np.sum(alpha_next))
+
+            # Normalize alpha.
+            # We do this because alpha needs to sum to 1
+            # and this alpha is conditional on not having
+            # reached absorption yet.
+            alpha = alpha_next / np.sum(alpha_next)
+
+        # Calculate total absorption probabilities i.e. the probability
+        # of absorption in epoch i
+        total_absorption_probs = no_absorption * absorption_probs
+
+        # get inverse reward matrix
+        R = np.linalg.inv(to_numpy(self.R))
+
+        absorption_times_complete = np.cumsum(np.insert((sojourn_times_complete @ R).sum(axis=1), 0, 0)[:-1])
+
+        # The total absorption times are the absorption times within
+        # each epoch plus the times spent in the previous epochs
+        total_absorption_times = (sojourn_times @ R).sum(axis=1) + absorption_times_complete
+
+        # Here we adjust the second moment by the time spent in the
+        # previous epochs
+        total_absorption_m2 = (sojourn_m2 @ R).sum(axis=1) + self.cd.times ** 2 + \
+                              2 * self.cd.times * (sojourn_times @ R).sum(axis=1)
+
+        # We finally get the unconditional moments by multiplying
+        # with their total absorption probabilities and summing up
+        mean = np.dot(total_absorption_probs, total_absorption_times)
+        m2 = np.dot(total_absorption_probs, total_absorption_m2)
+
+        return mean, m2
+
+
+class VariablePopSizeDistributionIPH(VariablePopSizeDistribution):
+    """
+    Variable population size distribution using IPH.
+    """
+
+    def __init__(self, cd: 'VariablePopSizeCoalescentIPH', r: np.ndarray | List, S: mp.matrix):
+        super().__init__(cd=cd, r=r, S=S)
+
+        # reassign to make the IDE aware of the new subclass
+        self.cd = cd
+
+    def nth_moment_numerical(self, k: int, alpha: np.ndarray = None) -> float:
+        """
+        Get the nth moment.
+
+        :param k:
+        :param alpha:
+        :return:
+        """
+        S = to_numpy(self.S_full)
+        R = to_numpy(self.R_full)
+
+        def integrand(u: float, t: float) -> np.ndarray:
+            """
+
+            :param u: Current time
+            :param t: End time
+            :return: Current rate
+            """
+            P1 = expm(self.cd.demography.get_cum_rate(t=u) * S)
+            P2 = expm(self.cd.demography.get_cum_rate(t=t - u) * S)
+
+            return P1 @ R @ P2
+
+        def integrate(func: Callable, lower, upper, n: int) -> float | np.ndarray:
+            """
+            Integrate over given function using Monte Carlo integration.
+
+            :param func: Function to integrate over
+            :param lower: Lower bound
+            :param upper: Upper bounds
+            :param n: Number of random samples
+            :return:
+            """
+            x = np.random.uniform(low=lower, high=upper, size=n)
+            samples = np.array([func(float(z)) for z in x])
+            return samples.mean(axis=0) * (upper - lower)
+
+        tau = 100
+        mean = integrate(lambda u: integrand(u, tau), 0, tau, n=10000)
+
+        pass
+
+    def nth_moment(self, k: int, alpha: np.ndarray = None, r: np.ndarray = None) -> float:
+        """
+        Get the nth moment.
+
+        :param k:
+        :param alpha:
+        :param r: Full reward vector
+        :return:
+        """
+        if r is None:
+            r = list(self.r) + [0]
+
+        R = mp.diag(r)
+
+        S = self.cd.tree_height.S_full
+        T = self.cd.tree_height.T_full
+        e = self.cd.e_full
+
+        means = np.zeros(self.cd.n_epochs)
+        alphas = np.zeros(self.cd.n_epochs, dtype=mp.matrix)
+
+        alphas[0] = self.cd.alpha_full
+
+        # iterate through epochs and compute initial values
+        for i in range(0, self.cd.n_epochs):
+            # Ne of current epoch
+            Ne = self.cd.pop_sizes[i]
+
+            if i < self.cd.n_epochs - 1:
+                # time spent in current epoch scaled by Ne
+                tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne
+
+                # update alpha for the time spent in the current epoch
+                alphas[i + 1] = alphas[i] * fractional_power(T, tau)
+            else:
+                tau = 1000
+
+            U = van_loan(S=S, B=R, tau=tau)
+
+            means[i] = float(Ne ** k * factorial(k) * (alphas[i] * U ** k * e)[0, 0])
+
+        return means.sum()
+
+    def nth_moment_discrete(self, k: int, alpha: np.ndarray = None) -> float:
+        """
+        Get the nth moment.
+
+        :param k:
+        :param alpha:
+        :return:
+        """
+        N = cast(list, self.cd.pop_sizes.tolist())
+        t = cast(list, self.times.tolist())
+        S = self.S
+
+        I = mp.eye(self.cd.n - 1)
+
+        c1 = (mp.expm(S * t[1] / N[0]) * (S * t[1] - N[0] * I) + N[0] * I) * mp.powm(S, -2)
+
+        c2 = (mp.expm(S * t[1] / N[0]) * (N[1] * I - S * t[1])) * mp.powm(S, -2)
+
+        t1 = float((self.alphas[0] * c1 * mp.inverse(self.R) * self.s)[0, 0])
+        t2 = float((self.alphas[0] * c2 * mp.inverse(self.R) * self.s)[0, 0])
+
+        return t1 + t2
+
+
+class SFSDistribution(VariablePopSizeDistributionIPH):
+    """
+    Variable population size distribution using IPH.
+    """
+
+    def find_vectors(self, m: int, n: int) -> List[List[int]]:
+        """
+        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
+
+        :param m: length of the vectors
+        :param n: target sum
+        :returns: list of vectors satisfying the condition
+        """
+        # base case, when the length of vector is 0
+        # if n is also 0, return an empty vector, otherwise no solutions
+        if m == 0:
+            return [[]] if n == 0 else []
+
+        vectors = []
+        # iterate over possible values for the first component
+        for x in range(n // m + 1):  # Adjusted for 1-based index
+            # recursively find vectors with one less component and a smaller target sum
+            for vector in self.find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
+                # prepend the current component to the recursively found vectors
+                vectors.append(vector + [x])  # Reversed vectors
+
+        return vectors
+
+    @cached_property
+    def mean(self, **kwargs) -> np.ndarray:
+        """
+        Get the nth moment.
+
+        :param kwargs:
+        :return:
+        """
+
+        states = np.array(self.find_vectors(self.cd.n, self.cd.n))
+
+        # iterate over the number of lineages
+        # and merge the states with the same number of lineages
+        same = np.where(states.sum(axis=1) == self.cd.n)[0]
+
+        probs = cast(Dict[Tuple, float], defaultdict(int))
+        probs[tuple(states[0])] = 1
+        states_merged: List[List[int]] = [states[0]]
+
+        for i in np.arange(2, self.cd.n)[::-1]:
+            # get the number of states with i lineages
+            same_next = np.where(states.sum(axis=1) == i)[0]
+
+            for s1, s2 in itertools.product(states[same], states[same_next]):
+                diff = s1 - s2
+
+                if 2 in diff:
+                    # get the number of lineages that were present in s1
+                    j = s1[diff == 2][0]
+                    probs[tuple(s2)] += probs[tuple(s1)] * j / (i + 1) * (j - 1) / i
+
+                if 1 in diff:
+                    # get the number of lineages that were present in s1
+                    j1, j2 = s1[diff == 1]
+                    probs[tuple(s2)] += probs[tuple(s1)] * 2 * j1 / (i + 1) * j2 / i
+
+            same = same_next
+
+        R = np.zeros((self.cd.n, self.cd.n))
+
+        for state, prob in probs.items():
+            R[:, self.cd.n - sum(state)] += prob * np.array(state)
+
+        R2 = np.array([
+            [4, 2, 2 / 3, 0],
+            [0, 1, 2 / 3, 0],
+            [0, 0, 2 / 3, 0]
+        ])
+
+        return np.array([0.] + [self.nth_moment(k=1, r=r) for r in R[:-1]] + [0.])
+
+
+class SFSDistributionDeprecated:
+    """
+    Variable population size distribution using IPH.
+    """
+
+    def __init__(self, cd: 'VariablePopSizeCoalescent'):
+        """
+
+        :param cd:
+        """
+        self.cd = cd
+
+    def get_P(self, i: int):
+        """
+
+        """
+
+        # TODO extra case if no zero rewards, or no non-zero rewards (e.g. when n = 2)
+
+        r = np.eye(1, self.cd.n - 1, i)[0]
+
+        E_plus = np.where(r > 0)[0]  # Indices of states with positive reward
+        E_zero = np.where(r == 0)[0]  # Indices of states with zero reward
+
+        Q = to_numpy(self.cd.S)
+        Q_plus_plus = Q[np.ix_(E_plus, E_plus)]
+        Q_plus_zero = Q[np.ix_(E_plus, E_zero)]
+        Q_zero_plus = Q[np.ix_(E_zero, E_plus)]
+        Q_zero_zero = Q[np.ix_(E_zero, E_zero)]
+
+        I = np.eye(Q_zero_zero.shape[0])
+
+        P = Q_plus_plus + Q_plus_zero @ inv(I - Q_zero_zero) @ Q_zero_plus
+
+        alpha = to_numpy(self.cd.alpha)[0]
+        pi = alpha[E_plus] + alpha[E_zero] @ inv(I - Q_zero_zero) @ Q_zero_plus
+
+        return P, pi
+
+    @cached_property
+    def mean(self) -> np.ndarray:
+        """
+        Get the nth moment.
+
+        :param k:
+        :param alpha:
+        :return:
+        """
+        sfs = np.zeros(self.cd.n + 1)
+        for i in range(self.cd.n - 1):
+            P, pi = self.get_P(i)
+
+            sfs[self.cd.n - i - 1] = (self.cd.n - i) * self.cd.Ne * (pi * -inv(P) * np.ones((P.shape[0])))
+
+            """N = cast(list, self.cd.pop_sizes.tolist())
+            t = cast(list, self.cd.times.tolist())
+
+            I = np.eye(P.shape[0])
+
+            c1 = (expm(P * t[1] / N[0]) @ (P * t[1] - N[0] * I) + N[0] * I) @ inv(P) ** 2
+
+            c2 = (expm(P * t[1] / N[0]) @ (N[1] * I - P * t[1])) @ inv(P) ** 2
+
+            t1 = pi @ c1 @ p
+            t2 = pi @ c2 @ p
+
+            sfs[self.cd.n - i] = t1 + t2"""
+
+        return sfs
+
+
 class EmpiricalDistribution(ProbabilityDistribution):
     def __init__(self, samples: np.ndarray | list):
         self.samples = np.array(samples, dtype=float)
 
     @cached_property
-    def mean(self, alpha: np.ndarray = None) -> float:
+    def mean(self, alpha: np.ndarray = None) -> float | np.ndarray:
         """
         Get the mean absorption time.
         :param alpha:
         :return:
         """
-        return float(np.mean(self.samples))
+        return np.mean(self.samples, axis=0)
 
     @cached_property
-    def var(self, alpha: np.ndarray = None) -> float:
+    def var(self, alpha: np.ndarray = None) -> float | np.ndarray:
         """
         Get the variance in the absorption time.
         :param alpha:
         :return:
         """
-        return float(np.var(self.samples))
+        return np.var(self.samples, axis=0)
 
     def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
@@ -815,13 +1256,31 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         self.S = mp.matrix(self.get_rate_matrix(self.n, self.model))
 
     @cached_property
-    def e(self) -> np.matrix:
+    def e(self) -> mp.matrix:
         """
         Get a vector with ones of size n.
         :return:
         :rtype:
         """
         return mp.matrix(np.ones(self.n - 1))
+
+    @cached_property
+    def e_full(self) -> mp.matrix:
+        """
+        Get a vector with ones of size n.
+        :return:
+        :rtype:
+        """
+        return mp.matrix(np.ones(self.n))
+
+    @cached_property
+    def alpha_full(self) -> mp.matrix:
+        """
+        Get a vector with ones of size n.
+        :return:
+        :rtype:
+        """
+        return mp.matrix(self.get_alpha().T.tolist() + mp.zeros(1).T.tolist()).T
 
     @staticmethod
     def get_rate_matrix(n: int, model: CoalescentModel):
@@ -935,8 +1394,6 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         P_i = I
 
         # iterate through number of segregating sites.
-        # TODO for all entries to sum up to 1 we need n -> inf
-        # TODO can we simply normalize?
         for i in range(self.n):
             n_segregating[i] = (alpha * P_i * p)[0, 0]
             P_i *= P
@@ -996,6 +1453,16 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
             r=np.arange(2, self.n + 1)[::-1]
         )
 
+    @cached_property
+    def sfs(self) -> SFSDistribution:
+        """
+        Site-frequency spectrum.
+
+        :return:
+        :rtype:
+        """
+        return SFSDistribution(self, r=np.ones(self.n - 1), S=self.S)
+
     def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
         """
         TODO implement this
@@ -1009,6 +1476,134 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
         pass
 
 
+class VariablePopSizeCoalescentManual(ConstantPopSizeCoalescent):
+    def __init__(
+            self,
+            n: int = 2,
+            model: CoalescentModel = StandardCoalescent(),
+            alpha: np.ndarray = None,
+            demography: Demography = None
+    ):
+        super().__init__(
+            model=model,
+            n=n,
+            alpha=alpha,
+            Ne=1
+        )
+
+        self.demography = demography
+
+        if isinstance(demography, PiecewiseConstantDemography):
+            self.times = demography.times
+            self.pop_sizes = demography.pop_sizes
+            self.n_epochs = len(self.times)
+        else:
+            self.times = np.array([0])
+            self.pop_sizes = [self.Ne]
+            self.n_epochs = 1
+
+    @cached_property
+    def tree_height(self) -> VariablePopSizeDistributionManual:
+        """
+        Tree height distribution.
+        :return:
+        :rtype:
+        """
+        return VariablePopSizeDistributionManual(
+            cd=self,
+            S=self.S,
+            r=np.ones(self.n - 1)
+        )
+
+    @cached_property
+    def total_branch_length(self) -> VariablePopSizeDistributionManual:
+        """
+        Total branch length distribution.
+        :return:
+        :rtype:
+        """
+        return VariablePopSizeDistributionManual(
+            cd=self,
+            S=self.S,
+            r=np.arange(2, self.n + 1)[::-1]
+        )
+
+    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
+        """
+        TODO implement this
+        :param theta:
+        :type theta:
+        :param alpha:
+        :type alpha:
+        :return:
+        :rtype:
+        """
+        pass
+
+
+class VariablePopSizeCoalescentIPH(ConstantPopSizeCoalescent):
+    def __init__(
+            self,
+            n: int = 2,
+            model: CoalescentModel = StandardCoalescent(),
+            alpha: np.ndarray = None,
+            demography: Demography = None
+    ):
+        super().__init__(
+            model=model,
+            n=n,
+            alpha=alpha,
+            Ne=1
+        )
+
+        self.demography = demography
+
+        if isinstance(demography, PiecewiseConstantDemography):
+            self.times = demography.times
+            self.pop_sizes = demography.pop_sizes
+            self.n_epochs = len(self.times)
+        else:
+            self.times = np.array([0])
+            self.pop_sizes = np.array([self.Ne])
+            self.n_epochs = 1
+
+    @cached_property
+    def tree_height(self) -> VariablePopSizeDistributionIPH:
+        """
+        Tree height distribution.
+        :return:
+        :rtype:
+        """
+        return VariablePopSizeDistributionIPH(
+            cd=self,
+            S=self.S,
+            r=np.ones(self.n - 1)
+        )
+
+    @cached_property
+    def total_branch_length(self) -> VariablePopSizeDistributionIPH:
+        """
+        Total branch length distribution.
+        :return:
+        :rtype:
+        """
+        return VariablePopSizeDistributionIPH(
+            cd=self,
+            S=self.S,
+            r=np.arange(2, self.n + 1)[::-1]
+        )
+
+    @cached_property
+    def sfs(self) -> SFSDistribution:
+        """
+        Site-frequency spectrum.
+
+        :return:
+        :rtype:
+        """
+        return SFSDistribution(self, r=np.ones(self.n - 1), S=self.S)
+
+
 class MsprimeCoalescent(CoalescentDistribution):
     def __init__(
             self,
@@ -1019,7 +1614,7 @@ class MsprimeCoalescent(CoalescentDistribution):
             n_threads: int = 100,
             parallelize: bool = True
     ):
-        self.sfs = None
+        self.sfs_counts = None
         self.total_branch_lengths = None
         self.heights = None
 
@@ -1030,12 +1625,10 @@ class MsprimeCoalescent(CoalescentDistribution):
         self.n_threads = n_threads
         self.parallelize = parallelize
 
-        self.simulate()
-
-    def simulate(self) -> None:
+    @lru_cache
+    def simulate(self):
         """
-        Simulate moments using msprime.
-        :return:
+        Simulate data using msprime.
         """
         # configure demography
         d = ms.Demography()
@@ -1080,18 +1673,46 @@ class MsprimeCoalescent(CoalescentDistribution):
 
             return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T])
 
-        res = np.hstack(parallelize(simulate_batch, [None] * self.n_threads, parallelize=self.parallelize))
+        # parallelize and add up results
+        res = np.hstack(parallelize(
+            func=simulate_batch,
+            data=[None] * self.n_threads,
+            parallelize=self.parallelize,
+            desc="Simulating trees"
+        ))
 
-        # unpack statistics
-        self.heights, self.total_branch_lengths, self.sfs = res[0], res[1], res[2:]
+        # store results
+        self.heights, self.total_branch_lengths, self.sfs_counts = res[0], res[1], res[2:]
 
     @cached_property
     def tree_height(self) -> EmpiricalDistribution:
+        """
+        Tree height distribution.
+
+        :return:
+        """
+        self.simulate()
+
         return EmpiricalDistribution(samples=self.heights)
 
     @cached_property
     def total_branch_length(self) -> EmpiricalDistribution:
+        """
+        Total branch length distribution.
+
+        :return:
+        """
+        self.simulate()
+
         return EmpiricalDistribution(samples=self.total_branch_lengths)
 
-    def get_n_segregating(self, theta: float = 1.0, alpha: np.ndarray = None) -> np.ndarray:
-        return np.mean(self.sfs, axis=1)
+    @cached_property
+    def sfs(self) -> EmpiricalDistribution:
+        """
+        Site-frequency spectrum.
+
+        :return:
+        """
+        self.simulate()
+
+        return EmpiricalDistribution(samples=self.sfs_counts.T)

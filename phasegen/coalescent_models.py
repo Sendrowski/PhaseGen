@@ -7,30 +7,32 @@ from scipy.special import comb, beta
 
 
 class CoalescentModel(ABC):
+    """
+    Abstract class for coalescent models.
+    """
     @abstractmethod
     def get_rate(self, b: int, k: int):
         """
         Get exponential rate for a merger of k out of b lineages.
+
         :param b:
-        :type b:
         :param k:
-        :type k:
         :return:
-        :rtype:
         """
         pass
 
 
 class StandardCoalescent(CoalescentModel):
+    """
+    Standard coalescent model.
+    """
     def get_rate(self, b: int, k: int):
         """
         Get exponential rate for a merger of k out of b lineages.
+
         :param b:
-        :type b:
         :param k:
-        :type k:
         :return:
-        :rtype:
         """
         # two lineages can merge with a rate depending on b
         if k == 2:
@@ -45,10 +47,20 @@ class StandardCoalescent(CoalescentModel):
 
 
 class BetaCoalescent(CoalescentModel):
+    """
+    Beta coalescent model.
+    """
     def __init__(self, alpha: float):
         self.alpha = alpha
 
     def get_rate(self, b: int, k: int):
+        """
+        Get exponential rate for a merger of k out of b lineages.
+
+        :param b:
+        :param k:
+        :return:
+        """
         if k < 1 or k > b:
             return 0
 
@@ -59,11 +71,27 @@ class BetaCoalescent(CoalescentModel):
 
 
 class LambdaCoalescent(CoalescentModel):
+    """
+    Lambda coalescent model.
+    TODO implement this
+    """
     @abstractmethod
     def get_density(self) -> Callable:
+        """
+        Get the density function of the coalescent model.
+
+        :return:
+        """
         pass
 
     def get_rate(self, i: int, j: int):
+        """
+        Get exponential rate for a merger of j out of i lineages.
+
+        :param i:
+        :param j:
+        :return:
+        """
         x = sp.symbols('x')
         integrand = x ** (i - 2) * (1 - x) ** (j - i)
 

@@ -10,10 +10,20 @@ def clear_show_save(func: Callable) -> Callable:
     """
     Decorator for clearing current figure in the beginning
     and showing or saving produced plot subsequently.
+
+    :param func: The function to decorate.
+    :return: The decorated function.
     """
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        """
+        Wrapper function.
+
+        :param args:
+        :param kwargs:
+        :return:
+        """
         # clear current figure
         if 'clear' not in kwargs or ('clear' in kwargs and kwargs['clear']):
             plt.clf()
@@ -33,8 +43,8 @@ def clear_show_save(func: Callable) -> Callable:
 def show_and_save(file: str = None, show=True) -> plt.axis:
     """
     Show and save plot.
+
     :param file:
-    :type file:
     :param show:
     :return:
     """
@@ -53,7 +63,7 @@ def show_and_save(file: str = None, show=True) -> plt.axis:
 class Visualization:
     @staticmethod
     @clear_show_save
-    def plot_func(
+    def plot(
             x: np.ndarray,
             y: Callable,
             xlabel: str = 'x',
@@ -63,6 +73,19 @@ class Visualization:
             clear: bool = True,
             label: str = None
     ):
+        """
+        Plot function.
+
+        :param x:
+        :param y:
+        :param xlabel:
+        :param ylabel:
+        :param file:
+        :param show:
+        :param clear:
+        :param label:
+        :return:
+        """
         sns.lineplot(x=x, y=y, ax=plt.gca(), label=label)
 
         # set axis labels
