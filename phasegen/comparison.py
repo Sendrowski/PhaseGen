@@ -4,9 +4,10 @@ import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from . import PiecewiseConstantDemography, VariablePopSizeCoalescent, MsprimeCoalescent, ConstantPopSizeCoalescent
-from .serialization import Serializable
+from . import PiecewiseConstantDemography, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent, \
+    ConstantPopSizeCoalescent, ExponentialDemography
 from .distributions_deprecated import VariablePopSizeCoalescent as VariablePopSizeCoalescentLegacy
+from .serialization import Serializable
 
 
 class Comparison(Serializable):
@@ -18,8 +19,10 @@ class Comparison(Serializable):
     def __init__(
             self,
             n: int,
-            pop_sizes: np.ndarray | List,
-            times: np.ndarray | List,
+            pop_sizes: np.ndarray | List = None,
+            times: np.ndarray | List = None,
+            growth_rate: float = None,
+            N0: float = None,
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
@@ -29,9 +32,12 @@ class Comparison(Serializable):
         """
         Initialize Comparison object.
 
-        :param n: Sample size.
+        :param n: Number of lineages.
         :param pop_sizes: Population sizes.
         :param times: Times of population size changes.
+        :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
+            ``N0 * exp(- growth_rate * t)``.
+        :param N0: Initial population size (only used if growth_rate is specified).
         :param num_replicates: Number of replicates to use.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
@@ -46,20 +52,33 @@ class Comparison(Serializable):
             n=n,
             pop_sizes=pop_sizes,
             times=times,
+            growth_rate=growth_rate,
+            N0=N0,
             num_replicates=num_replicates,
             n_threads=n_threads,
             parallelize=parallelize
         )
 
-        # phase-type coalescent
-        self.ph = VariablePopSizeCoalescent(
-            n=n,
-            demography=PiecewiseConstantDemography(
-                pop_sizes=pop_sizes,
-                times=times
-            ),
-            alpha=alpha
-        )
+        if growth_rate is not None:
+            # phase-type coalescent
+            self.ph = PiecewiseConstantPopSizeCoalescent(
+                n=n,
+                demography=ExponentialDemography(
+                    growth_rate=growth_rate,
+                    N0=N0
+                ),
+                alpha=alpha
+            )
+        else:
+            # phase-type coalescent
+            self.ph = PiecewiseConstantPopSizeCoalescent(
+                n=n,
+                demography=PiecewiseConstantDemography(
+                    pop_sizes=pop_sizes,
+                    times=times
+                ),
+                alpha=alpha
+            )
 
         # legacy phase-type coalescent
         self.ph_legacy = VariablePopSizeCoalescentLegacy(
@@ -144,5 +163,3 @@ class Comparison(Serializable):
 
                         mean_diff_rel = self.mean_relative_difference(y_ms, y_ph)
                         assert mean_diff_rel < tol, f"Difference mean {mean_diff_rel} exceeds threshold {tol}."
-
-

@@ -8,19 +8,94 @@ __date__ = "2023-04-09"
 
 __version__ = 'alpha'
 
+import logging
+import sys
+
 import jsonpickle
 import numpy as np
+from tqdm import tqdm
+
+
+class TqdmLoggingHandler(logging.Handler):
+    def __init__(self, level=logging.NOTSET):
+        """
+        Initialize the handler.
+
+        :param level:
+        """
+        super().__init__(level)
+
+    def emit(self, record):
+        """
+        Emit a record.
+        """
+        try:
+            msg = self.format(record)
+
+            # we write to stderr to avoid as the progress bar
+            # to make the two work together
+            tqdm.write(msg, file=sys.stderr)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+class ColoredFormatter(logging.Formatter):
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize the formatter.
+        """
+        super().__init__(*args, **kwargs)
+        self.colors = {
+            "DEBUG": "\033[36m",  # Cyan
+            "INFO": "\033[32m",  # Green
+            "WARNING": "\033[33m",  # Yellow
+            "ERROR": "\033[31m",  # Red
+            "CRITICAL": "\033[31m",  # Red
+        }
+        self.reset = "\033[0m"
+
+    def format(self, record):
+        """
+        Format the record.
+        """
+        log_color = self.colors.get(record.levelname, self.reset)
+
+        formatted_record = super().format(record)
+
+        return f"{log_color}{formatted_record}{self.reset}"
+
+
+# configure logger
+logger = logging.getLogger('phasegen')
+
+# don't propagate to the root logger
+logger.propagate = False
+
+# set to INFO by default
+logger.setLevel(logging.INFO)
+
+# let TQDM handle the logging
+handler = TqdmLoggingHandler()
+
+# define a Formatter with colors
+formatter = ColoredFormatter('%(levelname)s:%(name)s: %(message)s')
+
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 from .serialization import NumpyArrayHandler
 
 # register custom json handlers
 jsonpickle.handlers.registry.register(np.ndarray, NumpyArrayHandler)
 
-from .distributions import ConstantPopSizeDistribution, VariablePopSizeDistribution
+from .distributions import ConstantPopSizeDistribution, PiecewiseConstantPopSizeDistribution, \
+    ContinuousPopSizeChangeCoalescent
 
-from .distributions import ConstantPopSizeCoalescent, VariablePopSizeCoalescent, MsprimeCoalescent
+from .distributions import ConstantPopSizeCoalescent, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent
 
-from .demography import Demography, PiecewiseConstantDemography
+from .demography import Demography, PiecewiseConstantDemography, ExponentialDemography, ContinuousDemography, \
+    ConstantDemography
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
 
@@ -28,11 +103,16 @@ from .comparison import Comparison
 
 __all__ = [
     'ConstantPopSizeDistribution',
-    'VariablePopSizeDistribution',
+    'PiecewiseConstantPopSizeDistribution',
     'ConstantPopSizeCoalescent',
-    'VariablePopSizeCoalescent',
+    'PiecewiseConstantPopSizeCoalescent',
+    'ContinuousPopSizeChangeCoalescent',
     'MsprimeCoalescent',
+    'Demography',
     'PiecewiseConstantDemography',
+    'ExponentialDemography',
+    'ContinuousDemography',
+    'ConstantDemography',
     'StandardCoalescent',
     'BetaCoalescent',
     'Comparison'

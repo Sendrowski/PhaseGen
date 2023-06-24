@@ -1,12 +1,14 @@
 import re
 
 configs = [
-    'standard_coalescent_n_4',
+    'standard_coalescent_ph_n_4',
+    'standard_coalescent_ph_const_n_4',
     '2_epoch_n_2',
     'rapid_decline_n_2',
     'rapid_decline_n_5',
     '4_epoch_up_down_n_10',
-    '4_epoch_up_down_n_2'
+    '4_epoch_up_down_n_2',
+    '3_epoch_extreme_bottleneck_n_5'
 ]
 
 

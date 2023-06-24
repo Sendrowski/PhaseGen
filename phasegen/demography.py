@@ -1,7 +1,8 @@
 from abc import abstractmethod
-from typing import List
+from typing import List, Callable
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 class Demography:
@@ -56,11 +57,39 @@ class ConstantDemography(Demography):
         """
         return t / self.pop_size
 
+    def plot(self, show: bool = True) -> plt.Axes:
+        """
+        Plot the population size over time.
+
+        :param show: Whether to show the plot.
+        :return: Axes object.
+        """
+        plt.plot([0, 1], [self.pop_size, self.pop_size])
+
+        return self.finalize_plot(show=show)
+
+    @staticmethod
+    def finalize_plot(show: bool = True) -> plt.Axes:
+        """
+        Finalize the plot.
+
+        :param show: Whether to show the plot.
+        :return: Axes object.
+        """
+        ax = plt.gca()
+
+        ax.set_xlabel('t')
+        ax.set_ylabel('N(t)')
+
+        if show:
+            plt.show()
+
+        return ax
+
 
 class PiecewiseConstantDemography(ConstantDemography):
     """
-    Demographic scenario where containing a number
-    of instantaneous population size changes.
+    Piecewise constant demographic scenario.
     """
 
     def __init__(self, pop_sizes: np.ndarray | List, times: np.ndarray | List):
@@ -117,3 +146,75 @@ class PiecewiseConstantDemography(ConstantDemography):
 
         # return cumulative probability
         return np.dot(self.tau[:i], 1 / self.pop_sizes[:i]) + (t - self.times[i]) / self.pop_sizes[i]
+
+    def plot(self, show: bool = True) -> plt.Axes:
+        """
+        Plot the population size over time.
+
+        :param show: Whether to show the plot.
+        :return: Axes object.
+        """
+        plt.step(self.times, self.pop_sizes, where='post')
+
+        return self.finalize_plot(show=show)
+
+
+class ContinuousDemography(PiecewiseConstantDemography):
+    """
+    Continuous demographic scenario (which is discretized).
+    """
+
+    def __init__(self, trajectory: Callable[[float], float]):
+        """
+        Create a continuous demographic scenario.
+        TODO determine dynamically based on the transition probabilities.
+
+        :param trajectory: Function that returns the population size at a given time.
+        """
+        #: Trajectory function
+        self.trajectory = np.vectorize(trajectory)
+
+        start_time = 0
+        end_time = 5
+        n_points = 100000
+        n_epochs = 100
+
+        # compute the cumulative sum and normalize it to be between 0 and 1
+        x = np.linspace(start_time, end_time, n_points)
+        y = self.trajectory(x)
+
+        # generate the discretized points
+        population_changes = np.linspace(y[0], y[-1], n_epochs)
+        indices = np.array([(np.abs(y - p)).argmin() for p in population_changes])
+
+        pop_sizes = y[indices]
+        times = x[indices]
+
+        super().__init__(pop_sizes=pop_sizes, times=times)
+
+    def plot(self, show: bool = True) -> plt.Axes:
+        """
+        Plot the population size over time.
+
+        :param show: Whether to show the plot.
+        :return: Axes object.
+        """
+        plt.plot(self.times, self.trajectory(self.times), label='original')
+        plt.step(self.times, self.pop_sizes, where='post', label='discretized')
+        plt.legend()
+
+        return self.finalize_plot(show=show)
+
+
+class ExponentialDemography(ContinuousDemography):
+    """
+    Demographic scenario where the population size grows exponentially.
+    """
+
+    def __init__(self, growth_rate: float, N0: float = 1):
+        """
+        :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
+            ``N0 * exp(- growth_rate * t)``.
+        :param N0: Initial population size (only used if growth_rate is specified).
+        """
+        super().__init__(trajectory=lambda t: N0 * np.exp(- growth_rate * t))

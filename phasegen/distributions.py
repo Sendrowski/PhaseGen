@@ -1,11 +1,9 @@
 import functools
-import itertools
-import math
+import logging
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from functools import cached_property, lru_cache
 from math import factorial
-from typing import Generator, List, Callable, cast, Tuple, Dict, Set
+from typing import Generator, List, Callable, Tuple
 
 import msprime as ms
 import numpy as np
@@ -18,8 +16,10 @@ from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel
-from .demography import Demography, PiecewiseConstantDemography
+from .demography import PiecewiseConstantDemography
 from .visualization import Visualization
+
+logger = logging.getLogger('phasegen')
 
 
 def parallelize(
@@ -330,12 +330,14 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         return np.vectorize(pdf)(u)
 
 
-class VariablePopSizeDistribution(ConstantPopSizeDistribution):
+class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
     """
     Variable population size distribution using IPH.
     """
+    #: Threshold for absorption probability under which the absorption probability is considered zero
+    absorption_threshold = 1e-10
 
-    def __init__(self, cd: 'VariablePopSizeCoalescent', r: np.ndarray | List):
+    def __init__(self, cd: 'PiecewiseConstantPopSizeCoalescent', r: np.ndarray | List):
         super().__init__(cd, r)
 
         self.cd = cd
@@ -364,7 +366,7 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         moments = np.zeros(self.cd.n_epochs)
 
         # moments conditional on no absorption in current epoch
-        moments_no_absorp = np.zeros(self.cd.n_epochs + 1)
+        moments_no_absorp = np.zeros(self.cd.n_epochs)
 
         # state probabilities conditional on no absorption in previous epoch
         alphas = np.zeros((self.cd.n_epochs + 1, self.cd.n))
@@ -376,49 +378,76 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         alphas[0] = alpha
         alphas_no_absorp[0] = np.concatenate([(alpha[:-1] / alpha[:-1].sum()), [0]])
 
+        # time spent in epochs scaled by Ne
+        taus = np.zeros(self.cd.n_epochs)
+
         # iterate through epochs and compute initial values
-        for i in range(0, self.cd.n_epochs):
+        for i in range(self.cd.n_epochs):
 
             # Ne of current epoch
             Ne = self.cd.pop_sizes[i]
 
             # all but last epoch
-            # TODO break out of loop if absorbing state is reached
             if i < self.cd.n_epochs - 1:
                 # time spent in current epoch scaled by Ne
-                tau = (self.cd.times[i + 1] - self.cd.times[i]) / Ne
-            else:
-                # TODO termine tau dynamically
-                tau = 1000
+                taus[i] = (self.cd.times[i + 1] - self.cd.times[i]) / Ne
 
-            # calculate transition probabilities for current epoch
-            P = fractional_matrix_power(self.cd.T, tau)
+                # don't recompute transition probabilities if tau is the same as in the previous epoch
+                if i == 0 or taus[i - 1] != taus[i]:
+                    # calculate transition probabilities for current epoch
+                    P = fractional_matrix_power(self.cd.T, taus[i])
+            # last epoch
+            else:
+                # determine tau so that we reach the absorbing state almost surely
+                taus[i] = 10
+                P = matrix_power(self.cd.T, 10)
+
+                # increase tau until we reach the absorbing state almost surely
+                while (np.abs(1 - P[:, -1]) > 1e-14).any():
+                    taus[i] *= 10
+                    P = matrix_power(P, 10)
 
             # update alpha for the time spent in the current epoch
+            # noinspection all
             alphas[i + 1] = alphas_no_absorp[i] @ P
             alphas_no_absorp[i + 1] = np.concatenate([(alphas[i + 1][:-1] / alphas[i + 1][:-1].sum()), [0]])
 
-            # obtain sojourn matrix for the current epoch using Van Loan's method
-            M = van_loan(S=self.cd.S, B=self.cd.invert_reward(R), tau=tau, k=k)
+            # check if absorption probability is less than threshold
+            if np.prod(1 - alphas[:i + 1, -1]) < self.absorption_threshold:
+                logger.info(f"Probability of no absorption is less than {self.absorption_threshold} "
+                            f"in epoch {i + 1}. Terminating loop.")
+                break
 
-            # normalize by transition probabilities
-            M[P != 0] /= P[P != 0]
+            # don't recompute sojourn times if tau is the same as in the previous epoch
+            if i == 0 or taus[i - 1] != taus[i]:
+                # obtain sojourn matrix for the current epoch using Van Loan's method
+                M = van_loan(S=self.cd.S, B=self.cd.invert_reward(R), tau=taus[i], k=k)
+
+                # normalize by transition probabilities
+                M[P != 0] /= P[P != 0]
 
             # calculate moments in this epoch given no absorption in the previous epoch
+            # noinspection all
             moments[i] = Ne ** k * factorial(k) * (alphas_no_absorp[i] @ M)[-1]
 
-            # make sojourn matrix symmetric
-            M += M.T
-            M[np.diag_indices_from(M)] /= 2
+            # all but last epoch
+            if i < self.cd.n_epochs - 1:
+                # make sojourn matrix symmetric
+                M += M.T - np.diag(np.diag(M))
 
-            # calculate moments given no absorption in this epoch
-            moments_no_absorp[i + 1] = Ne ** k * factorial(k) * alphas_no_absorp[i] @ M @ alphas_no_absorp[i + 1]
+                # calculate moments given no absorption in this epoch
+                moments_no_absorp[i + 1] = Ne ** k * factorial(k) * alphas_no_absorp[i] @ M @ alphas_no_absorp[i + 1]
 
+        # probability of no absorption until the nth epoch
         no_absorption = np.cumprod(1 - alphas[:-1, -1])
+
+        # probability of absorption in the nth epoch conditional on no absorption in previous epochs
         absorption_probs = alphas[1:, -1]
+
+        # probability of absorption in the nth epoch
         total_absorption_probs = no_absorption * absorption_probs
 
-        return moments, moments_no_absorp[:-1], total_absorption_probs
+        return moments, moments_no_absorp, total_absorption_probs
 
     def nth_moment(self, k: int, alpha: np.ndarray = None, r: np.ndarray = None, **kwargs) -> float:
         """
@@ -496,148 +525,10 @@ class VariablePopSizeDistribution(ConstantPopSizeDistribution):
         return np.vectorize(pdf)(u)
 
 
-class SFSDistribution(VariablePopSizeDistribution):
+class SFSDistribution(PiecewiseConstantPopSizeDistribution):
     """
     Variable population size distribution using IPH.
     """
-
-    def find_vectors(self, m: int, n: int) -> List[List[int]]:
-        """
-        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
-
-        :param m: length of the vectors
-        :param n: target sum
-        :returns: list of vectors satisfying the condition
-        """
-        # base case, when the length of vector is 0
-        # if n is also 0, return an empty vector, otherwise no solutions
-        if m == 0:
-            return [[]] if n == 0 else []
-
-        vectors = []
-        # iterate over possible values for the first component
-        for x in range(n // m + 1):  # Adjusted for 1-based index
-            # recursively find vectors with one less component and a smaller target sum
-            for vector in self.find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
-                # prepend the current component to the recursively found vectors
-                vectors.append(vector + [x])  # Reversed vectors
-
-        return vectors
-
-    def find_substates(self, state: np.ndarray) -> List[np.ndarray]:
-        """
-        Function to find all substates of a given state that are one coalescence event away.
-
-        :param state: The given state
-        :returns: list of substates
-        """
-        substates = []
-
-        for i in range(self.cd.n):
-            for j in range(self.cd.n):
-                if (i < j and state[i] > 0 and state[j] > 0) or (i == j and state[i] > 1):
-                    new_state = state.copy()
-                    new_state[i] -= 1
-                    new_state[j] -= 1
-                    new_state[i + j + 1] += 1
-
-                    substates.append(new_state)
-
-        return substates
-
-    def get_sample_config_probs_explicit_state_space(self) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-        This function constructs the state space explicitly and iterates over all possible states which is
-        computationally expensive.
-
-        :return:
-        """
-        # get all possible states
-        states = np.array(self.find_vectors(self.cd.n, self.cd.n))
-
-        # the number of lineages in each state
-        n_lin_states = states.sum(axis=1)
-
-        # the indices of the states with the same number of lineages
-        n_lineages = [np.where(n_lin_states == i)[0] for i in np.arange(self.cd.n + 1)]
-
-        # initialize the probabilities
-        probs = cast(Dict[Tuple, float], defaultdict(int))
-        probs[tuple(states[0])] = 1
-
-        # iterate over the number of lineages
-        for i in np.arange(2, self.cd.n)[::-1]:
-
-            # iterate over pairs and determine the probability of transitioning from s1 to s2
-            for s1, s2 in itertools.product(states[n_lineages[i + 1]], states[n_lineages[i]]):
-                # s = self.find_substates(s1)
-
-                probs[tuple(s2)] += probs[tuple(s1)] * self.get_probs(s1, s2)
-
-        return probs
-
-    def get_sample_config_probs(self) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-
-        :return:
-        """
-        # initialize the probabilities
-        probs = cast(Dict[Tuple, float], defaultdict(int))
-
-        # states indexed by the number of lineages
-        states: List[Set[Tuple[int, ...]]] = [set() for _ in range(self.cd.n)]
-        states[self.cd.n - 1] = {tuple([self.cd.n] + [0] * (self.cd.n - 1))}
-
-        # initialize the probabilities
-        probs[tuple(states[self.cd.n - 1])[0]] = 1
-
-        # iterate over the number of lineages
-        for i in np.arange(2, self.cd.n)[::-1]:
-
-            # iterate over states with i + 1 lineages
-            for s1_tuple in states[i]:
-                s1 = np.array(s1_tuple)
-
-                # iterate over substates of s1
-                for s2 in self.find_substates(s1):
-                    s2_tuple = tuple(s2)
-                    states[i - 1].add(s2_tuple)
-
-                    # determine the probability of transitioning from s1 to s2
-                    probs[s2_tuple] += probs[s1_tuple] * self.get_probs(s1, s2)
-
-        return probs
-
-    def get_probs(self, s1: np.ndarray, s2: np.ndarray) -> float:
-        """
-        Get the probabilities transitioning from s1 to s2 assuming that s1 has one more lineage than s2.
-
-        :param s1: The starting state
-        :param s2: The ending state
-        :return: The probability of transitioning from s1 to s2
-        """
-        diff = s1 - s2
-        i = s1.sum()
-
-        if np.sum(diff == -1) == 1:
-
-            # if two lineages of the same class coalesce
-            if np.sum(diff == 2) == 1 and np.sum(diff == 0) == self.cd.n - 2:
-                # get the number of lineages that were present in s1
-                j = s1[diff == 2][0]
-
-                return math.comb(j, 2) / math.comb(i, 2)
-
-            # if two lineages of different classes coalesce
-            if np.sum(diff == 1) == 2 and np.sum(diff == 0) == self.cd.n - 3:
-                # get the number of lineages that were present in s1
-                j1, j2 = s1[diff == 1]
-
-                return math.comb(j1, 1) * math.comb(j2, 1) / math.comb(i, 2)
-
-        return 0
 
     def nth_moment(self, k: int, alpha: np.ndarray = None, **kwargs) -> np.ndarray:
         """
@@ -648,23 +539,21 @@ class SFSDistribution(VariablePopSizeDistribution):
         :param kwargs: Additional arguments
         :return: The nth moment
         """
-        probs = self.get_sample_config_probs()
+        # if we are calculating the first moment
+        # we can easily merge the states of the different tree topologies
+        # by taking the average of those states weighted by the probability
+        # of the tree topology. This is much faster than the general case
+        # as we work with a much smaller state space
+        if k == 1:
+            probs = self.cd.model.get_sample_config_probs(self.cd.n)
 
-        R = np.zeros((self.cd.n, self.cd.n))
+            R = np.zeros((self.cd.n, self.cd.n))
 
-        for state, prob in probs.items():
-            R[:, self.cd.n - sum(state)] += prob * np.array(state)
-
-        # TODO how to combine state for higher moments?
-        if k == 2:
-            R = np.array([
-                [4., 2., 0.88888889, 0.],
-                [0., 1., 1.11111111, 0.],
-                [0., 0., 0.88888889, 0.],
-                [0., 0., 0., 0.]
-            ])
-
-        # probs[(0, 2, 0, 0)] ** 2 * np.array([0, 2, 0, 0]) + probs[(1, 0, 1, 0)] ** 2 * np.array([1, 0, 1, 0]) + 2 * (np.array([1, 0, 1, 0]) + np.array([0, 2, 0, 0])) * probs[(0, 2, 0, 0)] * probs[(1, 0, 1, 0)]
+            for state, prob in probs.items():
+                R[:, self.cd.n - sum(state)] += prob * np.array(state)
+        else:
+            # TODO create large state space
+            R = None
 
         sfs = np.zeros(self.cd.n + 1)
         for i, r in enumerate(R[:-1]):
@@ -764,6 +653,7 @@ class CoalescentDistribution:
 
 class ConstantPopSizeCoalescent(CoalescentDistribution):
     """
+    Coalescent distribution for a constant population size.
     """
 
     def __init__(
@@ -771,8 +661,18 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
             n: int = 2,
             model: CoalescentModel = StandardCoalescent(),
             alpha: np.ndarray | List = None,
-            Ne: float | int = 1
+            Ne: float | int = 1,
+            S_sub: np.ndarray = None,
     ):
+        """
+        Create object.
+
+        :param n: Number of lineages.
+        :param model: Coalescent model.
+        :param alpha: Initial state vector.
+        :param Ne: Effective population size.
+        :param S_sub: Sub-intensity matrix (advanced use, ``model`` will be ignored).
+        """
         self.alpha = None
 
         # coalescent model
@@ -792,8 +692,9 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         # effective population size
         self.Ne = Ne
 
-        # obtain sub-intensity matrix
-        S_sub = self.get_rate_matrix(self.n, self.model)
+        if S_sub is None:
+            # obtain sub-intensity matrix
+            S_sub = self.model.get_rate_matrix(self.n)
 
         # obtain exit rate vector
         self.s = -S_sub @ self.e[:-1]
@@ -883,23 +784,6 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         """
         return inv(self.T)
 
-    @staticmethod
-    def get_rate_matrix(n: int, model: CoalescentModel) -> np.ndarray:
-        def matrix_indices_to_rates(i: int, j: int) -> float:
-            """
-            Convert matrix indices to k out of b lineages.
-
-            :param i:
-            :param j:
-            :return:
-            """
-            return model.get_rate(b=int(n - i), k=int(j + 1 - i))
-
-        # Define sub-intensity matrix.
-        # Dividing by Ne here produces unstable results for small population
-        # sizes (Ne < 1). We thus add it later to the moments.
-        return cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n - 1, n - 1)))
-
     @cached_property
     def tree_height(self) -> ConstantPopSizeDistribution:
         """
@@ -927,26 +811,29 @@ class ConstantPopSizeCoalescent(CoalescentDistribution):
         )
 
 
-class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
+class PiecewiseConstantPopSizeCoalescent(ConstantPopSizeCoalescent):
     def __init__(
             self,
             n: int = 2,
             model: CoalescentModel = StandardCoalescent(),
             alpha: np.ndarray = None,
-            demography: Demography = None
+            demography: PiecewiseConstantDemography = None,
+            S_sub: np.ndarray = None,
     ):
         """
+        Create object.
 
-        :param n:
-        :param model:
-        :param alpha:
-        :param demography:
+        :param n: Number of lineages.
+        :param model: Coalescent model.
+        :param alpha: Initial state vector.
+        :param S_sub: Sub-intensity matrix (advanced use, ``model`` will be ignored).
         """
         super().__init__(
             model=model,
             n=n,
             alpha=alpha,
-            Ne=1
+            Ne=1,
+            S_sub=S_sub
         )
 
         self.demography = demography
@@ -961,27 +848,27 @@ class VariablePopSizeCoalescent(ConstantPopSizeCoalescent):
             self.n_epochs = 1
 
     @cached_property
-    def tree_height(self) -> VariablePopSizeDistribution:
+    def tree_height(self) -> PiecewiseConstantPopSizeDistribution:
         """
         Tree height distribution.
 
         :return:
         :rtype:
         """
-        return VariablePopSizeDistribution(
+        return PiecewiseConstantPopSizeDistribution(
             cd=self,
             r=self.pad(np.ones(self.n - 1))
         )
 
     @cached_property
-    def total_branch_length(self) -> VariablePopSizeDistribution:
+    def total_branch_length(self) -> PiecewiseConstantPopSizeDistribution:
         """
         Total branch length distribution.
 
         :return:
         :rtype:
         """
-        return VariablePopSizeDistribution(
+        return PiecewiseConstantPopSizeDistribution(
             cd=self,
             r=self.pad(1 / np.arange(2, self.n + 1)[::-1])
         )
@@ -1001,8 +888,10 @@ class MsprimeCoalescent(CoalescentDistribution):
     def __init__(
             self,
             n: int,
-            pop_sizes: np.ndarray | List,
-            times: np.ndarray | List,
+            pop_sizes: np.ndarray | List = None,
+            times: np.ndarray | List = None,
+            growth_rate: float = None,
+            N0: float = None,
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True
@@ -1010,12 +899,15 @@ class MsprimeCoalescent(CoalescentDistribution):
         """
         Simulate data using msprime.
 
-        :param n:
-        :param pop_sizes:
-        :param times:
-        :param num_replicates:
-        :param n_threads:
-        :param parallelize:
+        :param n: Number of Lineages.
+        :param pop_sizes: Population sizes
+        :param times: Epoch times
+        :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
+            ``N0 * exp(- growth_rate * t)``.
+        :param N0: Initial population size (only used if growth_rate is specified).
+        :param num_replicates: Number of replicates
+        :param n_threads: Number of threads
+        :param parallelize: Whether to parallelize
         """
         self.sfs_counts = None
         self.total_branch_lengths = None
@@ -1024,6 +916,8 @@ class MsprimeCoalescent(CoalescentDistribution):
         self.n = n
         self.pop_sizes = pop_sizes
         self.times = times
+        self.growth_rate = growth_rate
+        self.N0 = N0
         self.num_replicates = num_replicates
         self.n_threads = n_threads
         self.parallelize = parallelize
@@ -1035,14 +929,23 @@ class MsprimeCoalescent(CoalescentDistribution):
         """
         # configure demography
         d = ms.Demography()
+
+        # add population
         d.add_population(initial_size=self.pop_sizes[0])
+
+        # exponential growth
+        if self.growth_rate is not None:
+            d.add_population_parameters_change(time=0, initial_size=self.N0, growth_rate=self.growth_rate)
+
+        # piecewise constant
+        else:
+
+            # add population size change is specified
+            for i in range(1, len(self.pop_sizes)):
+                d.add_population_parameters_change(time=self.times[i], initial_size=self.pop_sizes[i])
 
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
-
-        # add population size change is specified
-        for i in range(1, len(self.pop_sizes)):
-            d.add_population_parameters_change(time=self.times[i], initial_size=self.pop_sizes[i])
 
         def simulate_batch(_) -> (np.ndarray, np.ndarray, np.ndarray):
             """

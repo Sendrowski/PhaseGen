@@ -19,6 +19,8 @@ try:
     n = snakemake.params.n
     pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
+    growth_rate = snakemake.params.growth_rate
+    N0 = snakemake.params.N0
     alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
     num_replicates = snakemake.params.get('num_replicates', 10000)
     n_threads = snakemake.params.get('n_threads', 100)
@@ -29,15 +31,17 @@ try:
 except NameError:
     # testing
     testing = True
-    n = 4  # sample size
+    n = 20  # sample size
     times = [0]
     pop_sizes = [1]
+    growth_rate = 1
+    N0 = 1
     alpha = np.eye(1, n, 0)[0]
     num_replicates = 100000
     n_threads = 1000
     parallelize = True
     dist = 'sfs'
-    stat = 'var'
+    stat = 'mean'
     out = "scratch/test_comp.png"
 
 from phasegen import Comparison
@@ -46,6 +50,8 @@ comp = Comparison(
     n=n,
     pop_sizes=pop_sizes,
     times=times,
+    growth_rate=growth_rate,
+    N0=N0,
     alpha=alpha,
     num_replicates=num_replicates,
     n_threads=n_threads,
