@@ -46,7 +46,6 @@ def to_numpy(m: mp.matrix) -> np.ndarray:
     """
     Convert mpmath matrix to numpy array.
     :param m:
-    :type m:
     :return:
     :rtype:
     """
@@ -58,7 +57,6 @@ def fractional_power(m: mp.matrix, p: float) -> mp.matrix:
     Fractional power of mpmath matrix using exponentials.
     TODO this sometimes produces complex values with small negative parts
     :param m:
-    :type m:
     :param p:
     :type p:
     :return:
@@ -179,16 +177,19 @@ class ProbabilityDistribution(ABC):
 
     def plot_cdf(
             self,
-            x: np.ndarray = np.linspace(0, 20, 100),
+            x: np.ndarray = None,
             show: bool = True,
             file: str = None,
             clear: bool = True,
             label: str = None
-    ) -> plt.axis:
+    ) -> plt.axes:
         """
         Plot cumulative distribution function.
         :return:
         """
+        if x is None:
+            x = np.linspace(0, 20, 100)
+
         Visualization.plot(
             x=x,
             y=self.cdf(x),
@@ -202,16 +203,19 @@ class ProbabilityDistribution(ABC):
 
     def plot_pdf(
             self,
-            x: np.ndarray = np.linspace(0, 20, 100),
+            x: np.ndarray = None,
             show=True,
             file: str = None,
             clear: bool = True,
             label: str = None
-    ) -> plt.axis:
+    ) -> plt.axes:
         """
         Plot density function.
         :return:
         """
+        if x is None:
+            x = np.linspace(0, 20, 100)
+
         Visualization.plot(
             x=x,
             y=self.pdf(x),

@@ -2,80 +2,93 @@ import functools
 from typing import Callable
 
 import numpy as np
-from matplotlib import pyplot as plt
 import seaborn as sns
-
-
-def clear_show_save(func: Callable) -> Callable:
-    """
-    Decorator for clearing current figure in the beginning
-    and showing or saving produced plot subsequently.
-
-    :param func: The function to decorate.
-    :return: The decorated function.
-    """
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        """
-        Wrapper function.
-
-        :param args:
-        :param kwargs:
-        :return:
-        """
-        # clear current figure
-        if 'clear' not in kwargs or ('clear' in kwargs and kwargs['clear']):
-            plt.clf()
-
-        # execute function
-        func(*args, **kwargs)
-
-        # show or save
-        return show_and_save(
-            file=kwargs['file'] if 'file' in kwargs else None,
-            show=kwargs['show'] if 'show' in kwargs else None
-        )
-
-    return wrapper
-
-
-def show_and_save(file: str = None, show=True) -> plt.axis:
-    """
-    Show and save plot.
-
-    :param file:
-    :param show:
-    :return:
-    """
-    # save figure if file path given
-    if file is not None:
-        plt.savefig(file, dpi=200, bbox_inches='tight', pad_inches=0.1)
-
-    # show figure if specified
-    if show:
-        plt.show()
-
-    # return axis
-    return plt.gca()
+from matplotlib import pyplot as plt
 
 
 class Visualization:
+
+    @staticmethod
+    def clear_show_save(func: Callable) -> Callable:
+        """
+        Decorator for clearing current figure in the beginning
+        and showing or saving produced plot subsequently.
+
+        :param func: Function to decorate
+        :return: Wrapper function
+        """
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> plt.Axes:
+            """
+            Wrapper function.
+
+            :param args: Positional arguments
+            :param kwargs: Keyword arguments
+            :return: Axes
+            """
+
+            # add axes if not given
+            if 'ax' not in kwargs or ('ax' in kwargs and kwargs['ax'] is None):
+                # clear current figure
+                plt.clf()
+
+                kwargs['ax'] = plt.gca()
+
+            # execute function
+            func(*args, **kwargs)
+
+            # make layout tight
+            plt.tight_layout()
+
+            # show or save
+            # show by default here
+            return Visualization.show_and_save(
+                file=kwargs['file'] if 'file' in kwargs else None,
+                show=kwargs['show'] if 'show' in kwargs else True
+            )
+
+        return wrapper
+
+    @staticmethod
+    def show_and_save(file: str = None, show: bool = True) -> plt.Axes:
+        """
+        Show and save plot.
+
+        :param file: File path to save plot to
+        :param show: Whether to show plot
+        :return: Axes
+
+        """
+        # save figure if file path given
+        if file is not None:
+            plt.savefig(file, dpi=200, bbox_inches='tight', pad_inches=0.1)
+
+        # show figure if specified and if not in interactive mode
+        if show and not plt.isinteractive():
+            plt.show()
+
+        # return current axes
+        return plt.gca()
+
     @staticmethod
     @clear_show_save
     def plot(
+            ax: plt.Axes,
             x: np.ndarray,
-            y: Callable,
+            y: np.ndarray,
             xlabel: str = 'x',
             ylabel: str = 'f(x)',
             file: str = None,
             show: bool = None,
             clear: bool = True,
-            label: str = None
-    ):
+            label: str = None,
+            title: str = None
+    ) -> plt.Axes:
         """
         Plot function.
 
+        :param ax:
         :param x:
         :param y:
         :param xlabel:
@@ -84,10 +97,16 @@ class Visualization:
         :param show:
         :param clear:
         :param label:
+        :param title:
         :return:
         """
-        sns.lineplot(x=x, y=y, ax=plt.gca(), label=label)
+        sns.lineplot(x=x, y=y, ax=ax, label=label)
 
         # set axis labels
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+        # add title
+        ax.set_title(title)
+
+        return plt.gca()

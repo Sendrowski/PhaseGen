@@ -5,7 +5,6 @@ from collections import defaultdict
 from typing import Callable, List, Set, Tuple, Dict, cast
 
 import numpy as np
-import sympy as sp
 from scipy.special import comb, beta
 
 
@@ -25,28 +24,61 @@ class CoalescentModel(ABC):
 
         def matrix_indices_to_rates(i: int, j: int) -> float:
             """
-            Convert matrix indices to k out of b lineages.
+            Get the rate from state i to state j.
 
-            :param i:
-            :param j:
-            :return:
+            :param i: State i.
+            :param j: State j.
+            :return: The rate from state i to state j.
             """
-            return self.get_rate(b=int(n - i), k=int(j + 1 - i))
+            return self.get_rate(b=n - i, k=j + 1 - i)
 
         # Dividing by Ne here produces unstable results for small population
         # sizes (Ne < 1). We thus add it later to the moments.
-        return cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n - 1, n - 1)))
+        return cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n - 1, n - 1), dtype=int))
 
-    def get_rate_matrix_infinite_alleles(self, n: int) -> np.ndarray:
+    def get_states_infinite_alleles(self, n: int) -> np.ndarray:
+        """
+        Get the states for a given number of lineages.
+
+        :param n: Number of lineages.
+        :return: The states.
+        """
+        return np.array(self.find_vectors(m=n, n=n))
+
+    def find_vectors(self, m: int, n: int) -> List[List[int]]:
+        """
+        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
+
+        :param m: Length of the vectors.
+        :param n: Target sum.
+        :returns: list of vectors satisfying the condition
+        """
+        # base case, when the length of vector is 0
+        # if n is also 0, return an empty vector, otherwise no solutions
+        if m == 0:
+            return [[]] if n == 0 else []
+
+        vectors = []
+        # iterate over possible values for the first component
+        for x in range(n // m + 1):  # Adjusted for 1-based index
+            # recursively find vectors with one less component and a smaller target sum
+            for vector in self.find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
+                # prepend the current component to the recursively found vectors
+                vectors.append(vector + [x])  # Reversed vectors
+
+        return vectors
+
+    @abstractmethod
+    def get_rate_matrix_infinite_alleles(self, n: int) -> (np.ndarray, np.ndarray):
         r"""
         Get the sub-intensity matrix for a given number of lineages.
         Each state corresponds to a sample configuration,
         :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
 
         :param n: Number of lineages.
-        :return: The rate matrix.
+        :return: The rate matrix, and the list of states
         """
-
+        pass
 
     @abstractmethod
     def get_rate(self, b: int, k: int):
@@ -72,16 +104,16 @@ class CoalescentModel(ABC):
 
 class StandardCoalescent(CoalescentModel):
     """
-    Standard coalescent model.
+    Standard (Kingman) coalescent model.
     """
 
     def get_rate(self, b: int, k: int):
         """
-        Get exponential rate for a merger of k out of b lineages.
+        Get rate for a merger of k out of b lineages.
 
-        :param b:
-        :param k:
-        :return:
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge.
+        :return: The rate.
         """
         # two lineages can merge with a rate depending on b
         if k == 2:
@@ -94,28 +126,66 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers can happen
         return 0
 
-    def find_vectors(self, m: int, n: int) -> List[List[int]]:
+    def get_rate_infinite_alleles(self, n:int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
+        Get exponential rate for a merger of k out of b lineages.
 
-        :param m: Length of the vectors.
-        :param n: Target sum.
-        :returns: list of vectors satisfying the condition
+        :param n: Number of lineages.
+        :param s1: Sample configuration 1.
+        :param s2: Sample configuration 2.
+        :return: The rate.
         """
-        # base case, when the length of vector is 0
-        # if n is also 0, return an empty vector, otherwise no solutions
-        if m == 0:
-            return [[]] if n == 0 else []
+        diff = s2 - s1
 
-        vectors = []
-        # iterate over possible values for the first component
-        for x in range(n // m + 1):  # Adjusted for 1-based index
-            # recursively find vectors with one less component and a smaller target sum
-            for vector in self.find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
-                # prepend the current component to the recursively found vectors
-                vectors.append(vector + [x])  # Reversed vectors
+        if np.sum(diff == 1) == 1:
 
-        return vectors
+            # if two lineages of different classes coalesce
+            if np.sum(diff == -1) == 2 and np.sum(diff == 0) == n - 3:
+
+                # check that (a_1,...,a_n) -> (a_1,...,a_i - 1,...,a_j - 1,...,a_{i+j} + 1,...,a_n)
+                if diff[(np.where(diff == -1)[0] + 1).sum() - 1] == 1:
+                    rate = s1[np.where(diff == -1)[0]].prod()
+                    return rate
+
+            # if two lineages of the same class coalesce
+            if np.sum(diff == -2) == 1 and np.sum(diff == 0) == n - 2:
+
+                # check that (a_1,...,a_n) -> (a_1,...,a_i - 2,...,a_2i + 1,...,a_n)
+                if diff[2 * (np.where(diff == -2)[0][0] + 1) - 1] == 1:
+                    rate = math.comb(s1[np.where(diff == -2)[0][0]], 2)
+                    return rate
+
+        return 0
+
+    def get_rate_matrix_infinite_alleles(self, n: int) -> (np.ndarray, np.ndarray):
+        r"""
+        Get the sub-intensity matrix for a given number of lineages.
+        Each state corresponds to a sample configuration,
+        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
+
+        :param n: Number of lineages.
+        :return: The rate matrix.
+        """
+        # TODO define ordering of states and implement this in general
+        states = self.get_states_infinite_alleles(n)
+        n_states = states.shape[0]
+
+        def matrix_indices_to_rates(i: int, j: int) -> float:
+            """
+            Get the rate from state i to state j.
+
+            :param i: State i.
+            :param j: State j.
+            :return: The rate from state i to state j.
+            """
+            return self.get_rate_infinite_alleles(n=n, s1=states[i], s2=states[j])
+
+        S = cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n_states, n_states), dtype=int))
+
+        # fill diagonal with negative sum of row
+        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
+
+        return S, states
 
     def find_substates(self, n: int, state: np.ndarray) -> List[np.ndarray]:
         """
@@ -146,10 +216,10 @@ class StandardCoalescent(CoalescentModel):
         computationally expensive.
 
         :param n: The number of lineages
-        :return:
+        :return: The probabilities of all possible sample configurations.
         """
         # get all possible states
-        states = np.array(self.find_vectors(n, n))
+        states = self.get_states_infinite_alleles(n)
 
         # the number of lineages in each state
         n_lin_states = states.sum(axis=1)
@@ -243,15 +313,20 @@ class BetaCoalescent(CoalescentModel):
     """
 
     def __init__(self, alpha: float):
+        """
+        Initialize the beta coalescent model.
+
+        :param alpha: The alpha parameter of the beta coalescent model.
+        """
         self.alpha = alpha
 
     def get_rate(self, b: int, k: int):
         """
         Get exponential rate for a merger of k out of b lineages.
 
-        :param b:
-        :param k:
-        :return:
+        :param b: The number of lineages.
+        :param k: The number of lineages that merge.
+        :return: The rate.
         """
         if k < 1 or k > b:
             return 0
@@ -265,8 +340,8 @@ class BetaCoalescent(CoalescentModel):
         """
         Get the probabilities of all possible sample configurations.
 
-        :param n: The number of lineages
-        :return:
+        :param n: The total number of lineages
+        :return: The probabilities of all possible sample configurations.
         """
         raise NotImplementedError()
 
@@ -282,7 +357,7 @@ class LambdaCoalescent(CoalescentModel):
         """
         Get the density function of the coalescent model.
 
-        :return:
+        :return: The density function of the coalescent model.
         """
         pass
 
@@ -290,21 +365,23 @@ class LambdaCoalescent(CoalescentModel):
         """
         Get exponential rate for a merger of j out of i lineages.
 
-        :param i:
-        :param j:
-        :return:
+        :param i: The number of lineages.
+        :param j: The number of lineages that merge.
+        :return: The rate.
+        """
         """
         x = sp.symbols('x')
         integrand = x ** (i - 2) * (1 - x) ** (j - i)
 
         integral = sp.Integral(integrand * self.get_density()(x), (x, 0, 1))
         return float(integral.doit())
+        """
 
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """
         Get the probabilities of all possible sample configurations.
 
         :param n: The number of lineages
-        :return:
+        :return: The probabilities of all possible sample configurations.
         """
         raise NotImplementedError()

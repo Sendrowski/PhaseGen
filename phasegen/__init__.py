@@ -89,24 +89,27 @@ from .serialization import NumpyArrayHandler
 # register custom json handlers
 jsonpickle.handlers.registry.register(np.ndarray, NumpyArrayHandler)
 
-from .distributions import ConstantPopSizeDistribution, PiecewiseConstantPopSizeDistribution, \
-    ContinuousPopSizeChangeCoalescent
+from .distributions import ConstantPopSizeDistribution, PiecewiseConstantPopSizeDistribution
 
-from .distributions import ConstantPopSizeCoalescent, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent
+from .distributions import Coalescent, ConstantPopSizeCoalescent, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent
 
 from .demography import Demography, PiecewiseConstantDemography, ExponentialDemography, ContinuousDemography, \
     ConstantDemography
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
 
-from .comparison import Comparison
+from .spectrum import SFS, SFS2
+
+from .inference import Inference
+
+from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
 
 __all__ = [
     'ConstantPopSizeDistribution',
     'PiecewiseConstantPopSizeDistribution',
+    'Coalescent',
     'ConstantPopSizeCoalescent',
     'PiecewiseConstantPopSizeCoalescent',
-    'ContinuousPopSizeChangeCoalescent',
     'MsprimeCoalescent',
     'Demography',
     'PiecewiseConstantDemography',
@@ -115,5 +118,12 @@ __all__ = [
     'ConstantDemography',
     'StandardCoalescent',
     'BetaCoalescent',
-    'Comparison'
+    'SFS2',
+    'SFS',
+    'Inference',
+    'LNorm',
+    'L1Norm',
+    'L2Norm',
+    'LInfNorm',
+    'PoissonLikelihood'
 ]

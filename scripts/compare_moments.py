@@ -6,8 +6,14 @@ __author__ = "Janek Sendrowski"
 __contact__ = "j.sendrowski18@gmail.com"
 __date__ = "2023-03-11"
 
+import time
+
+import matplotlib.pyplot as plt
 import numpy as np
-from fastdfe import Spectra, Spectrum
+from fastdfe import Spectra
+
+import phasegen as pg
+from phasegen.comparison import Comparison
 
 try:
     import sys
@@ -31,20 +37,18 @@ try:
 except NameError:
     # testing
     testing = True
-    n = 20  # sample size
-    times = [0]
-    pop_sizes = [1]
-    growth_rate = 1
+    n = 10  # sample size
+    times = np.linspace(0, 3, 2)
+    pop_sizes = [1] * 2
+    growth_rate = None
     N0 = 1
     alpha = np.eye(1, n, 0)[0]
     num_replicates = 100000
     n_threads = 1000
-    parallelize = True
+    parallelize = False
     dist = 'sfs'
-    stat = 'mean'
+    stat = 'corr'
     out = "scratch/test_comp.png"
-
-from phasegen import Comparison
 
 comp = Comparison(
     n=n,
@@ -58,11 +62,33 @@ comp = Comparison(
     parallelize=parallelize
 )
 
-s1 = getattr(getattr(comp.ph, dist), stat)
-#s0 = getattr(getattr(comp.ph_legacy, dist), stat)
-s2 = getattr(getattr(comp.ms, dist), stat)
+start_time = time.time()
+ph = getattr(getattr(comp.ph, dist), stat)
+runtime = time.time() - start_time
 
-if dist == 'sfs':
-    Spectra.from_spectra(dict(ms=Spectrum(s2), ph=Spectrum(s1))).plot()
+ms = getattr(getattr(comp.ms, dist), stat)
+
+if isinstance(ph, pg.SFS2):
+
+    _, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+
+    ph.plot(ax=axs[0], title='ph', show=False)
+    ms.plot(ax=axs[1], title='ms')
+
+elif isinstance(ms, pg.SFS):
+
+    Spectra.from_spectra(dict(
+        ms=ms,
+        ph=ph,
+    )).plot()
+
+else:
+
+    Spectra.from_spectra(dict(
+        ms=pg.SFS([0, ms, 0]),
+        ph=pg.SFS([0, ph, 0]),
+    )).plot()
+
+abs_max = np.nanmax(np.abs((ms.data - ph.data) / (ms.data + ph.data)))
 
 pass

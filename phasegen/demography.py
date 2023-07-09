@@ -6,6 +6,9 @@ from matplotlib import pyplot as plt
 
 
 class Demography:
+    """
+    Base class for demographic scenarios.
+    """
 
     def get_rate(self, t: float) -> float:
         """
@@ -34,9 +37,13 @@ class ConstantDemography(Demography):
 
     def __init__(self, pop_size: float):
         """
-        :param pop_size: Population size.
+        Create a constant demographic scenario.
 
+        :param pop_size: Population size.
         """
+        if pop_size <= 0:
+            raise Exception('Population size must be greater than zero.')
+
         self.pop_size: float = pop_size
 
     def get_rate(self, t: float) -> float:
@@ -98,9 +105,12 @@ class PiecewiseConstantDemography(ConstantDemography):
         We need to start with a population size at time 0 but this time
         can be omitted in which case len(pop_size) == len(times) + 1.
 
-        :param pop_sizes:
-        :param times:
+        :param pop_sizes: Population sizes.
+        :param times: Times at which the population sizes change.
         """
+        if (np.array(pop_sizes) <= 0).any():
+            raise Exception('All population sizes must be greater than zero.')
+
         super().__init__(pop_size=pop_sizes[0])
 
         if len(pop_sizes) == 0:
@@ -128,7 +138,7 @@ class PiecewiseConstantDemography(ConstantDemography):
         # obtain index of previous epoch
         i = np.sum(self.times <= t) - 1
 
-        # return probability
+        # return rate
         return 1 / self.pop_sizes[i]
 
     def get_cum_rate(self, t: float) -> float:
@@ -144,7 +154,7 @@ class PiecewiseConstantDemography(ConstantDemography):
         if i <= 0:
             return super().get_cum_rate(t)
 
-        # return cumulative probability
+        # return cumulative rate
         return np.dot(self.tau[:i], 1 / self.pop_sizes[:i]) + (t - self.times[i]) / self.pop_sizes[i]
 
     def plot(self, show: bool = True) -> plt.Axes:

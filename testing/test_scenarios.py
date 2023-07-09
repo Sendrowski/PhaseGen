@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from phasegen import Comparison
+from phasegen.comparison import Comparison
 
 
 class ScenariosTestCase(TestCase):

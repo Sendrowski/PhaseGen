@@ -4,9 +4,10 @@ import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from . import PiecewiseConstantDemography, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent, \
-    ConstantPopSizeCoalescent, ExponentialDemography
+from .demography import PiecewiseConstantDemography, ExponentialDemography
+from .spectrum import SFS2
 from .distributions_deprecated import VariablePopSizeCoalescent as VariablePopSizeCoalescentLegacy
+from .distributions import PiecewiseConstantPopSizeCoalescent, ConstantPopSizeCoalescent, MsprimeCoalescent
 from .serialization import Serializable
 
 
@@ -67,7 +68,8 @@ class Comparison(Serializable):
                     growth_rate=growth_rate,
                     N0=N0
                 ),
-                alpha=alpha
+                alpha=alpha,
+                parallelize=parallelize
             )
         else:
             # phase-type coalescent
@@ -77,7 +79,8 @@ class Comparison(Serializable):
                     pop_sizes=pop_sizes,
                     times=times
                 ),
-                alpha=alpha
+                alpha=alpha,
+                parallelize=parallelize
             )
 
         # legacy phase-type coalescent
@@ -94,23 +97,26 @@ class Comparison(Serializable):
         self.ph_const = ConstantPopSizeCoalescent(
             n=n,
             Ne=pop_sizes[0],
-            alpha=alpha
+            alpha=alpha,
+            parallelize=parallelize
         )
 
     @staticmethod
-    def mean_relative_difference(a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
+    def rel_diff(a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
         """
-        Compute the mean relative difference between two arrays.
+        Compute the maximum relative difference between two arrays.
 
         :param a: The first array.
         :param b: The second array.
         :return: The mean relative difference.
         """
         a, b = np.array(a), np.array(b)
-        diff = np.abs(a - b) / ((a + b) / 2)
-        diff = diff[np.isfinite(diff)]
 
-        return np.mean(diff)
+        # compute relative difference
+        diff = np.abs(a - b) / ((a + b) / 2)
+
+        # only consider finite values
+        return diff[np.isfinite(diff)]
 
     def compare(self):
         """
@@ -130,19 +136,24 @@ class Comparison(Serializable):
 
                     if isinstance(ph_stat, float):
 
-                        diff_rel = self.mean_relative_difference(ms_stat, ph_stat)
-                        assert diff_rel < tol, f"Difference {diff_rel} exceeds threshold {tol} for {stat} of {dist}."
+                        diff = self.rel_diff(ms_stat, ph_stat).max()
 
                     # assume we have an SFS
                     elif isinstance(ph_stat, np.ndarray):
 
-                        mean_diff_rel = self.mean_relative_difference(ms_stat, ph_stat)
+                        diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                        s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
+                        if ph_stat.ndim == 1:
 
-                        s.plot()
+                            s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
 
-                        assert mean_diff_rel < tol, f"Difference mean {mean_diff_rel} exceeds threshold {tol}."
+                            s.plot()
+
+                        else:
+                            _, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+
+                            SFS2(ph_stat).plot(ax=axs[0], title='ph', show=False)
+                            SFS2(ms_stat).plot(ax=axs[1], title='ms')
 
                     # assume we have a PDF or CDF
                     elif callable(ph_stat):
@@ -161,5 +172,6 @@ class Comparison(Serializable):
 
                         plt.show()
 
-                        mean_diff_rel = self.mean_relative_difference(y_ms, y_ph)
-                        assert mean_diff_rel < tol, f"Difference mean {mean_diff_rel} exceeds threshold {tol}."
+                        diff = self.rel_diff(y_ms, y_ph).max()
+
+                    assert diff < tol, f"Maximum difference {diff} exceeds threshold {tol}."

@@ -27,7 +27,7 @@ except NameError:
 
 import yaml
 
-from phasegen import Comparison
+from phasegen.comparison import Comparison
 
 # load config from file
 with open(file, 'r') as f:

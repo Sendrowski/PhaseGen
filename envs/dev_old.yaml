@@ -2,9 +2,19 @@ name: dev-phasegen
 channels:
   - conda-forge
 dependencies:
+  - python
+  - matplotlib
+  - seaborn
+  - numpy
+  - pandas
+  - scipy
   - msprime
-  - jupyterlab
-  - jupyter
+  - sympy
+  - jsonpickle
+  - tqdm
+  - multiprocess
+  - pyyaml
+  - pytest-xdist
   - pip
   - pip:
     - fastdfe
@@ -13,4 +23,3 @@ dependencies:
     - pytest-cov
     - pytest-sugar
     - pytest-pycharm
-    - -r requirements_testing.txt

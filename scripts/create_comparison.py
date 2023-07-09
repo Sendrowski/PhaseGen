@@ -24,7 +24,7 @@ except NameError:
 
 import yaml
 
-from phasegen import Comparison
+from phasegen.comparison import Comparison
 
 # load config from file
 with open(file, 'r') as f:
@@ -33,9 +33,9 @@ with open(file, 'r') as f:
 c = Comparison(**config)
 
 # touch msprime stats
-c.ms.touch()
+c.ms._touch()
 
 # drop computed stats
-c.ms.drop()
+c.ms._drop()
 
 c.to_file(out)
