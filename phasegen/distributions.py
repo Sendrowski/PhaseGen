@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from functools import cached_property, cache
 from math import factorial
-from typing import Generator, List, Callable, Tuple
+from typing import Generator, List, Callable, Tuple, Iterable
 
 import msprime as ms
 import numpy as np
@@ -15,7 +15,7 @@ from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel
-from .demography import PiecewiseConstantDemography
+from .demography import PiecewiseConstantDemography, Demography
 from .spectrum import SFS, SFS2
 from .visualization import Visualization
 
@@ -380,7 +380,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         # self.Ne ** k is the rescaling due to population size
         return Ne ** k * factorial(k) * alpha[:-1] @ M @ self.cd.e[:-1]
 
-    def cdf(self, t) -> float | np.ndarray:
+    def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
         Vectorized cumulative distribution function.
 
@@ -397,9 +397,13 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
             """
             return 1 - self.cd.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], t / self.cd.Ne) @ self.cd.e[:-1]
 
-        return np.vectorize(cdf)(t)
+        if isinstance(t, Iterable):
+            return np.vectorize(cdf)(t)
 
-    def pdf(self, u) -> float | np.ndarray:
+        return cdf(t)
+
+
+    def pdf(self, u: float | np.ndarray) -> float | np.ndarray:
         """
         Vectorized density function.
 
@@ -416,7 +420,10 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
             """
             return self.cd.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], u) @ self.s / self.cd.Ne
 
-        return np.vectorize(pdf)(u)
+        if isinstance(u, Iterable):
+            return np.vectorize(pdf)(u)
+
+        return pdf(u)
 
 
 class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
@@ -896,6 +903,9 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
 
 
 class Coalescent:
+
+    demography: Demography
+
     @property
     @abstractmethod
     def tree_height(self) -> ProbabilityDistribution:

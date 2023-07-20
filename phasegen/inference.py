@@ -108,8 +108,11 @@ class Inference:
             if self.pbar:
                 self.tqdm.update()
 
+            # get the coalescent distribution
+            dist = self.dist(**params_dict)
+
             # return the value of the loss function
-            return self.loss(**params_dict)
+            return self.loss(dist)
 
         # perform the optimization
         self.result: OptimizeResult = opt.minimize(

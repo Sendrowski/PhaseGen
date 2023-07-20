@@ -4,6 +4,8 @@ from typing import List, Callable
 import numpy as np
 from matplotlib import pyplot as plt
 
+from .visualization import Visualization
+
 
 class Demography:
     """
@@ -26,6 +28,22 @@ class Demography:
 
         :param t: Time at which to get the cumulative rate.
         :return: Cumulative coalescence rate.
+        """
+        pass
+
+    def plot(
+            self,
+            show: bool = True,
+            file: str = None,
+            t_max: float = None,
+    ) -> plt.Axes:
+        """
+        Plot the population size over time.
+
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
+        :return: Axes object.
         """
         pass
 
@@ -64,34 +82,29 @@ class ConstantDemography(Demography):
         """
         return t / self.pop_size
 
-    def plot(self, show: bool = True) -> plt.Axes:
+    def plot(
+            self,
+            show: bool = True,
+            file: str = None,
+            t_max: float = None,
+    ) -> plt.Axes:
         """
         Plot the population size over time.
 
         :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
         :return: Axes object.
         """
         plt.plot([0, 1], [self.pop_size, self.pop_size])
 
-        return self.finalize_plot(show=show)
-
-    @staticmethod
-    def finalize_plot(show: bool = True) -> plt.Axes:
-        """
-        Finalize the plot.
-
-        :param show: Whether to show the plot.
-        :return: Axes object.
-        """
-        ax = plt.gca()
-
-        ax.set_xlabel('t')
-        ax.set_ylabel('N(t)')
-
-        if show:
-            plt.show()
-
-        return ax
+        return Visualization.plot_pop_sizes(
+            times=np.array([0, 1]),
+            pop_sizes=np.array([self.pop_size, self.pop_size]),
+            t_max=t_max,
+            show=show,
+            file=file
+        )
 
 
 class PiecewiseConstantDemography(ConstantDemography):
@@ -157,16 +170,27 @@ class PiecewiseConstantDemography(ConstantDemography):
         # return cumulative rate
         return np.dot(self.tau[:i], 1 / self.pop_sizes[:i]) + (t - self.times[i]) / self.pop_sizes[i]
 
-    def plot(self, show: bool = True) -> plt.Axes:
+    def plot(
+            self,
+            show: bool = True,
+            file: str = None,
+            t_max: float = None,
+    ) -> plt.Axes:
         """
         Plot the population size over time.
 
         :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
         :return: Axes object.
         """
-        plt.step(self.times, self.pop_sizes, where='post')
-
-        return self.finalize_plot(show=show)
+        return Visualization.plot_pop_sizes(
+            times=self.times,
+            pop_sizes=self.pop_sizes,
+            t_max=t_max,
+            show=show,
+            file=file
+        )
 
 
 class ContinuousDemography(PiecewiseConstantDemography):
@@ -201,19 +225,6 @@ class ContinuousDemography(PiecewiseConstantDemography):
         times = x[indices]
 
         super().__init__(pop_sizes=pop_sizes, times=times)
-
-    def plot(self, show: bool = True) -> plt.Axes:
-        """
-        Plot the population size over time.
-
-        :param show: Whether to show the plot.
-        :return: Axes object.
-        """
-        plt.plot(self.times, self.trajectory(self.times), label='original')
-        plt.step(self.times, self.pop_sizes, where='post', label='discretized')
-        plt.legend()
-
-        return self.finalize_plot(show=show)
 
 
 class ExponentialDemography(ContinuousDemography):

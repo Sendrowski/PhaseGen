@@ -52,13 +52,13 @@ inf = pg.Inference(
 # perform inference
 inf.run()
 
-dist = get_dist(**inf.params_inferred)
-
 s = Spectra.from_spectra(dict(
-    modelled=dist.sfs.mean.normalize() * observed.n_polymorphic,
+    modelled=inf.dist_inferred.sfs.mean.normalize() * observed.n_polymorphic,
     observed=observed
 ))
 
 s.plot()
+
+inf.dist_inferred.demography.plot(t_max=inf.dist_inferred.tree_height.mean)
 
 pass

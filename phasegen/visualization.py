@@ -88,17 +88,17 @@ class Visualization:
         """
         Plot function.
 
-        :param ax:
-        :param x:
-        :param y:
-        :param xlabel:
-        :param ylabel:
-        :param file:
-        :param show:
-        :param clear:
-        :param label:
-        :param title:
-        :return:
+        :param ax: Axes to plot on
+        :param x: x values
+        :param y: y values
+        :param xlabel: x label
+        :param ylabel: y label
+        :param file: File to save plot to
+        :param show: Whether to show plot
+        :param clear: Whether to clear current figure
+        :param label: Label for plot
+        :param title: Title for plot
+        :return: Axes
         """
         sns.lineplot(x=x, y=y, ax=ax, label=label)
 
@@ -108,5 +108,54 @@ class Visualization:
 
         # add title
         ax.set_title(title)
+
+        return plt.gca()
+
+    @staticmethod
+    @clear_show_save
+    def plot_pop_sizes(
+            ax: plt.Axes,
+            times: np.ndarray,
+            pop_sizes: np.ndarray,
+            t_max: float = None,
+            xlabel: str = 't',
+            ylabel: str = '$N_e(t)$',
+            file: str = None,
+            show: bool = None,
+            clear: bool = True,
+            title: str = 'population size trajectory'
+    ) -> plt.Axes:
+        """
+        Plot function.
+
+        :param ax: Axes to plot on
+        :param times: x values
+        :param pop_sizes: y values
+        :param t_max: Maximum time to plot
+        :param xlabel: x label
+        :param ylabel: y label
+        :param file: File to save plot to
+        :param show: Whether to show plot
+        :param clear: Whether to clear current figure
+        :param title: Title for plot
+        :return: Axes
+        """
+        # add last time point if t_max is given
+        if t_max is not None and t_max > times[-1]:
+            times = np.concatenate((times, [t_max]))
+            pop_sizes = np.concatenate((pop_sizes, [pop_sizes[-1]]))
+
+        plt.plot(times, pop_sizes, drawstyle='steps-post')
+
+        # set axis labels
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+        # add title
+        ax.set_title(title)
+
+        # set x limit
+        if t_max is not None:
+            ax.set_xlim(0, t_max)
 
         return plt.gca()
