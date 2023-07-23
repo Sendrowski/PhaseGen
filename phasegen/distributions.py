@@ -1,8 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
 from functools import cached_property, cache
+from itertools import chain
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Iterable
+from typing import Generator, List, Callable, Tuple, Iterable, Dict
 
 import msprime as ms
 import numpy as np
@@ -10,13 +11,14 @@ import tskit
 from matplotlib import pyplot as plt
 from multiprocess import Pool
 from numpy.linalg import matrix_power
-from scipy.linalg import inv, expm, fractional_matrix_power
+from scipy.linalg import expm, fractional_matrix_power
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel
-from .demography import PiecewiseConstantDemography, Demography
+from .demography import PiecewiseTimeHomogeneousDemography, Demography, TimeHomogeneousDemography
 from .spectrum import SFS, SFS2
+from .state_space import InfiniteAllelesStateSpace, DefaultStateSpace, StateSpace
 from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
@@ -31,8 +33,7 @@ def _parallelize(
         desc: str = None,
 ) -> np.ndarray:
     """
-    Convenience function that parallelizes the given function
-    if specified or executes them sequentially otherwise.
+    Parallelize given function or execute sequentially.
 
     :param func: Function to parallelize
     :param data: Data to parallelize over
@@ -268,12 +269,11 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
     """
 
     @abstractmethod
-    def nth_moment(self, k: int, alpha: np.ndarray = None, Ne: float = None, r: np.ndarray = None) -> float | SFS:
+    def nth_moment(self, k: int, alpha: np.ndarray = None, r: np.ndarray = None) -> float | SFS:
         """
         Get the nth moment.
 
         :param r: Full reward vector
-        :param Ne: The effective population size
         :param k: The order of the moment
         :param alpha: Full initial state vector
         :return: The nth moment
@@ -311,20 +311,38 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
         return self.nth_moment(k=2, alpha=alpha)
 
 
-class ConstantPopSizeDistribution(PhaseTypeDistribution):
+class TimeHomogeneousDistribution(PhaseTypeDistribution):
     """
-    Phase-type distribution for a constant population size coalescent.
+    Phase-type distribution for a time-homogeneous model.
     """
 
-    def __init__(self, cd: 'ConstantPopSizeCoalescent', r: np.ndarray | List):
+    def __init__(
+            self,
+            r: np.ndarray | List,
+            n: int,
+            state_space: DefaultStateSpace,
+            alpha: np.ndarray | List,
+            demography: TimeHomogeneousDemography = TimeHomogeneousDemography()
+    ):
         """
         Initialize the distribution.
 
-        :param cd: Constant population size coalescent.
         :param r: Reward vector.
+        :param n: Number of states.
+        :param state_space: The state space.
+        :param alpha: Initial state distribution.
+        :param demography: The demography.
         """
-        self.cd = cd
-        self.r = np.array(r)
+        # raise error if multiple populations are specified
+        if demography.n_pops > 1:
+            raise NotImplementedError('TimeHomogeneousDistribution does not support multiple populations.'
+                                      'Use PiecewiseTimeHomogeneousDistribution instead.')
+
+        self.r: np.ndarray = np.array(r)
+        self.n: int = n
+        self.state_space: DefaultStateSpace = state_space
+        self.alpha: np.ndarray = np.array(alpha)
+        self.demography: TimeHomogeneousDemography = demography
 
     @cached_property
     def R(self) -> np.ndarray:
@@ -338,12 +356,12 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
         Intensity matrix with rewards.
         """
-        return self.R @ self.cd.S
+        return self.R @ self.state_space.S
 
     @cached_property
     def T(self) -> np.ndarray:
         """
-        Probability transition matrix.
+        Probability transition matrix with rewards.
         """
         return expm(self.S)
 
@@ -352,33 +370,35 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         """
         Exit rate vector.
         """
-        return -self.S[:-1, :-1] @ self.cd.e[:-1]
+        return -self.S[:-1, :-1] @ self.state_space.e[:-1]
 
-    def nth_moment(self, k: int, alpha: np.ndarray = None, Ne: float = None, r: np.ndarray = None) -> float:
+    @cached_property
+    def e(self) -> np.ndarray:
+        """
+        Vector with ones of size ``n``.
+        """
+        return self.state_space.e
+
+    def nth_moment(self, k: int, alpha: np.ndarray = None, r: np.ndarray = None) -> float:
         """
         Get the nth moment.
 
         :param r: Full reward vector
-        :param Ne: The effective population size
         :param k: The order of the moment
         :param alpha: Full initial state vector
         :return: The nth moment
         """
         if alpha is None:
-            alpha = self.cd.alpha
-
-        if Ne is None:
-            Ne = self.cd.Ne
+            alpha = self.alpha
 
         if r is None:
             r = self.r
 
         R = _invert_reward(np.diag(r[:-1]))
 
-        M = matrix_power(self.cd.U @ R, k)
+        M = matrix_power(self.state_space.U @ R, k)
 
-        # self.Ne ** k is the rescaling due to population size
-        return Ne ** k * factorial(k) * alpha[:-1] @ M @ self.cd.e[:-1]
+        return factorial(k) * alpha[:-1] @ M @ self.e[:-1]
 
     def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
@@ -395,13 +415,12 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
             :param t: Time.
             :return: CDF.
             """
-            return 1 - self.cd.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], t / self.cd.Ne) @ self.cd.e[:-1]
+            return 1 - self.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], t) @ self.e[:-1]
 
         if isinstance(t, Iterable):
             return np.vectorize(cdf)(t)
 
         return cdf(t)
-
 
     def pdf(self, u: float | np.ndarray) -> float | np.ndarray:
         """
@@ -418,7 +437,7 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
             :param u: Time.
             :return: Density.
             """
-            return self.cd.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], u) @ self.s / self.cd.Ne
+            return self.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], u) @ self.s
 
         if isinstance(u, Iterable):
             return np.vectorize(pdf)(u)
@@ -426,22 +445,40 @@ class ConstantPopSizeDistribution(PhaseTypeDistribution):
         return pdf(u)
 
 
-class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
+class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
     """
     Phase-type distribution for a piecewise constant population size coalescent.
     """
 
-    def __init__(self, cd: 'PiecewiseConstantPopSizeCoalescent', r: np.ndarray | List):
+    def __init__(
+            self,
+            r: np.ndarray | List[float],
+            n: int,
+            state_space: StateSpace,
+            alpha: np.ndarray | List[float],
+            demography: Demography
+    ):
         """
         Initialize the distribution.
 
-        :param cd: Piecewise constant population size coalescent.
         :param r: Reward vector.
+        :param n: Number of states.
+        :param state_space: The state space.
+        :param alpha: Initial state distribution.
+        :param demography: The demography.
         """
-        super().__init__(cd, r)
+        self.r: np.ndarray = np.array(r)
+        self.n: int = n
+        self.state_space: StateSpace = state_space
+        self.alpha: np.ndarray = np.array(alpha)
+        self.demography: Demography = demography
 
-        self.cd = cd
-        self.r = np.array(r)
+    @cached_property
+    def R(self) -> np.ndarray:
+        """
+        The reward matrix.
+        """
+        return np.diag(self.r)
 
     @cache
     def _nth_moment(
@@ -464,33 +501,51 @@ class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
             R = tuple(np.diag(_invert_reward(np.array(r_i))) for r_i in r)
 
         if alpha is None:
-            alpha = self.cd.alpha
+            alpha = self.alpha
 
-        # time spent in epochs scaled by Ne
-        taus = np.zeros(self.cd.n_epochs)
-        taus[:-1] = (self.cd.times[1:] - self.cd.times[:-1])
-
-        # choose a large value for the last epoch
-        taus[self.cd.n_epochs - 1] = 10
-
-        # number of lineages
-        n = self.cd.n
+        # number of states
+        n_states = self.state_space.k
 
         # initialize Van Loan matrix holding (rewarded) moments
-        M = np.eye(n * (k + 1))
+        M = np.eye(n_states * (k + 1))
+
+        # get time and population size generators
+        times: Generator[float] = self.demography.times
+        pop_sizes: Dict[str, Generator[float]] = self.demography.pop_sizes
+
+        # previous time
+        time_prev: float = next(times)
 
         # iterate through epochs and compute initial values
-        for i in range(self.cd.n_epochs):
+        for i, time in enumerate(chain(times, [np.inf])):
+
+            # get population sizes for this epoch
+            pop_size = dict((p, next(pop_sizes[p])) for p in self.demography.pop_names)
+
+            # get state space for this epoch
+            state_space = self.state_space.from_demography(
+                demography=TimeHomogeneousDemography(
+                    pop_size=pop_size
+                )
+            )
+
             # get Van Loan matrix
-            A = _get_van_loan_matrix(S=self.cd.S / self.cd.pop_sizes[i], R=R, k=k)
+            A = _get_van_loan_matrix(S=state_space.S, R=R, k=k)
 
-            # get matrix exponential
-            B = expm(A * taus[i])
+            # if not in the last epoch
+            if time < np.inf:
 
-            if i < self.cd.n_epochs - 1:
+                tau = time - time_prev
+                B = expm(A * tau)
+
                 # simply multiply by B
                 M @= B
+
+                time_prev = time
             else:
+                # if in the last epoch, we need to iterate until convergence
+                tau = 10
+                B = expm(A * tau)
                 M_next = M @ B
 
                 # iterate until convergence
@@ -498,18 +553,17 @@ class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
                     M = M_next
                     M_next = M @ B
 
-        m = factorial(k) * (alpha @ M[:n, -n:])[-1]
+        m = factorial(k) * (alpha @ M[:n_states, -n_states:])[-1]
 
         return m
 
-    def nth_moment(self, k: int, alpha: np.ndarray = None, r: List[np.ndarray] = None, **kwargs) -> float:
+    def nth_moment(self, k: int, alpha: np.ndarray = None, r: List[np.ndarray] = None) -> float:
         """
         Get the nth (non-central) moment.
 
         :param k: The kth moment
         :param alpha: Full initial value vector
         :param r: Full reward vectors
-        :param kwargs: Additional arguments
         :return: Moment
         """
         if alpha is not None:
@@ -535,11 +589,26 @@ class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
         if not np.all(self.r[:-1] == 1):
             raise NotImplementedError("CDF not implemented for non-default rewards.")
 
-        def cdf(t: float) -> float:
-            # get the cumulative coalescent rate up to time t
-            cum = self.cd.demography.get_cum_rate(t)
+        # raise error if multiple populations
+        if self.demography.n_pops > 1:
+            raise NotImplementedError("CDF not implemented for multiple populations.")
 
-            return 1 - self.cd.alpha[:-1] @ fractional_matrix_power(self.cd.T[:-1, :-1], cum) @ self.cd.e[:-1]
+        # get the transition matrix for the standard coalescent
+        state_space = self.state_space.from_demography(
+            demography=TimeHomogeneousDemography()
+        )
+
+        def cdf(t: float) -> float:
+            """
+            Cumulative distribution function.
+
+            :param t: Time.
+            :return: Cumulative probability.
+            """
+            # get the cumulative coalescent rate up to time t
+            cum = self.demography.get_cum_rate(t)[self.demography.pop_names[0]]
+
+            return 1 - self.alpha[:-1] @ fractional_matrix_power(state_space.T[:-1, :-1], cum) @ state_space.e[:-1]
 
         return np.vectorize(cdf)(t)
 
@@ -555,22 +624,66 @@ class PiecewiseConstantPopSizeDistribution(ConstantPopSizeDistribution):
         if not np.all(self.r[:-1] == 1):
             raise NotImplementedError("PDF not implemented for non-default rewards.")
 
+        # raise error if multiple populations
+        if self.demography.n_pops > 1:
+            raise NotImplementedError("PDF not implemented for multiple populations.")
+
+        # get the transition matrix for the standard coalescent
+        state_space = self.state_space.from_demography(
+            demography=TimeHomogeneousDemography()
+        )
+
         def pdf(u: float) -> float:
+            """
+            Density function.
+
+            :param u: Time.
+            :return: Density.
+            """
             # get the cumulative coalescent rate up to time u
-            cum = self.cd.demography.get_cum_rate(u)
+            cum = self.demography.get_cum_rate(u)[self.demography.pop_names[0]]
 
             # get current coalescent rate
-            rate = self.cd.demography.get_rate(u)
+            rate = self.demography.get_rate(u)[self.demography.pop_names[0]]
 
-            return self.cd.alpha[:-1] @ fractional_matrix_power(self.cd.T[:-1, :-1], cum) @ self.cd.s * rate
+            return self.alpha[:-1] @ fractional_matrix_power(state_space.T[:-1, :-1], cum) @ state_space.s * rate
 
         return np.vectorize(pdf)(u)
 
 
-class SFSDistribution(PiecewiseConstantPopSizeDistribution):
+class SFSDistribution(PhaseTypeDistribution):
     """
     Site-frequency spectrum distribution.
     """
+
+    def __init__(
+            self,
+            n: int,
+            state_space: DefaultStateSpace,
+            state_space_IAM: InfiniteAllelesStateSpace,
+            alpha: np.ndarray | List[float],
+            demography: Demography,
+            pbar: bool = False,
+            parallelize: bool = False
+    ):
+        """
+        Initialize the distribution.
+
+        :param n: Number of states.
+        :param state_space: The state space.
+        :param state_space_IAM: The state space for the infinite alleles model.
+        :param alpha: Initial state distribution.
+        :param demography: The demography.
+        :param pbar: Whether to show a progress bar.
+        :param parallelize: Use parallelization.
+        """
+        self.n: int = n
+        self.state_space: DefaultStateSpace = state_space
+        self.state_space_IAM: InfiniteAllelesStateSpace = state_space_IAM
+        self.alpha: np.ndarray = np.array(alpha)
+        self.demography: Demography = demography
+        self.pbar: bool = pbar
+        self.parallelize: bool = parallelize
 
     @cache
     def nth_moment(self, k: int, alpha: tuple = None, i: int = None) -> SFS | float:
@@ -588,9 +701,11 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
         # of the tree topology. This is much faster than the general case
         # as we work with a much smaller state space.
         if k == 1:
-            R, cd = self._sfs_rewards, self.cd
+            R = self._default_rewards
+            state_space = self.state_space
         else:
-            R, cd = self._dist
+            R = self._IAM_rewards
+            state_space = self.state_space_IAM
 
         def get_count(i: int) -> float:
             """
@@ -599,7 +714,19 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
             :param i: The ith frequency count
             :return: The moment
             """
-            return cd.tree_height.nth_moment(k=k, r=(_invert_reward(R[i]),) * k, alpha=alpha)
+            d = PiecewiseTimeHomogeneousDistribution(
+                n=self.n,
+                r=_pad(np.ones(state_space.k)),
+                state_space=state_space,
+                alpha=np.eye(1, state_space.k, 0)[0],
+                demography=self.demography
+            )
+
+            return d.nth_moment(
+                k=k,
+                r=[_invert_reward(R[i]), ] * k,
+                alpha=alpha
+            )
 
         # return ith count only if specified
         if i is not None:
@@ -610,30 +737,31 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
             func=get_count,
             data=list(range(R.shape[0] - 1)),
             desc=f"Calculating moments of order {k}",
-            pbar=self.cd.pbar,
-            parallelize=self.cd.parallelize
+            pbar=self.pbar,
+            parallelize=self.parallelize
         )
 
         return SFS([0] + list(moments) + [0])
-    
+
     @cached_property
-    def _sfs_rewards(self) -> np.ndarray:
+    def _default_rewards(self) -> np.ndarray:
         """
         Get the rewards suitable for calculating the expected SFS using a reduced state
         space where we don't distinguish between different topologies.
+
         :return: 
         """
-        probs = self.cd.model.get_sample_config_probs(self.cd.n)
+        probs = self.state_space.model.get_sample_config_probs(self.n)
 
-        R = np.zeros((self.cd.n, self.cd.n))
+        R = np.zeros((self.n, self.n))
 
         for state, prob in probs.items():
-            R[:, self.cd.n - sum(state)] += prob * np.array(state)
+            R[:, self.n - sum(state)] += prob * np.array(state)
 
         return R
 
     @cached_property
-    def _dist(self):
+    def _IAM_rewards(self):
         """
         Get the rewards and coalescent distribution suitable for calculating
         higher SFS moments. In order to distinguish between different topologies
@@ -643,26 +771,16 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
         """
         # obtain intensity matrix for state space that distinguishes between
         # the different tree topologies
-        S, R = self.cd.model.get_rate_matrix_infinite_alleles(self.cd.n)
-
-        # get coalescent distribution
-        cd = PiecewiseConstantPopSizeCoalescent(
-            n=S.shape[0],
-            S_sub=S[:-1, :-1],
-            demography=self.cd.demography
-        )
-
-        return R.T, cd
+        return self.state_space_IAM.states.T
 
     @cached_property
     def cov(self) -> SFS2:
         """
         If no arguments are given, get the 2-SFS, i.e. the covariance matrix of the site-frequencies.
 
-        :param alpha: Full initial state vector
-        :return: A 2-SFS or a single covariance
+        :return: A 2-SFS or a single covariance value.
         """
-        R, cd = self._dist
+        R = self._IAM_rewards
 
         def get(args: Tuple[int, int]) -> float:
             """
@@ -673,9 +791,17 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
             """
             i, j = args
 
-            return cd.tree_height.nth_moment(
+            d = PiecewiseTimeHomogeneousDistribution(
+                n=self.n,
+                r=_pad(np.ones(self.state_space_IAM.k)),
+                state_space=self.state_space_IAM,
+                alpha=np.eye(1, self.state_space_IAM.k, 0)[0],
+                demography=self.demography
+            )
+
+            return d.nth_moment(
                 k=2,
-                r=(_invert_reward(R[i]), _invert_reward(R[j]))
+                r=[_invert_reward(R[i]), _invert_reward(R[j])]
             )
 
         # create list of arguments for each combination of i, j
@@ -686,12 +812,12 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
             func=get,
             data=indices,
             desc="Calculating covariance",
-            pbar=self.cd.pbar,
-            parallelize=self.cd.parallelize
+            pbar=self.pbar,
+            parallelize=self.parallelize
         )
 
         # re-structure the results to a matrix form
-        sfs = np.zeros((self.cd.n + 1, self.cd.n + 1))
+        sfs = np.zeros((self.n + 1, self.n + 1))
         for ((i, j), result) in zip(indices, sfs_results):
             sfs[i + 1, j + 1] = result
 
@@ -712,7 +838,7 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
         :param j: The jth site-frequency
         :return:
         """
-        R, cd = self._dist
+        R, cd = self._IAM_rewards
 
         return cd.tree_height.nth_moment(
             k=2,
@@ -745,6 +871,26 @@ class SFSDistribution(PiecewiseConstantPopSizeDistribution):
         std_j = np.sqrt(self.nth_moment(k=2, i=j))
 
         return self.get_cov(i, j) / (std_i * std_j)
+
+    def pdf(self, u: float | np.ndarray) -> float | np.ndarray:
+        """
+        Density function.
+        TODO implement this
+
+        :param u: Time or time points
+        :return: Density.
+        """
+        raise NotImplementedError("PDF not implemented for site-frequency spectrum distribution.")
+
+    def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
+        """
+        Cumulative distribution function.
+        TODO implement this
+
+        :param t: Time or time points.
+        :return: Cumulative probability.
+        """
+        raise NotImplementedError("CDF not implemented for site-frequency spectrum distribution.")
 
 
 class EmpiricalDistribution(ProbabilityDistribution):
@@ -848,7 +994,7 @@ class EmpiricalDistribution(ProbabilityDistribution):
 
 class EmpiricalSFSDistribution(EmpiricalDistribution):
     """
-    SFS Probability distribution based on realisations.
+    SFS probability distribution based on realisations.
     """
 
     @cached_property
@@ -903,12 +1049,15 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
 
 
 class Coalescent:
-
+    """
+    Coalescent distribution.
+    This class provides probability distributions for the tree height, total branch length and site frequency spectrum.
+    """
     demography: Demography
 
     @property
     @abstractmethod
-    def tree_height(self) -> ProbabilityDistribution:
+    def tree_height(self) -> PhaseTypeDistribution:
         """
         Tree height distribution.
         """
@@ -916,7 +1065,7 @@ class Coalescent:
 
     @property
     @abstractmethod
-    def total_branch_length(self) -> ProbabilityDistribution:
+    def total_branch_length(self) -> PhaseTypeDistribution:
         """
         Total branch length distribution.
         """
@@ -931,18 +1080,17 @@ class Coalescent:
         pass
 
 
-class ConstantPopSizeCoalescent(Coalescent):
+class TimeHomogeneousCoalescent(Coalescent):
     """
     Coalescent distribution for a constant population size.
     """
 
     def __init__(
             self,
-            n: int = 2,
+            n: int,
             model: CoalescentModel = StandardCoalescent(),
             alpha: np.ndarray | List = None,
-            Ne: float | int = 1,
-            S_sub: np.ndarray = None,
+            demography: TimeHomogeneousDemography = TimeHomogeneousDemography(),
             pbar: bool = True,
             parallelize: bool = True
     ):
@@ -952,120 +1100,106 @@ class ConstantPopSizeCoalescent(Coalescent):
         :param n: Number of lineages.
         :param model: Coalescent model.
         :param alpha: Initial state vector.
-        :param Ne: Effective population size.
-        :param S_sub: Sub-intensity matrix (advanced use, ``model`` will be ignored).
+        :param demography: Time-homogeneous demography.
         :param pbar: Whether to show a progress bar
         :param parallelize: Whether to parallelize computations.
         """
         # coalescent model
-        self.model = model
+        self.model: CoalescentModel = model
 
         # sample size
-        self.n = n
+        self.n: int = n
 
         # initial conditions
         if alpha is None:
-            self.alpha = np.eye(1, self.n, 0)[0]
+            self.alpha: np.ndarray = np.eye(1, self.n, 0)[0]
         elif len(alpha) != self.n:
             raise Exception(f"alpha should be of length n={self.n} but has instead length {len(alpha)}.")
         else:
-            self.alpha = np.array(alpha)
+            self.alpha: np.ndarray = np.array(alpha)
 
-        # effective population size
-        self.Ne = Ne
+        #: Demography
+        self.demography: TimeHomogeneousDemography = demography
 
         #: Whether to show a progress bar
         self.pbar: bool = pbar
 
-        #: Whether to parallelize computions
+        #: Whether to parallelize computations
         self.parallelize: bool = parallelize
 
-        if S_sub is None:
-            # obtain sub-intensity matrix
-            S_sub = self.model.get_rate_matrix(self.n)
-
-        # exit rate vector
-        self.s = -S_sub @ self.e[:-1]
-
-        # obtain full intensity matrix
-        self.S = np.block([
-            [S_sub, self.s[:, None]],
-            [np.zeros(self.n)]
-        ])
-
     @cached_property
-    def e(self) -> np.ndarray:
+    def _state_space(self) -> DefaultStateSpace:
         """
-        Vector with ones of size ``n``.
+        The default state space.
         """
-        return np.ones(self.n)
-
-    @cached_property
-    def T(self) -> np.ndarray:
-        """
-        Transition matrix.
-        """
-        return expm(self.S)
-
-    @cached_property
-    def t(self) -> np.ndarray:
-        """
-        Exit probability vector.
-        """
-        return 1 - self.T @ self.e
-
-    @cached_property
-    def U(self) -> np.ndarray:
-        """
-        Green matrix (negative inverse of sub-intensity matrix).
-        """
-        return -inv(self.S[:-1, :-1])
-
-    @cached_property
-    def T_inv(self) -> np.ndarray:
-        """
-        Inverse of transition matrix.
-        """
-        return inv(self.T)
-
-    @cached_property
-    def tree_height(self) -> ConstantPopSizeDistribution:
-        """
-        Tree height distribution.
-        """
-        return ConstantPopSizeDistribution(
-            cd=self,
-            r=_pad(np.ones(self.n - 1))
+        return DefaultStateSpace(
+            n=self.n,
+            model=self.model,
+            demography=self.demography
         )
 
     @cached_property
-    def total_branch_length(self) -> ConstantPopSizeDistribution:
+    def _state_space_IAM(self) -> InfiniteAllelesStateSpace:
+        """
+        The infinite alleles state space.
+        """
+        return InfiniteAllelesStateSpace(
+            n=self.n,
+            model=self.model,
+            demography=self.demography
+        )
+
+    @cached_property
+    def tree_height(self) -> TimeHomogeneousDistribution:
+        """
+        Tree height distribution.
+        """
+        return TimeHomogeneousDistribution(
+            n=self.n,
+            r=_pad(np.ones(self._state_space.k - 1)),
+            alpha=self.alpha,
+            state_space=self._state_space,
+            demography=self.demography
+        )
+
+    @cached_property
+    def total_branch_length(self) -> TimeHomogeneousDistribution:
         """
         Total branch length distribution.
         """
-        return ConstantPopSizeDistribution(
-            cd=self,
-            r=_pad(1 / np.arange(2, self.n + 1)[::-1])
+        return TimeHomogeneousDistribution(
+            n=self.n,
+            r=_pad(1 / np.arange(2, self.n + 1)[::-1]),
+            alpha=self.alpha,
+            state_space=self._state_space,
+            demography=self.demography
         )
 
     @cached_property
     def sfs(self) -> SFSDistribution:
         """
         Site frequency spectrum distribution.
-
-        TODO implement or scrap this class.
         """
-        raise NotImplementedError("Not implemented.")
+        return SFSDistribution(
+            n=self.n,
+            state_space=self._state_space,
+            state_space_IAM=self._state_space_IAM,
+            alpha=self.alpha,
+            demography=self.demography
+        )
 
 
-class PiecewiseConstantPopSizeCoalescent(ConstantPopSizeCoalescent):
+class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
+    """
+    Coalescent distribution for the piecewise time-homogeneous coalescent.
+    """
+
     def __init__(
             self,
-            n: int = 2,
+            n: int,
             model: CoalescentModel = StandardCoalescent(),
             alpha: np.ndarray = None,
-            demography: PiecewiseConstantDemography = None,
-            S_sub: np.ndarray = None,
+            demography: PiecewiseTimeHomogeneousDemography = None,
             pbar: bool = True,
             parallelize: bool = True
     ):
@@ -1075,49 +1209,47 @@ class PiecewiseConstantPopSizeCoalescent(ConstantPopSizeCoalescent):
         :param n: Number of lineages.
         :param model: Coalescent model.
         :param alpha: Initial state vector.
-        :param S_sub: Sub-intensity matrix (advanced use, ``model`` will be ignored).
         :param pbar: Whether to show a progress bar
         :param parallelize: Whether to parallelize computations
         """
+        # get population sizes for first epoch
+        pop_size = dict((p, next(demography.pop_sizes[p])) for p in demography.pop_names)
+
         super().__init__(
             model=model,
             n=n,
             alpha=alpha,
-            Ne=1,
-            S_sub=S_sub,
+            demography=TimeHomogeneousDemography(pop_size=pop_size),
             pbar=pbar,
             parallelize=parallelize
         )
 
-        self.demography = demography
-
-        if isinstance(demography, PiecewiseConstantDemography):
-            self.times = demography.times
-            self.pop_sizes = demography.pop_sizes
-            self.n_epochs = len(self.times)
-        else:
-            self.times = np.array([0])
-            self.pop_sizes = [self.Ne]
-            self.n_epochs = 1
+        self.demography: PiecewiseTimeHomogeneousDemography = demography
 
     @cached_property
-    def tree_height(self) -> PiecewiseConstantPopSizeDistribution:
+    def tree_height(self) -> PiecewiseTimeHomogeneousDistribution:
         """
         Tree height distribution.
         """
-        return PiecewiseConstantPopSizeDistribution(
-            cd=self,
-            r=_pad(np.ones(self.n - 1))
+        return PiecewiseTimeHomogeneousDistribution(
+            n=self.n,
+            r=_pad(np.ones(self.n - 1)),
+            state_space=self._state_space,
+            alpha=self.alpha,
+            demography=self.demography
         )
 
     @cached_property
-    def total_branch_length(self) -> PiecewiseConstantPopSizeDistribution:
+    def total_branch_length(self) -> PiecewiseTimeHomogeneousDistribution:
         """
         Total branch length distribution.
         """
-        return PiecewiseConstantPopSizeDistribution(
-            cd=self,
-            r=_pad(1 / np.arange(2, self.n + 1)[::-1])
+        return PiecewiseTimeHomogeneousDistribution(
+            n=self.n,
+            r=_pad(1 / np.arange(2, self.n + 1)[::-1]),
+            state_space=self._state_space,
+            alpha=self.alpha,
+            demography=self.demography
         )
 
     @cached_property
@@ -1125,7 +1257,13 @@ class PiecewiseConstantPopSizeCoalescent(ConstantPopSizeCoalescent):
         """
         Site frequency spectrum distribution.
         """
-        return SFSDistribution(self, r=_pad(np.ones(self.n - 1)))
+        return SFSDistribution(
+            n=self.n,
+            state_space=self._state_space,
+            state_space_IAM=self._state_space_IAM,
+            alpha=self.alpha,
+            demography=self.demography
+        )
 
 
 class MsprimeCoalescent(Coalescent):

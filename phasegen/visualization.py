@@ -1,5 +1,5 @@
 import functools
-from typing import Callable
+from typing import Callable, Dict
 
 import numpy as np
 import seaborn as sns
@@ -115,8 +115,8 @@ class Visualization:
     @clear_show_save
     def plot_pop_sizes(
             ax: plt.Axes,
-            times: np.ndarray,
-            pop_sizes: np.ndarray,
+            times: Dict[str | int, np.ndarray],
+            pop_sizes: Dict[str | int, np.ndarray],
             t_max: float = None,
             xlabel: str = 't',
             ylabel: str = '$N_e(t)$',
@@ -129,8 +129,8 @@ class Visualization:
         Plot function.
 
         :param ax: Axes to plot on
-        :param times: x values
-        :param pop_sizes: y values
+        :param times: Dictionary of times for each population / deme
+        :param pop_sizes: Dictionary of population sizes for each population / deme
         :param t_max: Maximum time to plot
         :param xlabel: x label
         :param ylabel: y label
@@ -140,12 +140,17 @@ class Visualization:
         :param title: Title for plot
         :return: Axes
         """
-        # add last time point if t_max is given
-        if t_max is not None and t_max > times[-1]:
-            times = np.concatenate((times, [t_max]))
-            pop_sizes = np.concatenate((pop_sizes, [pop_sizes[-1]]))
+        # determine t_max if not given
+        if t_max is None:
+            t_max = max([times[pop][-1] for pop in times])
 
-        plt.plot(times, pop_sizes, drawstyle='steps-post')
+        # add last time point if t_max is given
+        for pop in times:
+            if t_max > times[pop][-1]:
+                times[pop] = np.concatenate((times[pop], [t_max]))
+                pop_sizes[pop] = np.concatenate((pop_sizes[pop], [pop_sizes[pop][-1]]))
+
+            ax.plot(times[pop], pop_sizes[pop], drawstyle='steps-post', label=pop)
 
         # set axis labels
         ax.set_xlabel(xlabel)
@@ -157,5 +162,11 @@ class Visualization:
         # set x limit
         if t_max is not None:
             ax.set_xlim(0, t_max)
+
+        # add legend if more than one population size
+        if len(times) > 1:
+            ax.legend()
+
+        plt.margins(x=0)
 
         return plt.gca()

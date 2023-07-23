@@ -3,9 +3,9 @@ from matplotlib import pyplot as plt
 import phasegen as pg
 
 # construct coalescent object
-coal = pg.PiecewiseConstantPopSizeCoalescent(
+coal = pg.PiecewiseTimeHomogeneousCoalescent(
     n=10,
-    demography=pg.PiecewiseConstantDemography(
+    demography=pg.PiecewiseTimeHomogeneousDemography(
         pop_sizes=[1.2, 10, 0.8, 10],
         times=[0, 0.3, 1, 1.4]
     )

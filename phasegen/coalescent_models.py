@@ -13,83 +13,28 @@ class CoalescentModel(ABC):
     Abstract class for coalescent models.
     """
 
-    def get_rate_matrix(self, n: int) -> np.ndarray:
-        """
-        Get the sub-intensity matrix for a given number of lineages.
-        Each state corresponds to the number of lineages minus one.
-
-        :param n: Number of lineages.
-        :return: The rate matrix.
-        """
-
-        def matrix_indices_to_rates(i: int, j: int) -> float:
-            """
-            Get the rate from state i to state j.
-
-            :param i: State i.
-            :param j: State j.
-            :return: The rate from state i to state j.
-            """
-            return self.get_rate(b=n - i, k=j + 1 - i)
-
-        # Dividing by Ne here produces unstable results for small population
-        # sizes (Ne < 1). We thus add it later to the moments.
-        return cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n - 1, n - 1), dtype=int))
-
-    def get_states_infinite_alleles(self, n: int) -> np.ndarray:
-        """
-        Get the states for a given number of lineages.
-
-        :param n: Number of lineages.
-        :return: The states.
-        """
-        return np.array(self.find_vectors(m=n, n=n))
-
-    def find_vectors(self, m: int, n: int) -> List[List[int]]:
-        """
-        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
-
-        :param m: Length of the vectors.
-        :param n: Target sum.
-        :returns: list of vectors satisfying the condition
-        """
-        # base case, when the length of vector is 0
-        # if n is also 0, return an empty vector, otherwise no solutions
-        if m == 0:
-            return [[]] if n == 0 else []
-
-        vectors = []
-        # iterate over possible values for the first component
-        for x in range(n // m + 1):  # Adjusted for 1-based index
-            # recursively find vectors with one less component and a smaller target sum
-            for vector in self.find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
-                # prepend the current component to the recursively found vectors
-                vectors.append(vector + [x])  # Reversed vectors
-
-        return vectors
-
     @abstractmethod
-    def get_rate_matrix_infinite_alleles(self, n: int) -> (np.ndarray, np.ndarray):
-        r"""
-        Get the sub-intensity matrix for a given number of lineages.
-        Each state corresponds to a sample configuration,
-        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
-
-        :param n: Number of lineages.
-        :return: The rate matrix, and the list of states
-        """
-        pass
-
-    @abstractmethod
-    def get_rate(self, b: int, k: int):
+    def get_rate(self, b: int, k: int) -> float:
         """
         Get exponential rate for a merger of k out of b lineages.
 
-        :param b:
-        :param k:
-        :return:
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge.
+        :return: The rate.
         """
         pass
+
+    @abstractmethod
+    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        r"""
+        Get rate between two infinite alleles states.
+        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
+
+        :param n: Number of lineages.
+        :param s1: Sample configuration 1.
+        :param s2: Sample configuration 2.
+        :return: The rate.
+        """
 
     @abstractmethod
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
@@ -126,7 +71,7 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers can happen
         return 0
 
-    def get_rate_infinite_alleles(self, n:int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
         Get exponential rate for a merger of k out of b lineages.
 
@@ -157,97 +102,12 @@ class StandardCoalescent(CoalescentModel):
 
         return 0
 
-    def get_rate_matrix_infinite_alleles(self, n: int) -> (np.ndarray, np.ndarray):
-        r"""
-        Get the sub-intensity matrix for a given number of lineages.
-        Each state corresponds to a sample configuration,
-        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
-
-        :param n: Number of lineages.
-        :return: The rate matrix.
-        """
-        # TODO define ordering of states and implement this in general
-        states = self.get_states_infinite_alleles(n)
-        n_states = states.shape[0]
-
-        def matrix_indices_to_rates(i: int, j: int) -> float:
-            """
-            Get the rate from state i to state j.
-
-            :param i: State i.
-            :param j: State j.
-            :return: The rate from state i to state j.
-            """
-            return self.get_rate_infinite_alleles(n=n, s1=states[i], s2=states[j])
-
-        S = cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n_states, n_states), dtype=int))
-
-        # fill diagonal with negative sum of row
-        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
-
-        return S, states
-
-    def find_substates(self, n: int, state: np.ndarray) -> List[np.ndarray]:
-        """
-        Function to find all substates of a given state that are one coalescence event away.
-
-        :param n: The number of lineages
-        :param state: The given state
-        :returns: list of substates
-        """
-        substates = []
-
-        for i in range(n):
-            for j in range(n):
-                if (i < j and state[i] > 0 and state[j] > 0) or (i == j and state[i] > 1):
-                    new_state = state.copy()
-                    new_state[i] -= 1
-                    new_state[j] -= 1
-                    new_state[i + j + 1] += 1
-
-                    substates.append(new_state)
-
-        return substates
-
-    def get_sample_config_probs_explicit_state_space(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-        This function constructs the state space explicitly and iterates over all possible states which is
-        computationally expensive.
-
-        :param n: The number of lineages
-        :return: The probabilities of all possible sample configurations.
-        """
-        # get all possible states
-        states = self.get_states_infinite_alleles(n)
-
-        # the number of lineages in each state
-        n_lin_states = states.sum(axis=1)
-
-        # the indices of the states with the same number of lineages
-        n_lineages = [np.where(n_lin_states == i)[0] for i in np.arange(n + 1)]
-
-        # initialize the probabilities
-        probs = cast(Dict[Tuple, float], defaultdict(int))
-        probs[tuple(states[0])] = 1
-
-        # iterate over the number of lineages
-        for i in np.arange(2, n)[::-1]:
-
-            # iterate over pairs and determine the probability of transitioning from s1 to s2
-            for s1, s2 in itertools.product(states[n_lineages[i + 1]], states[n_lineages[i]]):
-                # s = self.find_substates(s1)
-
-                probs[tuple(s2)] += probs[tuple(s1)] * self.get_probs(n, s1, s2)
-
-        return probs
-
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """
         Get the probabilities of all possible sample configurations.
 
         :param n: The number of lineages
-        :return:
+        :return: The probabilities of all possible sample configurations.
         """
         # initialize the probabilities
         probs = cast(Dict[Tuple, float], defaultdict(int))
@@ -267,16 +127,71 @@ class StandardCoalescent(CoalescentModel):
                 s1 = np.array(s1_tuple)
 
                 # iterate over substates of s1
-                for s2 in self.find_substates(n, s1):
+                for s2 in self._find_substates(n, s1):
                     s2_tuple = tuple(s2)
                     states[i - 1].add(s2_tuple)
 
                     # determine the probability of transitioning from s1 to s2
-                    probs[s2_tuple] += probs[s1_tuple] * self.get_probs(n, s1, s2)
+                    probs[s2_tuple] += probs[s1_tuple] * self._get_probs(n, s1, s2)
 
         return probs
 
-    def get_probs(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    @staticmethod
+    def _find_substates(n: int, state: np.ndarray) -> List[np.ndarray]:
+        """
+        Function to find all substates of a given state that are one coalescence event away.
+
+        :param n: The number of lineages
+        :param state: The given state
+        :returns: List of substates
+        """
+        substates = []
+
+        for i in range(n):
+            for j in range(n):
+                if (i < j and state[i] > 0 and state[j] > 0) or (i == j and state[i] > 1):
+                    new_state = state.copy()
+                    new_state[i] -= 1
+                    new_state[j] -= 1
+                    new_state[i + j + 1] += 1
+
+                    substates.append(new_state)
+
+        return substates
+
+    def _get_sample_config_probs_explicit_state_space(self, n: int, states: np.ndarray) -> Dict[Tuple, float]:
+        """
+        Get the probabilities of all possible sample configurations.
+        This function constructs the state space explicitly and iterates over all possible states which is
+        computationally expensive.
+
+        :param n: Number of lineages.
+        :param states: Matrix of all possible states.
+        :return: The probabilities of all possible sample configurations.
+        """
+        # the number of lineages in each state
+        n_lin_states = states.sum(axis=1)
+
+        # the indices of the states with the same number of lineages
+        n_lineages = [np.where(n_lin_states == i)[0] for i in np.arange(n + 1)]
+
+        # initialize the probabilities
+        probs = cast(Dict[Tuple, float], defaultdict(int))
+        probs[tuple(states[0])] = 1
+
+        # iterate over the number of lineages
+        for i in np.arange(2, n)[::-1]:
+
+            # iterate over pairs and determine the probability of transitioning from s1 to s2
+            for s1, s2 in itertools.product(states[n_lineages[i + 1]], states[n_lineages[i]]):
+                # s = self.find_substates(s1)
+
+                probs[tuple(s2)] += probs[tuple(s1)] * self._get_probs(n, s1, s2)
+
+        return probs
+
+    @staticmethod
+    def _get_probs(n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
         Get the probabilities transitioning from s1 to s2 assuming that s1 has one more lineage than s2.
 
@@ -335,6 +250,17 @@ class BetaCoalescent(CoalescentModel):
             return -np.sum([self.get_rate(b, i) for i in range(2, b + 1)])
 
         return comb(b, k, exact=True) * beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
+
+    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        """
+        Get the rate of a merger of k out of b lineages under the infinite alleles model.
+
+        :param n: Number of lineages.
+        :param s1: First state.
+        :param s2: Second state.
+        :return: The rate.
+        """
+        pass
 
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """

@@ -89,12 +89,12 @@ from .serialization import NumpyArrayHandler
 # register custom json handlers
 jsonpickle.handlers.registry.register(np.ndarray, NumpyArrayHandler)
 
-from .distributions import ConstantPopSizeDistribution, PiecewiseConstantPopSizeDistribution
+from .distributions import TimeHomogeneousDistribution, PiecewiseTimeHomogeneousDistribution
 
-from .distributions import Coalescent, ConstantPopSizeCoalescent, PiecewiseConstantPopSizeCoalescent, MsprimeCoalescent
+from .distributions import Coalescent, TimeHomogeneousCoalescent, PiecewiseTimeHomogeneousCoalescent, MsprimeCoalescent
 
-from .demography import Demography, PiecewiseConstantDemography, ExponentialDemography, ContinuousDemography, \
-    ConstantDemography
+from .demography import Demography, PiecewiseTimeHomogeneousDemography, ExponentialDemography, ContinuousDemography, \
+    TimeHomogeneousDemography
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
 
@@ -105,17 +105,17 @@ from .inference import Inference
 from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
 
 __all__ = [
-    'ConstantPopSizeDistribution',
-    'PiecewiseConstantPopSizeDistribution',
+    'TimeHomogeneousDistribution',
+    'PiecewiseTimeHomogeneousDistribution',
     'Coalescent',
-    'ConstantPopSizeCoalescent',
-    'PiecewiseConstantPopSizeCoalescent',
+    'TimeHomogeneousCoalescent',
+    'PiecewiseTimeHomogeneousCoalescent',
     'MsprimeCoalescent',
     'Demography',
-    'PiecewiseConstantDemography',
+    'PiecewiseTimeHomogeneousDemography',
     'ExponentialDemography',
     'ContinuousDemography',
-    'ConstantDemography',
+    'TimeHomogeneousDemography',
     'StandardCoalescent',
     'BetaCoalescent',
     'SFS2',

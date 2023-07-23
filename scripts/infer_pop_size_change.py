@@ -14,9 +14,9 @@ def get_dist(t: float, Ne: float) -> pg.Coalescent:
     :param Ne: New population size at time ``t``.
     :return: Coalescent distribution.
     """
-    return pg.PiecewiseConstantPopSizeCoalescent(
+    return pg.PiecewiseTimeHomogeneousCoalescent(
         n=10,
-        demography=pg.PiecewiseConstantDemography(
+        demography=pg.PiecewiseTimeHomogeneousDemography(
             pop_sizes=[1, Ne],
             times=[0, t]
         ),

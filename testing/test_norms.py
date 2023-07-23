@@ -7,6 +7,9 @@ import phasegen as pg
 
 
 class NormTestCase(unittest.TestCase):
+    """
+    Test norms.
+    """
 
     def test_L2Norm(self):
         """
@@ -45,7 +48,7 @@ class NormTestCase(unittest.TestCase):
         expected_result = sum(stats.poisson.logpmf(observed, modelled))
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
 
-        self.assertAlmostEqual(expected_result, actual_result, places=7)
+        self.assertAlmostEqual(-expected_result, actual_result, places=7)
 
     def test_poisson_likelihood_pass_SFS(self):
         """
@@ -57,7 +60,7 @@ class NormTestCase(unittest.TestCase):
         expected_result = sum(stats.poisson.logpmf(observed.data, modelled.data))
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
 
-        self.assertAlmostEqual(expected_result, actual_result, places=7)
+        self.assertAlmostEqual(-expected_result, actual_result, places=7)
 
     def test_poisson_likelihood_pass_2SFS(self):
         """
@@ -69,4 +72,4 @@ class NormTestCase(unittest.TestCase):
         expected_result = stats.poisson.logpmf(observed.data, modelled.data).sum()
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
 
-        self.assertAlmostEqual(expected_result, actual_result, places=7)
+        self.assertAlmostEqual(-expected_result, actual_result, places=7)

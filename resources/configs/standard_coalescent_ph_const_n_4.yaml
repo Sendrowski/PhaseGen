@@ -1,0 +1,23 @@
+n: 4
+num_replicates: 1000000
+pop_sizes:
+  - 1
+times:
+  - 0
+comparisons:
+  types:
+    - ph_const
+  tolerance:
+    tree_height:
+      mean: 0.01
+      var: 0.05
+      pdf: 3
+      cdf: 3
+    total_branch_length:
+      mean: 0.01
+      var: 0.05
+      pdf: 3
+      cdf: 3
+    sfs:
+      mean: 0.01
+      cov: 0.02

@@ -364,6 +364,7 @@ class SFS2(Iterable):
         """
         Plot as a heatmap.
         
+        :param title:
         :param ax: Axes to plot on.
         :param max_abs: Maximum absolute value to plot.
         :param log_scale: Use log scale.
@@ -443,6 +444,7 @@ class SFS2(Iterable):
         """
         Plot as a surface.
         
+        :param title:
         :param ax: Axes to plot on.
         :param max_abs: Maximum absolute value to plot.
         :param vmin: Minimum value to plot.

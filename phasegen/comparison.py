@@ -1,14 +1,13 @@
-from typing import List
+from typing import List, Iterable
 
 import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from .demography import PiecewiseConstantDemography, ExponentialDemography
-from .spectrum import SFS2
-from .distributions_deprecated import VariablePopSizeCoalescent as VariablePopSizeCoalescentLegacy
-from .distributions import PiecewiseConstantPopSizeCoalescent, ConstantPopSizeCoalescent, MsprimeCoalescent
+from .demography import PiecewiseTimeHomogeneousDemography, ExponentialDemography, TimeHomogeneousDemography
+from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
 from .serialization import Serializable
+from .spectrum import SFS2
 
 
 class Comparison(Serializable):
@@ -44,7 +43,6 @@ class Comparison(Serializable):
         :param parallelize: Whether to parallelize the msprime simulations.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
-        :param kwargs: Additional arguments.
         """
         self.comparisons = comparisons
 
@@ -62,7 +60,7 @@ class Comparison(Serializable):
 
         if growth_rate is not None:
             # phase-type coalescent
-            self.ph = PiecewiseConstantPopSizeCoalescent(
+            self.ph = PiecewiseTimeHomogeneousCoalescent(
                 n=n,
                 demography=ExponentialDemography(
                     growth_rate=growth_rate,
@@ -73,9 +71,9 @@ class Comparison(Serializable):
             )
         else:
             # phase-type coalescent
-            self.ph = PiecewiseConstantPopSizeCoalescent(
+            self.ph = PiecewiseTimeHomogeneousCoalescent(
                 n=n,
-                demography=PiecewiseConstantDemography(
+                demography=PiecewiseTimeHomogeneousDemography(
                     pop_sizes=pop_sizes,
                     times=times
                 ),
@@ -83,20 +81,10 @@ class Comparison(Serializable):
                 parallelize=parallelize
             )
 
-        # legacy phase-type coalescent
-        self.ph_legacy = VariablePopSizeCoalescentLegacy(
-            n=n,
-            demography=PiecewiseConstantDemography(
-                pop_sizes=pop_sizes,
-                times=times
-            ),
-            alpha=alpha[:-1] if alpha is not None else None
-        )
-
         # phase-type coalescent with constant population size
-        self.ph_const = ConstantPopSizeCoalescent(
+        self.ph_const = TimeHomogeneousCoalescent(
             n=n,
-            Ne=pop_sizes[0],
+            demography=TimeHomogeneousDemography(pop_size=pop_sizes[0]),
             alpha=alpha,
             parallelize=parallelize
         )
@@ -139,8 +127,10 @@ class Comparison(Serializable):
                         diff = self.rel_diff(ms_stat, ph_stat).max()
 
                     # assume we have an SFS
-                    elif isinstance(ph_stat, np.ndarray):
+                    elif isinstance(ph_stat, Iterable):
 
+                        ms_stat = np.array(list(ms_stat))
+                        ph_stat = np.array(list(ph_stat))
                         diff = self.rel_diff(ms_stat, ph_stat).max()
 
                         if ph_stat.ndim == 1:
@@ -174,4 +164,7 @@ class Comparison(Serializable):
 
                         diff = self.rel_diff(y_ms, y_ph).max()
 
-                    assert diff < tol, f"Maximum difference {diff} exceeds threshold {tol}."
+                    else:
+                        raise ValueError(f"Unknown type {type(ph_stat)}.")
+
+                    assert diff < tol, f"Maximum relative difference {diff} exceeds threshold {tol}."
