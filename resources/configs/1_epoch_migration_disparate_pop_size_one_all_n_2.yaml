@@ -1,0 +1,27 @@
+n:
+  pop_0: 2
+  pop_1: 0
+num_replicates: 1000000
+migration_matrix:
+  - [ 0, 1 ]
+  - [ 1, 0 ]
+pop_sizes:
+  pop_0: [ 10000 ]
+  pop_1: [ 0.0001 ]
+times:
+  pop_0: [ 0 ]
+  pop_1: [ 0 ]
+comparisons:
+  types:
+    - ph
+  tolerance:
+    tree_height:
+      mean: 0.01
+      var: 0.02
+    total_branch_length:
+      mean: 0.01
+      var: 0.02
+    sfs:
+      mean: 0.01
+      cov: 0.02
+      corr: 0.02
