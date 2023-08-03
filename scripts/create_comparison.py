@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "standard_coalescent_ph_n_4"
+    name = "1_epoch_migration_one_each_n_2"
     file = f"resources/configs/{name}.yaml"
     out = f"scratch/{name}.json"
 

@@ -98,9 +98,15 @@ from .demography import Demography, PiecewiseTimeHomogeneousDemography, Exponent
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
 
+from .state_space import DefaultStateSpace, InfiniteAllelesStateSpace
+
+from.rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
+
 from .spectrum import SFS, SFS2
 
 from .inference import Inference
+
+from.population import PopulationConfig
 
 from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
 
@@ -125,5 +131,13 @@ __all__ = [
     'L1Norm',
     'L2Norm',
     'LInfNorm',
-    'PoissonLikelihood'
+    'PoissonLikelihood',
+    'Reward',
+    'TreeHeightReward',
+    'TotalBranchLengthReward',
+    'SFSReward',
+    'DefaultStateSpace',
+    'InfiniteAllelesStateSpace',
+    'CoalescentModel',
+    'PopulationConfig'
 ]

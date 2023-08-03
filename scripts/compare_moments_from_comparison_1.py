@@ -14,33 +14,32 @@ try:
 
     testing = False
     file = snakemake.input[0]
+    name = snakemake.params.name
     dist = snakemake.params.dist
     stat = snakemake.params.stat
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_migration_debug_7"
-    file = f"resources/configs/{name}.yaml"
+    name = "1_epoch_migration_debug_11"
+    file = f"results/comparisons/serialized/{name}.json"
     dist = 'tree_height'
     stat = 'mean'
     out = f"scratch/{name}.json"
 
-import yaml
-
 from phasegen.comparison import Comparison
 
-# load config from file
-with open(file, 'r') as f:
-    config = yaml.safe_load(f)
+comp = Comparison.from_file(file)
 
-comp = Comparison(**config)
+comp.comparisons = {
+    'types': ['ph'],
+    'tolerance': {
+        dist: {
+            stat: 0.1
+        }
+    }
+}
 
-s1 = getattr(getattr(comp.ph, dist), stat)
-s2 = getattr(getattr(comp.ms, dist), stat)
-
-if hasattr(s1, 'plot'):
-    s1 = s1.plot()
-    s2 = s2.plot()
+comp.compare(name, do_assertion=False)
 
 pass

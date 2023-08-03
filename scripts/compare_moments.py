@@ -23,8 +23,9 @@ try:
 
     testing = False
     n = snakemake.params.n
-    pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
+    pop_sizes = snakemake.params.pop_sizes
+    migration_matrix = snakemake.params.migration_matrix
     growth_rate = snakemake.params.growth_rate
     N0 = snakemake.params.N0
     alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
@@ -37,17 +38,18 @@ try:
 except NameError:
     # testing
     testing = True
-    n = 10  # sample size
-    times = np.linspace(0, 3, 2)
-    pop_sizes = [1] * 2
+    n = 3  # sample size
+    times = dict(pop_0=[0], pop_1=[0])
+    pop_sizes = dict(pop_0=[1], pop_1=[1])
+    migration_matrix = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
     growth_rate = None
     N0 = 1
     alpha = np.eye(1, n, 0)[0]
     num_replicates = 100000
     n_threads = 1000
     parallelize = False
-    dist = 'sfs'
-    stat = 'corr'
+    dist = 'tree_height'
+    stat = 'mean'
     out = "scratch/test_comp.png"
 
 comp = Comparison(
@@ -55,6 +57,7 @@ comp = Comparison(
     pop_sizes=pop_sizes,
     times=times,
     growth_rate=growth_rate,
+    migration_matrix=migration_matrix,
     N0=N0,
     alpha=alpha,
     num_replicates=num_replicates,

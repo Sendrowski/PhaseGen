@@ -1,10 +1,11 @@
-from typing import List, Iterable
+from functools import cached_property
+from typing import List, Iterable, Dict, Tuple
 
 import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from .demography import PiecewiseTimeHomogeneousDemography, ExponentialDemography, TimeHomogeneousDemography
+from .demography import PiecewiseTimeHomogeneousDemography, ExponentialDemography, TimeHomogeneousDemography, Demography
 from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
 from .serialization import Serializable
 from .spectrum import SFS2
@@ -19,8 +20,9 @@ class Comparison(Serializable):
     def __init__(
             self,
             n: int,
-            pop_sizes: np.ndarray | List = None,
-            times: np.ndarray | List = None,
+            pop_sizes: np.ndarray | List | Dict[str, List] = None,
+            times: np.ndarray | List | Dict[str, List] = None,
+            migration_matrix: np.ndarray | List | Dict[Tuple[str, str], float] = None,
             growth_rate: float = None,
             N0: float = None,
             num_replicates: int = 10000,
@@ -33,8 +35,9 @@ class Comparison(Serializable):
         Initialize Comparison object.
 
         :param n: Number of lineages.
-        :param pop_sizes: Population sizes.
-        :param times: Times of population size changes.
+        :param pop_sizes: Population sizes at different times or different populations if a dictionary is given.
+        :param times: Times of population size changes or different populations if a dictionary is given.
+        :param migration_matrix: Migration matrix.
         :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
             ``N0 * exp(- growth_rate * t)``.
         :param N0: Initial population size (only used if growth_rate is specified).
@@ -45,48 +48,70 @@ class Comparison(Serializable):
         :param comparisons: Dictionary specifying which comparisons to make.
         """
         self.comparisons = comparisons
+        self.n = n
+        self.pop_sizes = pop_sizes
+        self.times = times
+        self.migration_matrix = migration_matrix
+        self.growth_rate = growth_rate
+        self.N0 = N0
+        self.num_replicates = num_replicates
+        self.n_threads = n_threads
+        self.parallelize = parallelize
+        self.alpha = alpha
 
-        # msprime coalescent
-        self.ms = MsprimeCoalescent(
-            n=n,
-            pop_sizes=pop_sizes,
-            times=times,
-            growth_rate=growth_rate,
-            N0=N0,
-            num_replicates=num_replicates,
-            n_threads=n_threads,
-            parallelize=parallelize
-        )
-
-        if growth_rate is not None:
-            # phase-type coalescent
-            self.ph = PiecewiseTimeHomogeneousCoalescent(
-                n=n,
-                demography=ExponentialDemography(
-                    growth_rate=growth_rate,
-                    N0=N0
-                ),
-                alpha=alpha,
-                parallelize=parallelize
+    def get_demography(self) -> Demography:
+        """
+        Get the demography.
+        """
+        if self.growth_rate is not None:
+            return ExponentialDemography(
+                growth_rate=self.growth_rate,
+                N0=self.N0,
+                migration_matrix=self.migration_matrix
             )
         else:
-            # phase-type coalescent
-            self.ph = PiecewiseTimeHomogeneousCoalescent(
-                n=n,
-                demography=PiecewiseTimeHomogeneousDemography(
-                    pop_sizes=pop_sizes,
-                    times=times
-                ),
-                alpha=alpha,
-                parallelize=parallelize
+            return PiecewiseTimeHomogeneousDemography(
+                pop_sizes=self.pop_sizes,
+                times=self.times,
+                migration_matrix=self.migration_matrix
             )
 
-        # phase-type coalescent with constant population size
-        self.ph_const = TimeHomogeneousCoalescent(
-            n=n,
-            demography=TimeHomogeneousDemography(pop_size=pop_sizes[0]),
-            alpha=alpha,
-            parallelize=parallelize
+    @cached_property
+    def ph(self):
+        """
+        Get the phase-type coalescent.
+        """
+        return PiecewiseTimeHomogeneousCoalescent(
+            n=self.n,
+            demography=self.get_demography(),
+            parallelize=self.parallelize
+        )
+
+    @cached_property
+    def ph_const(self):
+        """
+        Get the phase-type coalescent with constant population size.
+        """
+        return TimeHomogeneousCoalescent(
+            n=self.n,
+            demography=TimeHomogeneousDemography(
+                pop_size=self.pop_sizes[0],
+                migration_matrix=self.migration_matrix
+            ),
+            parallelize=self.parallelize
+        )
+
+    @cached_property
+    def ms(self):
+        """
+        Get the msprime coalescent.
+        """
+        return MsprimeCoalescent(
+            n=self.n,
+            demography=self.get_demography(),
+            num_replicates=self.num_replicates,
+            n_threads=self.n_threads,
+            parallelize=self.parallelize
         )
 
     @staticmethod
@@ -106,9 +131,12 @@ class Comparison(Serializable):
         # only consider finite values
         return diff[np.isfinite(diff)]
 
-    def compare(self):
+    def compare(self, title: str = None, do_assertion: bool = True):
         """
         Compare the distributions of the given statistic for the given types.
+
+        :param title: Title of the plot.
+        :param do_assertion: Whether to assert that the distributions are the same.
         """
         # iterate over types
         for t in self.comparisons['types']:
@@ -137,10 +165,12 @@ class Comparison(Serializable):
 
                             s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
 
-                            s.plot()
+                            s.plot(title=title)
 
                         else:
-                            _, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+                            fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+
+                            fig.suptitle(f"{stat}: {title}")
 
                             SFS2(ph_stat).plot(ax=axs[0], title='ph', show=False)
                             SFS2(ms_stat).plot(ax=axs[1], title='ms')
@@ -157,8 +187,7 @@ class Comparison(Serializable):
                         plt.plot(x, y_ms, label='msprime')
 
                         plt.legend()
-                        props = dict((k, self.ms.__dict__[k]) for k in ['n', 'pop_sizes', 'times'])
-                        plt.title(f"{stat.upper()} for {props}")
+                        plt.title(f"{stat.upper()}: {title}")
 
                         plt.show()
 
@@ -167,4 +196,7 @@ class Comparison(Serializable):
                     else:
                         raise ValueError(f"Unknown type {type(ph_stat)}.")
 
-                    assert diff < tol, f"Maximum relative difference {diff} exceeds threshold {tol}."
+                    if do_assertion:
+                        assert diff < tol, f"Maximum relative difference {diff} exceeds threshold {tol}."
+
+                    plt.clf()

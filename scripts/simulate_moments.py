@@ -28,13 +28,13 @@ except NameError:
     # testing
     testing = True
     n = 10  # sample size
-    times = [0, 0.3, 1, 1.4]
-    pop_sizes = [1.2, 10, 0.8, 10]
+    #times = [0, 0.3, 1, 1.4]
+    #pop_sizes = [1.2, 10, 0.8, 10]
     #pop_sizes = [1, 0.00000001]
     #times = [0, 1]
-    #pop_sizes = [1]
-    #times = [0]
-    alpha = np.eye(1, n - 1, 0)[0]
+    pop_sizes = [1]
+    times = [0]
+    alpha = np.eye(1, n, 0)[0]
     num_replicates = 10000
     out = "scratch/result.json"
 

@@ -23,3 +23,4 @@ comparisons:
     sfs:
       mean: 0.01
       cov: 0.01
+      corr: 0.02

@@ -1,40 +1,59 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import cast, List
+from itertools import product
+from typing import List
 
 import numpy as np
 from scipy.linalg import expm, inv
 
 from .coalescent_models import CoalescentModel
 from .demography import TimeHomogeneousDemography
+from .population import PopulationConfig
 
 
 class StateSpace(ABC):
+    """
+    State space.
+    """
 
     def __init__(
             self,
-            n: int,
+            pop_config: PopulationConfig,
             model: CoalescentModel,
             demography: TimeHomogeneousDemography
     ):
         """
         Create a rate matrix.
 
-        :param n: Number of lineages.
+        :param pop_config: Population configuration.
         :param model: Coalescent model.
-        :param demography: Time homogeneous demography (we can also construct a state space
+        :param demography: Time homogeneous demography (we can only construct a state space
             for a fixed demography).
         """
-        self.n = n
-        self.model = model
-        self.demography = demography
+        #: Coalescent model
+        self.model: CoalescentModel = model
 
-    @abstractmethod
-    def _get_rate_matrix(self) -> np.ndarray:
-        """
-        Get the sub-intensity matrix for a given number of lineages.
-        """
-        pass
+        #: Population configuration
+        self.pop_config: PopulationConfig = pop_config
+
+        # we first determine the non-zero states by using default values for the demography
+        self.demography = TimeHomogeneousDemography(
+            pop_size=demography.pop_size,
+            migration_matrix=np.ones((demography.n_pops, demography.n_pops))
+        )
+
+        # get the rate matrix for the default demography
+        default_rate_matrix = np.fromfunction(
+            np.vectorize(self._matrix_indices_to_rates, otypes=[float]),
+            (self.k, self.k),
+            dtype=int
+        )
+
+        # indices of non-zero rates
+        self._non_zero_states = np.where(default_rate_matrix != 0)
+
+        #: Demography
+        self.demography: TimeHomogeneousDemography = demography
 
     @cached_property
     @abstractmethod
@@ -87,35 +106,159 @@ class StateSpace(ABC):
         return inv(self.T)
 
     @cached_property
-    @abstractmethod
     def S(self) -> np.ndarray:
         """
         Get full intensity matrix.
         """
-        pass
+        # obtain intensity matrix
+        return self._get_rate_matrix()
 
-    @cached_property
-    @abstractmethod
-    def k(self) -> int:
+    def update_demography(self, demography: TimeHomogeneousDemography):
         """
-        Get number of states.
-        """
-        pass
-
-    def from_demography(self, demography: TimeHomogeneousDemography) -> 'StateSpace':
-        """
-        Get a new state space given a demography. Like this we can optimize the state space
-        creation for a specific demography.
-        TODO optimize state space creation
+        Update the demography.
 
         :param demography: Demography.
         :return: State space.
         """
-        return self.__class__(
-            n=self.n,
-            model=self.model,
-            demography=demography
-        )
+        # update the demography
+        self.demography = demography
+
+        # try to delete rate matrix cache
+        try:
+            # noinspection all
+            del self.S
+        except AttributeError:
+            pass
+
+    @cached_property
+    def k(self) -> int:
+        """
+        Get number of states.
+
+        :return: The number of states.
+        """
+        return len(self.states)
+
+    @cached_property
+    def m(self) -> int:
+        """
+        Length of the state vector for a single deme.
+
+        :return: The length
+        """
+        return self.states.shape[2]
+
+    def _matrix_indices_to_rates(self, i: int, j: int) -> float:
+        """
+        Get the rate from the state indexed by i to the state indexed by j.
+
+        :param i: Index i.
+        :param j: Index j.
+        :return: The rate from the state indexed by i to the state indexed by j.
+        """
+        # get the states
+        s1 = self.states[i]
+        s2 = self.states[j]
+
+        # get the difference between the states
+        diff = s1 - s2
+
+        # get the number of different demes
+        n_diff = (diff != 0).any(axis=1).sum()
+
+        # eligible for coalescent event
+        if n_diff == 1:
+            deme_index = np.where(diff != 0)[0][0]
+
+            rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
+
+            pop_size = self.demography.pop_size[self.demography.pop_names[deme_index]]
+
+            return rate / pop_size
+
+        # eligible for migration event
+        if n_diff == 2:
+
+            # check if one migration event
+            if (diff == 1).sum(axis=1).sum() == 1 and (diff == -1).sum(axis=1).sum() == 1:
+
+                # make sure that the other demes are not changing
+                if (diff != 0).sum(axis=1).sum() == 2:
+
+                    # make sure that the number of lineages is greater than 1
+                    if s1.sum() > 1:
+                        # get the indices of the source and destination demes
+                        i_source = np.where((diff == 1).sum(axis=1) == 1)[0][0]
+                        i_dest = np.where((diff == -1).sum(axis=1) == 1)[0][0]
+
+                        # get the deme names
+                        source = self.demography.pop_names[i_source]
+                        dest = self.demography.pop_names[i_dest]
+
+                        # get the number of lineages in deme i before migration
+                        n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
+
+                        # scale migration rate by population size
+                        migration_rate = self.demography.migration_rates[(source, dest)]
+
+                        rate = migration_rate * n_lineages_source
+
+                        return rate
+
+        return 0
+
+    def _get_rate_matrix(self) -> np.ndarray:
+        """
+        Get the sub-intensity matrix.
+
+        :return: The sub-intensity matrix.
+        """
+        matrix_indices_to_rates = np.vectorize(self._matrix_indices_to_rates, otypes=[float])
+
+        # create empty matrix
+        S = np.zeros((self.k, self.k))
+
+        # fill matrix with non-zero rates
+        S[self._non_zero_states] = matrix_indices_to_rates(*self._non_zero_states)
+
+        # fill diagonal with negative sum of row
+        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
+
+        return S
+
+    @abstractmethod
+    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        """
+        Get the coalescent rate from state ``s1`` to state ``s2``.
+
+        :param n: Number of lineages.
+        :param s1: State 1.
+        :param s2: State 2.
+        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        """
+        pass
+
+    @staticmethod
+    def _find_vectors(n: int, k: int) -> List[List[int]]:
+        """
+        Find all vectors of length ``k`` with non-negative integers that sum to ``n``.
+
+        :param n: The sum.
+        :param k: The length of the vectors.
+        :return: All vectors of length ``k`` with non-negative integers that sum to ``n``.
+        """
+        if k == 0:
+            return [[]]
+
+        if k == 1:
+            return [[n]]
+
+        vectors = []
+        for i in range(n + 1):
+            for vector in StateSpace._find_vectors(n - i, k - 1):
+                vectors.append(vector + [i])
+
+        return vectors
 
 
 class DefaultStateSpace(StateSpace):
@@ -123,65 +266,35 @@ class DefaultStateSpace(StateSpace):
     Default rate matrix where there is one state per number of lineages for each deme and locus.
     """
 
-    def _get_rate_matrix(self) -> np.ndarray:
+    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Get the sub-intensity matrix for a given number of lineages.
-        Each state corresponds to the number of lineages minus one.
+        Get the coalescent rate from state ``s1`` to state ``s2``.
 
-        :return: The rate matrix.
+        :param n: Number of lineages.
+        :param s1: State 1.
+        :param s2: State 2.
+        :return: The coalescent rate from state ``s1`` to state ``s2``.
         """
-
-        def matrix_indices_to_rates(i: int, j: int) -> float:
-            """
-            Get the rate from state i to state j.
-            TODO implement for multiple demes
-
-            :param i: State i.
-            :param j: State j.
-            :return: The rate from state i to state j.
-            """
-            pop_size = self.demography.pop_size[self.demography.pop_names[0]]
-
-            return self.model.get_rate(b=self.n - i, k=j + 1 - i) / pop_size
-
-        # obtain the rate matrix
-        S = np.fromfunction(np.vectorize(matrix_indices_to_rates), (self.n - 1, self.n - 1), dtype=float)
-
-        return cast(np.ndarray, S)
+        return self.model.get_rate(s1=s1[0], s2=s2[0])
 
     @cached_property
     @abstractmethod
     def states(self) -> np.ndarray:
         """
-        Get the states.
+        Get the states. Each state describes the number of lineages per deme.
         """
-        return np.arange(2, self.n)
+        # the number of lineages
+        lineages = np.arange(1, self.pop_config.n + 1)[::-1]
 
-    @cached_property
-    def S(self) -> np.ndarray:
-        """
-        Get full intensity matrix.
-        """
-        # obtain sub-intensity matrix
-        S_sub = self._get_rate_matrix()
+        # iterate over possible number of lineages and find all possible deme configurations
+        states = []
+        for i in lineages:
+            states += self._find_vectors(n=i, k=self.demography.n_pops)
 
-        # exit rate vector
-        # cannot use cached property because it depends on S
-        s = -S_sub @ np.ones(S_sub.shape[0])
+        states = np.array(states)
 
-        # return full intensity matrix
-        return np.block([
-            [S_sub, s[:, None]],
-            [np.zeros(S_sub.shape[0] + 1)]
-        ])
-
-    @cached_property
-    @abstractmethod
-    def k(self) -> int:
-        """
-        Get number of states.
-        """
-        return self.n
+        # add extra dimension to make it compatible with the other state spaces
+        return states.reshape(states.shape + (1,))
 
 
 class InfiniteAllelesStateSpace(StateSpace):
@@ -189,21 +302,52 @@ class InfiniteAllelesStateSpace(StateSpace):
     Infinite alleles rate matrix where there is one state per sample configuration:
     :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`,
 
-    per deme and per locus.
+    per deme and per locus. This state space can distinguish between different tree topologies
+    and is thus used when computing statistics based on the SFS.
     """
+
+    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        """
+        Get the coalescent rate from state ``s1`` to state ``s2``.
+
+        :param n: Number of lineages.
+        :param s1: State 1.
+        :param s2: State 2.
+        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        """
+        return self.model.get_rate_infinite_alleles(n=n, s1=s1, s2=s2)
 
     @cached_property
     def states(self) -> np.ndarray:
         """
-        Get the states for a given number of lineages.
+        Get the states. Each state describes the allele configuration per deme.
 
         :return: The states.
         """
-        return np.array(self._find_vectors(m=self.n, n=self.n))
+        # the possible allele configurations
+        allele_configs = np.array(self._find_sample_configs(m=self.pop_config.n, n=self.pop_config.n))
 
-    def _find_vectors(self, m: int, n: int) -> List[List[int]]:
+        # iterate over possible allele configurations and find all possible deme configurations
+        states = []
+        for config in allele_configs:
+
+            # iterate over possible number of lineages with multiplicity k and
+            # find all possible deme configurations
+            vectors = []
+            for i in config:
+                vectors += [self._find_vectors(n=i, k=self.demography.n_pops)]
+
+            # find all possible combinations of deme configurations for each multiplicity
+            states += list(product(*vectors))
+
+        # transpose the array to have the deme configurations as columns
+        states = np.transpose(np.array(states), (0, 2, 1))
+
+        return states
+
+    def _find_sample_configs(self, m: int, n: int) -> List[List[int]]:
         """
-        Function to find all vectors x of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
+        Function to find all vectors of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
 
         :param m: Length of the vectors.
         :param n: Target sum.
@@ -218,73 +362,8 @@ class InfiniteAllelesStateSpace(StateSpace):
         # iterate over possible values for the first component
         for x in range(n // m + 1):  # Adjusted for 1-based index
             # recursively find vectors with one less component and a smaller target sum
-            for vector in self._find_vectors(m - 1, n - x * m):  # Adjusted for 1-based index
+            for vector in self._find_sample_configs(m - 1, n - x * m):  # Adjusted for 1-based index
                 # prepend the current component to the recursively found vectors
                 vectors.append(vector + [x])  # Reversed vectors
 
         return vectors
-
-    def _get_rate_matrix(self) -> (np.ndarray, np.ndarray):
-        r"""
-        Get the intensity matrix for a given number of lineages.
-        Each state corresponds to a sample configuration,
-        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
-
-        :return: The rate matrix.
-        """
-        n_states = self.states.shape[0]
-
-        def matrix_indices_to_rates(i: int, j: int) -> float:
-            """
-            Get the rate from state i to state j.
-            TODO implement for multiple demes
-
-            :param i: State i.
-            :param j: State j.
-            :return: The rate from state i to state j.
-            """
-            pop_size = self.demography.pop_size[self.demography.pop_names[0]]
-            rate = self.model.get_rate_infinite_alleles(n=self.n, s1=self.states[i], s2=self.states[j])
-
-            return rate / pop_size
-
-        S = cast(np.ndarray, np.fromfunction(np.vectorize(matrix_indices_to_rates), (n_states, n_states), dtype=int))
-
-        # fill diagonal with negative sum of row
-        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
-
-        return S
-
-    @cached_property
-    def S(self) -> np.ndarray:
-        """
-        Get full intensity matrix.
-        """
-        # obtain intensity matrix
-        return self._get_rate_matrix()
-
-    @cached_property
-    @abstractmethod
-    def k(self) -> int:
-        """
-        Get number of states.
-
-        :return: The number of states.
-        """
-        return self.partitions(self.n)
-
-    @staticmethod
-    def partitions(n: int) -> int:
-        """
-        Get the number of partitions of n.
-
-        :param n: The number to partition.
-        :return: The number of partitions of n.
-        """
-        parts = [1] + [0] * n
-
-        for t in range(1, n + 1):
-            for i, x in enumerate(range(t, n + 1)):
-                parts[x] += parts[i]
-
-        return parts[n]

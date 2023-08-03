@@ -18,43 +18,23 @@ try:
     n = snakemake.params.n
     pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
-    alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
-    out = snakemake.output[0]
+    alpha = snakemake.params.get('alpha', np.eye(1, n, 0)[0])
 except NameError:
     # testing
     testing = True
     n = 5  # sample size
-    pop_sizes = [1, 0.00000001]
-    times = [0, 1]
-    alpha = np.eye(1, n - 1, 0)[0]
-    out = "scratch/ph.json"
+    pop_sizes = dict(pop_1=[1, 5])
+    times = dict(pop_1=[0, 1])
+    alpha = np.eye(1, n, 0)
 
-from phasegen import VariablePopSizeConstantPopSizeCoalescentDistribution, StandardCoalescent, PiecewiseTimeHomogeneousDemography, \
-    rewards
-from scripts import json_handlers
+import phasegen as pg
 
-cd = VariablePopSizeConstantPopSizeCoalescentDistribution(
-    model=StandardCoalescent(),
+cd = pg.PiecewiseTimeHomogeneousCoalescent(
+    model=pg.StandardCoalescent(),
     n=n,
-    alpha=alpha,
-    demography=PiecewiseTimeHomogeneousDemography(pop_sizes=pop_sizes, times=times)
+    demography=pg.PiecewiseTimeHomogeneousDemography(pop_sizes=pop_sizes, times=times)
 )
 
-height = dict(
-    mu=cd.mean,
-    var=cd.var
-)
+cd.sfs.var.plot()
 
-cd = cd.set_reward(rewards.TotalBranchLength())
-
-total_branch_length = dict(
-    mu=cd.mean,
-    var=cd.var
-)
-
-if testing:
-    pass
-    # cd.plot_cdf(t_max=100)
-    # cd.plot_pdf(u_max=100)
-
-JSON.save(dict((k, globals()[k]) for k in ['n', 'height', 'total_branch_length']), out)
+pass

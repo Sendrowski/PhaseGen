@@ -6,8 +6,6 @@ __author__ = "Janek Sendrowski"
 __contact__ = "j.sendrowski18@gmail.com"
 __date__ = "2023-03-11"
 
-import numpy as np
-
 try:
     import sys
 
@@ -16,15 +14,15 @@ try:
 
     testing = False
     n = snakemake.params.n
-    pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
+    pop_sizes = snakemake.params.pop_sizes
+    migration_matrix = snakemake.params.migration_matrix
     start_time = snakemake.params.start_time
     end_time = snakemake.params.end_time
     exclude_unfinished = snakemake.params.exclude_unfinished
     exclude_finished = snakemake.params.exclude_finished
     growth_rate = snakemake.params.growth_rate
     N0 = snakemake.params.N0
-    alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
     num_replicates = snakemake.params.get('num_replicates', 10000)
     n_threads = snakemake.params.get('n_threads', 100)
     parallelize = snakemake.params.get('parallelize', True)
@@ -34,31 +32,32 @@ try:
 except NameError:
     # testing
     testing = True
-    n = 3  # sample size
-    times = [0, 1]
-    pop_sizes = [1, 1]
+    n = 10  # sample size
+    times = dict(pop_0=[0, 1], pop_1=[0, 2])
+    pop_sizes = dict(pop_0=[1, 5], pop_1=[2, 0.5])
+    migration_matrix = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
     start_time = 1
     end_time = None
     exclude_unfinished = True
     exclude_finished = False
     growth_rate = None
     N0 = 1
-    alpha = np.eye(1, n, 0)[0]
     num_replicates = 100000
     n_threads = 1000
     parallelize = True
     dist = 'sfs'
-    stat = 'm2'
+    stat = 'mean'
     out = "scratch/test_comp.png"
 
-from phasegen import MsprimeCoalescent
+import phasegen as pg
 
-ms = MsprimeCoalescent(
+ms = pg.MsprimeCoalescent(
     n=n,
-    pop_sizes=pop_sizes,
-    times=times,
-    growth_rate=growth_rate,
-    N0=N0,
+    demography=pg.PiecewiseTimeHomogeneousDemography(
+        pop_sizes=pop_sizes,
+        times=times,
+        migration_matrix=migration_matrix
+    ),
     start_time=start_time,
     end_time=end_time,
     num_replicates=num_replicates,
@@ -71,5 +70,8 @@ ms = MsprimeCoalescent(
 ms.simulate()
 
 _ = getattr(getattr(ms, dist), stat)
+
+if hasattr(_, 'plot'):
+    _.plot(out)
 
 pass

@@ -14,12 +14,12 @@ class CoalescentModel(ABC):
     """
 
     @abstractmethod
-    def get_rate(self, b: int, k: int) -> float:
+    def get_rate(self, s1: int, s2: int) -> float:
         """
-        Get exponential rate for a merger of k out of b lineages.
+        Get rate for a merger collapsing k1 lineages into k2 lineages.
 
-        :param b: Number of lineages.
-        :param k: Number of lineages that merge.
+        :param s1: Number of lineages in the first state.
+        :param s2: Number of lineages in the second state.
         :return: The rate.
         """
         pass
@@ -52,9 +52,25 @@ class StandardCoalescent(CoalescentModel):
     Standard (Kingman) coalescent model.
     """
 
-    def get_rate(self, b: int, k: int):
+    def get_rate(self, s1: int, s2: int) -> float:
         """
-        Get rate for a merger of k out of b lineages.
+        Get rate for a merger collapsing k1 lineages into k2 lineages.
+
+        :param s1: Number of lineages in the first state.
+        :param s2: Number of lineages in the second state.
+        :return: The rate.
+        """
+        # not possible
+        if s2 > s1:
+            return 0
+
+        return self._get_rate(b=s1, k=s1 + 1 - s2)
+
+    @staticmethod
+    def _get_rate(b: int, k: int):
+        """
+        Get positive rate for a merger of k out of b lineages.
+        Negative rates will be inferred later
 
         :param b: Number of lineages.
         :param k: Number of lineages that merge.
@@ -63,10 +79,6 @@ class StandardCoalescent(CoalescentModel):
         # two lineages can merge with a rate depending on b
         if k == 2:
             return b * (b - 1) / 2
-
-        # the opposite of above
-        if k == 1:
-            return -self.get_rate(b=b, k=2)
 
         # no other mergers can happen
         return 0
@@ -105,6 +117,7 @@ class StandardCoalescent(CoalescentModel):
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """
         Get the probabilities of all possible sample configurations.
+        Note that this currently only works for a single population.
 
         :param n: The number of lineages
         :return: The probabilities of all possible sample configurations.
@@ -235,19 +248,31 @@ class BetaCoalescent(CoalescentModel):
         """
         self.alpha = alpha
 
-    def get_rate(self, b: int, k: int):
+    def get_rate(self, s1: int, s2: int) -> float:
         """
-        Get exponential rate for a merger of k out of b lineages.
+        Get rate for a merger collapsing k1 lineages into k2 lineages.
+
+        :param s1: Number of lineages in the first state.
+        :param s2: Number of lineages in the second state.
+        :return: The rate.
+        """
+        # not possible
+        if s2 > s1:
+            return 0
+
+        return self._get_rate(b=s1, k=s1 + 1 - s2)
+
+    def _get_rate(self, b: int, k: int):
+        """
+        Get positive rate for a merger of k out of b lineages.
+        Negative rates will be filled in later.
 
         :param b: The number of lineages.
         :param k: The number of lineages that merge.
         :return: The rate.
         """
-        if k < 1 or k > b:
+        if k <= 1 or k > b:
             return 0
-
-        if k == 1:
-            return -np.sum([self.get_rate(b, i) for i in range(2, b + 1)])
 
         return comb(b, k, exact=True) * beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
 

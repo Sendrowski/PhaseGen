@@ -2,7 +2,7 @@ import logging
 from abc import abstractmethod
 from collections import defaultdict
 from itertools import islice
-from typing import List, Callable, Dict, Iterable, Tuple, Generator, cast, Sized
+from typing import List, Callable, Dict, Iterable, Tuple, Generator, cast, Sized, Any
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -31,6 +31,9 @@ class Demography:
 
     #: Population names.
     pop_names: List[str]
+
+    #: Migration rates.
+    migration_rates: Dict[Tuple[str, str], float]
 
     def __init__(self):
         """
@@ -93,6 +96,50 @@ class Demography:
         """
         pass
 
+    @property
+    def migration_matrix(self) -> np.ndarray:
+        """
+        Get array representation of the migration matrix.
+
+        :return: Migration matrix.
+        """
+        return np.array([[self.migration_rates.get((i, j), 0) for j in self.pop_names] for i in self.pop_names])
+
+    def _prepare_migration_rates(
+            self,
+            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray
+    ) -> Dict[Tuple[str, str], float]:
+
+        # if no migration matrix is given, assume no migration
+        if migration_matrix is None:
+            migration_matrix = np.zeros((self.n_pops, self.n_pops))
+
+        # convert migration matrix to dictionary
+        if not isinstance(migration_matrix, dict):
+
+            # check that the migration matrix is of the correct shape
+            if np.array(migration_matrix).shape != (self.n_pops, self.n_pops):
+                raise ValueError('Migration matrix must be of shape (n_pops, n_pops).')
+
+            # convert to dictionary
+            migration_rates = {(self.pop_names[i], self.pop_names[j]): migration_matrix[i][j]
+                               for i in range(self.n_pops)
+                               for j in range(self.n_pops)
+                               if i != j}
+        else:
+            migration_rates = migration_matrix
+
+        return migration_rates
+
+    @abstractmethod
+    def to_msprime(self):
+        """
+        Convert the demographic scenario to an msprime demographic model.
+
+        :return: msprime demographic model.
+        """
+        pass
+
 
 class TimeHomogeneousDemography(Demography):
     """
@@ -103,13 +150,16 @@ class TimeHomogeneousDemography(Demography):
 
     def __init__(
             self,
-            pop_size: float | Dict[str, float] | List[float] = 1
+            pop_size: float | Dict[str, float] | List[float] = 1,
+            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
     ):
         """
         Create a constant demographic scenario.
 
         :param pop_size: A single population size, or a list of population sizes for various population, or
             a dictionary mapping population names to population sizes.
+        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
+            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
         """
         super().__init__()
 
@@ -117,7 +167,7 @@ class TimeHomogeneousDemography(Demography):
             self.pop_size = dict(pop_size)
 
         elif isinstance(pop_size, list):
-            self.pop_size = {i: v for i, v in enumerate(pop_size)}
+            self.pop_size = {f'pop_{i}': v for i, v in enumerate(pop_size)}
         else:
             # assume a single population
             self.pop_size = {'pop_0': float(pop_size)}
@@ -137,6 +187,18 @@ class TimeHomogeneousDemography(Demography):
 
         #: Population names.
         self.pop_names: List[str] = list(self.pop_size.keys())
+
+        #: Migration rates as a dictionary of the form {(pop_i, pop_j): m_ij}
+        self.migration_rates: Dict[Tuple[str, str], float] = self._prepare_migration_rates(migration_matrix)
+
+    @property
+    def pop_size_list(self) -> List[float]:
+        """
+        Get the population sizes as a list in the same order as the population names.
+
+        :return: Population sizes.
+        """
+        return list(self.pop_size.values())
 
     def plot(
             self,
@@ -178,6 +240,48 @@ class TimeHomogeneousDemography(Demography):
         """
         return {p: t / self.pop_size[p] for p in self.pop_names}
 
+    def to_msprime(self):
+        """
+        Convert to an msprime demography object.
+
+        :return: msprime demography object.
+        """
+        import msprime as ms
+
+        d: ms.Demography = ms.Demography(
+            migration_matrix=self.migration_matrix,
+            populations=[ms.Population(name=pop, initial_size=self.pop_size[pop]) for pop in self.pop_names],
+        )
+
+        # sort events by time
+        d.sort_events()
+
+        return d
+
+    def __eq__(self, other: Any) -> bool:
+        """
+        Check if two demographic scenarios are equal.
+
+        :param other: Any other object.
+        :return: Whether the two demographic scenarios are equal.
+        """
+        if not isinstance(other, TimeHomogeneousDemography):
+            return False
+
+        if self.n_pops != other.n_pops:
+            return False
+
+        if self.pop_names != other.pop_names:
+            return False
+
+        if not all(self.pop_size[p] == other.pop_size[p] for p in self.pop_names):
+            return False
+
+        if not all(self.migration_rates[pair] == other.migration_rates[pair] for pair in self.migration_rates):
+            return False
+
+        return True
+
 
 class PiecewiseTimeHomogeneousDemography(Demography):
     """
@@ -186,8 +290,9 @@ class PiecewiseTimeHomogeneousDemography(Demography):
 
     def __init__(
             self,
-            pop_sizes: List[float] | Dict[str, Iterable[float]],
-            times: List[float] | Dict[str, Iterable[float]]
+            pop_sizes: List[float] | Dict[str, Iterable[float]] = [1],
+            times: List[float] | Dict[str, Iterable[float]] = [0],
+            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
     ):
         """
         The population sizes and times these changes occur backwards in time.
@@ -197,6 +302,10 @@ class PiecewiseTimeHomogeneousDemography(Demography):
         :param times: List of times at which the population sizes change if there is only one population, or a
             dictionary mapping population names to lists of times at which the population sizes change. Time starts
             at zero and increases backwards in time.
+        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
+            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array where the rows correspond
+            to the source population and the columns to the destination population. Note that migration rate for which
+            the source and destination population are the same are ignored.
         """
         super().__init__()
 
@@ -270,6 +379,9 @@ class PiecewiseTimeHomogeneousDemography(Demography):
         #: Number of populations / demes.
         self.n_pops: int = len(self.pop_names)
 
+        #: Migration matrix as a dictionary of the form {(pop_i, pop_j): m_ij}
+        self.migration_rates: Dict[Tuple[str, str], float] = self._prepare_migration_rates(migration_matrix)
+
     @staticmethod
     def flatten(
             times: Dict[str, List[float]],
@@ -298,7 +410,7 @@ class PiecewiseTimeHomogeneousDemography(Demography):
                 # if the time is in this population's times
                 if t in time:
                     # Get the index of this time
-                    index = time.index(t)
+                    index = list(time).index(t)
                     # Add the population size at this index to the new sizes
                     new_pop_sizes[pop].append(pop_sizes[pop][index])
 
@@ -372,6 +484,37 @@ class PiecewiseTimeHomogeneousDemography(Demography):
 
         return rate
 
+    def to_msprime(self):
+        """
+        Convert to an msprime demography object.
+
+        :return: msprime demography object.
+        """
+        import msprime as ms
+
+        # create demography object
+        d: ms.Demography = ms.Demography(
+            migration_matrix=self.migration_matrix,
+            populations=[ms.Population(name=pop, initial_size=next(self.pop_sizes[pop])) for pop in self.pop_names],
+        )
+
+        # iterate over populations
+        for pop in self.pop_names:
+
+            # add population size changes
+            for time, pop_size in zip(islice(self.times, 1, None), islice(self.pop_sizes[pop], 1, None)):
+                # noinspection all
+                d.add_population_parameters_change(
+                    time=time,
+                    initial_size=pop_size,
+                    population=pop
+                )
+
+        # sort events by time
+        d.sort_events()
+
+        return d
+
 
 class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
     """
@@ -384,7 +527,8 @@ class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
             trajectory: Callable[[float], Dict[str, float] | float],
             min_size: float = 1e-3,
             start_size: float = 1,
-            max_growth: float = 1
+            max_growth: float = 1,
+            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
     ):
         """
         Create a continuous demographic scenario.
@@ -394,6 +538,8 @@ class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
         :param min_size: Minimum discretization interval
         :param start_size: Population size at the start of new epochs.
         :param max_growth: Maximum absolute growth rate compared to the previous population size.
+        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
+            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
         """
         # initialize logger
         Demography.__init__(self)
@@ -415,7 +561,8 @@ class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
 
         super().__init__(
             pop_sizes=self.pop_sizes,
-            times=dict((p, self.times) for p in self.pop_names)
+            times=dict((p, self.times) for p in self.pop_names),
+            migration_matrix=migration_matrix
         )
 
     @property
@@ -505,7 +652,8 @@ class ExponentialDemography(ContinuousDemography):
             N0: float | Dict[str, float] = 1,
             min_size: float = 1e-3,
             start_size: float = 1,
-            max_growth: float = 1
+            max_growth: float = 1,
+            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
     ):
         """
         :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
@@ -515,6 +663,8 @@ class ExponentialDemography(ContinuousDemography):
         :param min_size: Minimum discretization interval
         :param start_size: Population size at the start of new epochs.
         :param max_growth: Maximum absolute growth rate compared to the previous population size.
+        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
+            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
         """
         # wrap in dictionary
         if isinstance(growth_rate, (float, int)):
@@ -552,5 +702,6 @@ class ExponentialDemography(ContinuousDemography):
             trajectory=trajectory,
             min_size=min_size,
             start_size=start_size,
-            max_growth=max_growth
+            max_growth=max_growth,
+            migration_matrix=migration_matrix
         )

@@ -1,17 +1,20 @@
+import os
 import re
+from pathlib import Path
+from typing import List
 
-configs = [
-    'standard_coalescent_ph_const_n_4',
-    'standard_coalescent_ph_n_4',
-    '2_epoch_n_2',
-    'rapid_decline_n_2',
-    'rapid_decline_n_5',
-    '4_epoch_up_down_n_10',
-    '4_epoch_up_down_n_2',
-    '3_epoch_extreme_bottleneck_n_5'
-]
-"""
-"""
+
+def get_filenames(path) -> List[str]:
+    """
+    Get all filenames in a directory.
+
+    :param path: Path to directory
+    :return: Filenames without extension
+    """
+    return [os.path.splitext(file.name)[0] for file in Path(path).glob('*') if file.is_file()]
+
+
+configs = get_filenames("resources/configs")
 
 
 def extract_opt(str: str, name, default_value=None):

@@ -1,6 +1,7 @@
 from itertools import islice
 from unittest import TestCase
 
+import numpy as np
 from numpy import testing
 
 import phasegen as pg
@@ -142,3 +143,55 @@ class DemographyTestCase(TestCase):
 
         testing.assert_array_equal(times, [0])
         testing.assert_array_equal(pop_sizes['pop_0'], [1])
+
+    def test_pass_migration_matrix(self):
+        """
+        Test passing migration matrix.
+        """
+        d = pg.TimeHomogeneousDemography(
+            pop_size=dict(a=1, b=4, c=2),
+            migration_matrix=np.arange(9).reshape(3, 3)
+        )
+
+        self.assertDictEqual(d.migration_rates, {('a', 'b'): 1, ('a', 'c'): 2,
+                                                 ('b', 'a'): 3, ('b', 'c'): 5,
+                                                 ('c', 'a'): 6, ('c', 'b'): 7})
+
+    def test_time_homogenous_demography_to_msprime(self):
+        """
+        Test converting time homogeneous demography to msprime.
+        """
+        d = pg.TimeHomogeneousDemography(
+            pop_size=dict(a=1, b=4),
+            migration_matrix=np.arange(4).reshape(2, 2)
+        )
+
+        d_msprime = d.to_msprime()
+
+        self.assertEqual(2, d_msprime.num_populations)
+        testing.assert_array_equal(d.migration_matrix, d_msprime.migration_matrix)
+        self.assertEqual(d.pop_names, [pop.name for pop in d_msprime.populations])
+
+    def test_piecewise_time_homogenous_demography_to_msprime(self):
+        """
+        Test converting piecewise time homogeneous demography to msprime.
+        """
+        d = pg.PiecewiseTimeHomogeneousDemography(
+            pop_sizes=dict(a=[1, 2, 3], b=[4, 5, 6]),
+            times=dict(a=[0, 1, 2], b=[0, 0.5, 1]),
+            migration_matrix=np.arange(4).reshape(2, 2)
+        )
+
+        d_msprime = d.to_msprime()
+
+        self.assertEqual(2, d_msprime.num_populations)
+        testing.assert_array_equal(d.migration_matrix, d_msprime.migration_matrix)
+        self.assertEqual(d.pop_names, [pop.name for pop in d_msprime.populations])
+
+        self.assertEqual(0.5, d_msprime.events[0].time)
+        self.assertEqual(1, d_msprime.events[0].initial_size)
+        self.assertEqual('a', d_msprime.events[0].population)
+
+        self.assertEqual(0.5, d_msprime.events[1].time)
+        self.assertEqual(5, d_msprime.events[1].initial_size)
+        self.assertEqual('b', d_msprime.events[1].population)
