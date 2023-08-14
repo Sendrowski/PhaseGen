@@ -160,7 +160,7 @@ class SFSReward(Reward):
 
     def __hash__(self) -> int:
         """
-        Hash the class name as this class is stateless.
+        Calculate the hash of the class name and the index.
 
         :return: hash
         """
