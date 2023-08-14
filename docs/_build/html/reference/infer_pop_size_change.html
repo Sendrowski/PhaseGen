@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demography inference &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script src="../_static/clipboard.min.js"></script>
+        <script src="../_static/copybutton.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Distributions" href="../modules/distributions.html" />
+    <link rel="prev" title="Basic statistics and spectra" href="simulate_stats.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../modules/distributions.html">Distributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/coalescent_models.html">Coalescent models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/demography.html">Demography</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/inference.html">Inference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/norms.html">Norms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/spectrum.html">Spectrum</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Demography inference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/reference/infer_pop_size_change.ipynb.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="demography-inference">
+<h1>Demography inference<a class="headerlink" href="#demography-inference" title="Permalink to this heading"></a></h1>
+<p>Here we infer a 2-epoch piece-wise constant demography using the SFS. We parametrize the demography by the time of the first population size change and its new population size, starting with <code class="docutils literal notranslate"><span class="pre">Ne</span> <span class="pre">=</span> <span class="pre">1</span></code> at time 0. For the optimization to work, we specify parameter bounds, a loss function, and the coalescent distribution object in question constructed from the given parameters. We use an SFS with 10 samples, and a Poisson likelihood as loss function.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython2 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">phasegen</span> <span class="k">as</span> <span class="nn">pg</span>
+
+<span class="c1"># observed SFS</span>
+<span class="n">observed</span> <span class="o">=</span> <span class="n">pg</span><span class="o">.</span><span class="n">SFS</span><span class="p">([</span><span class="mi">177130</span><span class="p">,</span> <span class="mi">997</span><span class="p">,</span> <span class="mi">441</span><span class="p">,</span> <span class="mi">228</span><span class="p">,</span> <span class="mi">156</span><span class="p">,</span> <span class="mi">117</span><span class="p">,</span> <span class="mi">114</span><span class="p">,</span> <span class="mi">83</span><span class="p">,</span> <span class="mi">105</span><span class="p">,</span> <span class="mi">109</span><span class="p">,</span> <span class="mi">652</span><span class="p">])</span>
+
+<span class="c1"># create inference object</span>
+<span class="n">inf</span> <span class="o">=</span> <span class="n">pg</span><span class="o">.</span><span class="n">Inference</span><span class="p">(</span>
+    <span class="n">x0</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">t</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">Ne</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+    <span class="n">bounds</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">t</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">Ne</span><span class="o">=</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)),</span>
+    <span class="n">dist</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">,</span> <span class="n">Ne</span><span class="p">:</span> <span class="p">(</span>
+        <span class="n">pg</span><span class="o">.</span><span class="n">PiecewiseTimeHomogeneousCoalescent</span><span class="p">(</span>
+            <span class="n">n</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+            <span class="n">demography</span><span class="o">=</span><span class="n">pg</span><span class="o">.</span><span class="n">PiecewiseTimeHomogeneousDemography</span><span class="p">(</span>
+                <span class="n">pop_sizes</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="n">Ne</span><span class="p">],</span>
+                <span class="n">times</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">t</span><span class="p">]</span>
+            <span class="p">),</span>
+            <span class="n">pbar</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">parallelize</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+    <span class="p">),</span>
+    <span class="n">loss</span><span class="o">=</span><span class="k">lambda</span> <span class="n">dist</span><span class="p">:</span> <span class="p">(</span>
+        <span class="n">pg</span><span class="o">.</span><span class="n">PoissonLikelihood</span><span class="p">()</span><span class="o">.</span><span class="n">compute</span><span class="p">(</span>
+            <span class="n">observed</span><span class="o">=</span><span class="n">observed</span><span class="o">.</span><span class="n">normalize</span><span class="p">()</span><span class="o">.</span><span class="n">polymorphic</span><span class="p">,</span>
+            <span class="n">modelled</span><span class="o">=</span><span class="n">dist</span><span class="o">.</span><span class="n">sfs</span><span class="o">.</span><span class="n">mean</span><span class="o">.</span><span class="n">normalize</span><span class="p">()</span><span class="o">.</span><span class="n">polymorphic</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># perform inference</span>
+<span class="n">inf</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">inf</span><span class="o">.</span><span class="n">result</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>Optimizing loss function: 57it [00:00, 78.60it/s]
+</pre></div>
+</div>
+<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>  message: CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_&lt;=_PGTOL
+  success: True
+   status: 0
+      fun: 2.3783845139077373
+        x: [ 1.454e-01  4.813e-01]
+      nit: 10
+      jac: [-1.688e-06 -2.398e-06]
+     nfev: 63
+     njev: 21
+ hess_inv: &lt;2x2 LbfgsInvHessProduct with dtype=float64&gt;
+</pre></div>
+</div>
+</div>
+</div>
+<p>We can now visualize the modelled and observed SFS. The coalescent distribution with the lowest loss can be accessed as <code class="docutils literal notranslate"><span class="pre">dist_inferred</span></code>.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython2 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">fastdfe</span> <span class="k">as</span> <span class="nn">fd</span>
+
+<span class="n">s</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">Spectra</span><span class="o">.</span><span class="n">from_spectra</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span>
+    <span class="n">modelled</span><span class="o">=</span><span class="n">inf</span><span class="o">.</span><span class="n">dist_inferred</span><span class="o">.</span><span class="n">sfs</span><span class="o">.</span><span class="n">mean</span><span class="o">.</span><span class="n">normalize</span><span class="p">()</span> <span class="o">*</span> <span class="n">observed</span><span class="o">.</span><span class="n">n_polymorphic</span><span class="p">,</span>
+    <span class="n">observed</span><span class="o">=</span><span class="n">observed</span>
+<span class="p">))</span>
+
+<span class="n">s</span><span class="o">.</span><span class="n">plot</span><span class="p">();</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output text_plain highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>&lt;Figure size 512x384 with 0 Axes&gt;
+</pre></div>
+</div>
+<img alt="../_images/d139a7df6a2fdd9b772ae402fc2986427b55228eac9f48289cf279f8dda3a935.png" src="../_images/d139a7df6a2fdd9b772ae402fc2986427b55228eac9f48289cf279f8dda3a935.png" />
+</div>
+</div>
+<p>We can also plot to the population size trajectory of our MLE estimate.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython2 notranslate"><div class="highlight"><pre><span></span><span class="n">inf</span><span class="o">.</span><span class="n">dist_inferred</span><span class="o">.</span><span class="n">demography</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">t_max</span><span class="o">=</span><span class="n">inf</span><span class="o">.</span><span class="n">dist_inferred</span><span class="o">.</span><span class="n">tree_height</span><span class="o">.</span><span class="n">mean</span><span class="p">);</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<img alt="../_images/e95256c09833f70c66b90e9419dbe15a7df44dad257099bb279b095b19a86303.png" src="../_images/e95256c09833f70c66b90e9419dbe15a7df44dad257099bb279b095b19a86303.png" />
+</div>
+</div>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="simulate_stats.html" class="btn btn-neutral float-left" title="Basic statistics and spectra" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../modules/distributions.html" class="btn btn-neutral float-right" title="Distributions" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,4 +1,0 @@
-- Implement 2-SFS
-- Implement migration
-- Implement Psi-coalescent
-- Complete implementation of continuous population size changes

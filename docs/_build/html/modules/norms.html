@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Norms &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script src="../_static/clipboard.min.js"></script>
+        <script src="../_static/copybutton.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Spectrum" href="spectrum.html" />
+    <link rel="prev" title="Inference" href="inference.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="distributions.html">Distributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="coalescent_models.html">Coalescent models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demography.html">Demography</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference.html">Inference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Norms</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.Norm"><code class="docutils literal notranslate"><span class="pre">Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.Norm.compute"><code class="docutils literal notranslate"><span class="pre">Norm.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.LNorm"><code class="docutils literal notranslate"><span class="pre">LNorm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LNorm.__init__"><code class="docutils literal notranslate"><span class="pre">LNorm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LNorm.p"><code class="docutils literal notranslate"><span class="pre">LNorm.p</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LNorm.compute"><code class="docutils literal notranslate"><span class="pre">LNorm.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.L2Norm"><code class="docutils literal notranslate"><span class="pre">L2Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L2Norm.__init__"><code class="docutils literal notranslate"><span class="pre">L2Norm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L2Norm.compute"><code class="docutils literal notranslate"><span class="pre">L2Norm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L2Norm.p"><code class="docutils literal notranslate"><span class="pre">L2Norm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.L1Norm"><code class="docutils literal notranslate"><span class="pre">L1Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L1Norm.__init__"><code class="docutils literal notranslate"><span class="pre">L1Norm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L1Norm.compute"><code class="docutils literal notranslate"><span class="pre">L1Norm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.L1Norm.p"><code class="docutils literal notranslate"><span class="pre">L1Norm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.LInfNorm"><code class="docutils literal notranslate"><span class="pre">LInfNorm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LInfNorm.__init__"><code class="docutils literal notranslate"><span class="pre">LInfNorm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LInfNorm.compute"><code class="docutils literal notranslate"><span class="pre">LInfNorm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.LInfNorm.p"><code class="docutils literal notranslate"><span class="pre">LInfNorm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.Likelihood"><code class="docutils literal notranslate"><span class="pre">Likelihood</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.Likelihood.compute"><code class="docutils literal notranslate"><span class="pre">Likelihood.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.norms.PoissonLikelihood"><code class="docutils literal notranslate"><span class="pre">PoissonLikelihood</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.norms.PoissonLikelihood.compute"><code class="docutils literal notranslate"><span class="pre">PoissonLikelihood.compute()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="spectrum.html">Spectrum</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Norms</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/norms.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-phasegen.norms">
+<span id="norms"></span><span id="modules-norms"></span><h1>Norms<a class="headerlink" href="#module-phasegen.norms" title="Permalink to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.Norm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">Norm</span></span><a class="headerlink" href="#phasegen.norms.Norm" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<p>Abstract class for norms.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.Norm.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.Norm.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.LNorm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">LNorm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.LNorm" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.Norm" title="phasegen.norms.Norm"><code class="xref py py-class docutils literal notranslate"><span class="pre">Norm</span></code></a></p>
+<p>Class for L-norms.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.LNorm.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.LNorm.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the class with the provided parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>p</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – The order of the norm. see <code class="xref py py-func docutils literal notranslate"><span class="pre">numpy.linalg.norm()</span></code> for details.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.norms.LNorm.p">
+<span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> <span class="pre">|</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#phasegen.norms.LNorm.p" title="Permalink to this definition"></a></dt>
+<dd><p>The order of the norm.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.LNorm.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.LNorm.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.L2Norm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">L2Norm</span></span><a class="headerlink" href="#phasegen.norms.L2Norm" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.LNorm" title="phasegen.norms.LNorm"><code class="xref py py-class docutils literal notranslate"><span class="pre">LNorm</span></code></a></p>
+<p>Class for L2-norms (Euclidean distance).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.L2Norm.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.L2Norm.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the class.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.L2Norm.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.L2Norm.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.norms.L2Norm.p">
+<span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> <span class="pre">|</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#phasegen.norms.L2Norm.p" title="Permalink to this definition"></a></dt>
+<dd><p>The order of the norm.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.L1Norm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">L1Norm</span></span><a class="headerlink" href="#phasegen.norms.L1Norm" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.LNorm" title="phasegen.norms.LNorm"><code class="xref py py-class docutils literal notranslate"><span class="pre">LNorm</span></code></a></p>
+<p>Class for L1-norms (Manhattan distance).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.L1Norm.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.L1Norm.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the class.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.L1Norm.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.L1Norm.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.norms.L1Norm.p">
+<span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> <span class="pre">|</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#phasegen.norms.L1Norm.p" title="Permalink to this definition"></a></dt>
+<dd><p>The order of the norm.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.LInfNorm">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">LInfNorm</span></span><a class="headerlink" href="#phasegen.norms.LInfNorm" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.LNorm" title="phasegen.norms.LNorm"><code class="xref py py-class docutils literal notranslate"><span class="pre">LNorm</span></code></a></p>
+<p>Class for L-infinity norms (Chebyshev distance).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.LInfNorm.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.LInfNorm.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the class.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.LInfNorm.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.LInfNorm.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.norms.LInfNorm.p">
+<span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> <span class="pre">|</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#phasegen.norms.LInfNorm.p" title="Permalink to this definition"></a></dt>
+<dd><p>The order of the norm.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.Likelihood">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">Likelihood</span></span><a class="headerlink" href="#phasegen.norms.Likelihood" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.Norm" title="phasegen.norms.Norm"><code class="xref py py-class docutils literal notranslate"><span class="pre">Norm</span></code></a>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.Likelihood.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.Likelihood.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Compare two values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>) – A value.</p></li>
+<li><p><strong>b</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>) – Another value.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.norms.PoissonLikelihood">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.norms.</span></span><span class="sig-name descname"><span class="pre">PoissonLikelihood</span></span><a class="headerlink" href="#phasegen.norms.PoissonLikelihood" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.norms.Likelihood" title="phasegen.norms.Likelihood"><code class="xref py py-class docutils literal notranslate"><span class="pre">Likelihood</span></code></a></p>
+<p>Class for Poisson likelihoods. Site frequency spectra are often assumed to be
+independent Poisson random variables.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.norms.PoissonLikelihood.compute">
+<span class="sig-name descname"><span class="pre">compute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">observed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">modelled</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.norms.PoissonLikelihood.compute" title="Permalink to this definition"></a></dt>
+<dd><p>Return additive inverse of Poisson log-likelihood assuming independent entries.
+Note that the returned likelihood is a positive value which ought to be minimized.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>observed</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Iterable</span></code>) – Observed values.</p></li>
+<li><p><strong>modelled</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Iterable</span></code>) – Modelled values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A numerical value representing the difference between the two values.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="inference.html" class="btn btn-neutral float-left" title="Inference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="spectrum.html" class="btn btn-neutral float-right" title="Spectrum" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

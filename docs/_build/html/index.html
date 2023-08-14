@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome to PhaseGen’s documentation &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/sphinx_highlight.js"></script>
+        <script src="_static/clipboard.min.js"></script>
+        <script src="_static/copybutton.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Introduction" href="reference/introduction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="#" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference/quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference/quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="modules/distributions.html">Distributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/coalescent_models.html">Coalescent models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/demography.html">Demography</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/inference.html">Inference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/norms.html">Norms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/spectrum.html">Spectrum</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Welcome to PhaseGen’s documentation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="welcome-to-phasegen-s-documentation">
+<h1>Welcome to PhaseGen’s documentation<a class="headerlink" href="#welcome-to-phasegen-s-documentation" title="Permalink to this heading"></a></h1>
+<a class="reference external image-reference" href="https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml"><img alt="Build Status" src="https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml/badge.svg?branch=master" /></a>
+<a class="reference external image-reference" href="https://codecov.io/gh/Sendrowski/PhaseGen"><img alt="https://codecov.io/gh/Sendrowski/PhaseGen/branch/master/graph/badge.svg?token=0LUE8SZYBJ" src="https://codecov.io/gh/Sendrowski/PhaseGen/branch/master/graph/badge.svg?token=0LUE8SZYBJ" /></a>
+<a class="reference external image-reference" href="https://phasegen.readthedocs.io/en/latest/?badge=latest"><img alt="Documentation Status" src="https://readthedocs.org/projects/phasegen/badge/?version=latest" /></a>
+<a class="reference external image-reference" href="https://badge.fury.io/py/phasegen"><img alt="https://badge.fury.io/py/phasegen.svg" src="https://badge.fury.io/py/phasegen.svg" /></a>
+<p>PhaseGen is a package for simulating and making inference on coalescent distributions.</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/introduction.html">Introduction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/introduction.html#motivation">Motivation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/introduction.html#how-it-works">How it works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/introduction.html#features">Features</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/installation_python.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/installation_python.html#pypi">PyPi</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/installation_python.html#conda">Conda</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="reference/quickstart_python.html">Quickstart</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/quickstart_python.html#simulating-moments">Simulating moments</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/installation_r.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/installation_r.html#r">R</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="reference/quickstart_r.html">Quickstart</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/quickstart_r.html#simulating-moments">Simulating moments</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+</div>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="modules/distributions.html">Distributions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.mean"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.var"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.var</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.m2"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.touch"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.touch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">ProbabilityDistribution.plot_pdf()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.nth_moment"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.nth_moment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.mean"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.var"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.var</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.m2"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.touch"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.touch()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.S"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.S</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.T"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.T</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.s"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.s</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.e"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.e</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.alpha"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.alpha</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.nth_moment"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.nth_moment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.m2"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.mean"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.touch"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.touch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.var"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDistribution.var</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.max_iter"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.max_iter</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.alpha"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.alpha</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.nth_moment"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.nth_moment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.m2"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.mean"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.touch"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.touch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.var"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDistribution.var</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution"><code class="docutils literal notranslate"><span class="pre">SFSDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.nth_moment"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.nth_moment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.cov"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.cov</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.get_cov"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.get_cov()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.corr"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.corr</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.get_corr"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.get_corr()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.m2"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.mean"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.touch"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.touch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.SFSDistribution.var"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.var</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.mean"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.var"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.var</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.m2"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.cov"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.cov</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.corr"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.corr</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.touch"><code class="docutils literal notranslate"><span class="pre">EmpiricalDistribution.touch()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.mean"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.mean</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.var"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.var</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.m2"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.m2</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.cov"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.cov</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.corr"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.corr</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.cdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.plot_cdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.plot_pdf"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.plot_pdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.touch"><code class="docutils literal notranslate"><span class="pre">EmpiricalSFSDistribution.touch()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent"><code class="docutils literal notranslate"><span class="pre">Coalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent.demography"><code class="docutils literal notranslate"><span class="pre">Coalescent.demography</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent.__init__"><code class="docutils literal notranslate"><span class="pre">Coalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent.tree_height"><code class="docutils literal notranslate"><span class="pre">Coalescent.tree_height</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent.total_branch_length"><code class="docutils literal notranslate"><span class="pre">Coalescent.total_branch_length</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.Coalescent.sfs"><code class="docutils literal notranslate"><span class="pre">Coalescent.sfs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.__init__"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.demography"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.demography</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.pbar"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.pbar</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.parallelize"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.parallelize</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.tree_height"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.tree_height</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.total_branch_length"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.total_branch_length</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.sfs"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.sfs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.pop_config"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.pop_config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.model"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousCoalescent.model</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.__init__"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.tree_height"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.tree_height</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.total_branch_length"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.total_branch_length</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.sfs"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.sfs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.demography"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.demography</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.pbar"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.pbar</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.parallelize"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.parallelize</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.pop_config"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.pop_config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousCoalescent.model"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousCoalescent.model</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.__init__"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.demography"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.demography</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.simulate"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.simulate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.tree_height"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.tree_height</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.total_branch_length"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.total_branch_length</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.sfs"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.sfs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.pop_config"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.pop_config</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.model"><code class="docutils literal notranslate"><span class="pre">MsprimeCoalescent.model</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/coalescent_models.html">Coalescent models</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel"><code class="docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_rate"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.__init__"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_density"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_density()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_sample_config_probs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/demography.html">Demography</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography"><code class="docutils literal notranslate"><span class="pre">Demography</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.n_epochs"><code class="docutils literal notranslate"><span class="pre">Demography.n_epochs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.n_pops"><code class="docutils literal notranslate"><span class="pre">Demography.n_pops</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.pop_names"><code class="docutils literal notranslate"><span class="pre">Demography.pop_names</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.migration_rates"><code class="docutils literal notranslate"><span class="pre">Demography.migration_rates</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.__init__"><code class="docutils literal notranslate"><span class="pre">Demography.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.logger"><code class="docutils literal notranslate"><span class="pre">Demography.logger</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.plot"><code class="docutils literal notranslate"><span class="pre">Demography.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.times"><code class="docutils literal notranslate"><span class="pre">Demography.times</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.pop_sizes"><code class="docutils literal notranslate"><span class="pre">Demography.pop_sizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.get_rate"><code class="docutils literal notranslate"><span class="pre">Demography.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.get_cum_rate"><code class="docutils literal notranslate"><span class="pre">Demography.get_cum_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.migration_matrix"><code class="docutils literal notranslate"><span class="pre">Demography.migration_matrix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.Demography.to_msprime"><code class="docutils literal notranslate"><span class="pre">Demography.to_msprime()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.n_epochs"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.n_epochs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.__init__"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.n_pops"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.n_pops</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.pop_names"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.pop_names</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.migration_rates"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.migration_rates</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.pop_size_list"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.pop_size_list</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.plot"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.get_rate"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.get_cum_rate"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.get_cum_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.to_msprime"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.to_msprime()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.migration_matrix"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.migration_matrix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.pop_sizes"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.pop_sizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.times"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.times</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.logger"><code class="docutils literal notranslate"><span class="pre">TimeHomogeneousDemography.logger</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.__init__"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.pop_names"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.pop_names</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.n_epochs"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.n_epochs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.n_pops"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.n_pops</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.migration_rates"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.migration_rates</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.flatten"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.flatten()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.plot"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.get_rate"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.get_cum_rate"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.get_cum_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.to_msprime"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.to_msprime()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.migration_matrix"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.migration_matrix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.pop_sizes"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.pop_sizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.times"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.times</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.logger"><code class="docutils literal notranslate"><span class="pre">PiecewiseTimeHomogeneousDemography.logger</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.__init__"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.trajectory"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.trajectory</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.min_size"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.min_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.start_size"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.start_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.max_growth"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.max_growth</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.pop_names"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.pop_names</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.times"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.times</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.pop_sizes"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.pop_sizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.generate_epochs"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.generate_epochs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.flatten"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.flatten()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.get_cum_rate"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.get_cum_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.get_rate"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.migration_matrix"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.migration_matrix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.plot"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.to_msprime"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.to_msprime()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.n_epochs"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.n_epochs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.n_pops"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.n_pops</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.migration_rates"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.migration_rates</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ContinuousDemography.logger"><code class="docutils literal notranslate"><span class="pre">ContinuousDemography.logger</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.__init__"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.flatten"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.flatten()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.generate_epochs"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.generate_epochs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.get_cum_rate"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.get_cum_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.get_rate"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.migration_matrix"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.migration_matrix</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.plot"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.pop_sizes"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.pop_sizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.times"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.times</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.to_msprime"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.to_msprime()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.pop_names"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.pop_names</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.n_epochs"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.n_epochs</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.n_pops"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.n_pops</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.migration_rates"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.migration_rates</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.trajectory"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.trajectory</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.min_size"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.min_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.start_size"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.start_size</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.max_growth"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.max_growth</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/demography.html#phasegen.demography.ExponentialDemography.logger"><code class="docutils literal notranslate"><span class="pre">ExponentialDemography.logger</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/inference.html">Inference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference"><code class="docutils literal notranslate"><span class="pre">Inference</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.__init__"><code class="docutils literal notranslate"><span class="pre">Inference.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.x0"><code class="docutils literal notranslate"><span class="pre">Inference.x0</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.bounds"><code class="docutils literal notranslate"><span class="pre">Inference.bounds</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.dist"><code class="docutils literal notranslate"><span class="pre">Inference.dist</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.loss"><code class="docutils literal notranslate"><span class="pre">Inference.loss</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.parallelize"><code class="docutils literal notranslate"><span class="pre">Inference.parallelize</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.pbar"><code class="docutils literal notranslate"><span class="pre">Inference.pbar</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.result"><code class="docutils literal notranslate"><span class="pre">Inference.result</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.params_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.params_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.loss_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.loss_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.dist_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.dist_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.tqdm"><code class="docutils literal notranslate"><span class="pre">Inference.tqdm</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/inference.html#phasegen.inference.Inference.run"><code class="docutils literal notranslate"><span class="pre">Inference.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/norms.html">Norms</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.Norm"><code class="docutils literal notranslate"><span class="pre">Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.Norm.compute"><code class="docutils literal notranslate"><span class="pre">Norm.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.LNorm"><code class="docutils literal notranslate"><span class="pre">LNorm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LNorm.__init__"><code class="docutils literal notranslate"><span class="pre">LNorm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LNorm.p"><code class="docutils literal notranslate"><span class="pre">LNorm.p</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LNorm.compute"><code class="docutils literal notranslate"><span class="pre">LNorm.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.L2Norm"><code class="docutils literal notranslate"><span class="pre">L2Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L2Norm.__init__"><code class="docutils literal notranslate"><span class="pre">L2Norm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L2Norm.compute"><code class="docutils literal notranslate"><span class="pre">L2Norm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L2Norm.p"><code class="docutils literal notranslate"><span class="pre">L2Norm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.L1Norm"><code class="docutils literal notranslate"><span class="pre">L1Norm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L1Norm.__init__"><code class="docutils literal notranslate"><span class="pre">L1Norm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L1Norm.compute"><code class="docutils literal notranslate"><span class="pre">L1Norm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.L1Norm.p"><code class="docutils literal notranslate"><span class="pre">L1Norm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.LInfNorm"><code class="docutils literal notranslate"><span class="pre">LInfNorm</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LInfNorm.__init__"><code class="docutils literal notranslate"><span class="pre">LInfNorm.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LInfNorm.compute"><code class="docutils literal notranslate"><span class="pre">LInfNorm.compute()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.LInfNorm.p"><code class="docutils literal notranslate"><span class="pre">LInfNorm.p</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.Likelihood"><code class="docutils literal notranslate"><span class="pre">Likelihood</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.Likelihood.compute"><code class="docutils literal notranslate"><span class="pre">Likelihood.compute()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/norms.html#phasegen.norms.PoissonLikelihood"><code class="docutils literal notranslate"><span class="pre">PoissonLikelihood</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/norms.html#phasegen.norms.PoissonLikelihood.compute"><code class="docutils literal notranslate"><span class="pre">PoissonLikelihood.compute()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/spectrum.html">Spectrum</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS"><code class="docutils literal notranslate"><span class="pre">SFS</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.normalize"><code class="docutils literal notranslate"><span class="pre">SFS.normalize()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.__init__"><code class="docutils literal notranslate"><span class="pre">SFS.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.copy"><code class="docutils literal notranslate"><span class="pre">SFS.copy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.fold"><code class="docutils literal notranslate"><span class="pre">SFS.fold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.from_list"><code class="docutils literal notranslate"><span class="pre">SFS.from_list()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.from_polydfe"><code class="docutils literal notranslate"><span class="pre">SFS.from_polydfe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.from_polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.from_polymorphic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.has_div"><code class="docutils literal notranslate"><span class="pre">SFS.has_div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.is_folded"><code class="docutils literal notranslate"><span class="pre">SFS.is_folded()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.n"><code class="docutils literal notranslate"><span class="pre">SFS.n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.n_div"><code class="docutils literal notranslate"><span class="pre">SFS.n_div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.n_monomorphic"><code class="docutils literal notranslate"><span class="pre">SFS.n_monomorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.n_polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.n_polymorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.n_sites"><code class="docutils literal notranslate"><span class="pre">SFS.n_sites</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.plot"><code class="docutils literal notranslate"><span class="pre">SFS.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.polymorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.standard_kingman"><code class="docutils literal notranslate"><span class="pre">SFS.standard_kingman()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.theta"><code class="docutils literal notranslate"><span class="pre">SFS.theta</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.to_list"><code class="docutils literal notranslate"><span class="pre">SFS.to_list()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS.to_numpy"><code class="docutils literal notranslate"><span class="pre">SFS.to_numpy()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2"><code class="docutils literal notranslate"><span class="pre">SFS2</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.__init__"><code class="docutils literal notranslate"><span class="pre">SFS2.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.to_file"><code class="docutils literal notranslate"><span class="pre">SFS2.to_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.to_json"><code class="docutils literal notranslate"><span class="pre">SFS2.to_json()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.fold"><code class="docutils literal notranslate"><span class="pre">SFS2.fold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.copy"><code class="docutils literal notranslate"><span class="pre">SFS2.copy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.symmetrize"><code class="docutils literal notranslate"><span class="pre">SFS2.symmetrize()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.resample_hypergeometric"><code class="docutils literal notranslate"><span class="pre">SFS2.resample_hypergeometric()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.fill_diagonals"><code class="docutils literal notranslate"><span class="pre">SFS2.fill_diagonals()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.fill_monomorphic"><code class="docutils literal notranslate"><span class="pre">SFS2.fill_monomorphic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.get_max_abs_entry"><code class="docutils literal notranslate"><span class="pre">SFS2.get_max_abs_entry()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.mask"><code class="docutils literal notranslate"><span class="pre">SFS2.mask()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.plot_heatmap"><code class="docutils literal notranslate"><span class="pre">SFS2.plot_heatmap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="modules/spectrum.html#phasegen.spectrum.SFS2.plot"><code class="docutils literal notranslate"><span class="pre">SFS2.plot()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this heading"></a></h1>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a></p></li>
+</ul>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="reference/introduction.html" class="btn btn-neutral float-right" title="Introduction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coalescent models &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script src="../_static/clipboard.min.js"></script>
+        <script src="../_static/copybutton.js"></script>
+        <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Demography" href="demography.html" />
+    <link rel="prev" title="Distributions" href="distributions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="distributions.html">Distributions</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Coalescent models</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel"><code class="docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_rate"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.__init__"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_sample_config_probs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.LambdaCoalescent"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.LambdaCoalescent.get_density"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_density()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.LambdaCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_rate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.LambdaCoalescent.get_sample_config_probs"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_sample_config_probs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.LambdaCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">LambdaCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="demography.html">Demography</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference.html">Inference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="norms.html">Norms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spectrum.html">Spectrum</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Coalescent models</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/coalescent_models.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-phasegen.coalescent_models">
+<span id="coalescent-models"></span><span id="modules-coalescent-models"></span><h1>Coalescent models<a class="headerlink" href="#module-phasegen.coalescent_models" title="Permalink to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.coalescent_models.</span></span><span class="sig-name descname"><span class="pre">CoalescentModel</span></span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></p>
+<p>Abstract class for coalescent models.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel.get_rate">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_rate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel.get_rate" title="Permalink to this definition"></a></dt>
+<dd><p>Get rate for a merger collapsing k1 lineages into k2 lineages.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the first state.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the second state.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
+<dd><p>Get rate between two infinite alleles states.
+<span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages.</p></li>
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 1.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 2.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel.get_sample_config_probs">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_sample_config_probs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel.get_sample_config_probs" title="Permalink to this definition"></a></dt>
+<dd><p>Get the probabilities of all possible sample configurations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]</p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.coalescent_models.</span></span><span class="sig-name descname"><span class="pre">StandardCoalescent</span></span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel" title="phasegen.coalescent_models.CoalescentModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a></p>
+<p>Standard (Kingman) coalescent model.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate">
+<span class="sig-name descname"><span class="pre">get_rate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate" title="Permalink to this definition"></a></dt>
+<dd><p>Get rate for a merger collapsing k1 lineages into k2 lineages.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the first state.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the second state.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles">
+<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
+<dd><p>Get exponential rate for a merger of k out of b lineages.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages.</p></li>
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 1.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 2.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_sample_config_probs">
+<span class="sig-name descname"><span class="pre">get_sample_config_probs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_sample_config_probs" title="Permalink to this definition"></a></dt>
+<dd><p>Get the probabilities of all possible sample configurations.
+Note that this currently only works for a single population.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – The number of lineages</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]</p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The probabilities of all possible sample configurations.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.coalescent_models.</span></span><span class="sig-name descname"><span class="pre">BetaCoalescent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel" title="phasegen.coalescent_models.CoalescentModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a></p>
+<p>Beta coalescent model.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the beta coalescent model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>alpha</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – The alpha parameter of the beta coalescent model.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.get_rate">
+<span class="sig-name descname"><span class="pre">get_rate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.get_rate" title="Permalink to this definition"></a></dt>
+<dd><p>Get rate for a merger collapsing k1 lineages into k2 lineages.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the first state.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages in the second state.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles">
+<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
+<dd><p>Get the rate of a merger of k out of b lineages under the infinite alleles model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages.</p></li>
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – First state.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Second state.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.get_sample_config_probs">
+<span class="sig-name descname"><span class="pre">get_sample_config_probs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.get_sample_config_probs" title="Permalink to this definition"></a></dt>
+<dd><p>Get the probabilities of all possible sample configurations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – The total number of lineages</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]</p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The probabilities of all possible sample configurations.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.LambdaCoalescent">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.coalescent_models.</span></span><span class="sig-name descname"><span class="pre">LambdaCoalescent</span></span><a class="headerlink" href="#phasegen.coalescent_models.LambdaCoalescent" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel" title="phasegen.coalescent_models.CoalescentModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a></p>
+<p>Lambda coalescent model.
+TODO implement this</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.LambdaCoalescent.get_density">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_density</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.LambdaCoalescent.get_density" title="Permalink to this definition"></a></dt>
+<dd><p>Get the density function of the coalescent model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The density function of the coalescent model.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.LambdaCoalescent.get_rate">
+<span class="sig-name descname"><span class="pre">get_rate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">i</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">j</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.LambdaCoalescent.get_rate" title="Permalink to this definition"></a></dt>
+<dd><p>Get exponential rate for a merger of j out of i lineages.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>i</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – The number of lineages.</p></li>
+<li><p><strong>j</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – The number of lineages that merge.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.LambdaCoalescent.get_sample_config_probs">
+<span class="sig-name descname"><span class="pre">get_sample_config_probs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.LambdaCoalescent.get_sample_config_probs" title="Permalink to this definition"></a></dt>
+<dd><p>Get the probabilities of all possible sample configurations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – The number of lineages</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]</p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The probabilities of all possible sample configurations.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.coalescent_models.LambdaCoalescent.get_rate_infinite_alleles">
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.LambdaCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
+<dd><p>Get rate between two infinite alleles states.
+<span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Number of lineages.</p></li>
+<li><p><strong>s1</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 1.</p></li>
+<li><p><strong>s2</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Sample configuration 2.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The rate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="distributions.html" class="btn btn-neutral float-left" title="Distributions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="demography.html" class="btn btn-neutral float-right" title="Demography" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

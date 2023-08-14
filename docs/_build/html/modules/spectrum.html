@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectrum &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script src="../_static/clipboard.min.js"></script>
+        <script src="../_static/copybutton.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Norms" href="norms.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="distributions.html">Distributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="coalescent_models.html">Coalescent models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demography.html">Demography</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inference.html">Inference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="norms.html">Norms</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Spectrum</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.spectrum.SFS"><code class="docutils literal notranslate"><span class="pre">SFS</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.normalize"><code class="docutils literal notranslate"><span class="pre">SFS.normalize()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.__init__"><code class="docutils literal notranslate"><span class="pre">SFS.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.copy"><code class="docutils literal notranslate"><span class="pre">SFS.copy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.fold"><code class="docutils literal notranslate"><span class="pre">SFS.fold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.from_list"><code class="docutils literal notranslate"><span class="pre">SFS.from_list()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.from_polydfe"><code class="docutils literal notranslate"><span class="pre">SFS.from_polydfe()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.from_polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.from_polymorphic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.has_div"><code class="docutils literal notranslate"><span class="pre">SFS.has_div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.is_folded"><code class="docutils literal notranslate"><span class="pre">SFS.is_folded()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.n"><code class="docutils literal notranslate"><span class="pre">SFS.n</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.n_div"><code class="docutils literal notranslate"><span class="pre">SFS.n_div</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.n_monomorphic"><code class="docutils literal notranslate"><span class="pre">SFS.n_monomorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.n_polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.n_polymorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.n_sites"><code class="docutils literal notranslate"><span class="pre">SFS.n_sites</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.plot"><code class="docutils literal notranslate"><span class="pre">SFS.plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.polymorphic"><code class="docutils literal notranslate"><span class="pre">SFS.polymorphic</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.standard_kingman"><code class="docutils literal notranslate"><span class="pre">SFS.standard_kingman()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.theta"><code class="docutils literal notranslate"><span class="pre">SFS.theta</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.to_list"><code class="docutils literal notranslate"><span class="pre">SFS.to_list()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS.to_numpy"><code class="docutils literal notranslate"><span class="pre">SFS.to_numpy()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.spectrum.SFS2"><code class="docutils literal notranslate"><span class="pre">SFS2</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.__init__"><code class="docutils literal notranslate"><span class="pre">SFS2.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.to_file"><code class="docutils literal notranslate"><span class="pre">SFS2.to_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.to_json"><code class="docutils literal notranslate"><span class="pre">SFS2.to_json()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.fold"><code class="docutils literal notranslate"><span class="pre">SFS2.fold()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.copy"><code class="docutils literal notranslate"><span class="pre">SFS2.copy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.symmetrize"><code class="docutils literal notranslate"><span class="pre">SFS2.symmetrize()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.resample_hypergeometric"><code class="docutils literal notranslate"><span class="pre">SFS2.resample_hypergeometric()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.fill_diagonals"><code class="docutils literal notranslate"><span class="pre">SFS2.fill_diagonals()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.fill_monomorphic"><code class="docutils literal notranslate"><span class="pre">SFS2.fill_monomorphic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.get_max_abs_entry"><code class="docutils literal notranslate"><span class="pre">SFS2.get_max_abs_entry()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.mask"><code class="docutils literal notranslate"><span class="pre">SFS2.mask()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.plot_heatmap"><code class="docutils literal notranslate"><span class="pre">SFS2.plot_heatmap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.spectrum.SFS2.plot"><code class="docutils literal notranslate"><span class="pre">SFS2.plot()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Spectrum</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/spectrum.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-phasegen.spectrum">
+<span id="spectrum"></span><span id="modules-spectrum"></span><h1>Spectrum<a class="headerlink" href="#module-phasegen.spectrum" title="Permalink to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.spectrum.</span></span><span class="sig-name descname"><span class="pre">SFS</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">Iterable</span></code></p>
+<p>A site frequency spectrum.</p>
+<p>TODO remove methods after new fastDFE release.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.normalize">
+<span class="sig-name descname"><span class="pre">normalize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.normalize" title="Permalink to this definition"></a></dt>
+<dd><p>Normalize SFS so that all non-monomorphic counts add up to 1.
+:rtype: <a class="reference internal" href="#phasegen.spectrum.SFS" title="phasegen.spectrum.SFS"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS</span></code></a>
+:return:</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize spectrum.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>data</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – SFS counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.copy" title="Permalink to this definition"></a></dt>
+<dd><p>Copy the spectrum.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Copy of the spectrum</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.fold">
+<span class="sig-name descname"><span class="pre">fold</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.fold" title="Permalink to this definition"></a></dt>
+<dd><p>Fold the site-frequency spectrum.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Folded spectrum</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.from_list">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_list</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.from_list" title="Permalink to this definition"></a></dt>
+<dd><p>Create Spectrum from list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>data</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – SFS counts</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Spectrum</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.from_polydfe">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_polydfe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">polymorphic</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_sites</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_div</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.from_polydfe" title="Permalink to this definition"></a></dt>
+<dd><p>Create Spectra from polyDFE specification which treats the number
+of mutational target sites and the divergence counts separately.
+Note that the monomorphic counts are included here, although ignored.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>polymorphic</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Polymorphic counts</p></li>
+<li><p><strong>n_sites</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Total number of sites</p></li>
+<li><p><strong>n_div</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Number of divergence counts</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Spectrum</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.from_polymorphic">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_polymorphic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.from_polymorphic" title="Permalink to this definition"></a></dt>
+<dd><p>Create Spectrum from polymorphic counts only.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>data</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code>) – Polymorphic counts</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Spectrum</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.has_div">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">has_div</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.has_div" title="Permalink to this definition"></a></dt>
+<dd><p>Whether n_div was specified.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Whether n_div was specified</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.is_folded">
+<span class="sig-name descname"><span class="pre">is_folded</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.is_folded" title="Permalink to this definition"></a></dt>
+<dd><p>Check if the site-frequency spectrum is folded.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if folded, False otherwise</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.n">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.n" title="Permalink to this definition"></a></dt>
+<dd><p>The sample size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Sample size</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.n_div">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_div</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.n_div" title="Permalink to this definition"></a></dt>
+<dd><p>Number of divergence counts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of divergence counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.n_monomorphic">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_monomorphic</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.n_monomorphic" title="Permalink to this definition"></a></dt>
+<dd><p>Number of monomorphic sites.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of monomorphic sites</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.n_polymorphic">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_polymorphic</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ndarray</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.n_polymorphic" title="Permalink to this definition"></a></dt>
+<dd><p>Get the polymorphic counts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Polymorphic counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.n_sites">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_sites</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.n_sites" title="Permalink to this definition"></a></dt>
+<dd><p>The total number of sites.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total number of sites</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.plot">
+<span class="sig-name descname"><span class="pre">plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">show</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_monomorphic</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs_legend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{'prop':</span> <span class="pre">{'size':</span> <span class="pre">8}}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">matplotlib.axes._axes.Axes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.plot" title="Permalink to this definition"></a></dt>
+<dd><p>Plot spectrum.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>show</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to show plot</p></li>
+<li><p><strong>file</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – File to save plot to</p></li>
+<li><p><strong>title</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – Title of plot</p></li>
+<li><p><strong>show_monomorphic</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to show monomorphic counts</p></li>
+<li><p><strong>kwargs_legend</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">dict</span></code>) – Keyword arguments passed to <code class="xref py py-meth docutils literal notranslate"><span class="pre">plt.legend()</span></code></p></li>
+<li><p><strong>ax</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code>) – Axes to plot on</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Axes</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.polymorphic">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">polymorphic</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ndarray</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.polymorphic" title="Permalink to this definition"></a></dt>
+<dd><p>Get the polymorphic counts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Polymorphic counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.standard_kingman">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">standard_kingman</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.standard_kingman" title="Permalink to this definition"></a></dt>
+<dd><p>Get standard Kingman SFS.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>n</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – sample size</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Spectrum</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Standard Kingman SFS</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.theta">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">theta</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></em><a class="headerlink" href="#phasegen.spectrum.SFS.theta" title="Permalink to this definition"></a></dt>
+<dd><p>Calculate site-wise theta using Watterson’s estimator.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Site-wise theta</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.to_list">
+<span class="sig-name descname"><span class="pre">to_list</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.to_list" title="Permalink to this definition"></a></dt>
+<dd><p>Convert to list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>SFS counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS.to_numpy">
+<span class="sig-name descname"><span class="pre">to_numpy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS.to_numpy" title="Permalink to this definition"></a></dt>
+<dd><p>Convert to array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>SFS counts</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.spectrum.</span></span><span class="sig-name descname"><span class="pre">SFS2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folded</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Iterable</span></code></p>
+<p>A 2-dimensional site frequency spectrum.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folded</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Construct from data matrix.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code> | <code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code>) – </p></li>
+<li><p><strong>folded</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.to_file">
+<span class="sig-name descname"><span class="pre">to_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.to_file" title="Permalink to this definition"></a></dt>
+<dd><p>Save to file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>file</strong> – </p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.to_json">
+<span class="sig-name descname"><span class="pre">to_json</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.to_json" title="Permalink to this definition"></a></dt>
+<dd><p>Convert data to JSON string.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.fold">
+<span class="sig-name descname"><span class="pre">fold</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.fold" title="Permalink to this definition"></a></dt>
+<dd><p>Fold 2-SFS.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.copy" title="Permalink to this definition"></a></dt>
+<dd><p>Copy SFS.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.symmetrize">
+<span class="sig-name descname"><span class="pre">symmetrize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.symmetrize" title="Permalink to this definition"></a></dt>
+<dd><p>Symmetric SFS.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.resample_hypergeometric">
+<span class="sig-name descname"><span class="pre">resample_hypergeometric</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">multiplier</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">100000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.resample_hypergeometric" title="Permalink to this definition"></a></dt>
+<dd><p>Resample counts under the hyper-geometric distribution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>multiplier</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – multiplier for counts to determine number
+of draws.</p></li>
+<li><p><strong>N</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – population size</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.fill_diagonals">
+<span class="sig-name descname"><span class="pre">fill_diagonals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fill_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">nan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.fill_diagonals" title="Permalink to this definition"></a></dt>
+<dd><p>Remote the diagonal entries of the given array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>fill_value</strong> – </p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.fill_monomorphic">
+<span class="sig-name descname"><span class="pre">fill_monomorphic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fill_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">nan</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.fill_monomorphic" title="Permalink to this definition"></a></dt>
+<dd><p>Remote the diagonal entries of the given array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>fill_value</strong> – </p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#phasegen.spectrum.SFS2" title="phasegen.spectrum.SFS2"><code class="xref py py-class docutils literal notranslate"><span class="pre">SFS2</span></code></a></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.get_max_abs_entry">
+<span class="sig-name descname"><span class="pre">get_max_abs_entry</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.get_max_abs_entry" title="Permalink to this definition"></a></dt>
+<dd><p>Get maximum magnitude entry outside the diagonal.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.mask">
+<span class="sig-name descname"><span class="pre">mask</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.mask" title="Permalink to this definition"></a></dt>
+<dd><p>Return data without monomorphic or diagonal sites.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Masked data.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.plot_heatmap">
+<span class="sig-name descname"><span class="pre">plot_heatmap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">matplotlib.axes._axes.Axes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_abs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cbar_kws</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">{'pad':</span> <span class="pre">-0.05}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_diagonal_entries</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.plot_heatmap" title="Permalink to this definition"></a></dt>
+<dd><p>Plot as a heatmap.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>title</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – </p></li>
+<li><p><strong>ax</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code>) – Axes to plot on.</p></li>
+<li><p><strong>max_abs</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Maximum absolute value to plot.</p></li>
+<li><p><strong>log_scale</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Use log scale.</p></li>
+<li><p><strong>cbar_kws</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>) – Keyword arguments for color bar.</p></li>
+<li><p><strong>fill_diagonal_entries</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Fill diagonal entries.</p></li>
+<li><p><strong>show</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to show the plot.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Axes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.spectrum.SFS2.plot">
+<span class="sig-name descname"><span class="pre">plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">matplotlib.axes._axes.Axes</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_abs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vmin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vmax</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_diagonal_entries</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">nan</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_scale</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.spectrum.SFS2.plot" title="Permalink to this definition"></a></dt>
+<dd><p>Plot as a surface.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>title</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>) – </p></li>
+<li><p><strong>ax</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code>) – Axes to plot on.</p></li>
+<li><p><strong>max_abs</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Maximum absolute value to plot.</p></li>
+<li><p><strong>vmin</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Minimum value to plot.</p></li>
+<li><p><strong>vmax</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Maximum value to plot.</p></li>
+<li><p><strong>fill_diagonal_entries</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Fill diagonal entries.</p></li>
+<li><p><strong>fill_value</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Value to fill diagonal entries with.</p></li>
+<li><p><strong>log_scale</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Use log scale.</p></li>
+<li><p><strong>show</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to show the plot.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Axes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="norms.html" class="btn btn-neutral float-left" title="Norms" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

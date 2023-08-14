@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inference &mdash; PhaseGen alpha documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/copybutton.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script src="../_static/clipboard.min.js"></script>
+        <script src="../_static/copybutton.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Norms" href="norms.html" />
+    <link rel="prev" title="Demography" href="demography.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            PhaseGen
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/introduction.html">Introduction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (Python)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_python.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_python.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Getting Started (R)</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/installation_r.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/quickstart_r.html">Quickstart</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Python Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/simulate_stats.html">Basic statistics and spectra</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference/infer_pop_size_change.html">Demography inference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="distributions.html">Distributions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="coalescent_models.html">Coalescent models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="demography.html">Demography</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Inference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#phasegen.inference.Inference"><code class="docutils literal notranslate"><span class="pre">Inference</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.__init__"><code class="docutils literal notranslate"><span class="pre">Inference.__init__()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.x0"><code class="docutils literal notranslate"><span class="pre">Inference.x0</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.bounds"><code class="docutils literal notranslate"><span class="pre">Inference.bounds</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.dist"><code class="docutils literal notranslate"><span class="pre">Inference.dist</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.loss"><code class="docutils literal notranslate"><span class="pre">Inference.loss</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.parallelize"><code class="docutils literal notranslate"><span class="pre">Inference.parallelize</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.pbar"><code class="docutils literal notranslate"><span class="pre">Inference.pbar</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.result"><code class="docutils literal notranslate"><span class="pre">Inference.result</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.params_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.params_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.loss_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.loss_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.dist_inferred"><code class="docutils literal notranslate"><span class="pre">Inference.dist_inferred</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.tqdm"><code class="docutils literal notranslate"><span class="pre">Inference.tqdm</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.inference.Inference.run"><code class="docutils literal notranslate"><span class="pre">Inference.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="norms.html">Norms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spectrum.html">Spectrum</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">PhaseGen</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Inference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/inference.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-phasegen.inference">
+<span id="inference"></span><span id="modules-inference"></span><h1>Inference<a class="headerlink" href="#module-phasegen.inference" title="Permalink to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="phasegen.inference.Inference">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">phasegen.inference.</span></span><span class="sig-name descname"><span class="pre">Inference</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x0</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><span class="pre">phasegen.distributions.Coalescent</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loss</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><span class="pre">phasegen.distributions.Coalescent</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parallelize</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pbar</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.inference.Inference" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>The Inference class is designed to perform arbitrary inference using the
+provided loss function, through coalescent simulation based on phase-type
+theory. The optimization is performed via the BFGS algorithm from scipy.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Example<span class="colon">:</span></dt>
+<dd class="field-odd"><p></p></dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span> <span class="nf">loss_fn</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">return</span> <span class="p">(</span><span class="n">a</span> <span class="o">-</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">b</span> <span class="o">-</span> <span class="mi">3</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">x0</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;a&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s1">&#39;b&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">bounds</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;a&#39;</span><span class="p">:</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="s1">&#39;b&#39;</span><span class="p">:</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">inf</span> <span class="o">=</span> <span class="n">Inference</span><span class="p">(</span><span class="n">x0</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span> <span class="n">loss_fn</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">inf</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x0</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><span class="pre">phasegen.distributions.Coalescent</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loss</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><span class="pre">phasegen.distributions.Coalescent</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parallelize</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pbar</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.inference.Inference.__init__" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the class with the provided parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>x0</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code>]]) – Dictionary of initial numeric guesses for parameters to optimize.</p></li>
+<li><p><strong>bounds</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code>], <code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>, <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code>]]]) – Dictionary of tuples representing the bounds for each
+parameter in x0.</p></li>
+<li><p><strong>dist</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">...</span></code>, <a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coalescent</span></code></a>]) – Callback returning the configured coalescent distribution on which
+the inference is based on. The parameters specified in <code class="docutils literal notranslate"><span class="pre">x0</span></code> and <code class="docutils literal notranslate"><span class="pre">bounds</span></code>
+are passed as keyword arguments.</p></li>
+<li><p><strong>loss</strong> (<code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code>[[<a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coalescent</span></code></a>], <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>]) – The loss function. This function must return a single numerical
+value that is to be minimized. It receives as argument the coalescent
+distribution returned by the callback specified as <code class="docutils literal notranslate"><span class="pre">dist</span></code>.</p></li>
+<li><p><strong>parallelize</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to parallelize the simulations.</p></li>
+<li><p><strong>pbar</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code>) – Whether to show a progress bar.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.x0">
+<span class="sig-name descname"><span class="pre">x0</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code><span class="pre">,</span> <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code><span class="pre">]]</span></em><a class="headerlink" href="#phasegen.inference.Inference.x0" title="Permalink to this definition"></a></dt>
+<dd><p>Dictionary of initial numeric guesses for parameters to optimize.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.bounds">
+<span class="sig-name descname"><span class="pre">bounds</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">,</span> <code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code><span class="pre">,</span> <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code><span class="pre">],</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">UnionType</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code><span class="pre">,</span> <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code><span class="pre">]]]</span></em><a class="headerlink" href="#phasegen.inference.Inference.bounds" title="Permalink to this definition"></a></dt>
+<dd><p>Dictionary of tuples representing the bounds for each parameter in x0.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.dist">
+<span class="sig-name descname"><span class="pre">dist</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code><span class="pre">[</span><code class="xref py py-data docutils literal notranslate"><span class="pre">...</span></code><span class="pre">,</span> <a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coalescent</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#phasegen.inference.Inference.dist" title="Permalink to this definition"></a></dt>
+<dd><p>Callback returning the configured coalescent distribution.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.loss">
+<span class="sig-name descname"><span class="pre">loss</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code><span class="pre">[[</span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coalescent</span></code></a><span class="pre">],</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><a class="headerlink" href="#phasegen.inference.Inference.loss" title="Permalink to this definition"></a></dt>
+<dd><p>Loss function.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.parallelize">
+<span class="sig-name descname"><span class="pre">parallelize</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></em><a class="headerlink" href="#phasegen.inference.Inference.parallelize" title="Permalink to this definition"></a></dt>
+<dd><p>Whether to parallelize the simulations.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.pbar">
+<span class="sig-name descname"><span class="pre">pbar</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></em><a class="headerlink" href="#phasegen.inference.Inference.pbar" title="Permalink to this definition"></a></dt>
+<dd><p>Whether to show a progress bar.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.result">
+<span class="sig-name descname"><span class="pre">result</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">OptimizeResult</span></code><span class="pre">]</span></em><a class="headerlink" href="#phasegen.inference.Inference.result" title="Permalink to this definition"></a></dt>
+<dd><p>Optimization result</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.params_inferred">
+<span class="sig-name descname"><span class="pre">params_inferred</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></em><a class="headerlink" href="#phasegen.inference.Inference.params_inferred" title="Permalink to this definition"></a></dt>
+<dd><p>Inferred parameters.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.loss_inferred">
+<span class="sig-name descname"><span class="pre">loss_inferred</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code><span class="pre">]</span></em><a class="headerlink" href="#phasegen.inference.Inference.loss_inferred" title="Permalink to this definition"></a></dt>
+<dd><p>Loss of the best optimization run</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.dist_inferred">
+<span class="sig-name descname"><span class="pre">dist_inferred</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><a class="reference internal" href="distributions.html#phasegen.distributions.Coalescent" title="phasegen.distributions.Coalescent"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coalescent</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#phasegen.inference.Inference.dist_inferred" title="Permalink to this definition"></a></dt>
+<dd><p>Coalescent distribution of best run</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.tqdm">
+<span class="sig-name descname"><span class="pre">tqdm</span></span><a class="headerlink" href="#phasegen.inference.Inference.tqdm" title="Permalink to this definition"></a></dt>
+<dd><p>Progress bar</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="phasegen.inference.Inference.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.inference.Inference.run" title="Permalink to this definition"></a></dt>
+<dd><p>Execute the optimization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Result of the optimization procedure.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>scipy.optimize.OptimizeResult</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="demography.html" class="btn btn-neutral float-left" title="Demography" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="norms.html" class="btn btn-neutral float-right" title="Norms" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Janek Sendrowski.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
