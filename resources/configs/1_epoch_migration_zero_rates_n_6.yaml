@@ -11,6 +11,7 @@ pop_sizes:
 times:
   pop_0: [ 0 ]
   pop_1: [ 0 ]
+model: standard
 comparisons:
   types:
     - ph

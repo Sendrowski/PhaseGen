@@ -15,6 +15,7 @@ times:
   pop_0: [ 0, 0.3, 1.1 ]
   pop_1: [ 0, 0.1, 0.45 ]
   pop_2: [ 0, 1, 2 ]
+model: standard
 comparisons:
   types:
     - ph

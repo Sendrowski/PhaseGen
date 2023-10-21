@@ -4,6 +4,7 @@ pop_sizes:
   - 1
 times:
   - 0
+model: standard
 comparisons:
   types:
     - ph_const

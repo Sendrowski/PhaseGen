@@ -6,6 +6,7 @@ pop_sizes:
 times:
   - 0
   - 1
+model: standard
 comparisons:
   types:
     - ph
