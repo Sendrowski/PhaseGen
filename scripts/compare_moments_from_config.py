@@ -1,5 +1,5 @@
 """
-Compare moments of msprime and ph.
+Compare moments of msprime and phasegen.
 """
 
 __author__ = "Janek Sendrowski"
@@ -20,7 +20,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_migration_debug_7"
+    name = "1_epoch_migration_disparate_migration_sizes_2_each_n_6"
     file = f"resources/configs/{name}.yaml"
     dist = 'tree_height'
     stat = 'mean'

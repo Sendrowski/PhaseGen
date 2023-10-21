@@ -22,7 +22,6 @@ try:
     pop_sizes = snakemake.params.pop_sizes
     times = snakemake.params.times
     num_replicates = snakemake.params.num_replicates
-    alpha = snakemake.params.get('alpha', np.eye(1, n - 1, 0)[0])
     out = snakemake.output[0]
 except NameError:
     # testing
@@ -34,7 +33,6 @@ except NameError:
     #times = [0, 1]
     pop_sizes = [1]
     times = [0]
-    alpha = np.eye(1, n, 0)[0]
     num_replicates = 10000
     out = "scratch/result.json"
 
@@ -43,7 +41,6 @@ s = Comparison(
     pop_sizes=pop_sizes,
     times=times,
     num_replicates=num_replicates,
-    alpha=alpha,
 )
 
 s.to_file(out)

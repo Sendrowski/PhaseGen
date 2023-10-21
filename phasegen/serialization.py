@@ -1,5 +1,3 @@
-from typing import Self
-
 import jsonpickle
 import numpy as np
 from jsonpickle.handlers import BaseHandler
@@ -28,7 +26,7 @@ class Serializable:
         return jsonpickle.encode(self, indent=4, warn=True, make_refs=False)
 
     @classmethod
-    def from_json(cls, json: str, classes=None) -> Self:
+    def from_json(cls, json: str, classes=None) -> 'Self':
         """
         Unserialize object.
 
@@ -38,7 +36,7 @@ class Serializable:
         return jsonpickle.decode(json, classes=classes)
 
     @classmethod
-    def from_file(cls, file: str, classes=None) -> Self:
+    def from_file(cls, file: str, classes=None) -> 'Self':
         """
         Load object from file.
 

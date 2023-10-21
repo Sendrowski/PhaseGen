@@ -9,13 +9,14 @@ import msprime as ms
 import numpy as np
 import tskit
 from matplotlib import pyplot as plt
+from msprime import AncestryModel
 from multiprocess import Pool
 from numpy.linalg import matrix_power
 from scipy.linalg import expm, fractional_matrix_power
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
-from .coalescent_models import StandardCoalescent, CoalescentModel
+from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent
 from .demography import Demography, TimeHomogeneousDemography
 from .population import PopulationConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
@@ -206,9 +207,9 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
         Get the block matrix for the given reward matrices and transition matrix.
 
         :param R: List of length k of reward matrices
-        :param S: Matrix S
+        :param S: Intensity matrix
         :param k: The kth moment to evaluate
-        :return: Block matrix
+        :return: Van Loan matrix which is a block matrix of size (k + 1) * (k + 1)
         """
         # matrix of zeros
         O = np.zeros_like(S)
@@ -323,6 +324,8 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         """
         Get the nth moment.
 
+        TODO deprecate this
+
         :param k: The order of the moment
         :param reward: The reward.
         :return: The nth moment
@@ -431,6 +434,7 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         :param rewards: The rewards
         :return: The kth moment
         """
+        # use default reward if not specified
         if rewards is None:
             rewards = [self.reward] * k
 
@@ -481,7 +485,10 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
             else:
                 # if in the last epoch, we need to iterate until convergence
                 max_pop_size = np.max(list(pop_size.values()))
+
+                # determine tau
                 tau = max_pop_size * 1000
+
                 B = expm(A * tau)
                 M_next = M @ B
 
@@ -1000,6 +1007,10 @@ class TimeHomogeneousCoalescent(Coalescent):
         #: Time-homogeneous demography
         self.demography: TimeHomogeneousDemography = demography
 
+        # check if the demography and population configuration have the same population names
+        if set(self.demography.pop_names) != set(self.pop_config.pop_names):
+            raise ValueError("Population names in population configuration and demography do not match. ")
+
         #: Whether to show a progress bar
         self.pbar: bool = pbar
 
@@ -1208,10 +1219,23 @@ class MsprimeCoalescent(Coalescent):
 
         return sfs
 
+    def get_coalescent_model(self) -> AncestryModel:
+        """
+        Get the coalescent model.
+
+        :return: msprime coalescent model.
+        """
+        if isinstance(self.model, StandardCoalescent):
+            return ms.StandardCoalescent()
+
+        if isinstance(self.model, BetaCoalescent):
+            return ms.BetaCoalescent(alpha=self.model.alpha)
+
     @cache
     def simulate(self):
         """
         Simulate data using msprime.
+        Tes
         """
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
@@ -1230,7 +1254,7 @@ class MsprimeCoalescent(Coalescent):
                 samples=self.pop_config.lineage_dict,
                 num_replicates=num_replicates,
                 demography=demography,
-                model=ms.StandardCoalescent(),
+                model=self.get_coalescent_model(),
                 ploidy=1,
                 end_time=self.end_time
             )

@@ -314,10 +314,20 @@ class PiecewiseTimeHomogeneousDemography(Demography):
             # assume a single population
             pop_sizes = {'pop_0': pop_sizes}
 
+        # check that all population sizes are lists
+        for sizes in pop_sizes.values():
+            if not isinstance(sizes, Iterable):
+                raise ValueError('Population sizes must be a list or a dictionary of iterables.')
+
         # convert to dictionary
         if not isinstance(times, dict):
             # assume a single population
             times = {'pop_0': times}
+
+        # check that all times are lists
+        for t in times.values():
+            if not isinstance(t, Iterable):
+                raise ValueError('Epoch times must be a list or a dictionary of iterables.')
 
         # check that the population names match
         if pop_sizes.keys() != times.keys():
@@ -337,11 +347,11 @@ class PiecewiseTimeHomogeneousDemography(Demography):
                     raise ValueError(f'Number of population sizes and times do not match for population {p}.')
 
                 # check that all population sizes are positive
-                if (np.array(pop_sizes[p]) <= 0).any():
+                if np.any(np.array(pop_sizes[p]) <= 0):
                     raise ValueError('All population sizes must be greater than zero.')
 
                 # check that all times are positive
-                if (np.array(times[p]) < 0).any():
+                if np.any(np.array(times[p]) < 0):
                     raise ValueError('All times must be greater than or equal to zero.')
             else:
                 is_list = False
@@ -683,7 +693,7 @@ class ExponentialDemography(ContinuousDemography):
             raise ValueError('Population names must match between growth_rate and N0.')
 
         # check that all Ne are positive
-        if (np.array(list(self.N0.values())) <= 0).any():
+        if np.any(np.array(list(self.N0.values())) <= 0):
             raise ValueError('All initial population sizes must be greater than zero.')
 
         def trajectory(t: float) -> Dict[str, float]:

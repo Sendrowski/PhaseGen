@@ -195,3 +195,18 @@ class DemographyTestCase(TestCase):
         self.assertEqual(0.5, d_msprime.events[1].time)
         self.assertEqual(5, d_msprime.events[1].initial_size)
         self.assertEqual('b', d_msprime.events[1].population)
+
+    def test_passing_different_pop_names_to_demography_and_n_lineages_raises_value_error(self):
+        """
+        Test passing different population names to demography and n_lineages raises ValueError.
+        """
+        with self.assertRaises(ValueError) as error:
+            pg.PiecewiseTimeHomogeneousCoalescent(
+                demography=pg.PiecewiseTimeHomogeneousDemography(
+                    pop_sizes=dict(a=[1, 2, 3], b=[4, 5, 6]),
+                    times=dict(a=[0, 1, 2], b=[0, 0.5, 1]),
+                ),
+                n=dict(c=1, d=2)
+            )
+
+            print(error)

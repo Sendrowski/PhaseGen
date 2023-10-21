@@ -1,5 +1,5 @@
 """
-Compare moments of msprime and ph.
+Compare moments of msprime and phasegen.
 """
 
 __author__ = "Janek Sendrowski"

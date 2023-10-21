@@ -1,5 +1,4 @@
 import itertools
-import math
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Callable, List, Set, Tuple, Dict, cast
@@ -11,45 +10,6 @@ from scipy.special import comb, beta
 class CoalescentModel(ABC):
     """
     Abstract class for coalescent models.
-    """
-
-    @abstractmethod
-    def get_rate(self, s1: int, s2: int) -> float:
-        """
-        Get rate for a merger collapsing k1 lineages into k2 lineages.
-
-        :param s1: Number of lineages in the first state.
-        :param s2: Number of lineages in the second state.
-        :return: The rate.
-        """
-        pass
-
-    @abstractmethod
-    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
-        r"""
-        Get rate between two infinite alleles states.
-        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
-
-        :param n: Number of lineages.
-        :param s1: Sample configuration 1.
-        :param s2: Sample configuration 2.
-        :return: The rate.
-        """
-
-    @abstractmethod
-    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-
-        :param n: Number of lineages.
-        :return:
-        """
-        pass
-
-
-class StandardCoalescent(CoalescentModel):
-    """
-    Standard (Kingman) coalescent model.
     """
 
     def get_rate(self, s1: int, s2: int) -> float:
@@ -66,8 +26,88 @@ class StandardCoalescent(CoalescentModel):
 
         return self._get_rate(b=s1, k=s1 + 1 - s2)
 
-    @staticmethod
-    def _get_rate(b: int, k: int):
+    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        r"""
+        Get (positive) rate between two infinite alleles states.
+        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
+
+        :param n: Number of lineages.
+        :param s1: Sample configuration 1.
+        :param s2: Sample configuration 2.
+        :return: The rate.
+        """
+        diff = s2 - s1
+
+        # make sure only one class has one more lineage
+        if np.sum(diff == 1) == 1 and n == s1.shape[0]:
+
+            # get the index for the class that lost lineages
+            where_less = np.where(diff < 0)[0]
+
+            # only continue if there is a class that lost lineages
+            if len(where_less) > 0:
+
+                # get the number of lineages that were lost
+                diff_less = -diff[where_less]
+
+                # determine the index of the class that gained lineages
+                i_more = np.dot(where_less + 1, diff_less) - 1
+
+                # make sure that the class that gained lineages only gained one lineage
+                if diff[i_more] == 1:
+                    # determine number of lineages that coalesce
+                    b = s1[where_less]
+                    k = b - s2[where_less]
+
+                    # get rate
+                    rate = self._get_rate_infinite_alleles(b=b, k=k)
+                    return rate
+
+        return 0
+
+    @abstractmethod
+    def _get_rate(self, b: int, k: int) -> float:
+        """
+        Get positive rate for a merger of k out of b lineages.
+        Negative rates will be inferred later
+
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge.
+        :return: The rate.
+        """
+        pass
+
+    @abstractmethod
+    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+        """
+        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        Negative rates will be inferred later
+
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge.
+        :return: The rate.
+        """
+        pass
+
+    @abstractmethod
+    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
+        """
+        Get the probabilities of all possible sample configurations.
+
+        TODO deprecate this?
+
+        :param n: Number of lineages.
+        :return:
+        """
+        pass
+
+
+class StandardCoalescent(CoalescentModel):
+    """
+    Standard (Kingman) coalescent model.
+    """
+
+    def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
         Negative rates will be inferred later
@@ -83,9 +123,31 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers can happen
         return 0
 
-    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
-        Get exponential rate for a merger of k out of b lineages.
+        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        Negative rates will be inferred later
+
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge such that 0 < k_i <= b_i for all i.
+        :return: The rate.
+        """
+        # if we have a single class
+        if b.shape[0] == 1:
+            return self._get_rate(b=b[0], k=k[0])
+
+        # if we have a merger from two classes
+        if b.shape[0] == 2:
+            if k[0] == 1 and k[1] == 1:
+                # same as b[0] choose k[0] times b[1] choose k[1]
+                return b[0] * b[1]
+
+        # no other mergers can happen
+        return 0
+
+    def get_rate_infinite_alleles_dep(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        """
+        Get (positive) rate between two infinite alleles states.
 
         :param n: Number of lineages.
         :param s1: Sample configuration 1.
@@ -94,14 +156,16 @@ class StandardCoalescent(CoalescentModel):
         """
         diff = s2 - s1
 
-        if np.sum(diff == 1) == 1:
+        # make sure only one class has one more lineage
+        if np.sum(diff == 1) == 1 and n == s1.shape[0]:
 
             # if two lineages of different classes coalesce
             if np.sum(diff == -1) == 2 and np.sum(diff == 0) == n - 3:
 
                 # check that (a_1,...,a_n) -> (a_1,...,a_i - 1,...,a_j - 1,...,a_{i+j} + 1,...,a_n)
                 if diff[(np.where(diff == -1)[0] + 1).sum() - 1] == 1:
-                    rate = s1[np.where(diff == -1)[0]].prod()
+                    b = s1[np.where(diff == -1)[0]]
+                    rate = b.prod()
                     return rate
 
             # if two lineages of the same class coalesce
@@ -109,7 +173,8 @@ class StandardCoalescent(CoalescentModel):
 
                 # check that (a_1,...,a_n) -> (a_1,...,a_i - 2,...,a_2i + 1,...,a_n)
                 if diff[2 * (np.where(diff == -2)[0][0] + 1) - 1] == 1:
-                    rate = math.comb(s1[np.where(diff == -2)[0][0]], 2)
+                    b = s1[np.where(diff == -2)[0][0]]
+                    rate = self._get_rate(b=b, k=2)
                     return rate
 
         return 0
@@ -118,6 +183,8 @@ class StandardCoalescent(CoalescentModel):
         """
         Get the probabilities of all possible sample configurations.
         Note that this currently only works for a single population.
+
+        TODO deprecate this?
 
         :param n: The number of lineages
         :return: The probabilities of all possible sample configurations.
@@ -223,14 +290,14 @@ class StandardCoalescent(CoalescentModel):
                 # get the number of lineages that were present in s1
                 j = s1[diff == 2][0]
 
-                return math.comb(j, 2) / math.comb(i, 2)
+                return comb(j, 2) / comb(i, 2)
 
             # if two lineages of different classes coalesce
             if np.sum(diff == 1) == 2 and np.sum(diff == 0) == n - 3:
                 # get the number of lineages that were present in s1
                 j1, j2 = s1[diff == 1]
 
-                return math.comb(j1, 1) * math.comb(j2, 1) / math.comb(i, 2)
+                return comb(j1, 1) * comb(j2, 1) / comb(i, 2)
 
         return 0
 
@@ -238,6 +305,8 @@ class StandardCoalescent(CoalescentModel):
 class BetaCoalescent(CoalescentModel):
     """
     Beta coalescent model.
+
+    TODO fix this
     """
 
     def __init__(self, alpha: float):
@@ -248,21 +317,7 @@ class BetaCoalescent(CoalescentModel):
         """
         self.alpha = alpha
 
-    def get_rate(self, s1: int, s2: int) -> float:
-        """
-        Get rate for a merger collapsing k1 lineages into k2 lineages.
-
-        :param s1: Number of lineages in the first state.
-        :param s2: Number of lineages in the second state.
-        :return: The rate.
-        """
-        # not possible
-        if s2 > s1:
-            return 0
-
-        return self._get_rate(b=s1, k=s1 + 1 - s2)
-
-    def _get_rate(self, b: int, k: int):
+    def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
         Negative rates will be filled in later.
@@ -271,25 +326,34 @@ class BetaCoalescent(CoalescentModel):
         :param k: The number of lineages that merge.
         :return: The rate.
         """
-        if k <= 1 or k > b:
+        if k < 1 or k > b:
             return 0
 
         return comb(b, k, exact=True) * beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
 
-    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
-        Get the rate of a merger of k out of b lineages under the infinite alleles model.
+        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        Negative rates will be inferred later
 
-        :param n: Number of lineages.
-        :param s1: First state.
-        :param s2: Second state.
+        :param b: Number of lineages.
+        :param k: Number of lineages that merge such that 0 < k_i <= b_i for all i.
         :return: The rate.
         """
-        pass
+        combinations = np.prod([comb(N=b_i, k=k_i, exact=True) for b_i, k_i in zip(b, k)])
+
+        b_sum = b.sum()
+        k_sum = k.sum()
+
+        rate = beta(k_sum - self.alpha, b_sum - k_sum + self.alpha) / beta(self.alpha, 2 - self.alpha)
+
+        return combinations * rate
 
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """
         Get the probabilities of all possible sample configurations.
+
+        TODO deprecate this?
 
         :param n: The total number of lineages
         :return: The probabilities of all possible sample configurations.

@@ -1,10 +1,11 @@
 from functools import cached_property
-from typing import List, Iterable, Dict, Tuple
+from typing import List, Iterable, Dict, Tuple, Literal
 
 import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
+from . import CoalescentModel, StandardCoalescent, BetaCoalescent
 from .demography import PiecewiseTimeHomogeneousDemography, ExponentialDemography, TimeHomogeneousDemography, Demography
 from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
 from .serialization import Serializable
@@ -28,8 +29,9 @@ class Comparison(Serializable):
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
-            alpha: np.ndarray | List = None,
-            comparisons: dict = None
+            comparisons: dict = None,
+            model: Literal['standard', 'beta'] = 'standard',
+            alpha: float = 1.5
     ):
         """
         Initialize Comparison object.
@@ -46,6 +48,8 @@ class Comparison(Serializable):
         :param parallelize: Whether to parallelize the msprime simulations.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
+        :param model: Coalescent model to use.
+        :param alpha: Alpha parameter of the beta coalescent.
         """
         self.comparisons = comparisons
         self.n = n
@@ -58,6 +62,7 @@ class Comparison(Serializable):
         self.n_threads = n_threads
         self.parallelize = parallelize
         self.alpha = alpha
+        self.model = self.load_coalescent_model(model)
 
     def get_demography(self) -> Demography:
         """
@@ -76,6 +81,21 @@ class Comparison(Serializable):
                 migration_matrix=self.migration_matrix
             )
 
+    def load_coalescent_model(
+            self,
+            name: Literal['standard', 'beta'],
+    ) -> CoalescentModel:
+        """
+        Load the coalescent model.
+
+        :param name: Name of the coalescent model.
+        :return: The coalescent model.
+        """
+        return dict(
+            standard=StandardCoalescent(),
+            beta=BetaCoalescent(alpha=self.alpha)
+        )[name]
+
     @cached_property
     def ph(self):
         """
@@ -84,7 +104,8 @@ class Comparison(Serializable):
         return PiecewiseTimeHomogeneousCoalescent(
             n=self.n,
             demography=self.get_demography(),
-            parallelize=self.parallelize
+            parallelize=self.parallelize,
+            model=self.model
         )
 
     @cached_property
@@ -98,7 +119,8 @@ class Comparison(Serializable):
                 pop_size=self.pop_sizes[0],
                 migration_matrix=self.migration_matrix
             ),
-            parallelize=self.parallelize
+            parallelize=self.parallelize,
+            model=self.model
         )
 
     @cached_property
@@ -111,7 +133,8 @@ class Comparison(Serializable):
             demography=self.get_demography(),
             num_replicates=self.num_replicates,
             n_threads=self.n_threads,
-            parallelize=self.parallelize
+            parallelize=self.parallelize,
+            model=self.model
         )
 
     @staticmethod

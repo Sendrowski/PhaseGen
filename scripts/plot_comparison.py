@@ -1,5 +1,5 @@
 """
-Plot comparison of msprime and ph.
+Plot comparison of msprime and phasegen.
 """
 
 __author__ = "Janek Sendrowski"

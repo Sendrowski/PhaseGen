@@ -64,56 +64,16 @@ def _get_max_abs_entry(data: np.ndarray) -> float | None:
     return entries.max() if len(entries) > 0 else None
 
 
-class SFS(Spectrum, Iterable):
+class SFS(Spectrum):
     """
-    A site frequency spectrum.
-
-    TODO remove methods after new fastDFE release.
+    A site-frequency spectrum.
     """
-
-    def __iter__(self):
-        """
-        Iterate over entries.
-
-        :return: Iterator
-        """
-        return self.data.__iter__()
-
-    def __pow__(self, power) -> 'SFS':
-        """
-        Power operator.
-
-        :param power: exponent
-        :return: Spectrum
-        """
-        return SFS(self.data ** power)
-
-    def __sub__(self, other) -> 'SFS':
-        """
-        Subtract spectrum.
-
-        :param other: Spectrum
-        :return: Spectrum
-        """
-        return SFS(self.data - other.data)
-
-    def normalize(self) -> 'SFS':
-        """
-        Normalize SFS so that all non-monomorphic counts add up to 1.
-        :return:
-        """
-        # copy array
-        data = self.data.copy()
-
-        # normalize counts
-        data[1:-1] /= data[1:-1].sum()
-
-        return SFS(data)
+    pass
 
 
 class SFS2(Iterable):
     """
-    A 2-dimensional site frequency spectrum.
+    A 2-dimensional site-frequency spectrum.
     """
 
     def __init__(self, data: np.ndarray | list, folded: bool = False):
