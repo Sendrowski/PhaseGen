@@ -1,9 +1,7 @@
 n: 4
 num_replicates: 1000000
 pop_sizes:
-  - 1
-times:
-  - 0
+    0: 1
 model: standard
 comparisons:
   types:

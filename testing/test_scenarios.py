@@ -26,7 +26,12 @@ def get_filenames(path) -> List[str]:
 # configs = get_filenames("resources/configs")
 
 configs = [
-    '1_epoch_ph_const_n_4',
+    '2_epoch_varying_migration_barrier',
+    '2_epoch_varying_migration_low_coalescence',
+]
+
+"""
+    '5_epoch_varying_migration_2_pops',
     '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '4_epoch_up_down_n_2',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
@@ -40,11 +45,7 @@ configs = [
     '1_epoch_n_4',
     '1_epoch_migration_disparate_pop_size_one_all_n_2',
     '2_epoch_rapid_decline_n_5'
-]
-
-"""
-    
-    '1_epoch_pseudo_migration_n_6',
+    '1_epoch_ph_const_n_4',
 """
 
 

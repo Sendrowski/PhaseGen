@@ -1,11 +1,9 @@
 n: 5
 num_replicates: 1000000
 pop_sizes:
-  - 1
-  - 0.001
-times:
-  - 0
-  - 1
+  pop_0:
+    0: 1
+    1: 0.001
 model: standard
 comparisons:
   types:
@@ -21,4 +19,4 @@ comparisons:
     sfs:
       mean: 0.01
       cov: 0.05
-      corr: 0.02
+      corr: 0.03

@@ -1,8 +1,8 @@
 import logging
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from collections import defaultdict
 from itertools import islice
-from typing import List, Callable, Dict, Iterable, Tuple, Generator, cast, Sized, Any
+from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -12,7 +12,7 @@ from .visualization import Visualization
 logger = logging.getLogger('phasegen')
 
 
-class Demography:
+class Demography(ABC):
     """
     Base class for demographic scenarios.
     """
@@ -33,7 +33,7 @@ class Demography:
     pop_names: List[str]
 
     #: Migration rates.
-    migration_rates: Dict[Tuple[str, str], float]
+    _migration_rates: Dict[Tuple[str, str], float]
 
     def __init__(self):
         """
@@ -42,24 +42,159 @@ class Demography:
         #: The logger instance
         self.logger = logger.getChild(self.__class__.__name__)
 
-    def plot(
+    @staticmethod
+    def _plot_rates(
+            times_it: Iterator[float],
+            rates_it: Dict[Any, Iterator[float]],
+            show: bool = True,
+            file: str = None,
+            t_max: float = 10,
+            max_epochs: int = 100,
+            title: str = None,
+            ax: plt.Axes = None,
+    ) -> plt.Axes:
+        """
+        Plot the migration rates over time.
+
+        :param times_it: Iterator over times.
+        :param rates_it: Iterator over rates.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
+        :param max_epochs: Maximum number of epochs to plot.
+        :param title: Title of the plot.
+        :param ax: Axes object to plot to.
+        :return: Axes object.
+        """
+        # get times until t_max or max_epochs
+        times = []
+        for _ in range(max_epochs):
+            try:
+                t = next(times_it)
+                if t > t_max:
+                    break
+                times.append(t)
+            except StopIteration:
+                break
+
+        # get rates for times
+        rates = {k: [next(v) for _ in times] for k, v in rates_it.items()}
+
+        if len(times) != max_epochs:
+            # add t_max as last entry
+            times.append(t_max)
+            for k, v in rates.items():
+                v.append(v[-1])
+
+        return Visualization.plot_rates(
+            times=times,
+            rates={str(k): np.array(v) for k, v in rates.items()},
+            show=show,
+            file=file,
+            title=title,
+            ax=ax
+        )
+
+    def plot_pop_sizes(
             self,
             show: bool = True,
             file: str = None,
-            t_max: float = None,
+            t_max: float = 10,
+            max_epochs: int = 100,
+            title: str = 'Population size trajectory',
+            ax: plt.Axes = None,
     ) -> plt.Axes:
         """
         Plot the population size over time.
 
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
+        :param title: Title of the plot.
         :param t_max: Maximum time to plot.
+        :param max_epochs: Maximum number of epochs to plot.
+        :param title: Title of the plot.
+        :param ax: Axes object to plot to.
         :return: Axes object.
         """
-        pass
+        return self._plot_rates(
+            times_it=self.times,
+            rates_it=self.pop_sizes,
+            show=show,
+            file=file,
+            t_max=t_max,
+            max_epochs=max_epochs,
+            title=title,
+            ax=ax
+        )
+
+    def plot_migration(
+            self,
+            show: bool = True,
+            file: str = None,
+            t_max: float = 10,
+            max_epochs: int = 100,
+            title: str = 'Migration rate trajectory',
+            ax: plt.Axes = None,
+    ) -> plt.Axes:
+        """
+        Plot the migration over time.
+
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
+        :param max_epochs: Maximum number of epochs to plot.
+        :param title: Title of the plot.
+        :param ax: Axes object to plot to.
+        :return: Axes object.
+        """
+        return self._plot_rates(
+            times_it=self.times,
+            rates_it={f"{k[0]}->{k[1]}": v for k, v in self.migration_rates.items()},
+            show=show,
+            file=file,
+            t_max=t_max,
+            max_epochs=max_epochs,
+            title=title,
+            ax=ax
+        )
+
+    def plot(self, show: bool = True, file: str = None, t_max: float = 10, max_epochs: int = 100) -> List[plt.Axes]:
+        """
+        Plot the demographic scenario.
+
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param t_max: Maximum time to plot.
+        :param max_epochs: Maximum number of epochs to plot.
+        :return: Axes objects
+        """
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+        self.plot_pop_sizes(show=False, t_max=t_max, max_epochs=max_epochs, ax=axes[0])
+        self.plot_migration(show=show, file=file, t_max=t_max, max_epochs=max_epochs, ax=axes[1])
+
+        return axes
+
+    @staticmethod
+    def exponential_growth(
+            x0: float | np.ndarray | Dict[Any, float],
+            growth_rate: float | np.ndarray | Dict[Any, float],
+    ) -> Callable[[float], float | np.ndarray | Dict[Any, float]]:
+        """
+        Exponential growth trajectory.
+
+        :param x0: Initial rate. A single value, a numpy array or a dictionary mapping keys to values.
+        :param growth_rate: Exponential growth rate. A single value, a numpy array or a dictionary mapping keys to
+            values.
+        :return: Function that returns the rates at a given time.
+        """
+        if isinstance(x0, dict) and isinstance(growth_rate, dict):
+            return lambda t: dict((k, x0[k] * np.exp(- growth_rate[k] * t)) for k in x0)
+
+        return lambda t: x0 * np.exp(- growth_rate * t)
 
     @property
-    def times(self) -> Generator[float, None, None]:
+    def times(self) -> Iterator[float]:
         """
         Get a generator for the times at which the population sizes change for any population.
 
@@ -68,13 +203,22 @@ class Demography:
         return (t for t in self._times)
 
     @property
-    def pop_sizes(self) -> Dict[str, Generator[float, None, None]]:
+    def pop_sizes(self) -> Dict[str, Iterator[float]]:
         """
         Get a generator for the population sizes per population and epoch.
 
         :return: Population sizes per population.
         """
         return dict((p, (n for n in self._pop_sizes[p])) for p in self.pop_names)
+
+    @property
+    def migration_rates(self) -> Dict[Tuple[str, str], Iterator[float]]:
+        """
+        Get array representation of the migration matrix.
+
+        :return: Migration matrix.
+        """
+        return dict((p, (n for n in self._migration_rates[p])) for p in self._migration_rates)
 
     @abstractmethod
     def get_rate(self, t: float) -> Dict[str, float]:
@@ -96,41 +240,6 @@ class Demography:
         """
         pass
 
-    @property
-    def migration_matrix(self) -> np.ndarray:
-        """
-        Get array representation of the migration matrix.
-
-        :return: Migration matrix.
-        """
-        return np.array([[self.migration_rates.get((i, j), 0) for j in self.pop_names] for i in self.pop_names])
-
-    def _prepare_migration_rates(
-            self,
-            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray
-    ) -> Dict[Tuple[str, str], float]:
-
-        # if no migration matrix is given, assume no migration
-        if migration_matrix is None:
-            migration_matrix = np.zeros((self.n_pops, self.n_pops))
-
-        # convert migration matrix to dictionary
-        if not isinstance(migration_matrix, dict):
-
-            # check that the migration matrix is of the correct shape
-            if np.array(migration_matrix).shape != (self.n_pops, self.n_pops):
-                raise ValueError('Migration matrix must be of shape (n_pops, n_pops).')
-
-            # convert to dictionary
-            migration_rates = {(self.pop_names[i], self.pop_names[j]): migration_matrix[i][j]
-                               for i in range(self.n_pops)
-                               for j in range(self.n_pops)
-                               if i != j}
-        else:
-            migration_rates = migration_matrix
-
-        return migration_rates
-
     @abstractmethod
     def to_msprime(self):
         """
@@ -141,148 +250,6 @@ class Demography:
         pass
 
 
-class TimeHomogeneousDemography(Demography):
-    """
-    Demographic scenario where the population size is constant.
-    """
-    #: Number of epochs.
-    n_epochs: int = 1
-
-    def __init__(
-            self,
-            pop_size: float | Dict[str, float] | List[float] = 1,
-            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
-    ):
-        """
-        Create a constant demographic scenario.
-
-        :param pop_size: A single population size, or a list of population sizes for various population, or
-            a dictionary mapping population names to population sizes.
-        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
-            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
-        """
-        super().__init__()
-
-        if isinstance(pop_size, dict):
-            self.pop_size = dict(pop_size)
-
-        elif isinstance(pop_size, list):
-            self.pop_size = {f'pop_{i}': v for i, v in enumerate(pop_size)}
-        else:
-            # assume a single population
-            self.pop_size = {'pop_0': float(pop_size)}
-
-        # check that all population sizes are positive
-        if (np.array(list(self.pop_size.values())) <= 0).any():
-            raise ValueError('All population size must be greater than zero.')
-
-        #: Population sizes.
-        self._pop_sizes: Dict[str, np.ndarray] = {i: np.array([v]) for i, v in self.pop_size.items()}
-
-        #: Times at which the population sizes change.
-        self._times: np.ndarray = np.array([0])
-
-        #: Number of populations / demes.
-        self.n_pops: int = len(self.pop_size)
-
-        #: Population names.
-        self.pop_names: List[str] = list(self.pop_size.keys())
-
-        #: Migration rates as a dictionary of the form {(pop_i, pop_j): m_ij}
-        self.migration_rates: Dict[Tuple[str, str], float] = self._prepare_migration_rates(migration_matrix)
-
-    @property
-    def pop_size_list(self) -> List[float]:
-        """
-        Get the population sizes as a list in the same order as the population names.
-
-        :return: Population sizes.
-        """
-        return list(self.pop_size.values())
-
-    def plot(
-            self,
-            show: bool = True,
-            file: str = None,
-            t_max: float = None,
-    ) -> plt.Axes:
-        """
-        Plot the population size over time.
-
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param t_max: Maximum time to plot.
-        :return: Axes object.
-        """
-        return Visualization.plot_pop_sizes(
-            times={p: np.array([0, 1]) for p in self.pop_names},
-            pop_sizes={p: np.array([self.pop_size[p], self.pop_size[p]]) for p in self.pop_names},
-            t_max=t_max,
-            show=show,
-            file=file
-        )
-
-    def get_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the coalescence rate per population.
-
-        :param t: Time at which to get the rate.
-        :return: Coalescence rate.
-        """
-        return {p: 1 / self.pop_size[p] for p in self.pop_names}
-
-    def get_cum_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the cumulative coalescence rate per population.
-
-        :param t: Time at which to get the cumulative rate.
-        :return: Cumulative coalescence rate.
-        """
-        return {p: t / self.pop_size[p] for p in self.pop_names}
-
-    def to_msprime(self):
-        """
-        Convert to an msprime demography object.
-
-        :return: msprime demography object.
-        """
-        import msprime as ms
-
-        d: ms.Demography = ms.Demography(
-            migration_matrix=self.migration_matrix,
-            populations=[ms.Population(name=pop, initial_size=self.pop_size[pop]) for pop in self.pop_names],
-        )
-
-        # sort events by time
-        d.sort_events()
-
-        return d
-
-    def __eq__(self, other: Any) -> bool:
-        """
-        Check if two demographic scenarios are equal.
-
-        :param other: Any other object.
-        :return: Whether the two demographic scenarios are equal.
-        """
-        if not isinstance(other, TimeHomogeneousDemography):
-            return False
-
-        if self.n_pops != other.n_pops:
-            return False
-
-        if self.pop_names != other.pop_names:
-            return False
-
-        if not all(self.pop_size[p] == other.pop_size[p] for p in self.pop_names):
-            return False
-
-        if not all(self.migration_rates[pair] == other.migration_rates[pair] for pair in self.migration_rates):
-            return False
-
-        return True
-
-
 class PiecewiseTimeHomogeneousDemography(Demography):
     """
     Piecewise constant demographic scenario.
@@ -290,173 +257,140 @@ class PiecewiseTimeHomogeneousDemography(Demography):
 
     def __init__(
             self,
-            pop_sizes: List[float] | Dict[str, Iterable[float]] = [1],
-            times: List[float] | Dict[str, Iterable[float]] = [0],
-            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
+            pop_sizes: Dict[str, Dict[float, float]] | List[Dict[float, float]] | Dict[float, float] = [{0: 1}],
+            migration_rates: Dict[Tuple[str, str], Dict[float, float]] | Dict[float, np.ndarray] | None = None
     ):
         """
-        The population sizes and times these changes occur backwards in time.
+        Create a piecewise time-homogeneous demographic scenario.
 
-        :param pop_sizes: List of population sizes if there is only one population, or a dictionary mapping
-            population names to lists of population sizes.
-        :param times: List of times at which the population sizes change if there is only one population, or a
-            dictionary mapping population names to lists of times at which the population sizes change. Time starts
-            at zero and increases backwards in time.
-        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
-            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array where the rows correspond
-            to the source population and the columns to the destination population. Note that migration rate for which
-            the source and destination population are the same are ignored.
+        :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
+            indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
+            by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
+            population. Note that the first time must always be 0, and that population sizes must always be positive.
+        :param migration_rates: Migration matrix. Use ``None`` for no migration.
+            A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` where ``m_ij`` is the
+            migration rate (backward in time) from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
+            Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source
+            population and the columns to the destination. Note that migration rates for which the source and
+            destination population are the same are ignored and that the first time must always be 0.
         """
         super().__init__()
 
-        # convert to dictionary
-        if not isinstance(pop_sizes, dict):
-            # assume a single population
+        # raise error if pop_sizes is neither a list nor a dictionary
+        if not isinstance(pop_sizes, (list, dict)):
+            raise ValueError('Population sizes must be a list or a dictionary.')
+
+        # if we have a list of population sizes, assume that the population names are pop_0, pop_1, ...
+        if isinstance(pop_sizes, list):
+            pop_sizes = {f'pop_{i}': v for i, v in enumerate(pop_sizes)}
+
+        # if pop size dict is not a dictionary of dictionaries, wrap it in a dictionary
+        if not isinstance(next(iter(pop_sizes.values())), dict):
             pop_sizes = {'pop_0': pop_sizes}
 
-        # check that all population sizes are lists
-        for sizes in pop_sizes.values():
-            if not isinstance(sizes, Iterable):
-                raise ValueError('Population sizes must be a list or a dictionary of iterables.')
-
-        # convert to dictionary
-        if not isinstance(times, dict):
-            # assume a single population
-            times = {'pop_0': times}
-
-        # check that all times are lists
-        for t in times.values():
-            if not isinstance(t, Iterable):
-                raise ValueError('Epoch times must be a list or a dictionary of iterables.')
-
-        # check that the population names match
-        if pop_sizes.keys() != times.keys():
-            raise ValueError('Population names must match between pop_sizes and times.')
-
-        # whether all population sizes and times are lists
-        is_list = True
+        # make sure population sizes are positive
+        for p, sizes in pop_sizes.items():
+            if any(s <= 0 for s in sizes.values()):
+                raise ValueError(f'Population sizes must be positive at all times.')
 
         #: Population names.
         self.pop_names: List[str] = list(pop_sizes.keys())
 
+        #: Number of populations / demes.
+        self.n_pops: int = len(self.pop_names)
+
+        # initialize zero migration rates if None is given
+        if migration_rates is None:
+            migration_rates = {(p, q): {0: 0} for p in self.pop_names for q in self.pop_names}
+        elif not isinstance(migration_rates, dict):
+            raise ValueError('Migration rates must be a dictionary.')
+
+        # convert migration rates to dictionary of dictionaries
+        if len(migration_rates) and isinstance(next(iter(migration_rates.values())), (np.ndarray, list)):
+
+            # raise error if shape is different from (n_pops, n_pops)
+            if np.array(next(iter(migration_rates.values()))).shape != (self.n_pops, self.n_pops):
+                raise ValueError(f'Migration matrices must be of shape (n_pops, n_pops) = '
+                                 f'({self.n_pops}, {self.n_pops}) to coincide with population '
+                                 'size configuration')
+
+            rates_new = defaultdict(lambda: {})
+
+            for time, rate_matrix in migration_rates.items():
+                for p in self.pop_names:
+                    for q in self.pop_names:
+                        if p != q:
+                            rates_new[(p, q)][time] = rate_matrix[self.pop_names.index(p)][self.pop_names.index(q)]
+
+            migration_rates = rates_new
+
+        # fill non-existing and diagonal migration rates with zero
         for p in self.pop_names:
+            for q in self.pop_names:
+                if p == q or (p != q and (p, q) not in migration_rates):
+                    migration_rates[(p, q)] = {0: 0}
 
-            if isinstance(pop_sizes[p], (list, np.ndarray)) and isinstance(times[p], (list, np.ndarray)):
-                # check that the number of population sizes and times match
-                if len(cast(Sized, pop_sizes[p])) != len(cast(Sized, times[p])):
-                    raise ValueError(f'Number of population sizes and times do not match for population {p}.')
+        # flatten the population sizes and migration rates
+        times: np.ndarray[float]
+        rates: Dict[Any, np.ndarray[float]]
+        times, rates = self._flatten(pop_sizes | migration_rates)
 
-                # check that all population sizes are positive
-                if np.any(np.array(pop_sizes[p]) <= 0):
-                    raise ValueError('All population sizes must be greater than zero.')
+        # check that all times are non-negative
+        if np.any(np.array(times) < 0):
+            raise ValueError('All times must not be negative.')
 
-                # check that all times are positive
-                if np.any(np.array(times[p]) < 0):
-                    raise ValueError('All times must be greater than or equal to zero.')
-            else:
-                is_list = False
+        # check that all migration rates are non-negative
+        if np.any(np.array([rates[p] for p in migration_rates]) < 0):
+            raise ValueError('Migration rates must not be negative at all times.')
 
-        # merge population sizes and times so that we have single list of times and the
-        # corresponding population sizes at each time
-        # If we were given generators, we assume this is already the case
-        if is_list:
-
-            # replace the population sizes and times
-            times, pop_sizes = self.flatten(
-                times=times,
-                pop_sizes=pop_sizes
-            )
-
-            # number of epochs
-            n_epochs = len(times)
-        else:
-
-            # replace population times by the times of the first population
-            times = times[self.pop_names[0]]
-
-            # we don't know the number of epochs
-            n_epochs = None
+        # check that all population sizes are positive
+        if np.any(np.array([rates[p] for p in self.pop_names]) <= 0):
+            raise ValueError('Population sizes must be positive at all times.')
 
         #: Times at which the population sizes change.
         self._times: Iterable[float] = times
 
         #: Population sizes at each time.
-        self._pop_sizes: Dict[str, Iterable[float]] = pop_sizes
+        self._pop_sizes: Dict[str, Iterable[float]] = {p: rates[p] for p in self.pop_names}
+
+        #: Migration rates at each time.
+        self._migration_rates: Dict[Tuple[str, str], Iterable[float]] = {p: rates[p] for p in migration_rates}
 
         #: Number of epochs.
-        self.n_epochs: int | None = n_epochs
-
-        #: Number of populations / demes.
-        self.n_pops: int = len(self.pop_names)
-
-        #: Migration matrix as a dictionary of the form {(pop_i, pop_j): m_ij}
-        self.migration_rates: Dict[Tuple[str, str], float] = self._prepare_migration_rates(migration_matrix)
+        self.n_epochs: int | None = len(self._times)
 
     @staticmethod
-    def flatten(
-            times: Dict[str, List[float]],
-            pop_sizes: Dict[str, List[float]]
-
-    ) -> (List[float], Dict[str, List[float]]):
+    def _flatten(
+            rates: Dict[Any, Dict[float, float]]
+    ) -> (np.ndarray[float], Dict[Any, np.ndarray[float]]):
         """
-        Flatten population sizes and times into a list of times and a list of population sizes.
+        Flatten rates into a list of times and a list of rates.
 
-        :param pop_sizes: Dictionary mapping population names to lists of population sizes.
-        :param times: Dictionary mapping population names to lists of times.
-        :return: List of times and list of population sizes.
+        :param rates: Dictionary mapping key to dictionary mapping times to rates.
+        :return: List of times and dictionary mapping key to list of rates at each time.
         """
         # get all unique times
-        times_all = np.sort(np.unique(np.array([i for s in times.values() for i in s], dtype=float)))
+        times_all = list(np.sort(np.unique(np.array([i for s in rates.values() for i in s], dtype=float))))
 
-        # flattened list of population names
-        new_pop_sizes = defaultdict(list)
+        # flattened list of migration rates
+        new_rates = defaultdict(lambda: np.zeros((len(times_all))))
 
         # loop over all times
-        for t in times_all:
+        for i, t in enumerate(times_all):
 
-            # for each population
-            for pop, time in times.items():
+            # for each key
+            for key, r in rates.items():
 
                 # if the time is in this population's times
-                if t in time:
-                    # Get the index of this time
-                    index = list(time).index(t)
-                    # Add the population size at this index to the new sizes
-                    new_pop_sizes[pop].append(pop_sizes[pop][index])
+                if t in r:
+                    # add the rate at this index to the new rates
+                    new_rates[key][i] = r[t]
 
-                # if the time is not in this population's times, carry the last size forward
-                elif new_pop_sizes[pop]:
-                    new_pop_sizes[pop].append(new_pop_sizes[pop][-1])
+                # if the time is not present, carry the last rate forward
+                else:
+                    new_rates[key][i] = new_rates[key][i - 1]
 
-        return times_all, dict(new_pop_sizes)
-
-    def plot(
-            self,
-            show: bool = True,
-            file: str = None,
-            t_max: float = None,
-            max_epochs: int = 100,
-    ) -> plt.Axes:
-        """
-        Plot the population size over time.
-
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param t_max: Maximum time to plot.
-        :param max_epochs: Maximum number of epochs to plot.
-        :return: Axes object.
-        """
-        # get times and population sizes for a maximum of max_epochs epochs
-        times = dict((p, list(islice(self.times, max_epochs))) for p in self.pop_names)
-        pop_sizes = dict((p, list(islice(self.pop_sizes[p], max_epochs))) for p in self.pop_names)
-
-        return Visualization.plot_pop_sizes(
-            times=times,
-            pop_sizes=pop_sizes,
-            t_max=t_max,
-            show=show,
-            file=file
-        )
+        return times_all, dict(new_rates)
 
     def get_rate(self, t: float) -> Dict[str, float]:
         """
@@ -494,31 +428,50 @@ class PiecewiseTimeHomogeneousDemography(Demography):
 
         return rate
 
-    def to_msprime(self):
+    def to_msprime(
+            self,
+            max_epochs: int = 1000
+    ) -> 'msprime.Demography':
         """
         Convert to an msprime demography object.
 
+        :param max_epochs: Maximum number of epochs to use. This is necessary when the number of epochs is infinite.
         :return: msprime demography object.
         """
         import msprime as ms
 
         # create demography object
         d: ms.Demography = ms.Demography(
-            migration_matrix=self.migration_matrix,
             populations=[ms.Population(name=pop, initial_size=next(self.pop_sizes[pop])) for pop in self.pop_names],
+            migration_matrix=np.array([[next(self.migration_rates[(p, q)]) for q in self.pop_names]
+                                       for p in self.pop_names])
         )
 
         # iterate over populations
         for pop in self.pop_names:
-
             # add population size changes
-            for time, pop_size in zip(islice(self.times, 1, None), islice(self.pop_sizes[pop], 1, None)):
+            for time, size in zip(islice(self.times, 1, max_epochs + 1),
+                                  islice(self.pop_sizes[pop], 1, max_epochs + 1)):
                 # noinspection all
                 d.add_population_parameters_change(
                     time=time,
-                    initial_size=pop_size,
+                    initial_size=size,
                     population=pop
                 )
+
+        # iterate over migration rates
+        for (p, q), rates in self.migration_rates.items():
+
+            if p != q:
+                # add migration rate changes
+                for time, rate in zip(islice(self.times, 1, max_epochs + 1), islice(rates, 1, max_epochs + 1)):
+                    # noinspection all
+                    d.add_migration_rate_change(
+                        time=time,
+                        rate=rate,
+                        source=p,
+                        dest=q
+                    )
 
         # sort events by time
         d.sort_events()
@@ -526,66 +479,168 @@ class PiecewiseTimeHomogeneousDemography(Demography):
         return d
 
 
-class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
+class TimeHomogeneousDemography(PiecewiseTimeHomogeneousDemography):
     """
-    Continuous demographic scenario (which is discretized dynamically based on the
-    increase/decrease in population size).
+    Demographic scenario that is constant over time.
     """
 
     def __init__(
             self,
-            trajectory: Callable[[float], Dict[str, float] | float],
-            min_size: float = 1e-3,
-            start_size: float = 1,
-            max_growth: float = 1,
-            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
+            pop_sizes: float | Dict[str, float] | List[float] = 1,
+            migration_rates: Dict[Tuple[str, str], float] | np.ndarray | None = None
     ):
         """
-        Create a continuous demographic scenario.
+        Create a time-homogeneous demographic scenario.
 
-        :param trajectory: Function that returns the population size at a given time. Either a single value or a
-            dictionary with population names as keys.
-        :param min_size: Minimum discretization interval
-        :param start_size: Population size at the start of new epochs.
-        :param max_growth: Maximum absolute growth rate compared to the previous population size.
-        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
-            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
+        :param pop_sizes: A single population size if there is only one population, or a list of population sizes
+            for various populations, or a dictionary mapping population names to population sizes like
+            ``{'pop_0': 1, 'pop_1': 2}``.
+        :param migration_rates: Migration rates. Use ``None`` for no migration.
+            Either a dictionary of the form ``{(pop_i, pop_j): m_ij}`` where ``m_ij`` is the migration rate from
+            population ``pop_i`` to population ``pop_j`` backward in time or a 2-dimensional numpy array where the
+            rows correspond to the source population and the columns to the destination. Note that migration rates for
+            which the source and destination population are the same are ignored.
         """
+        # wrap pop_sizes in dictionaries
+        if isinstance(pop_sizes, (list, np.ndarray)):
+            pop_sizes = [{0: p} for p in pop_sizes]
+
+        elif isinstance(pop_sizes, dict):
+            pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
+
+        else:
+            pop_sizes = {0: pop_sizes}
+
+        # wrap migration_rates in dictionary if it is a dictionary
+        if isinstance(migration_rates, dict):
+            migration_rates = {(p, q): {0: m} for (p, q), m in migration_rates.items()}
+
+        # wrap migration_rates in dictionary if it is a numpy array or list
+        if isinstance(migration_rates, (np.ndarray, list)):
+            migration_rates = {0: np.array(migration_rates)}
+
+        super().__init__(
+            pop_sizes=pop_sizes,
+            migration_rates=migration_rates
+        )
+
+    def get_rate(self, t: float) -> Dict[str, float]:
+        """
+        Get the coalescence rate per population.
+
+        :param t: Time at which to get the rate.
+        :return: Coalescence rate.
+        """
+        return {p: 1 / self.pop_size[p] for p in self.pop_names}
+
+    def get_cum_rate(self, t: float) -> Dict[str, float]:
+        """
+        Get the cumulative coalescence rate per population.
+
+        :param t: Time at which to get the cumulative rate.
+        :return: Cumulative coalescence rate.
+        """
+        return {p: t / self.pop_size[p] for p in self.pop_names}
+
+    def __eq__(self, other: Any) -> bool:
+        """
+        Check if two demographic scenarios are equal.
+
+        TODO no longer used
+
+        :param other: Any other object.
+        :return: Whether the two demographic scenarios are equal.
+        """
+        raise NotImplementedError
+
+        if not isinstance(other, TimeHomogeneousDemography):
+            return False
+
+        if self.n_pops != other.n_pops:
+            return False
+
+        if self.pop_names != other.pop_names:
+            return False
+
+        if not all(self.pop_size[p] == other.pop_size[p] for p in self.pop_names):
+            return False
+
+        if not all(self._migration_rates[pair] == other._migration_rates[pair] for pair in self._migration_rates):
+            return False
+
+        return True
+
+
+class DiscretizedDemography(PiecewiseTimeHomogeneousDemography):
+    """
+    Discretized demographic scenario.
+    """
+
+    def __init__(
+            self,
+            pop_sizes: Callable[[float], Dict[str, float]],
+            migration_rates: Callable[[float], Dict[Tuple[str, str], float]] = None,
+            min_size: float = 1e-3,
+            start_size: float = 1,
+            max_growth: float = 1
+    ):
+        """
+        Create a continuous demographic scenario. By default, the discretization intervals are determined dynamically
+        based on the increase/decrease in the population size / migration rates. Set ``min_size`` equal to
+        ``start_size`` to have a fixed discretization interval.
+
+        :param pop_sizes: Function that returns the population size at a given time. A dictionary of population sizes
+            at time t indexed by population name.
+        :param migration_rates: Function that returns a dictionary of the form ``{(pop_i, pop_j): m_ij}`` given time t,
+            where ``m_ij`` is the migration rate from population ``pop_i`` to population ``pop_j``.
+        :param min_size: Minimum discretization interval size.
+        :param start_size: Interval size at the start of new epochs.
+        :param max_growth: Maximum absolute growth rate compared to the previous population size.
+        """
+        if start_size < min_size:
+            raise ValueError('Start size must be larger than minimum size.')
+
+        if min_size <= 0:
+            raise ValueError('Minimum size must be positive.')
+
         # initialize logger
         Demography.__init__(self)
 
-        #: Population size trajectory function
-        self.trajectory = trajectory
+        #: Function that returns the population size at a given time.
+        self._pop_sizes: Callable[[float], Dict[str, float]] = pop_sizes
+
+        #: Function that returns the migration rate at a given time.
+        self._migration_rates: Callable[[float], Dict[Tuple[str, str], float]] = migration_rates
 
         #: Minimum discretization interval
-        self.min_size = min_size
+        self.min_size: float = min_size
 
         #: Step size at the start of new epochs
-        self.start_size = start_size
+        self.start_size: float = start_size
 
         #: Maximum absolute growth rate compared to the previous population size
-        self.max_growth = max_growth
+        self.max_growth: float = max_growth
 
         #: Population names
-        self.pop_names = list(self.trajectory(0).keys())
+        self.pop_names: List[str] = list(self._pop_sizes(0).keys())
 
-        super().__init__(
-            pop_sizes=self.pop_sizes,
-            times=dict((p, self.times) for p in self.pop_names),
-            migration_matrix=migration_matrix
-        )
+        #: Number of populations / demes
+        self.n_pops: int = len(self.pop_names)
+
+        #: Number of epochs
+        self.n_epochs: int | None = None
 
     @property
-    def times(self) -> Iterable[float]:
+    def times(self) -> Iterator[float]:
         """
         Get the times at which the population sizes change.
 
         :return: Times.
         """
-        return map(lambda x: x[1], self.generate_epochs())
+        return map(lambda x: x[0], self._generate_epochs())
 
     @property
-    def pop_sizes(self) -> Dict[str, Iterable[float]]:
+    def pop_sizes(self) -> Dict[str, Iterator[float]]:
         """
         Get the population sizes.
 
@@ -595,123 +650,89 @@ class ContinuousDemography(PiecewiseTimeHomogeneousDemography):
 
         # obtain epoch population sizes generator
         for pop in self.pop_names:
-            pop_sizes[pop] = map(lambda x, p=pop: x[0][p], self.generate_epochs())
+            pop_sizes[pop] = map(lambda x, p=pop: x[1][p], self._generate_epochs())
 
         return pop_sizes
 
-    def generate_epochs(self) -> Iterable[Tuple[Dict[str, float], float]]:
+    @property
+    def migration_rates(self) -> Dict[Tuple[str, str], Iterator[float]]:
+        """
+        Get the migration rates.
+
+        :return: Migration rates.
+        """
+        migration_rates = {}
+
+        # obtain epoch migration rates generator
+        for p in self.pop_names:
+            for q in self.pop_names:
+                migration_rates[(p, q)] = map(lambda x, y=(p, q): x[1][y] if y in x[1] else 0, self._generate_epochs())
+
+        return migration_rates
+
+    def _generate_epochs(self) -> Iterator[Tuple[float, Dict[Any, float]]]:
+        """
+        Generate epochs.
+
+        :return: Iterator over epochs, return tuple of time and rates at time.
+        """
         # initialize step size
         # decrease by factor 1/2 until we have a step size smaller than min_size or the growth rate is smaller than
         # max_growth
         step_size = self.start_size
 
+        def rates(t: float) -> Dict[str, float]:
+            """
+            Population size and growth rates at time ``t``.
+
+            :param t: Time.
+            :return: Population size and growth rates.
+            """
+            return self._pop_sizes(t) | self._migration_rates(t)
+
         # initialize the previous population size
-        prev_pop_prev = np.array(list(self.trajectory(0).values()))
+        x0 = rates(0)
+        rates_prev = np.array(list(x0.values()))
         time = 0
 
         # yield the initial population size and time
-        yield self.trajectory(0), 0
+        yield 0, rates(0)
 
         while True:
             # get the new population size at the current time
-            pop_size_curr = np.array(list(self.trajectory(time + step_size).values()))
+            rates_curr = np.array(list(rates(time + step_size).values()))
 
             # check if the population size is infinite
-            if np.isinf(pop_size_curr).any():
-                self.logger.warning(f'Population size is {pop_size_curr} at time {time + step_size}. Stopping.')
+            if np.isinf(rates_curr).any():
+                self.logger.warning(f'Rates are {rates_curr} at time {time + step_size}. Stopping.')
                 break
 
             # check if the population size is NaN
-            if np.isnan(pop_size_curr).any():
-                raise ValueError(f'Population size is {pop_size_curr} at time {time + step_size}. Stopping.')
+            if np.isnan(rates_curr).any():
+                raise ValueError(f'Rates are is {rates_curr} at time {time + step_size}. Stopping.')
 
             # calculate the growth rate
-            growth_rate = np.abs(pop_size_curr - prev_pop_prev).max()
+            growth_rate = np.abs(rates_curr - rates_prev).max()
 
             # check the constraints
-            if step_size < self.min_size or growth_rate < self.max_growth:
+            if step_size <= self.min_size or growth_rate <= self.max_growth:
                 # update the previous population size and time
-                prev_pop_prev = pop_size_curr
+                rates_prev = rates_curr
                 time += step_size
+
+                # get the population size at the endpoints
+                a = rates(time)
+                b = rates(time + step_size)
+
+                # yield the current population size and time
+                midpoint = dict((p, ((a[p] + b[p]) / 2)) for p in x0)
 
                 # reset the step size
                 step_size = self.start_size
 
-                # get the population size at the endpoints
-                a = self.trajectory(time)
-                b = self.trajectory(time + step_size)
-
                 # yield the current population size and time
-                midpoint = dict((p, ((a[p] + b[p]) / 2)) for p in self.pop_names)
+                yield time, midpoint
 
-                # yield the current population size and time
-                yield midpoint, time
-
-            # decrease the step size
-            step_size /= 2
-
-
-class ExponentialDemography(ContinuousDemography):
-    """
-    Demographic scenario where the population size grows exponentially.
-    """
-
-    def __init__(
-            self,
-            growth_rate: float | Dict[str, float],
-            N0: float | Dict[str, float] = 1,
-            min_size: float = 1e-3,
-            start_size: float = 1,
-            max_growth: float = 1,
-            migration_matrix: Dict[Tuple[str, str], float] | List[List[float]] | np.ndarray = None
-    ):
-        """
-        :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
-            ``N0 * exp(- growth_rate * t)``. Either a single value or a dictionary with population names as keys.
-        :param N0: Initial population size (only used if growth_rate is specified). Either a single value or a
-            dictionary with population names as keys.
-        :param min_size: Minimum discretization interval
-        :param start_size: Population size at the start of new epochs.
-        :param max_growth: Maximum absolute growth rate compared to the previous population size.
-        :param migration_matrix: Migration matrix. If ``None``, no migration is assumed. Either a dictionary
-            of the form ``{(pop_i, pop_j): m_ij}`` or a list of lists or a numpy array.
-        """
-        # wrap in dictionary
-        if isinstance(growth_rate, (float, int)):
-            self.growth_rate: Dict[str, float] = {'pop_0': growth_rate}
-        else:
-            self.growth_rate: Dict[str, float] = growth_rate
-
-        # wrap in dictionary
-        if isinstance(N0, (float, int)):
-            self.N0: Dict[str, float] = {'pop_0': N0}
-        else:
-            self.N0: Dict[str, float] = N0
-
-        # check that the population names match
-        if growth_rate.keys() != self.N0.keys():
-            raise ValueError('Population names must match between growth_rate and N0.')
-
-        # check that all Ne are positive
-        if np.any(np.array(list(self.N0.values())) <= 0):
-            raise ValueError('All initial population sizes must be greater than zero.')
-
-        def trajectory(t: float) -> Dict[str, float]:
-            """
-            Exponential trajectory.
-
-            :param t: Time.
-            :return: Population sizes at time ``t``.
-            """
-            N0 = np.array(list(self.N0.values()))
-            growth_rate = np.array(list(self.growth_rate.values()))
-
-            return dict(zip((self.N0.keys()), N0 * np.exp(- growth_rate * t)))
-
-        super().__init__(
-            trajectory=trajectory,
-            min_size=min_size,
-            start_size=start_size,
-            max_growth=max_growth,
-            migration_matrix=migration_matrix
-        )
+            else:
+                # decrease the step size
+                step_size /= 2

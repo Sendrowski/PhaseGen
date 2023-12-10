@@ -8,7 +8,7 @@ from scipy.linalg import expm, inv
 
 from .coalescent_models import CoalescentModel
 from .demography import TimeHomogeneousDemography
-from .population import PopulationConfig
+from .population import PopConfig
 
 
 class StateSpace(ABC):
@@ -18,7 +18,7 @@ class StateSpace(ABC):
 
     def __init__(
             self,
-            pop_config: PopulationConfig,
+            pop_config: PopConfig,
             model: CoalescentModel,
             demography: TimeHomogeneousDemography
     ):
@@ -34,12 +34,12 @@ class StateSpace(ABC):
         self.model: CoalescentModel = model
 
         #: Population configuration
-        self.pop_config: PopulationConfig = pop_config
+        self.pop_config: PopConfig = pop_config
 
         # we first determine the non-zero states by using default values for the demography
         self.demography = TimeHomogeneousDemography(
-            pop_size=demography.pop_size,
-            migration_matrix=np.ones((demography.n_pops, demography.n_pops))
+            pop_sizes={p: 1 for p in demography.pop_names},
+            migration_rates={(p, q): 1 for p, q in product(demography.pop_names, demography.pop_names)}
         )
 
         # get the rate matrix for the default demography
@@ -50,6 +50,7 @@ class StateSpace(ABC):
         )
 
         # indices of non-zero rates
+        # this improves performance when computing the rate matrix
         self._non_zero_states = np.where(default_rate_matrix != 0)
 
         #: Demography
@@ -172,7 +173,7 @@ class StateSpace(ABC):
 
             rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
 
-            pop_size = self.demography.pop_size[self.demography.pop_names[deme_index]]
+            pop_size = next(self.demography.pop_sizes[self.demography.pop_names[deme_index]])
 
             return rate / pop_size
 
@@ -199,7 +200,7 @@ class StateSpace(ABC):
                         n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
 
                         # scale migration rate by population size
-                        migration_rate = self.demography.migration_rates[(source, dest)]
+                        migration_rate = self.demography._migration_rates[(source, dest)]
 
                         rate = migration_rate * n_lineages_source
 
@@ -209,9 +210,9 @@ class StateSpace(ABC):
 
     def _get_rate_matrix(self) -> np.ndarray:
         """
-        Get the sub-intensity matrix.
+        Get the rate matrix.
 
-        :return: The sub-intensity matrix.
+        :return: The rate matrix.
         """
         matrix_indices_to_rates = np.vectorize(self._matrix_indices_to_rates, otypes=[float])
 

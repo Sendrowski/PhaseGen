@@ -39,23 +39,23 @@ try:
 except NameError:
     # testing
     testing = True
-    """n = dict(pop_0=3, pop_1=5)  # sample size
+    n = dict(pop_0=3, pop_1=5)  # sample size
     times = dict(pop_0=[0], pop_1=[0])
-    pop_sizes = dict(pop_0=[1], pop_1=[1])
-    migration_rates = {('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}"""
-    n = 10
+    pop_sizes = dict(pop_0=[.02], pop_1=[.02])
+    migration_rates = {('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+    """n = 10
     times = [0]
-    pop_sizes = [1]
-    migration_rates = None
+    pop_sizes = [1, 3]
+    migration_rates = None"""
     growth_rate = None
     N0 = 1
     num_replicates = 100000
     n_threads = 1000
     parallelize = True
-    model = 'beta'
+    model = 'standard'
     alpha = 1.5
-    dist = 'sfs'
-    stat = 'corr'
+    dist = 'tree_height'
+    stat = 'plot_pdf'
     out = "scratch/test_comp.png"
 
 comp = Comparison(
@@ -72,35 +72,11 @@ comp = Comparison(
     alpha=alpha
 )
 
-start_time = time.time()
-ph = getattr(getattr(comp.ph, dist), stat)
-runtime = time.time() - start_time
+#ph = getattr(getattr(comp.ph, dist), stat)(ax=plt.gca(), show=False, label='phasegen')
+#ms = getattr(getattr(comp.ms, dist), stat)(ax=plt.gca(), show=True, label='msprime')
 
-ms = getattr(getattr(comp.ms, dist), stat)
-
-if isinstance(ph, pg.SFS2):
-
-    _, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
-
-    ph.plot(ax=axs[0], title='ph', show=False)
-    ms.plot(ax=axs[1], title='ms')
-
-    abs_max = np.nanmax(np.abs((ms.data - ph.data) / (ms.data + ph.data)))
-
-elif isinstance(ms, pg.SFS):
-
-    Spectra.from_spectra(dict(
-        ms=ms,
-        ph=ph,
-    )).plot()
-
-    abs_max = np.nanmax(np.abs((ms.data - ph.data) / (ms.data + ph.data)))
-
-else:
-
-    Spectra.from_spectra(dict(
-        ms=pg.SFS([0, ms, 0]),
-        ph=pg.SFS([0, ph, 0]),
-    )).plot()
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+#getattr(getattr(comp.ms, dist), stat)(ax=ax2, show=False, label='msprime')
+getattr(getattr(comp.ph, dist), stat)(ax=ax1, show=True, label='phasegen')
 
 pass

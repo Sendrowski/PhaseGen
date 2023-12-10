@@ -2,15 +2,15 @@ n:
   pop_0: 3
   pop_1: 3
 num_replicates: 1000000
-migration_matrix:
-  - [ 0, 1 ]
-  - [ 1, 0 ]
+migration_rates:
+  0:
+    - [ 0, 1 ]
+    - [ 1, 0 ]
 pop_sizes:
-  pop_0: [ 1 ]
-  pop_1: [ 1 ]
-times:
-  pop_0: [ 0 ]
-  pop_1: [ 0 ]
+  pop_0:
+    0: 1
+  pop_1:
+    0: 1
 model: standard
 comparisons:
   types:

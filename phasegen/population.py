@@ -3,7 +3,7 @@ from typing import Dict, List, Iterable
 import numpy as np
 
 
-class PopulationConfig:
+class PopConfig:
     """
     Class to hold the configuration of a population such as the number of lineages.
     """
@@ -48,7 +48,7 @@ class PopulationConfig:
         """
         return dict(zip(self.pop_names, self.lineages))
 
-    def get_alpha(self, s: 'StateSpace') -> np.ndarray:
+    def get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         """
         Get initial state vector for the population configuration.
 

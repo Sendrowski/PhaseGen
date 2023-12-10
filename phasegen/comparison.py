@@ -5,8 +5,8 @@ import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from . import CoalescentModel, StandardCoalescent, BetaCoalescent
-from .demography import PiecewiseTimeHomogeneousDemography, ExponentialDemography, TimeHomogeneousDemography, Demography
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
+from .demography import PiecewiseTimeHomogeneousDemography, TimeHomogeneousDemography, Demography, DiscretizedDemography
 from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
 from .serialization import Serializable
 from .spectrum import SFS2
@@ -21,11 +21,8 @@ class Comparison(Serializable):
     def __init__(
             self,
             n: int,
-            pop_sizes: np.ndarray | List | Dict[str, List] = None,
-            times: np.ndarray | List | Dict[str, List] = None,
-            migration_matrix: np.ndarray | List | Dict[Tuple[str, str], float] = None,
-            growth_rate: float = None,
-            N0: float = None,
+            pop_sizes: Dict[str, Dict[float, float]] | List[Dict[float, float]] | Dict[float, float],
+            migration_rates: Dict[float, np.ndarray] | None = None,
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
@@ -37,12 +34,16 @@ class Comparison(Serializable):
         Initialize Comparison object.
 
         :param n: Number of lineages.
-        :param pop_sizes: Population sizes at different times or different populations if a dictionary is given.
-        :param times: Times of population size changes or different populations if a dictionary is given.
-        :param migration_matrix: Migration matrix.
-        :param growth_rate: Exponential growth rate so that at time ``t`` in the past we have
-            ``N0 * exp(- growth_rate * t)``.
-        :param N0: Initial population size (only used if growth_rate is specified).
+        :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
+            indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
+            by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
+            population. Note that the first time must always be 0.
+        :param migration_rates: Migration matrix. Use ``None`` for no migration.
+            A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` where ``m_ij`` is the
+            migration rate from population ``pop_i`` to population ``pop_j`` at time ``time1`` and ``time2`` etc.
+            Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source
+            population and the columns to the destination. Note that migration rates for which the source and
+            destination population are the same are ignored and that the first time must always be 0.
         :param num_replicates: Number of replicates to use.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
@@ -54,10 +55,7 @@ class Comparison(Serializable):
         self.comparisons = comparisons
         self.n = n
         self.pop_sizes = pop_sizes
-        self.times = times
-        self.migration_matrix = migration_matrix
-        self.growth_rate = growth_rate
-        self.N0 = N0
+        self.migration_rates = migration_rates
         self.num_replicates = num_replicates
         self.n_threads = n_threads
         self.parallelize = parallelize
@@ -68,18 +66,10 @@ class Comparison(Serializable):
         """
         Get the demography.
         """
-        if self.growth_rate is not None:
-            return ExponentialDemography(
-                growth_rate=self.growth_rate,
-                N0=self.N0,
-                migration_matrix=self.migration_matrix
-            )
-        else:
-            return PiecewiseTimeHomogeneousDemography(
-                pop_sizes=self.pop_sizes,
-                times=self.times,
-                migration_matrix=self.migration_matrix
-            )
+        return PiecewiseTimeHomogeneousDemography(
+            pop_sizes=self.pop_sizes,
+            migration_rates=self.migration_rates
+        )
 
     def load_coalescent_model(
             self,
@@ -116,8 +106,8 @@ class Comparison(Serializable):
         return TimeHomogeneousCoalescent(
             n=self.n,
             demography=TimeHomogeneousDemography(
-                pop_size=self.pop_sizes[0],
-                migration_matrix=self.migration_matrix
+                pop_sizes={pop: sizes[0] for pop, sizes in self.pop_sizes.items()},
+                migration_rates=self.migration_rates[0]
             ),
             parallelize=self.parallelize,
             model=self.model
@@ -154,12 +144,13 @@ class Comparison(Serializable):
         # only consider finite values
         return diff[np.isfinite(diff)]
 
-    def compare(self, title: str = None, do_assertion: bool = True):
+    def compare(self, title: str = None, do_assertion: bool = True, plot: bool = True):
         """
         Compare the distributions of the given statistic for the given types.
 
         :param title: Title of the plot.
         :param do_assertion: Whether to assert that the distributions are the same.
+        :param plot: Whether to plot the distributions.
         """
         # iterate over types
         for t in self.comparisons['types']:
@@ -184,19 +175,21 @@ class Comparison(Serializable):
                         ph_stat = np.array(list(ph_stat))
                         diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                        if ph_stat.ndim == 1:
+                        if plot:
+                            if ph_stat.ndim == 1:
 
-                            s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
+                                s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
 
-                            s.plot(title=title)
+                                s.plot(title=title)
 
-                        else:
-                            fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+                            # assume we have a 2-dimensional SFS
+                            elif len(ph_stat) > 3:
+                                fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
 
-                            fig.suptitle(f"{stat}: {title}")
+                                fig.suptitle(f"{stat}: {title}")
 
-                            SFS2(ph_stat).plot(ax=axs[0], title='ph', show=False)
-                            SFS2(ms_stat).plot(ax=axs[1], title='ms')
+                                SFS2(ph_stat).plot(ax=axs[0], title='ph', show=False)
+                                SFS2(ms_stat).plot(ax=axs[1], title='ms')
 
                     # assume we have a PDF or CDF
                     elif callable(ph_stat):
@@ -206,13 +199,14 @@ class Comparison(Serializable):
                         y_ph = ph_stat(x)
                         y_ms = ms_stat(x)
 
-                        plt.plot(x, y_ph, label=t)
-                        plt.plot(x, y_ms, label='msprime')
+                        if plot:
+                            plt.plot(x, y_ph, label=t)
+                            plt.plot(x, y_ms, label='msprime')
 
-                        plt.legend()
-                        plt.title(f"{stat.upper()}: {title}")
+                            plt.legend()
+                            plt.title(f"{stat.upper()}: {title}")
 
-                        plt.show()
+                            plt.show()
 
                         diff = self.rel_diff(y_ms, y_ph).max()
 

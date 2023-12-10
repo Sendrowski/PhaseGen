@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_migration_one_each_n_2"
+    name = "5_epoch_varying_migration_coalescence_barrier"
     file = f"resources/configs/{name}.yaml"
     out = f"scratch/{name}.json"
 
@@ -39,3 +39,5 @@ c.ms._touch()
 c.ms._drop()
 
 c.to_file(out)
+
+pass

@@ -306,7 +306,7 @@ class BetaCoalescent(CoalescentModel):
     """
     Beta coalescent model.
 
-    TODO fix this
+    TODO implement this properly
     """
 
     def __init__(self, alpha: float):

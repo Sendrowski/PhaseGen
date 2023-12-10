@@ -23,7 +23,7 @@ class Serializable:
 
         :return: JSON string
         """
-        return jsonpickle.encode(self, indent=4, warn=True, make_refs=False)
+        return jsonpickle.encode(self, indent=4, warn=True, make_refs=False, keys=True)
 
     @classmethod
     def from_json(cls, json: str, classes=None) -> 'Self':
@@ -33,7 +33,7 @@ class Serializable:
         :param classes: Classes to be used for unserialization
         :param json: JSON string
         """
-        return jsonpickle.decode(json, classes=classes)
+        return jsonpickle.decode(json, classes=classes, keys=True)
 
     @classmethod
     def from_file(cls, file: str, classes=None) -> 'Self':

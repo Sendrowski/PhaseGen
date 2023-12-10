@@ -17,7 +17,7 @@ class StateSpaceTestCase(TestCase):
         Test default intensity matrix for n = 4.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.PopulationConfig(n=4),
+            pop_config=pg.PopConfig(n=4),
             model=pg.StandardCoalescent(),
             demography=pg.TimeHomogeneousDemography()
         )
@@ -33,10 +33,10 @@ class StateSpaceTestCase(TestCase):
         Test n = 3, 2 demes.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.PopulationConfig(n=3),
+            pop_config=pg.PopConfig(n=3),
             model=pg.StandardCoalescent(),
             demography=pg.TimeHomogeneousDemography(
-                pop_size=[1, 2]
+                pop_sizes=[1, 2]
             )
         )
 

@@ -3,22 +3,24 @@ from abc import ABC, abstractmethod
 from functools import cached_property, cache
 from itertools import chain
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Iterable, Dict
+from typing import Generator, List, Callable, Tuple, Iterable, Dict, Iterator
 
 import msprime as ms
 import numpy as np
 import tskit
+from fastdfe.likelihood import Likelihood
 from matplotlib import pyplot as plt
 from msprime import AncestryModel
 from multiprocess import Pool
 from numpy.linalg import matrix_power
 from scipy.linalg import expm, fractional_matrix_power
 from scipy.ndimage import gaussian_filter1d
+from scipy.stats import norm
 from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent
 from .demography import Demography, TimeHomogeneousDemography
-from .population import PopulationConfig
+from .population import PopConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
 from .spectrum import SFS, SFS2
 from .state_space import InfiniteAllelesStateSpace, DefaultStateSpace, StateSpace
@@ -108,7 +110,7 @@ class ProbabilityDistribution(ABC):
         """
         Cumulative distribution function.
 
-        :param t: Time.
+        :param t: Value or values to evaluate the CDF at.
         :return: CDF.
         """
         pass
@@ -118,7 +120,7 @@ class ProbabilityDistribution(ABC):
         """
         Density function.
 
-        :param u: Time.
+        :param u: Value or values to evaluate the density function at.
         :return: Density.
         """
         pass
@@ -130,7 +132,8 @@ class ProbabilityDistribution(ABC):
             show: bool = True,
             file: str = None,
             clear: bool = True,
-            label: str = None
+            label: str = None,
+            title: str = 'CDF'
     ) -> plt.axes:
         """
         Plot cumulative distribution function.
@@ -141,6 +144,7 @@ class ProbabilityDistribution(ABC):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param label: Label for the plot.
+        :param title: Title of the plot.
         :return: Axes.
         """
         if x is None:
@@ -156,7 +160,7 @@ class ProbabilityDistribution(ABC):
             file=file,
             show=show,
             clear=clear,
-            title='CDF'
+            title=title
         )
 
     def plot_pdf(
@@ -166,7 +170,8 @@ class ProbabilityDistribution(ABC):
             show: bool = True,
             file: str = None,
             clear: bool = True,
-            label: str = None
+            label: str = None,
+            title: str = 'PDF'
     ) -> plt.axes:
         """
         Plot density function.
@@ -177,6 +182,7 @@ class ProbabilityDistribution(ABC):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param label: Label for the plot.
+        :param title: Title of the plot.
         :return: Axes.
         """
         if x is None:
@@ -192,7 +198,7 @@ class ProbabilityDistribution(ABC):
             file=file,
             show=show,
             clear=clear,
-            title='PDF'
+            title=title
         )
 
 
@@ -218,7 +224,7 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
         return np.block([[S if i == j else R[i] if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)])
 
     @abstractmethod
-    def nth_moment(self, k: int, r: np.ndarray = None) -> float | SFS:
+    def moment(self, k: int, r: np.ndarray = None) -> float | SFS:
         """
         Get the nth moment.
 
@@ -235,7 +241,7 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
 
         :return: The mean absorption time.
         """
-        return self.nth_moment(k=1)
+        return self.moment(k=1)
 
     @cached_property
     def var(self) -> float | SFS:
@@ -244,7 +250,7 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
 
         :return: The variance in the absorption time.
         """
-        return self.nth_moment(k=2) - self.nth_moment(k=1) ** 2
+        return self.moment(k=2) - self.moment(k=1) ** 2
 
     @cached_property
     def m2(self) -> float | SFS:
@@ -253,7 +259,7 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
 
         :return: The second moment.
         """
-        return self.nth_moment(k=2)
+        return self.moment(k=2)
 
 
 class TimeHomogeneousDistribution(PhaseTypeDistribution):
@@ -263,7 +269,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
 
     def __init__(
             self,
-            pop_config: PopulationConfig,
+            pop_config: PopConfig,
             state_space: DefaultStateSpace,
             reward: Reward = TreeHeightReward(),
             demography: TimeHomogeneousDemography = TimeHomogeneousDemography()
@@ -281,7 +287,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
             raise NotImplementedError('TimeHomogeneousDistribution only supports time-homogeneous demographies.')
 
         self.reward: Reward = reward
-        self.pop_config: PopulationConfig = pop_config
+        self.pop_config: PopConfig = pop_config
         self.state_space: DefaultStateSpace = state_space
         self.demography: TimeHomogeneousDemography = demography
 
@@ -318,9 +324,9 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         """
         Initial state vector.
         """
-        return self.pop_config.get_alpha(self.state_space)
+        return self.pop_config.get_initial_states(self.state_space)
 
-    def nth_moment(self, k: int, reward: Reward = None) -> float:
+    def moment(self, k: int, reward: Reward = None) -> float:
         """
         Get the nth moment.
 
@@ -344,7 +350,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         Vectorized cumulative distribution function.
         TODO doesn't work for total branch length
 
-        :param t: Time.
+        :param t: Value or values to evaluate the CDF at.
         :return: CDF.
         """
 
@@ -352,7 +358,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
             """
             Cumulative distribution function.
 
-            :param t: Time.
+            :param t: Value to evaluate the CDF at.
             :return: CDF.
             """
             return 1 - self.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], t) @ self.e[:-1]
@@ -367,7 +373,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         Vectorized density function.
         TODO doesn't work for total branch length
 
-        :param u: Time.
+        :param u: Value or values to evaluate the density function at.
         :return: Density.
         """
 
@@ -375,7 +381,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
             """
             Density function.
 
-            :param u: Time.
+            :param u: Value to evaluate the density function at.
             :return: Density.
             """
             return self.alpha[:-1] @ fractional_matrix_power(self.T[:-1, :-1], u) @ self.s
@@ -396,7 +402,7 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
 
     def __init__(
             self,
-            pop_config: PopulationConfig,
+            pop_config: PopConfig,
             state_space: StateSpace,
             demography: Demography = TimeHomogeneousDemography(),
             reward: Reward = TreeHeightReward(),
@@ -409,7 +415,7 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         :param demography: The demography.
         :param reward: The reward.
         """
-        self.pop_config: PopulationConfig = pop_config
+        self.pop_config: PopConfig = pop_config
         self.reward: Reward = reward
         self.state_space: StateSpace = state_space
         self.demography: Demography = demography
@@ -419,16 +425,16 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         """
         Initial state vector.
         """
-        return self.pop_config.get_alpha(self.state_space)
+        return self.pop_config.get_initial_states(self.state_space)
 
     @cache
-    def nth_moment(
+    def moment(
             self,
             k: int,
             rewards: Tuple[Reward] = None
     ) -> float:
         """
-        Get the nth (non-central) moment per epoch.
+        Get the nth (non-central) moment.
 
         :param k: The kth moment
         :param rewards: The rewards
@@ -447,9 +453,10 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         # initialize Van Loan matrix holding (rewarded) moments
         M = np.eye(n_states * (k + 1))
 
-        # get time and population size generators
-        times: Generator[float] = self.demography.times
-        pop_sizes: Dict[str, Generator[float]] = self.demography.pop_sizes
+        # get time and population size, and migration rate generators
+        times: Iterator[float] = self.demography.times
+        pop_sizes: Dict[str, Iterator[float]] = self.demography.pop_sizes
+        migration_rates: Dict[Tuple[str, str], Iterator[float]] = self.demography.migration_rates
 
         # previous time
         time_prev: float = next(times)
@@ -458,13 +465,16 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         for i, time in enumerate(chain(times, [np.inf])):
 
             # get population sizes for this epoch
-            pop_size = dict((p, next(pop_sizes[p])) for p in self.demography.pop_names)
+            pop_size = dict((p, next(pop_sizes[p])) for p in pop_sizes)
+
+            # get migration rates for this epoch
+            migration_rate = dict((p, next(migration_rates[p])) for p in migration_rates)
 
             # get state space for this epoch
             self.state_space.update_demography(
                 demography=TimeHomogeneousDemography(
-                    pop_size=pop_size,
-                    migration_matrix=self.demography.migration_matrix
+                    pop_sizes=pop_size,
+                    migration_rates=migration_rate
                 )
             )
 
@@ -512,11 +522,25 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
 
         return m
 
+    '''
+    def cumulant(self, k: int, rewards: Tuple[Reward] = None) -> float:
+        """
+        Get the nth cumulant.
+
+        :param k: The order of the cumulant
+        :param rewards: The rewards
+        :return: The nth cumulant
+        """
+        return cum2mc([self.moment(k=k, rewards=rewards) for k in range(1, k + 1)])[-1]
+    '''
+
     def cdf(self, t) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
-        :param t: Time
+        TODO extrapolate from moments and deprecate get_rate and get_cum_rate
+
+        :param t: Value or values to evaluate the CDF at.
         :return: Cumulative probability
         :raises NotImplementedError: if rewards are not default
         """
@@ -548,44 +572,48 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
 
         return np.vectorize(cdf)(t)
 
-    def pdf(self, u: float | np.ndarray) -> float | np.ndarray:
+    def pdf(self, u: float | np.ndarray, n_moments: int = 11) -> float | np.ndarray:
         """
         Density function.
 
-        :param u: Time
+        TODO extrapolate from moments and deprecate get_rate and get_cum_rate
+
+        :param u: Value or values to evaluate the density function at.
+        :param n_moments: Number of moments to use when approximating the distribution using Hermite polynomials.
         :return: Density
         :raises NotImplementedError: if rewards are not default
         """
         # raise error if rewards are not default
-        if not isinstance(self.reward, TreeHeightReward):
-            raise NotImplementedError("PDF not implemented for non-default rewards.")
+        if isinstance(self.reward, TreeHeightReward) and self.demography.n_pops == 1:
+            # get the transition matrix for the standard coalescent
+            self.state_space.update_demography(
+                demography=TimeHomogeneousDemography()
+            )
 
-        # raise error if multiple populations
-        if self.demography.n_pops > 1:
-            raise NotImplementedError("PDF not implemented for multiple populations.")
+            def pdf(u: float) -> float:
+                """
+                Density function.
 
-        # get the transition matrix for the standard coalescent
-        self.state_space.update_demography(
-            demography=TimeHomogeneousDemography()
-        )
+                :param u: Time.
+                :return: Density.
+                """
+                # get the cumulative coalescent rate up to time u
+                cum = self.demography.get_cum_rate(u)[self.demography.pop_names[0]]
 
-        def pdf(u: float) -> float:
-            """
-            Density function.
+                # get current coalescent rate
+                rate = self.demography.get_rate(u)[self.demography.pop_names[0]]
 
-            :param u: Time.
-            :return: Density.
-            """
-            # get the cumulative coalescent rate up to time u
-            cum = self.demography.get_cum_rate(u)[self.demography.pop_names[0]]
+                return self.alpha[:-1] @ fractional_matrix_power(self.state_space.T[:-1, :-1],
+                                                                 cum) @ self.state_space.s * rate
 
-            # get current coalescent rate
-            rate = self.demography.get_rate(u)[self.demography.pop_names[0]]
+            return np.vectorize(pdf)(u)
 
-            return self.alpha[:-1] @ fractional_matrix_power(self.state_space.T[:-1, :-1],
-                                                             cum) @ self.state_space.s * rate
+        raise NotImplementedError("PDF not implemented for non-default rewards or multiple populations.")
 
-        return np.vectorize(pdf)(u)
+        # get moments
+        moments = np.array([self.moment(k=k) for k in range(1, n_moments + 1)])
+
+        return _HermiteExpansion.pdf(u, moments)
 
 
 class SFSDistribution(PhaseTypeDistribution):
@@ -595,7 +623,7 @@ class SFSDistribution(PhaseTypeDistribution):
 
     def __init__(
             self,
-            pop_config: PopulationConfig,
+            pop_config: PopConfig,
             state_space: DefaultStateSpace,
             state_space_IAM: InfiniteAllelesStateSpace,
             demography: Demography,
@@ -612,7 +640,7 @@ class SFSDistribution(PhaseTypeDistribution):
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
         """
-        self.pop_config: PopulationConfig = pop_config
+        self.pop_config: PopConfig = pop_config
         self.state_space: DefaultStateSpace = state_space
         self.state_space_IAM: InfiniteAllelesStateSpace = state_space_IAM
         self.demography: Demography = demography
@@ -620,7 +648,7 @@ class SFSDistribution(PhaseTypeDistribution):
         self.parallelize: bool = parallelize
 
     @cache
-    def nth_moment(self, k: int, i: int = None) -> SFS | float:
+    def moment(self, k: int, i: int = None) -> SFS | float:
         """
         Get the nth moment.
 
@@ -643,7 +671,7 @@ class SFSDistribution(PhaseTypeDistribution):
                 demography=self.demography
             )
 
-            return d.nth_moment(
+            return d.moment(
                 k=k
             )
 
@@ -727,7 +755,7 @@ class SFSDistribution(PhaseTypeDistribution):
             demography=self.demography
         )
 
-        return d.nth_moment(
+        return d.moment(
             k=2,
             rewards=(SFSReward(i), SFSReward(j))
         )
@@ -754,8 +782,8 @@ class SFSDistribution(PhaseTypeDistribution):
         :param j: The jth site-frequency
         :return: Correlation coefficient
         """
-        std_i = np.sqrt(self.nth_moment(k=2, i=i))
-        std_j = np.sqrt(self.nth_moment(k=2, i=j))
+        std_i = np.sqrt(self.moment(k=2, i=i))
+        std_j = np.sqrt(self.moment(k=2, i=j))
 
         return self.get_cov(i, j) / (std_i * std_j)
 
@@ -837,6 +865,15 @@ class EmpiricalDistribution(ProbabilityDistribution):
         :return: Second moment.
         """
         return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
+
+    def moment(self, k: int) -> float | np.ndarray:
+        """
+        Get the nth moment.
+
+        :param k: The order of the moment
+        :return: The nth moment
+        """
+        return np.mean(self.samples ** k, axis=0)
 
     def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
@@ -925,7 +962,7 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
         return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
-class Coalescent:
+class Coalescent(ABC):
     """
     Coalescent distribution.
     This class provides probability distributions for the tree height, total branch length and site frequency spectrum.
@@ -934,7 +971,7 @@ class Coalescent:
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | np.ndarray | PopulationConfig,
+            n: int | Dict[str, int] | List[int] | np.ndarray | PopConfig,
             model: CoalescentModel = StandardCoalescent()
     ):
         """
@@ -945,10 +982,10 @@ class Coalescent:
             :class:`PopulationConfig` object can be passed.
         :param model: Coalescent model.
         """
-        if not isinstance(n, PopulationConfig):
-            self.pop_config: PopulationConfig = PopulationConfig(n)
+        if not isinstance(n, PopConfig):
+            self.pop_config: PopConfig = PopConfig(n)
         else:
-            self.pop_config: PopulationConfig = n
+            self.pop_config: PopConfig = n
 
         # coalescent model
         self.model: CoalescentModel = model
@@ -985,7 +1022,7 @@ class TimeHomogeneousCoalescent(Coalescent):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | np.ndarray | PopulationConfig,
+            n: int | Dict[str, int] | List[int] | np.ndarray | PopConfig,
             model: CoalescentModel = StandardCoalescent(),
             demography: TimeHomogeneousDemography = TimeHomogeneousDemography(),
             pbar: bool = True,
@@ -1083,7 +1120,7 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | np.ndarray | PopulationConfig,
+            n: int | Dict[str, int] | List[int] | np.ndarray | PopConfig,
             model: CoalescentModel = StandardCoalescent(),
             demography: Demography = None,
             pbar: bool = True,
@@ -1102,12 +1139,16 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
         # get population sizes for first epoch
         pop_size = dict((p, next(demography.pop_sizes[p])) for p in demography.pop_names)
 
+        # get migration rates for first epoch
+        migration_rates = dict(((p1, p2), next(demography.migration_rates[(p1, p2)]))
+                               for p1, p2 in demography.migration_rates)
+
         super().__init__(
             model=model,
             n=n,
             demography=TimeHomogeneousDemography(
-                pop_size=pop_size,
-                migration_matrix=demography.migration_matrix
+                pop_sizes=pop_size,
+                migration_rates=migration_rates
             ),
             pbar=pbar,
             parallelize=parallelize
@@ -1156,10 +1197,10 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
 class MsprimeCoalescent(Coalescent):
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | np.ndarray | PopulationConfig,
+            n: int | Dict[str, int] | List[int] | np.ndarray | PopConfig,
             demography: Demography = None,
             model: CoalescentModel = StandardCoalescent(),
-            migration_matrix: Dict[Tuple[str, str], float] = None,
+            migration_rates: Dict[Tuple[str, str], float] = None,
             start_time: float = None,
             end_time: float = None,
             exclude_unfinished: bool = True,
@@ -1174,7 +1215,7 @@ class MsprimeCoalescent(Coalescent):
         :param n: Number of Lineages.
         :param demography: Demography
         :param model: Coalescent model
-        :param migration_matrix: Migration matrix
+        :param migration_rates: Migration matrix
         :param start_time: Time when to start the simulation
         :param end_time: Time when to end the simulation
         :param exclude_unfinished: Whether to exclude unfinished trees when calculating the statistics
@@ -1197,7 +1238,7 @@ class MsprimeCoalescent(Coalescent):
         self.num_replicates: int = num_replicates
         self.n_threads: int = n_threads
         self.parallelize: bool = parallelize
-        self.migration_matrix: Dict[Tuple[str, str], float] = migration_matrix
+        self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
 
         self.p_accepted: int = 0
 
@@ -1343,3 +1384,106 @@ class MsprimeCoalescent(Coalescent):
         self.simulate()
 
         return EmpiricalSFSDistribution(samples=self.sfs_counts.T)
+
+
+class _HermiteExpansion:
+    """
+    Probability density function approximated from its moments using Hermite polynomials.
+
+    .. note::
+        Does not work reliably at all. We get negative values for the density function which seems to be a problem
+        with the method in general. Trying some other statsmodels implementation provides similarly cumbersome results.
+    """
+
+    @classmethod
+    def pdf(cls, x: np.ndarray, moments: np.ndarray[float], mu: float = 0, sigma: float = 1) -> np.ndarray:
+        """
+        Approximate the distribution using its moments and Hermite polynomials.
+
+        :param x: Array of standard normal values.
+        :param moments: List of moments of the distribution.
+        :param mu: Mean of the normal distribution.
+        :param sigma: Standard deviation of the normal distribution.
+        :return: Approximated probability density function values.
+        """
+        y = np.ones_like(x)
+
+        # d = [cls.d(n, moments, mu, sigma) for n in range(0, len(moments) + 1)]
+
+        for n in range(3, len(moments) + 1):
+            y += cls.d(n, moments, mu, sigma) * cls.H(n, (x - mu) / sigma)
+
+        return norm.pdf(x, loc=mu, scale=sigma) * y
+
+    @classmethod
+    def H(cls, n: int, x: np.ndarray[float]) -> np.ndarray[float]:
+        """
+        Probabilist's Hermite polynomial of order n.
+
+        :param n: Order of the polynomial.
+        :param x: Values to evaluate the polynomial at.
+        :return: Hermite polynomial of order n evaluated at x.
+        """
+        y = np.zeros_like(x)
+
+        for j in range(int(n / 2) + 1):
+            y += (((-1) ** j * np.exp((cls.log_factorial(n)) + (n - 2 * j) * np.log(x)) -
+                   (j * np.log(2) + cls.log_factorial(n - 2 * j) + cls.log_factorial(j))))
+
+        return y
+
+    @classmethod
+    def d(cls, n: int, moments: np.ndarray[float], mu: float, sigma: float) -> float:
+        """
+        Coefficient of the Hermite series.
+
+        :param n: Order of the coefficient.
+        :param moments: Moments of the distribution.
+        :param mu: Mean of the distribution.
+        :param sigma: Standard deviation of the distribution.
+        :return: Coefficients of the Hermite polynomial of order n.
+        """
+        y = np.zeros(int(n / 2) + 1)
+
+        for j in range(len(y)):
+            y[j] = (-1) ** j / np.exp(
+                (j * np.log(2) + cls.log_factorial(j)) + np.log(cls.E(n - 2 * j, moments, mu, sigma)))
+
+        return y.sum()
+
+    @staticmethod
+    def log_factorial(n: int | np.ndarray[int]) -> float | np.ndarray[float]:
+        """
+        Logarithm of the factorial of n.
+
+        :param n: Integer.
+        :return: Logarithm of the factorial of n.
+        """
+        if isinstance(n, int):
+            return Likelihood.log_factorial(np.array([n]))[0]
+
+        return Likelihood.log_factorial(n)
+
+    @classmethod
+    def E(cls, n: int, moments: np.ndarray[float], mu: float, sigma: float) -> float:
+        """
+        Expectation of the nth standard normal moment.
+
+        :param n: Order of the polynomial.
+        :param moments: Moments of the distribution.
+        :param mu: Mean of the distribution.
+        :param sigma: Standard deviation of the distribution.
+        :return: Expectation of the Hermite polynomial of order n.
+        """
+        # add zeroth moment
+        all_moments = np.concatenate((np.array([1]), moments))
+
+        # return all_moments[n] / factorial(n)
+
+        y = np.zeros(n + 1)
+
+        for k in range(len(y)):
+            y[k] = (-1) ** k * np.exp(
+                np.log(mu ** (n - k) * all_moments[k]) - (cls.log_factorial(n - k) + cls.log_factorial(k)))
+
+        return y.sum() / sigma ** n

@@ -17,7 +17,7 @@ class RewardsTestCase(TestCase):
         Test tree height reward for default state space.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.PopulationConfig(n=4),
+            pop_config=pg.PopConfig(n=4),
             demography=pg.TimeHomogeneousDemography(),
             model=pg.StandardCoalescent()
         )

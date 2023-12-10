@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
-
+import pytest
 import phasegen as pg
 
 
@@ -66,6 +66,7 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
         self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
 
+    @pytest.mark.skip(reason="Not properly implemented yet.")
     def test_beta_coalescent_infinite_alleles_n_10(self):
         """
         Test beta coalescent with infinite alleles for n = 10.

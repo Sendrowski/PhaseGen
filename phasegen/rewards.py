@@ -1,11 +1,11 @@
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 import numpy as np
 
 from .state_space import StateSpace, DefaultStateSpace, InfiniteAllelesStateSpace
 
 
-class Reward:
+class Reward(ABC):
     """
     Base class for reward generation.
     """

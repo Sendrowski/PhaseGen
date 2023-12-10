@@ -16,7 +16,7 @@ try:
     n = snakemake.params.n
     times = snakemake.params.times
     pop_sizes = snakemake.params.pop_sizes
-    migration_matrix = snakemake.params.migration_matrix
+    migration_rates = snakemake.params.migration_rates
     start_time = snakemake.params.start_time
     end_time = snakemake.params.end_time
     exclude_unfinished = snakemake.params.exclude_unfinished
@@ -35,7 +35,7 @@ except NameError:
     n = 10  # sample size
     times = dict(pop_0=[0, 1], pop_1=[0, 2])
     pop_sizes = dict(pop_0=[1, 5], pop_1=[2, 0.5])
-    migration_matrix = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
+    migration_rates = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
     start_time = 1
     end_time = None
     exclude_unfinished = True
@@ -56,7 +56,7 @@ ms = pg.MsprimeCoalescent(
     demography=pg.PiecewiseTimeHomogeneousDemography(
         pop_sizes=pop_sizes,
         times=times,
-        migration_matrix=migration_matrix
+        migration_rates=migration_rates
     ),
     start_time=start_time,
     end_time=end_time,

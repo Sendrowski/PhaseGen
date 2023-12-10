@@ -93,7 +93,7 @@ from .distributions import TimeHomogeneousDistribution, PiecewiseTimeHomogeneous
 
 from .distributions import Coalescent, TimeHomogeneousCoalescent, PiecewiseTimeHomogeneousCoalescent, MsprimeCoalescent
 
-from .demography import Demography, PiecewiseTimeHomogeneousDemography, ExponentialDemography, ContinuousDemography, \
+from .demography import Demography, PiecewiseTimeHomogeneousDemography, DiscretizedDemography, \
     TimeHomogeneousDemography
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
@@ -106,7 +106,7 @@ from .spectrum import SFS, SFS2
 
 from .inference import Inference
 
-from.population import PopulationConfig
+from.population import PopConfig
 
 from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
 
@@ -119,8 +119,7 @@ __all__ = [
     'MsprimeCoalescent',
     'Demography',
     'PiecewiseTimeHomogeneousDemography',
-    'ExponentialDemography',
-    'ContinuousDemography',
+    'DiscretizedDemography',
     'TimeHomogeneousDemography',
     'StandardCoalescent',
     'BetaCoalescent',
@@ -139,5 +138,5 @@ __all__ = [
     'DefaultStateSpace',
     'InfiniteAllelesStateSpace',
     'CoalescentModel',
-    'PopulationConfig'
+    'PopConfig'
 ]

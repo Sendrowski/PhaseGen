@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 import numpy as np
 import seaborn as sns
@@ -113,24 +113,23 @@ class Visualization:
 
     @staticmethod
     @clear_show_save
-    def plot_pop_sizes(
+    def plot_rates(
             ax: plt.Axes,
-            times: Dict[str | int, np.ndarray],
-            pop_sizes: Dict[str | int, np.ndarray],
-            t_max: float = None,
+            times: np.ndarray[float] | List[float],
+            rates: Dict[str, np.ndarray],
             xlabel: str = 't',
             ylabel: str = '$N_e(t)$',
             file: str = None,
             show: bool = None,
             clear: bool = True,
-            title: str = 'population size trajectory'
+            title: str = 'rate trajectory'
     ) -> plt.Axes:
         """
         Plot function.
 
         :param ax: Axes to plot on
-        :param times: Dictionary of times for each population / deme
-        :param pop_sizes: Dictionary of population sizes for each population / deme
+        :param times: Dictionary of times
+        :param rates: Dictionary of rates
         :param t_max: Maximum time to plot
         :param xlabel: x label
         :param ylabel: y label
@@ -140,17 +139,9 @@ class Visualization:
         :param title: Title for plot
         :return: Axes
         """
-        # determine t_max if not given
-        if t_max is None:
-            t_max = max([times[pop][-1] for pop in times])
-
-        # add last time point if t_max is given
-        for pop in times:
-            if t_max > times[pop][-1]:
-                times[pop] = np.concatenate((times[pop], [t_max]))
-                pop_sizes[pop] = np.concatenate((pop_sizes[pop], [pop_sizes[pop][-1]]))
-
-            ax.plot(times[pop], pop_sizes[pop], drawstyle='steps-post', label=pop)
+        # plot
+        for key in rates:
+            ax.plot(times, rates[key], drawstyle='steps-post', label=key)
 
         # set axis labels
         ax.set_xlabel(xlabel)
@@ -159,12 +150,8 @@ class Visualization:
         # add title
         ax.set_title(title)
 
-        # set x limit
-        if t_max is not None:
-            ax.set_xlim(0, t_max)
-
-        # add legend if more than one population size
-        if len(times) > 1:
+        # add legend if more than one rate
+        if len(rates) > 1:
             ax.legend()
 
         plt.margins(x=0)
