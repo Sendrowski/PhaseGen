@@ -346,9 +346,10 @@ class InfiniteAllelesStateSpace(StateSpace):
 
         return states
 
-    def _find_sample_configs(self, m: int, n: int) -> List[List[int]]:
+    @classmethod
+    def _find_sample_configs(cls, m: int, n: int) -> List[List[int]]:
         """
-        Function to find all vectors of length m such that the sum_{i=0}^{m} i*x_{m-i} equals n.
+        Function to find all vectors of length m such that sum_{i=0}^{m} i*x_{m-i} equals n.
 
         :param m: Length of the vectors.
         :param n: Target sum.
@@ -363,7 +364,7 @@ class InfiniteAllelesStateSpace(StateSpace):
         # iterate over possible values for the first component
         for x in range(n // m + 1):  # Adjusted for 1-based index
             # recursively find vectors with one less component and a smaller target sum
-            for vector in self._find_sample_configs(m - 1, n - x * m):  # Adjusted for 1-based index
+            for vector in cls._find_sample_configs(m - 1, n - x * m):  # Adjusted for 1-based index
                 # prepend the current component to the recursively found vectors
                 vectors.append(vector + [x])  # Reversed vectors
 

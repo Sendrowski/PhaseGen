@@ -5,6 +5,30 @@ from unittest import TestCase
 
 from phasegen.comparison import Comparison
 
+# configs = get_filenames("resources/configs")
+
+configs = [
+    '5_epoch_varying_migration_2_pops',
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '4_epoch_up_down_n_2',
+    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_migration_one_each_n_6',
+    '4_epoch_up_down_n_10',
+    '3_epoch_extreme_bottleneck_n_5',
+    '2_epoch_rapid_decline_n_2',
+    '1_epoch_migration_one_each_n_2',
+    '2_epoch_n_2',
+    '1_epoch_migration_disparate_pop_size_one_each_n_2',
+    '1_epoch_n_4',
+    '1_epoch_migration_disparate_pop_size_one_all_n_2',
+    '2_epoch_rapid_decline_n_5',
+    '2_epoch_varying_migration_barrier',
+    '2_epoch_varying_migration_low_coalescence',
+]
+
+"""
+"""
+
 
 class ScenariosTestCase(TestCase):
     """
@@ -21,32 +45,6 @@ def get_filenames(path) -> List[str]:
     :return: Filenames without extension
     """
     return [os.path.splitext(file.name)[0] for file in Path(path).glob('*') if file.is_file()]
-
-
-# configs = get_filenames("resources/configs")
-
-configs = [
-    '2_epoch_varying_migration_barrier',
-    '2_epoch_varying_migration_low_coalescence',
-]
-
-"""
-    '5_epoch_varying_migration_2_pops',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '4_epoch_up_down_n_2',
-    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '1_epoch_migration_one_each_n_6',
-    '4_epoch_up_down_n_10',
-    '3_epoch_extreme_bottleneck_n_5',
-    '2_epoch_rapid_decline_n_2',
-    '1_epoch_migration_one_each_n_2',
-    '2_epoch_n_2',
-    '1_epoch_migration_disparate_pop_size_one_each_n_2',
-    '1_epoch_n_4',
-    '1_epoch_migration_disparate_pop_size_one_all_n_2',
-    '2_epoch_rapid_decline_n_5'
-    '1_epoch_ph_const_n_4',
-"""
 
 
 def generate_tests(config):

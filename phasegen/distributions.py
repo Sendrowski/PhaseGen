@@ -8,11 +8,12 @@ from typing import Generator, List, Callable, Tuple, Iterable, Dict, Iterator
 import msprime as ms
 import numpy as np
 import tskit
-from fastdfe.likelihood import Likelihood
 from matplotlib import pyplot as plt
 from msprime import AncestryModel
 from multiprocess import Pool
 from numpy.linalg import matrix_power
+from numpy.polynomial.hermite_e import HermiteE
+from scipy import special
 from scipy.linalg import expm, fractional_matrix_power
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
@@ -613,7 +614,7 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         # get moments
         moments = np.array([self.moment(k=k) for k in range(1, n_moments + 1)])
 
-        return _HermiteExpansion.pdf(u, moments)
+        return _GramCharlierExpansion.pdf(u, moments)
 
 
 class SFSDistribution(PhaseTypeDistribution):
@@ -1386,7 +1387,7 @@ class MsprimeCoalescent(Coalescent):
         return EmpiricalSFSDistribution(samples=self.sfs_counts.T)
 
 
-class _HermiteExpansion:
+class _GramCharlierExpansion:
     """
     Probability density function approximated from its moments using Hermite polynomials.
 
@@ -1427,8 +1428,8 @@ class _HermiteExpansion:
         y = np.zeros_like(x)
 
         for j in range(int(n / 2) + 1):
-            y += (((-1) ** j * np.exp((cls.log_factorial(n)) + (n - 2 * j) * np.log(x)) -
-                   (j * np.log(2) + cls.log_factorial(n - 2 * j) + cls.log_factorial(j))))
+            y += (((-1) ** j * factorial(n) * x ** (n - 2 * j) / (2 ** j * factorial(n - 2 * j) * factorial(j)))
+                  .astype(float))
 
         return y
 
@@ -1446,23 +1447,9 @@ class _HermiteExpansion:
         y = np.zeros(int(n / 2) + 1)
 
         for j in range(len(y)):
-            y[j] = (-1) ** j / np.exp(
-                (j * np.log(2) + cls.log_factorial(j)) + np.log(cls.E(n - 2 * j, moments, mu, sigma)))
+            y[j] = (-1) ** j / 2 ** j / factorial(j) * cls.E(n - 2 * j, moments, mu, sigma)
 
         return y.sum()
-
-    @staticmethod
-    def log_factorial(n: int | np.ndarray[int]) -> float | np.ndarray[float]:
-        """
-        Logarithm of the factorial of n.
-
-        :param n: Integer.
-        :return: Logarithm of the factorial of n.
-        """
-        if isinstance(n, int):
-            return Likelihood.log_factorial(np.array([n]))[0]
-
-        return Likelihood.log_factorial(n)
 
     @classmethod
     def E(cls, n: int, moments: np.ndarray[float], mu: float, sigma: float) -> float:
@@ -1483,7 +1470,169 @@ class _HermiteExpansion:
         y = np.zeros(n + 1)
 
         for k in range(len(y)):
-            y[k] = (-1) ** k * np.exp(
-                np.log(mu ** (n - k) * all_moments[k]) - (cls.log_factorial(n - k) + cls.log_factorial(k)))
+            y[k] = (-1) ** k * mu ** (n - k) * all_moments[k] / factorial(n - k) / factorial(k)
 
         return y.sum() / sigma ** n
+
+
+class _EdgeworthExpansion:
+    """
+    Probability density function approximated from its moments using Edgeworth expansion.
+
+    Adapted from statsmodels.distributions.edgeworth.
+
+    .. note::
+        Only works well for values for which the normal distribution is not close to zero, so it is unsuitable for
+        approximating long-tailed distributions.
+    """
+
+    @staticmethod
+    def _norm_pdf(x: np.ndarray | float) -> np.ndarray | float:
+        """
+        Standard normal probability density function.
+
+        :param x: Value or values to evaluate the PDF at.
+        :return: PDF.
+        """
+        return np.exp(-x ** 2 / 2.0) / np.sqrt(2 * np.pi)
+
+    @staticmethod
+    def _norm_cdf(x: np.ndarray | float) -> np.ndarray | float:
+        """
+        Standard normal cumulative distribution function.
+
+        :param x: Value or values to evaluate the CDF at.
+        :return: CDF.
+        """
+        return special.ndtr(x)
+
+    def __init__(self, cum: List[float]):
+        """
+        Initialize object.
+
+        :param cum: Cumulants.
+        """
+
+        self._logger = logger.getChild(self.__class__.__name__)
+
+        self._coef, self._mu, self._sigma = self._compute_coefficients(cum)
+
+        self._herm_pdf = HermiteE(self._coef)
+
+        if self._coef.size > 2:
+            self._herm_cdf = HermiteE(-self._coef[1:])
+        else:
+            self._herm_cdf = lambda x: 0
+
+        # warn if pdf(x) < 0 for some values of x within 4 sigma
+        r = np.real_if_close(self._herm_pdf.roots())
+        r = (r - self._mu) / self._sigma
+
+        if r[(np.imag(r) == 0) & (np.abs(r) < 4)].any():
+            self._logger.warning(f'PDF has zeros at {r}')
+
+    def _pdf(self, x: np.ndarray | float) -> np.ndarray | float:
+        """
+        Probability density function.
+
+        :param x: Value or values to evaluate the PDF at.
+        :return: PDF.
+        """
+        y = (x - self._mu) / self._sigma
+
+        return self._herm_pdf(y) * self._norm_pdf(y) / self._sigma
+
+    def _cdf(self, x: np.ndarray | float) -> np.ndarray | float:
+        """
+        Cumulative distribution function.
+
+        :param x: Value or values to evaluate the CDF at.
+        :return: CDF.
+        """
+        y = (x - self._mu) / self._sigma
+
+        return self._norm_cdf(y) + self._herm_cdf(y) * self._norm_pdf(y)
+
+    def _compute_coefficients(self, cum: List[float]) -> (np.ndarray, float, float):
+        """
+        Compute coefficients of the Edgeworth expansion for the PDF.
+
+        :param cum: Cumulants.
+        :return: Coefficients, mean and standard deviation.
+        """
+        # scale cumulants by \sigma
+        mu, sigma = cum[0], np.sqrt(cum[1])
+        lam = np.asarray(cum)
+        for j, l in enumerate(lam):
+            lam[j] /= cum[1] ** j
+
+        coef = np.zeros(lam.size * 3 - 5)
+        coef[0] = 1
+
+        for s in range(lam.size - 2):
+            for p in self._generate_partitions(s + 1):
+                term = sigma ** (s + 1)
+
+                for (m, k) in p:
+                    term *= np.power(lam[m + 1] / factorial(m + 2), k) / factorial(k)
+
+                r = sum(k for (m, k) in p)
+                coef[s + 1 + 2 * r] += term
+
+        return coef, mu, sigma
+
+    @classmethod
+    def cumulant_from_moments(cls, moments: List[float], n: int) -> float:
+        """
+        Compute n-th cumulant from moments.
+
+        :param moments: The moments, raw or central
+        :param n: The order of the cumulant to compute
+        :return: The cumulant
+        """
+        kappa = 0
+
+        for p in cls._generate_partitions(n):
+            r = sum(k for (m, k) in p)
+            term = (-1) ** (r - 1) * factorial(r - 1)
+
+            for (m, k) in p:
+                term *= np.power(moments[m - 1] / factorial(m), k) / factorial(k)
+
+            kappa += term
+
+        kappa *= factorial(n)
+
+        return kappa
+
+    @classmethod
+    def cumulants_from_moments(cls, moments: List[float]) -> List[float]:
+        """
+        Compute cumulants from moments.
+
+        TODO use mnc2cum implementation which provides more accurate results
+
+        :param moments: The moments, raw or central
+        :return: The cumulants
+        """
+        return [cls.cumulant_from_moments(moments, k) for k in range(1, len(moments) + 1)]
+
+    @classmethod
+    def _generate_partitions(cls, n: int):
+        """
+        Generate partitions of an integer.
+
+        :param n: Integer to partition.
+        :return: Partitions formatted as a list of tuples where the first element is the partition and the second
+            element is the number of times the partition is repeated.
+        """
+        x = InfiniteAllelesStateSpace._find_sample_configs(n, n)
+
+        for v in x:
+
+            m = []
+            for i in range(0, n):
+                if v[i] > 0:
+                    m.append((i + 1, v[i]))
+
+            yield m
