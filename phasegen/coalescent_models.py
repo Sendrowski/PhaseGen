@@ -55,15 +55,27 @@ class CoalescentModel(ABC):
 
                 # make sure that the class that gained lineages only gained one lineage
                 if diff[i_more] == 1:
-                    # determine number of lineages that coalesce
+                    # number of lineages before the merger
                     b = s1[where_less]
+
+                    # determine number of lineages that coalesce
                     k = b - s2[where_less]
 
                     # get rate
-                    rate = self._get_rate_infinite_alleles(b=b, k=k)
+                    rate = self._get_rate_infinite_alleles(n=s1.sum(), b=b, k=k)
                     return rate
 
         return 0
+
+    @abstractmethod
+    def get_generation_time(self, N: float) -> float:
+        """
+        Get the generation time.
+
+        :param N: The effective population size.
+        :return: The generation time.
+        """
+        pass
 
     @abstractmethod
     def _get_rate(self, b: int, k: int) -> float:
@@ -78,13 +90,14 @@ class CoalescentModel(ABC):
         pass
 
     @abstractmethod
-    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
         Negative rates will be inferred later
 
-        :param b: Number of lineages.
-        :param k: Number of lineages that merge.
+        :param n: Number of lineages.
+        :param b: Number of lineages before merge for classes that experience a merger.
+        :param k: Number of lineages that merge for classes that experience a merger.
         :return: The rate.
         """
         pass
@@ -107,6 +120,15 @@ class StandardCoalescent(CoalescentModel):
     Standard (Kingman) coalescent model.
     """
 
+    def get_generation_time(self, N: float) -> float:
+        """
+        Get the generation time.
+
+        :param N: The effective population size.
+        :return: The generation time.
+        """
+        return N
+
     def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
@@ -123,13 +145,14 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers can happen
         return 0
 
-    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
         Negative rates will be inferred later
 
-        :param b: Number of lineages.
-        :param k: Number of lineages that merge such that 0 < k_i <= b_i for all i.
+        :param n: Number of lineages.
+        :param b: Number of lineages before merge for classes that experience a merger.
+        :param k: Number of lineages that merge for classes that experience a merger.
         :return: The rate.
         """
         # if we have a single class
@@ -142,7 +165,7 @@ class StandardCoalescent(CoalescentModel):
                 # same as b[0] choose k[0] times b[1] choose k[1]
                 return b[0] * b[1]
 
-        # no other mergers can happen
+        # no other mergers are possible
         return 0
 
     def get_rate_infinite_alleles_dep(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
@@ -305,8 +328,6 @@ class StandardCoalescent(CoalescentModel):
 class BetaCoalescent(CoalescentModel):
     """
     Beta coalescent model.
-
-    TODO implement this properly
     """
 
     def __init__(self, alpha: float):
@@ -317,37 +338,54 @@ class BetaCoalescent(CoalescentModel):
         """
         self.alpha = alpha
 
+    def _get_base_rate(self, b: int, k: int) -> float:
+        """
+        Get base rate for a merger of k out of b lineages (without number of ways).
+
+        :param b: The number of lineages before the merger.
+        :param k: The number of lineages that merge.
+        :return: The rate.
+        """
+        return beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
+
+    def get_generation_time(self, N: float) -> float:
+        """
+        Get the generation time.
+
+        :param N: The effective population size.
+        :return: The generation time.
+        """
+        m = 1 + 1 / (2 ** (self.alpha - 1) * (self.alpha - 1))
+
+        return m ** self.alpha * N ** (self.alpha - 1) / self.alpha / beta(2 - self.alpha, self.alpha)
+
     def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
         Negative rates will be filled in later.
 
-        :param b: The number of lineages.
+        :param b: The number of lineages before the merger.
         :param k: The number of lineages that merge.
         :return: The rate.
         """
         if k < 1 or k > b:
             return 0
 
-        return comb(b, k, exact=True) * beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
+        return comb(b, k, exact=True) * self._get_base_rate(b, k)
 
-    def _get_rate_infinite_alleles(self, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
         Negative rates will be inferred later
 
-        :param b: Number of lineages.
-        :param k: Number of lineages that merge such that 0 < k_i <= b_i for all i.
+        :param n: Number of lineages.
+        :param b: Number of lineages before merge for classes that experience a merger.
+        :param k: Number of lineages that merge for classes that experience a merger.
         :return: The rate.
         """
         combinations = np.prod([comb(N=b_i, k=k_i, exact=True) for b_i, k_i in zip(b, k)])
 
-        b_sum = b.sum()
-        k_sum = k.sum()
-
-        rate = beta(k_sum - self.alpha, b_sum - k_sum + self.alpha) / beta(self.alpha, 2 - self.alpha)
-
-        return combinations * rate
+        return combinations * self._get_base_rate(b=n, k=k.sum())
 
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """

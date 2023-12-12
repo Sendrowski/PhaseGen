@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
-import pytest
+
 import phasegen as pg
 
 
@@ -43,7 +43,29 @@ class CoalescentModelTestCase(TestCase):
 
         self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]), 4)
 
-    def test_beta_coalescent_infinite_alleles_n_2(self):
+    @staticmethod
+    def test_beta_coalescent_default_state_space_compare_with_paper():
+        """
+        Test against result in paper "Phase-type distributions in population genetics"
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=5),
+            model=pg.BetaCoalescent(alpha=1.5),
+            demography=pg.TimeHomogeneousDemography()
+        )
+
+        # patch generation time to be identity as
+        # the paper uses a different scaling
+        s.model.get_generation_time = lambda N: N
+
+        np.testing.assert_array_almost_equal(s.S[:-1, :-1], np.array([
+            [-6.5625, 5.46875, 0.78125, 0.234375],
+            [0.0000, -4.37500, 3.75000, 0.500000],
+            [0.0000, 0.00000, -2.50000, 2.250000],
+            [0.0000, 0.00000, 0.00000, -1.000000]
+        ]))
+
+    def test_beta_coalescent_infinite_alleles_n_2_alpha_1_5(self):
         """
         Test beta coalescent with infinite alleles for n = 2.
         """
@@ -56,7 +78,7 @@ class CoalescentModelTestCase(TestCase):
         self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([0, 2])), 0)
         self.assertEqual(model.get_rate_infinite_alleles(2, np.array([3, 0]), np.array([1, 2])), 0)
 
-    def test_beta_coalescent_infinite_alleles_n_3(self):
+    def test_beta_coalescent_infinite_alleles_n_3_alpha_close_to_2(self):
         """
         Test beta coalescent with infinite alleles for n = 3.
         """
@@ -66,17 +88,45 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
         self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
 
-    @pytest.mark.skip(reason="Not properly implemented yet.")
-    def test_beta_coalescent_infinite_alleles_n_10(self):
+    def test_beta_coalescent_infinite_alleles_n_3_alpha_1_5(self):
         """
-        Test beta coalescent with infinite alleles for n = 10.
+        Test beta coalescent with infinite alleles for n = 3.
         """
         model = pg.BetaCoalescent(alpha=1.5)
 
         def f(s1, s2):
-            return model.get_rate_infinite_alleles(n=10, s1=np.array(s1), s2=np.array(s2))
+            return model.get_rate_infinite_alleles(n=3, s1=np.array(s1), s2=np.array(s2))
 
-        self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 1, 0]), 0.234375)
-        self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 0, 1]), 0)
-        self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]), 5.46875)
-        self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 1, 1, 0, 1, 0, 0, 0, 0, 0]), 0)
+        self.assertEqual(f([3, 0, 0], [3, 0, 0]), 0)
+        self.assertEqual(f([3, 0, 0], [0, 1, 0]), 0)
+        self.assertEqual(f([3, 0, 0], [2, 0, 0]), 0)
+        self.assertEqual(f([3, 0, 0], [4, 0, 0]), 0)
+        self.assertEqual(f([3, 0, 0], [1, 0, 1]), 0)
+        self.assertEqual(f([3, 0, 0], [1, 1, 1]), 0)
+        self.assertEqual(f([3, 0, 0], [1, 2, 0]), 0)
+        self.assertAlmostEqual(f([3, 0, 0], [0, 0, 1]), 0.25)
+        self.assertAlmostEqual(f([3, 0, 0], [1, 1, 0]), 2.25)
+
+        self.assertAlmostEqual(f([1, 1, 0], [0, 0, 1]), 1)
+
+    def test_beta_coalescent_positive_correlation(self):
+        """
+        Test beta coalescent with positive correlation.
+        """
+        n = 10
+
+        c = pg.TimeHomogeneousCoalescent(
+            n=pg.PopConfig(n=n),
+            model=pg.BetaCoalescent(alpha=1.1),
+            demography=pg.TimeHomogeneousDemography()
+        )
+
+        c2 = pg.TimeHomogeneousCoalescent(
+            n=pg.PopConfig(n=n),
+            model=pg.StandardCoalescent(),
+            demography=pg.TimeHomogeneousDemography()
+        )
+
+        # many more positive entries for beta coalescent
+        self.assertAlmostEqual(0.4, np.sum(c.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)
+        self.assertAlmostEqual(0.14, np.sum(c2.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)

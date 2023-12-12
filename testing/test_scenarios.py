@@ -8,6 +8,7 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_beta_n_6',
     '5_epoch_varying_migration_2_pops',
     '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '4_epoch_up_down_n_2',
