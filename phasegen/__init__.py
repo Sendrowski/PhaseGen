@@ -96,7 +96,7 @@ from .distributions import Coalescent, TimeHomogeneousCoalescent, PiecewiseTimeH
 from .demography import Demography, PiecewiseTimeHomogeneousDemography, DiscretizedDemography, \
     TimeHomogeneousDemography
 
-from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 
 from .state_space import DefaultStateSpace, InfiniteAllelesStateSpace
 
@@ -123,6 +123,7 @@ __all__ = [
     'TimeHomogeneousDemography',
     'StandardCoalescent',
     'BetaCoalescent',
+    'DiracCoalescent',
     'SFS2',
     'SFS',
     'Inference',

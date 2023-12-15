@@ -19,7 +19,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
 from tqdm import tqdm
 
-from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent
+from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, TimeHomogeneousDemography
 from .population import PopConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
@@ -772,7 +772,12 @@ class SFSDistribution(PhaseTypeDistribution):
         # get standard deviations
         std = np.sqrt(self.var.data)
 
-        return SFS2(self.cov.data / np.outer(std, std))
+        sfs = SFS2(self.cov.data / np.outer(std, std))
+
+        # replace NaNs with zeros
+        sfs.data[np.isnan(sfs.data)] = 0
+
+        return sfs
 
     @cache
     def get_corr(self, i: int, j: int) -> float:
@@ -1272,6 +1277,9 @@ class MsprimeCoalescent(Coalescent):
 
         if isinstance(self.model, BetaCoalescent):
             return ms.BetaCoalescent(alpha=self.model.alpha)
+
+        if isinstance(self.model, DiracCoalescent):
+            return ms.DiracCoalescent(psi=self.model.psi, c=self.model.c)
 
     @cache
     def simulate(self):

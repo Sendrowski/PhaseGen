@@ -8,7 +8,14 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
-    '1_epoch_beta_n_6',
+    '1_epoch_dirac_n_6_psi_1_c_1',
+    '1_epoch_dirac_n_6_psi_0_5_c_0',
+    '1_epoch_dirac_n_5_psi_1_c_50',
+    '1_epoch_dirac_n_2_psi_0_5_c_0',
+    '1_epoch_beta_n_6_alpha_1_7',
+    '1_epoch_beta_n_6_alpha_1_1',
+    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '5_epoch_beta_varying_migration_2_pops',
     '5_epoch_varying_migration_2_pops',
     '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '4_epoch_up_down_n_2',
@@ -27,8 +34,15 @@ configs = [
     '2_epoch_varying_migration_low_coalescence',
 ]
 
-"""
-"""
+configs_suspended = [
+    '1_epoch_dirac_n_2_psi_0_5_c_1',  # TODO shorter SFS bins than msprime
+    '1_epoch_dirac_n_6_psi_0_5_c_50',  # TODO shorter SFS bins than msprime
+    '1_epoch_dirac_n_6_psi_0_5_c_1',  # TODO shorter SFS bins than msprime
+    '1_epoch_beta_n_2_alpha_1_9',  # TODO disagrees with Msprime for large values of alpha
+    '1_epoch_beta_n_2_alpha_1_999',  # TODO disagrees with Msprime for large values of alpha
+    '1_epoch_beta_n_6_alpha_1_9',  # TODO disagrees with Msprime for large values of alpha
+    '1_epoch_beta_n_6_alpha_1_999',  # TODO disagrees with Msprime for large values of alpha
+]
 
 
 class ScenariosTestCase(TestCase):

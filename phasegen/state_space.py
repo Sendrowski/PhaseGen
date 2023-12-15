@@ -175,7 +175,7 @@ class StateSpace(ABC):
 
             pop_size = next(self.demography.pop_sizes[self.demography.pop_names[deme_index]])
 
-            return rate / self.model.get_generation_time(pop_size)
+            return rate / self.model._get_timescale(pop_size)
 
         # eligible for migration event
         if n_diff == 2:

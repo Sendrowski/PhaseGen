@@ -127,11 +127,11 @@
       <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.__init__">__init__() (phasegen.coalescent_models.BetaCoalescent method)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.__init__">(phasegen.demography.ContinuousDemography method)</a>
+        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.__init__">(phasegen.coalescent_models.DiracCoalescent method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.Demography.__init__">(phasegen.demography.Demography method)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.__init__">(phasegen.demography.ExponentialDemography method)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.__init__">(phasegen.demography.DiscretizedDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.__init__">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
 </li>
@@ -176,9 +176,11 @@
 <h2 id="A">A</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.alpha">alpha (phasegen.distributions.PiecewiseTimeHomogeneousDistribution property)</a>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.alpha">alpha (phasegen.coalescent_models.BetaCoalescent attribute)</a>
 
       <ul>
+        <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.alpha">(phasegen.distributions.PiecewiseTimeHomogeneousDistribution property)</a>
+</li>
         <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.alpha">(phasegen.distributions.TimeHomogeneousDistribution property)</a>
 </li>
       </ul></li>
@@ -200,6 +202,8 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.c">c (phasegen.coalescent_models.DiracCoalescent attribute)</a>
+</li>
       <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.cdf">cdf() (phasegen.distributions.EmpiricalDistribution method)</a>
 
       <ul>
@@ -238,8 +242,6 @@
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography">ContinuousDemography (class in phasegen.demography)</a>
-</li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.copy">copy() (phasegen.spectrum.SFS method)</a>
 
       <ul>
@@ -282,6 +284,10 @@
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent">DiracCoalescent (class in phasegen.coalescent_models)</a>
+</li>
+      <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography">DiscretizedDemography (class in phasegen.demography)</a>
+</li>
       <li><a href="modules/inference.html#phasegen.inference.Inference.dist">dist (phasegen.inference.Inference attribute)</a>
 </li>
       <li><a href="modules/inference.html#phasegen.inference.Inference.dist_inferred">dist_inferred (phasegen.inference.Inference attribute)</a>
@@ -296,12 +302,20 @@
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution">EmpiricalDistribution (class in phasegen.distributions)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution">EmpiricalSFSDistribution (class in phasegen.distributions)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography">ExponentialDemography (class in phasegen.demography)</a>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.exponential_growth">exponential_growth() (phasegen.demography.Demography static method)</a>
+
+      <ul>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.exponential_growth">(phasegen.demography.DiscretizedDemography static method)</a>
 </li>
+        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.exponential_growth">(phasegen.demography.PiecewiseTimeHomogeneousDemography static method)</a>
+</li>
+        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.exponential_growth">(phasegen.demography.TimeHomogeneousDemography static method)</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -312,22 +326,14 @@
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.fill_monomorphic">fill_monomorphic() (phasegen.spectrum.SFS2 method)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.flatten">flatten() (phasegen.demography.ContinuousDemography static method)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.flatten">(phasegen.demography.ExponentialDemography static method)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.flatten">(phasegen.demography.PiecewiseTimeHomogeneousDemography static method)</a>
-</li>
-      </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.fold">fold() (phasegen.spectrum.SFS method)</a>
 
       <ul>
         <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.fold">(phasegen.spectrum.SFS2 method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.from_list">from_list() (phasegen.spectrum.SFS static method)</a>
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.from_polydfe">from_polydfe() (phasegen.spectrum.SFS static method)</a>
@@ -340,30 +346,22 @@
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.generate_epochs">generate_epochs() (phasegen.demography.ContinuousDemography method)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.generate_epochs">(phasegen.demography.ExponentialDemography method)</a>
+      <li><a href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.get_coalescent_model">get_coalescent_model() (phasegen.distributions.MsprimeCoalescent method)</a>
 </li>
-      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.SFSDistribution.get_corr">get_corr() (phasegen.distributions.SFSDistribution method)</a>
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.SFSDistribution.get_cov">get_cov() (phasegen.distributions.SFSDistribution method)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.get_cum_rate">get_cum_rate() (phasegen.demography.ContinuousDemography method)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.get_cum_rate">get_cum_rate() (phasegen.demography.Demography method)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.get_cum_rate">(phasegen.demography.Demography method)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.get_cum_rate">(phasegen.demography.ExponentialDemography method)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.get_cum_rate">(phasegen.demography.DiscretizedDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.get_cum_rate">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.get_cum_rate">(phasegen.demography.TimeHomogeneousDemography method)</a>
 </li>
       </ul></li>
-      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_density">get_density() (phasegen.coalescent_models.LambdaCoalescent method)</a>
-</li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.get_max_abs_entry">get_max_abs_entry() (phasegen.spectrum.SFS2 method)</a>
 </li>
       <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.get_rate">get_rate() (phasegen.coalescent_models.BetaCoalescent method)</a>
@@ -371,15 +369,13 @@
       <ul>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_rate">(phasegen.coalescent_models.CoalescentModel method)</a>
 </li>
-        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_rate">(phasegen.coalescent_models.LambdaCoalescent method)</a>
+        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.get_rate">(phasegen.coalescent_models.DiracCoalescent method)</a>
 </li>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_rate">(phasegen.coalescent_models.StandardCoalescent method)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.get_rate">(phasegen.demography.ContinuousDemography method)</a>
-</li>
         <li><a href="modules/demography.html#phasegen.demography.Demography.get_rate">(phasegen.demography.Demography method)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.get_rate">(phasegen.demography.ExponentialDemography method)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.get_rate">(phasegen.demography.DiscretizedDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.get_rate">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
 </li>
@@ -393,17 +389,19 @@
       <ul>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles">(phasegen.coalescent_models.CoalescentModel method)</a>
 </li>
-        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_rate_infinite_alleles">(phasegen.coalescent_models.LambdaCoalescent method)</a>
+        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.get_rate_infinite_alleles">(phasegen.coalescent_models.DiracCoalescent method)</a>
 </li>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles">(phasegen.coalescent_models.StandardCoalescent method)</a>
 </li>
       </ul></li>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles_dep">get_rate_infinite_alleles_dep() (phasegen.coalescent_models.StandardCoalescent method)</a>
+</li>
       <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.get_sample_config_probs">get_sample_config_probs() (phasegen.coalescent_models.BetaCoalescent method)</a>
 
       <ul>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.CoalescentModel.get_sample_config_probs">(phasegen.coalescent_models.CoalescentModel method)</a>
 </li>
-        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent.get_sample_config_probs">(phasegen.coalescent_models.LambdaCoalescent method)</a>
+        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.get_sample_config_probs">(phasegen.coalescent_models.DiracCoalescent method)</a>
 </li>
         <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent.get_sample_config_probs">(phasegen.coalescent_models.StandardCoalescent method)</a>
 </li>
@@ -438,8 +436,6 @@
 </li>
       <li><a href="modules/norms.html#phasegen.norms.L2Norm">L2Norm (class in phasegen.norms)</a>
 </li>
-      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.LambdaCoalescent">LambdaCoalescent (class in phasegen.coalescent_models)</a>
-</li>
       <li><a href="modules/norms.html#phasegen.norms.Likelihood">Likelihood (class in phasegen.norms)</a>
 </li>
       <li><a href="modules/norms.html#phasegen.norms.LInfNorm">LInfNorm (class in phasegen.norms)</a>
@@ -448,12 +444,10 @@
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.logger">logger (phasegen.demography.ContinuousDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.logger">logger (phasegen.demography.Demography attribute)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.logger">(phasegen.demography.Demography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.logger">(phasegen.demography.ExponentialDemography attribute)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.logger">(phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.logger">(phasegen.demography.PiecewiseTimeHomogeneousDemography attribute)</a>
 </li>
@@ -488,12 +482,8 @@
       </ul></li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.mask">mask() (phasegen.spectrum.SFS2 method)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.max_growth">max_growth (phasegen.demography.ContinuousDemography attribute)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.max_growth">(phasegen.demography.ExponentialDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.max_growth">max_growth (phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
-      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.max_iter">max_iter (phasegen.distributions.PiecewiseTimeHomogeneousDistribution attribute)</a>
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.mean">mean (phasegen.distributions.EmpiricalDistribution property)</a>
@@ -512,38 +502,20 @@
         <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.mean">(phasegen.distributions.TimeHomogeneousDistribution property)</a>
 </li>
       </ul></li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.migration_matrix">migration_matrix (phasegen.demography.ContinuousDemography property)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.migration_rates">migration_rates (phasegen.demography.Demography property)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.migration_matrix">(phasegen.demography.Demography property)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.migration_rates">(phasegen.demography.DiscretizedDemography property)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.migration_matrix">(phasegen.demography.ExponentialDemography property)</a>
+        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.migration_rates">(phasegen.demography.PiecewiseTimeHomogeneousDemography property)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.migration_matrix">(phasegen.demography.PiecewiseTimeHomogeneousDemography property)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.migration_matrix">(phasegen.demography.TimeHomogeneousDemography property)</a>
+        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.migration_rates">(phasegen.demography.TimeHomogeneousDemography property)</a>
 </li>
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.migration_rates">migration_rates (phasegen.demography.ContinuousDemography attribute)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.migration_rates">(phasegen.demography.Demography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.min_size">min_size (phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.migration_rates">(phasegen.demography.ExponentialDemography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.migration_rates">(phasegen.demography.PiecewiseTimeHomogeneousDemography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.migration_rates">(phasegen.demography.TimeHomogeneousDemography attribute)</a>
-</li>
-      </ul></li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.min_size">min_size (phasegen.demography.ContinuousDemography attribute)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.min_size">(phasegen.demography.ExponentialDemography attribute)</a>
-</li>
-      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent.model">model (phasegen.distributions.MsprimeCoalescent attribute)</a>
 
       <ul>
@@ -569,6 +541,20 @@
         <li><a href="modules/spectrum.html#module-phasegen.spectrum">phasegen.spectrum</a>
 </li>
       </ul></li>
+      <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.moment">moment() (phasegen.distributions.EmpiricalDistribution method)</a>
+
+      <ul>
+        <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalSFSDistribution.moment">(phasegen.distributions.EmpiricalSFSDistribution method)</a>
+</li>
+        <li><a href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.moment">(phasegen.distributions.PhaseTypeDistribution method)</a>
+</li>
+        <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.moment">(phasegen.distributions.PiecewiseTimeHomogeneousDistribution method)</a>
+</li>
+        <li><a href="modules/distributions.html#phasegen.distributions.SFSDistribution.moment">(phasegen.distributions.SFSDistribution method)</a>
+</li>
+        <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.moment">(phasegen.distributions.TimeHomogeneousDistribution method)</a>
+</li>
+      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.MsprimeCoalescent">MsprimeCoalescent (class in phasegen.distributions)</a>
 </li>
   </ul></td>
@@ -581,12 +567,10 @@
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.n_div">n_div (phasegen.spectrum.SFS property)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.n_epochs">n_epochs (phasegen.demography.ContinuousDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.n_epochs">n_epochs (phasegen.demography.Demography attribute)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.n_epochs">(phasegen.demography.Demography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.n_epochs">(phasegen.demography.ExponentialDemography attribute)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.n_epochs">(phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.n_epochs">(phasegen.demography.PiecewiseTimeHomogeneousDemography attribute)</a>
 </li>
@@ -595,38 +579,26 @@
       </ul></li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.n_monomorphic">n_monomorphic (phasegen.spectrum.SFS property)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.n_polymorphic">n_polymorphic (phasegen.spectrum.SFS property)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.n_pops">n_pops (phasegen.demography.ContinuousDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.n_pops">n_pops (phasegen.demography.Demography attribute)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.n_pops">(phasegen.demography.Demography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.n_pops">(phasegen.demography.ExponentialDemography attribute)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.n_pops">(phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.n_pops">(phasegen.demography.PiecewiseTimeHomogeneousDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.n_pops">(phasegen.demography.TimeHomogeneousDemography attribute)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.n_sites">n_sites (phasegen.spectrum.SFS property)</a>
 </li>
       <li><a href="modules/norms.html#phasegen.norms.Norm">Norm (class in phasegen.norms)</a>
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.normalize">normalize() (phasegen.spectrum.SFS method)</a>
 </li>
-      <li><a href="modules/distributions.html#phasegen.distributions.PhaseTypeDistribution.nth_moment">nth_moment() (phasegen.distributions.PhaseTypeDistribution method)</a>
-
-      <ul>
-        <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution.nth_moment">(phasegen.distributions.PiecewiseTimeHomogeneousDistribution method)</a>
-</li>
-        <li><a href="modules/distributions.html#phasegen.distributions.SFSDistribution.nth_moment">(phasegen.distributions.SFSDistribution method)</a>
-</li>
-        <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.nth_moment">(phasegen.distributions.TimeHomogeneousDistribution method)</a>
-</li>
-      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -727,12 +699,10 @@
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.PiecewiseTimeHomogeneousDistribution">PiecewiseTimeHomogeneousDistribution (class in phasegen.distributions)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.plot">plot() (phasegen.demography.ContinuousDemography method)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.plot">plot() (phasegen.demography.Demography method)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.plot">(phasegen.demography.Demography method)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.plot">(phasegen.demography.ExponentialDemography method)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.plot">(phasegen.demography.DiscretizedDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.plot">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
 </li>
@@ -763,6 +733,16 @@
       </ul></li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.plot_heatmap">plot_heatmap() (phasegen.spectrum.SFS2 method)</a>
 </li>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.plot_migration">plot_migration() (phasegen.demography.Demography method)</a>
+
+      <ul>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.plot_migration">(phasegen.demography.DiscretizedDemography method)</a>
+</li>
+        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.plot_migration">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
+</li>
+        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.plot_migration">(phasegen.demography.TimeHomogeneousDemography method)</a>
+</li>
+      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.EmpiricalDistribution.plot_pdf">plot_pdf() (phasegen.distributions.EmpiricalDistribution method)</a>
 
       <ul>
@@ -779,6 +759,16 @@
         <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.plot_pdf">(phasegen.distributions.TimeHomogeneousDistribution method)</a>
 </li>
       </ul></li>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.plot_pop_sizes">plot_pop_sizes() (phasegen.demography.Demography method)</a>
+
+      <ul>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.plot_pop_sizes">(phasegen.demography.DiscretizedDemography method)</a>
+</li>
+        <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.plot_pop_sizes">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
+</li>
+        <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.plot_pop_sizes">(phasegen.demography.TimeHomogeneousDemography method)</a>
+</li>
+      </ul></li>
       <li><a href="modules/norms.html#phasegen.norms.PoissonLikelihood">PoissonLikelihood (class in phasegen.norms)</a>
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.polymorphic">polymorphic (phasegen.spectrum.SFS property)</a>
@@ -791,26 +781,20 @@
         <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousCoalescent.pop_config">(phasegen.distributions.TimeHomogeneousCoalescent attribute)</a>
 </li>
       </ul></li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.pop_names">pop_names (phasegen.demography.ContinuousDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.pop_names">pop_names (phasegen.demography.Demography attribute)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.pop_names">(phasegen.demography.Demography attribute)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.pop_names">(phasegen.demography.ExponentialDemography attribute)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.pop_names">(phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.pop_names">(phasegen.demography.PiecewiseTimeHomogeneousDemography attribute)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.pop_names">(phasegen.demography.TimeHomogeneousDemography attribute)</a>
 </li>
       </ul></li>
-      <li><a href="modules/demography.html#phasegen.demography.TimeHomogeneousDemography.pop_size_list">pop_size_list (phasegen.demography.TimeHomogeneousDemography property)</a>
-</li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.pop_sizes">pop_sizes (phasegen.demography.ContinuousDemography property)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.pop_sizes">pop_sizes (phasegen.demography.Demography property)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.pop_sizes">(phasegen.demography.Demography property)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.pop_sizes">(phasegen.demography.ExponentialDemography property)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.pop_sizes">(phasegen.demography.DiscretizedDemography property)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.pop_sizes">(phasegen.demography.PiecewiseTimeHomogeneousDemography property)</a>
 </li>
@@ -818,6 +802,8 @@
 </li>
       </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.ProbabilityDistribution">ProbabilityDistribution (class in phasegen.distributions)</a>
+</li>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.psi">psi (phasegen.coalescent_models.DiracCoalescent attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -843,6 +829,12 @@
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution.s">s (phasegen.distributions.TimeHomogeneousDistribution property)</a>
 </li>
+      <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.BetaCoalescent.scale_time">scale_time (phasegen.coalescent_models.BetaCoalescent attribute)</a>
+
+      <ul>
+        <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.DiracCoalescent.scale_time">(phasegen.coalescent_models.DiracCoalescent attribute)</a>
+</li>
+      </ul></li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS">SFS (class in phasegen.spectrum)</a>
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.Coalescent.sfs">sfs (phasegen.distributions.Coalescent property)</a>
@@ -867,12 +859,8 @@
 </li>
       <li><a href="modules/coalescent_models.html#phasegen.coalescent_models.StandardCoalescent">StandardCoalescent (class in phasegen.coalescent_models)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.start_size">start_size (phasegen.demography.ContinuousDemography attribute)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.start_size">(phasegen.demography.ExponentialDemography attribute)</a>
+      <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.start_size">start_size (phasegen.demography.DiscretizedDemography attribute)</a>
 </li>
-      </ul></li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS2.symmetrize">symmetrize() (phasegen.spectrum.SFS2 method)</a>
 </li>
   </ul></td>
@@ -891,12 +879,10 @@
 </li>
       <li><a href="modules/distributions.html#phasegen.distributions.TimeHomogeneousDistribution">TimeHomogeneousDistribution (class in phasegen.distributions)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.times">times (phasegen.demography.ContinuousDemography property)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.times">times (phasegen.demography.Demography property)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.times">(phasegen.demography.Demography property)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.times">(phasegen.demography.ExponentialDemography property)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.times">(phasegen.demography.DiscretizedDemography property)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.times">(phasegen.demography.PiecewiseTimeHomogeneousDemography property)</a>
 </li>
@@ -909,12 +895,10 @@
 </li>
       <li><a href="modules/spectrum.html#phasegen.spectrum.SFS.to_list">to_list() (phasegen.spectrum.SFS method)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.to_msprime">to_msprime() (phasegen.demography.ContinuousDemography method)</a>
+      <li><a href="modules/demography.html#phasegen.demography.Demography.to_msprime">to_msprime() (phasegen.demography.Demography method)</a>
 
       <ul>
-        <li><a href="modules/demography.html#phasegen.demography.Demography.to_msprime">(phasegen.demography.Demography method)</a>
-</li>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.to_msprime">(phasegen.demography.ExponentialDemography method)</a>
+        <li><a href="modules/demography.html#phasegen.demography.DiscretizedDemography.to_msprime">(phasegen.demography.DiscretizedDemography method)</a>
 </li>
         <li><a href="modules/demography.html#phasegen.demography.PiecewiseTimeHomogeneousDemography.to_msprime">(phasegen.demography.PiecewiseTimeHomogeneousDemography method)</a>
 </li>
@@ -953,12 +937,6 @@
       </ul></li>
       <li><a href="modules/inference.html#phasegen.inference.Inference.tqdm">tqdm (phasegen.inference.Inference attribute)</a>
 </li>
-      <li><a href="modules/demography.html#phasegen.demography.ContinuousDemography.trajectory">trajectory (phasegen.demography.ContinuousDemography attribute)</a>
-
-      <ul>
-        <li><a href="modules/demography.html#phasegen.demography.ExponentialDemography.trajectory">(phasegen.demography.ExponentialDemography attribute)</a>
-</li>
-      </ul></li>
       <li><a href="modules/distributions.html#phasegen.distributions.Coalescent.tree_height">tree_height (phasegen.distributions.Coalescent property)</a>
 
       <ul>

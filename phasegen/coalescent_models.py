@@ -1,10 +1,11 @@
 import itertools
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Callable, List, Set, Tuple, Dict, cast
+from typing import List, Set, Tuple, Dict, cast
 
 import numpy as np
 from scipy.special import comb, beta
+from scipy.stats import binom
 
 
 class CoalescentModel(ABC):
@@ -68,9 +69,9 @@ class CoalescentModel(ABC):
         return 0
 
     @abstractmethod
-    def get_generation_time(self, N: float) -> float:
+    def _get_timescale(self, N: float) -> float:
         """
-        Get the generation time.
+        Get the timescale.
 
         :param N: The effective population size.
         :return: The generation time.
@@ -117,12 +118,15 @@ class CoalescentModel(ABC):
 
 class StandardCoalescent(CoalescentModel):
     """
-    Standard (Kingman) coalescent model.
+    Standard (Kingman) coalescent model. Refer to
+    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
+    highlight=standard+coalescent#msprime.StandardCoalescent>`__
+    for more information.
     """
 
-    def get_generation_time(self, N: float) -> float:
+    def _get_timescale(self, N: float) -> float:
         """
-        Get the generation time.
+        Get the timescale.
 
         :param N: The effective population size.
         :return: The generation time.
@@ -132,7 +136,6 @@ class StandardCoalescent(CoalescentModel):
     def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
-        Negative rates will be inferred later
 
         :param b: Number of lineages.
         :param k: Number of lineages that merge.
@@ -148,7 +151,6 @@ class StandardCoalescent(CoalescentModel):
     def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
-        Negative rates will be inferred later
 
         :param n: Number of lineages.
         :param b: Number of lineages before merge for classes that experience a merger.
@@ -327,16 +329,30 @@ class StandardCoalescent(CoalescentModel):
 
 class BetaCoalescent(CoalescentModel):
     """
-    Beta coalescent model.
+    Beta coalescent model. Refer to
+    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=beta+coalescent#msprime.BetaCoalescent>`__
+    for more information.
+
+    TODO disagrees with Msprime for large values of alpha
     """
 
-    def __init__(self, alpha: float):
+    def __init__(self, alpha: float, scale_time: bool = True):
         """
         Initialize the beta coalescent model.
 
         :param alpha: The alpha parameter of the beta coalescent model.
+        :param scale_time: Whether to scale coalescence time as described in
+            `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
+            highlight=beta+coalescent#msprime.BetaCoalescent>`__. If ``False``, the timescale is set to N.
         """
-        self.alpha = alpha
+        if alpha < 1 or alpha > 2:
+            raise ValueError("Alpha must be between 1 and 2.")
+
+        #: Whether to scale coalescence time
+        self.scale_time: bool = scale_time
+
+        #: The alpha parameter of the beta coalescent model.
+        self.alpha: float = alpha
 
     def _get_base_rate(self, b: int, k: int) -> float:
         """
@@ -348,14 +364,17 @@ class BetaCoalescent(CoalescentModel):
         """
         return beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
 
-    def get_generation_time(self, N: float) -> float:
+    def _get_timescale(self, N: float) -> float:
         """
-        Get the generation time.
+        Get the timescale.
 
         :param N: The effective population size.
         :return: The generation time.
         """
-        m = 1 + 1 / (2 ** (self.alpha - 1) * (self.alpha - 1))
+        if not self.scale_time:
+            return N
+
+        m = 1 + 1 / 2 ** (self.alpha - 1) / (self.alpha - 1)
 
         return m ** self.alpha * N ** (self.alpha - 1) / self.alpha / beta(2 - self.alpha, self.alpha)
 
@@ -376,7 +395,6 @@ class BetaCoalescent(CoalescentModel):
     def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
-        Negative rates will be inferred later
 
         :param n: Number of lineages.
         :param b: Number of lineages before merge for classes that experience a merger.
@@ -399,42 +417,102 @@ class BetaCoalescent(CoalescentModel):
         raise NotImplementedError()
 
 
-class LambdaCoalescent(CoalescentModel):
+class DiracCoalescent(CoalescentModel):
     """
-    Lambda coalescent model.
-    TODO implement this
+    Dirac coalescent model. Refer to
+    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=dirac+coalescent#msprime.DiracCoalescent>`__
+    for more information.
+
+    TODO shorter SFS bins than msprime
     """
 
-    @abstractmethod
-    def get_density(self) -> Callable:
+    def __init__(self, psi: float, c: float, scale_time: bool = True):
         """
-        Get the density function of the coalescent model.
+        Initialize the Dirac coalescent model.
 
-        :return: The density function of the coalescent model.
+        :param psi: The fraction of the population replaced by offspring in one large reproduction event
+        :param c: The rate of potential multiple merger events.
+        :param scale_time: Whether to scale coalescence time as described in
+            `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
+            highlight=dirac+coalescent#msprime.DiracCoalescent>`__. If ``False``, the timescale is set to N.
         """
-        pass
+        super().__init__()
 
-    def get_rate(self, i: int, j: int):
+        if not 0 < psi < 1:
+            raise ValueError("Psi must be between 0 and 1.")
+
+        #: The fraction of the population replaced by offspring in one large reproduction event
+        self.psi = psi
+
+        #: The rate of potential multiple merger events.
+        self.c = c
+
+        #: Whether to scale coalescence time
+        self.scale_time: bool = scale_time
+
+        #: The standard coalescent model
+        self._standard = StandardCoalescent()
+
+    def _get_timescale(self, N: float) -> float:
         """
-        Get exponential rate for a merger of j out of i lineages.
+        Get the timescale.
 
-        :param i: The number of lineages.
-        :param j: The number of lineages that merge.
+        :param N: The effective population size.
+        :return: The generation time.
+        """
+        # TODO remove this
+        if hasattr(self, 'scale_time') and not self.scale_time:
+            return N
+
+        return N ** 2
+
+    def _get_rate(self, b: int, k: int) -> float:
+        """
+        Get positive rate for a merger of k out of b lineages.
+        Negative rates will be filled in later.
+
+        :param b: The number of lineages before the merger.
+        :param k: The number of lineages that merge.
         :return: The rate.
         """
-        """
-        x = sp.symbols('x')
-        integrand = x ** (i - 2) * (1 - x) ** (j - i)
+        # rate of binary merger
+        rate_binary = self._standard._get_rate(b=b, k=k)
 
-        integral = sp.Integral(integrand * self.get_density()(x), (x, 0, 1))
-        return float(integral.doit())
+        # probability of multiple merger of k out of b lineages
+        p_psi = binom.pmf(k=k, n=b, p=self.psi)
+
+        # rate of multiple merger
+        rate_multi = p_psi * self.c
+
+        return rate_binary + rate_multi
+
+    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
+        Get positive rate for a merger of k_i out of b_i lineages for all i.
+
+        :param n: Number of lineages.
+        :param b: Number of lineages before merge for classes that experience a merger.
+        :param k: Number of lineages that merge for classes that experience a merger.
+        :return: The rate.
+        """
+        # rate of binary merger
+        rate_binary = self._standard._get_rate_infinite_alleles(n=n, b=b, k=k)
+
+        # probability of multiple merger of k out of n lineages
+        p_psi = binom.pmf(k=k.sum(), n=n, p=self.psi)
+
+        # rate of multiple merger
+        rate_multi = p_psi * self.c
+
+        return rate_binary + rate_multi
 
     def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
         """
         Get the probabilities of all possible sample configurations.
 
-        :param n: The number of lineages
+        TODO deprecate this?
+
+        :param n: The total number of lineages
         :return: The probabilities of all possible sample configurations.
         """
         raise NotImplementedError()

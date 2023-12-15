@@ -5,7 +5,7 @@ import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
-from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .demography import PiecewiseTimeHomogeneousDemography, TimeHomogeneousDemography, Demography, DiscretizedDemography
 from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
 from .serialization import Serializable
@@ -28,7 +28,9 @@ class Comparison(Serializable):
             parallelize: bool = True,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
-            alpha: float = 1.5
+            alpha: float = 1.5,
+            psi: float = 0.5,
+            c: float = 1
     ):
         """
         Initialize Comparison object.
@@ -51,6 +53,8 @@ class Comparison(Serializable):
         :param comparisons: Dictionary specifying which comparisons to make.
         :param model: Coalescent model to use.
         :param alpha: Alpha parameter of the beta coalescent.
+        :param psi: Psi parameter of the Dirac coalescent.
+        :param c: C parameter of the Dirac coalescent.
         """
         self.comparisons = comparisons
         self.n = n
@@ -60,6 +64,9 @@ class Comparison(Serializable):
         self.n_threads = n_threads
         self.parallelize = parallelize
         self.alpha = alpha
+        self.psi = psi
+        self.c = c
+
         self.model = self.load_coalescent_model(model)
 
     def get_demography(self) -> Demography:
@@ -73,18 +80,25 @@ class Comparison(Serializable):
 
     def load_coalescent_model(
             self,
-            name: Literal['standard', 'beta'],
+            name: Literal['standard', 'beta', 'dirac']
     ) -> CoalescentModel:
         """
         Load the coalescent model.
 
         :param name: Name of the coalescent model.
         :return: The coalescent model.
+        :raises ValueError: if the name is unknown.
         """
-        return dict(
-            standard=StandardCoalescent(),
-            beta=BetaCoalescent(alpha=self.alpha)
-        )[name]
+        if name == 'standard':
+            return StandardCoalescent()
+
+        if name == 'beta':
+            return BetaCoalescent(alpha=self.alpha)
+
+        if name == 'dirac':
+            return DiracCoalescent(psi=self.psi, c=self.c)
+
+        raise ValueError(f"Unknown coalescent model {name}.")
 
     @cached_property
     def ph(self):
@@ -151,6 +165,8 @@ class Comparison(Serializable):
         :param title: Title of the plot.
         :param do_assertion: Whether to assert that the distributions are the same.
         :param plot: Whether to plot the distributions.
+        :raises AssertionError: if do_assertion is True and the distributions differ by more than the given tolerance.
+            ValueError: if the type is unknown.
         """
         # iterate over types
         for t in self.comparisons['types']:
@@ -214,6 +230,7 @@ class Comparison(Serializable):
                         raise ValueError(f"Unknown type {type(ph_stat)}.")
 
                     if do_assertion:
-                        assert diff < tol, f"Maximum relative difference {diff} exceeds threshold {tol}."
+                        if not diff < tol:
+                            raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol}.")
 
                     plt.clf()

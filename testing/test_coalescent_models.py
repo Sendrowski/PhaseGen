@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
+import pytest
 
 import phasegen as pg
 
@@ -50,13 +51,9 @@ class CoalescentModelTestCase(TestCase):
         """
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=5),
-            model=pg.BetaCoalescent(alpha=1.5),
+            model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             demography=pg.TimeHomogeneousDemography()
         )
-
-        # patch generation time to be identity as
-        # the paper uses a different scaling
-        s.model.get_generation_time = lambda N: N
 
         np.testing.assert_array_almost_equal(s.S[:-1, :-1], np.array([
             [-6.5625, 5.46875, 0.78125, 0.234375],
@@ -130,3 +127,22 @@ class CoalescentModelTestCase(TestCase):
         # many more positive entries for beta coalescent
         self.assertAlmostEqual(0.4, np.sum(c.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)
         self.assertAlmostEqual(0.14, np.sum(c2.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)
+
+    @staticmethod
+    def test_beta_coalescent_get_generation_time():
+        """
+        Test beta coalescent generation time.
+        """
+        pg.BetaCoalescent(alpha=1.999)._get_timescale(1)
+
+    @pytest.mark.skip(reason="Not finished")
+    def test_dirac_coalescent_n_5(self):
+        """
+        Test Dirac coalescent with infinite alleles for n = 2.
+        """
+        model = pg.DiracCoalescent(psi=0.8, c=1)
+
+        self.assertAlmostEqual(
+            model.get_rate_infinite_alleles(5, np.array([5, 0, 0, 0, 0]), np.array([3, 1, 0, 0, 0])), 8.33333333)
+
+        self.assertEqual(model.get_rate_infinite_alleles(5, np.array([5, 0, 0, 0, 0]), np.array([0, 0, 0, 0, 1])), 5)

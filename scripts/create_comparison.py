@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "5_epoch_varying_migration_coalescence_barrier"
+    name = "1_epoch_dirac_n_2_psi_0_5_c_1"
     file = f"resources/configs/{name}.yaml"
     out = f"scratch/{name}.json"
 
@@ -35,7 +35,7 @@ c = Comparison(**config)
 # touch msprime stats
 c.ms._touch()
 
-# drop computed stats
+# drop simulated data
 c.ms._drop()
 
 c.to_file(out)
