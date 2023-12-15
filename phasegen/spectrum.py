@@ -113,7 +113,7 @@ class SFS2(Iterable):
         """
         Convert data to JSON string.
         
-        :return:
+        :return: JSON string
         """
         obj = copy.deepcopy(self)
 

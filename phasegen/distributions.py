@@ -281,15 +281,22 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         :param pop_config: The population configuration.
         :param state_space: The state space.
         :param reward: The reward.
-        :param demography: The demography.
+        :param demography: Time-homogeneous demography.
         """
         # raise error if not time-homogeneous
         if not isinstance(demography, TimeHomogeneousDemography):
             raise NotImplementedError('TimeHomogeneousDistribution only supports time-homogeneous demographies.')
 
+        #: The reward.
         self.reward: Reward = reward
+
+        #: The population configuration.
         self.pop_config: PopConfig = pop_config
+
+        #: The state space.
         self.state_space: DefaultStateSpace = state_space
+
+        #: The demography.
         self.demography: TimeHomogeneousDemography = demography
 
     @cached_property
@@ -416,9 +423,16 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
         :param demography: The demography.
         :param reward: The reward.
         """
+        #: Population configuration
         self.pop_config: PopConfig = pop_config
+        
+        #: Reward
         self.reward: Reward = reward
+        
+        #: State space
         self.state_space: StateSpace = state_space
+
+        #: Demography
         self.demography: Demography = demography
 
     @cached_property
@@ -625,8 +639,7 @@ class SFSDistribution(PhaseTypeDistribution):
     def __init__(
             self,
             pop_config: PopConfig,
-            state_space: DefaultStateSpace,
-            state_space_BCP: BlockCountingStateSpace,
+            state_space: BlockCountingStateSpace,
             demography: Demography,
             pbar: bool = False,
             parallelize: bool = False
@@ -635,17 +648,24 @@ class SFSDistribution(PhaseTypeDistribution):
         Initialize the distribution.
 
         :param pop_config: The population configuration.
-        :param state_space: The state space.
-        :param state_space_BCP: The state space for the block counting process.
+        :param state_space: Block counting state space.
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
         """
+        #: Population configuration
         self.pop_config: PopConfig = pop_config
-        self.state_space: DefaultStateSpace = state_space
-        self.state_space_BCP: BlockCountingStateSpace = state_space_BCP
+
+        #: State space for the block counting process
+        self.state_space: BlockCountingStateSpace = state_space
+
+        #: Demography
         self.demography: Demography = demography
+
+        #: Whether to show a progress bar
         self.pbar: bool = pbar
+
+        #: Whether to parallelize computations
         self.parallelize: bool = parallelize
 
     @cache
@@ -668,7 +688,7 @@ class SFSDistribution(PhaseTypeDistribution):
             d = PiecewiseTimeHomogeneousDistribution(
                 pop_config=self.pop_config,
                 reward=SFSReward(i),
-                state_space=self.state_space_BCP,
+                state_space=self.state_space,
                 demography=self.demography
             )
 
@@ -734,7 +754,7 @@ class SFSDistribution(PhaseTypeDistribution):
         """
         d = PiecewiseTimeHomogeneousDistribution(
             pop_config=self.pop_config,
-            state_space=self.state_space_BCP,
+            state_space=self.state_space,
             demography=self.demography
         )
 
@@ -955,6 +975,7 @@ class Coalescent(ABC):
     Coalescent distribution.
     This class provides probability distributions for the tree height, total branch length and site frequency spectrum.
     """
+    #: Demography
     demography: Demography
 
     def __init__(
@@ -971,11 +992,13 @@ class Coalescent(ABC):
         :param model: Coalescent model.
         """
         if not isinstance(n, PopConfig):
+            #: Population configuration
             self.pop_config: PopConfig = PopConfig(n)
         else:
+            #: Population configuration
             self.pop_config: PopConfig = n
 
-        # coalescent model
+        #: Coalescent model
         self.model: CoalescentModel = model
 
     @property
@@ -1095,8 +1118,7 @@ class TimeHomogeneousCoalescent(Coalescent):
         """
         return SFSDistribution(
             pop_config=self.pop_config,
-            state_space=self._state_space,
-            state_space_BCP=self._state_space_BCP,
+            state_space=self._state_space_BCP,
             demography=self.demography
         )
 
@@ -1142,7 +1164,7 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
             parallelize=parallelize
         )
 
-        #: Demography, possibly with multiple epochs
+        #: Demography, possibly piecewise time-homogeneous
         self._demography: Demography = demography
 
     @cached_property
@@ -1176,8 +1198,7 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
         """
         return SFSDistribution(
             pop_config=self.pop_config,
-            state_space=self._state_space,
-            state_space_BCP=self._state_space_BCP,
+            state_space=self._state_space_BCP,
             demography=self._demography
         )
 
