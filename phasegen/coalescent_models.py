@@ -1,7 +1,4 @@
-import itertools
 from abc import ABC, abstractmethod
-from collections import defaultdict
-from typing import List, Set, Tuple, Dict, cast
 
 import numpy as np
 from scipy.special import comb, beta
@@ -103,18 +100,6 @@ class CoalescentModel(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-
-        TODO deprecate this?
-
-        :param n: Number of lineages.
-        :return:
-        """
-        pass
-
 
 class StandardCoalescent(CoalescentModel):
     """
@@ -204,128 +189,6 @@ class StandardCoalescent(CoalescentModel):
 
         return 0
 
-    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-        Note that this currently only works for a single population.
-
-        TODO deprecate this?
-
-        :param n: The number of lineages
-        :return: The probabilities of all possible sample configurations.
-        """
-        # initialize the probabilities
-        probs = cast(Dict[Tuple, float], defaultdict(int))
-
-        # states indexed by the number of lineages
-        states: List[Set[Tuple[int, ...]]] = [set() for _ in range(n)]
-        states[n - 1] = {tuple([n] + [0] * (n - 1))}
-
-        # initialize the probabilities
-        probs[tuple(states[n - 1])[0]] = 1
-
-        # iterate over the number of lineages
-        for i in np.arange(2, n)[::-1]:
-
-            # iterate over states with i + 1 lineages
-            for s1_tuple in states[i]:
-                s1 = np.array(s1_tuple)
-
-                # iterate over substates of s1
-                for s2 in self._find_substates(n, s1):
-                    s2_tuple = tuple(s2)
-                    states[i - 1].add(s2_tuple)
-
-                    # determine the probability of transitioning from s1 to s2
-                    probs[s2_tuple] += probs[s1_tuple] * self._get_probs(n, s1, s2)
-
-        return probs
-
-    @staticmethod
-    def _find_substates(n: int, state: np.ndarray) -> List[np.ndarray]:
-        """
-        Function to find all substates of a given state that are one coalescence event away.
-
-        :param n: The number of lineages
-        :param state: The given state
-        :returns: List of substates
-        """
-        substates = []
-
-        for i in range(n):
-            for j in range(n):
-                if (i < j and state[i] > 0 and state[j] > 0) or (i == j and state[i] > 1):
-                    new_state = state.copy()
-                    new_state[i] -= 1
-                    new_state[j] -= 1
-                    new_state[i + j + 1] += 1
-
-                    substates.append(new_state)
-
-        return substates
-
-    def _get_sample_config_probs_explicit_state_space(self, n: int, states: np.ndarray) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-        This function constructs the state space explicitly and iterates over all possible states which is
-        computationally expensive.
-
-        :param n: Number of lineages.
-        :param states: Matrix of all possible states.
-        :return: The probabilities of all possible sample configurations.
-        """
-        # the number of lineages in each state
-        n_lin_states = states.sum(axis=1)
-
-        # the indices of the states with the same number of lineages
-        n_lineages = [np.where(n_lin_states == i)[0] for i in np.arange(n + 1)]
-
-        # initialize the probabilities
-        probs = cast(Dict[Tuple, float], defaultdict(int))
-        probs[tuple(states[0])] = 1
-
-        # iterate over the number of lineages
-        for i in np.arange(2, n)[::-1]:
-
-            # iterate over pairs and determine the probability of transitioning from s1 to s2
-            for s1, s2 in itertools.product(states[n_lineages[i + 1]], states[n_lineages[i]]):
-                # s = self.find_substates(s1)
-
-                probs[tuple(s2)] += probs[tuple(s1)] * self._get_probs(n, s1, s2)
-
-        return probs
-
-    @staticmethod
-    def _get_probs(n: int, s1: np.ndarray, s2: np.ndarray) -> float:
-        """
-        Get the probabilities transitioning from s1 to s2 assuming that s1 has one more lineage than s2.
-
-        :param n: The number of lineages
-        :param s1: The starting state
-        :param s2: The ending state
-        :return: The probability of transitioning from s1 to s2
-        """
-        diff = s1 - s2
-        i = s1.sum()
-
-        if np.sum(diff == -1) == 1:
-
-            # if two lineages of the same class coalesce
-            if np.sum(diff == 2) == 1 and np.sum(diff == 0) == n - 2:
-                # get the number of lineages that were present in s1
-                j = s1[diff == 2][0]
-
-                return comb(j, 2) / comb(i, 2)
-
-            # if two lineages of different classes coalesce
-            if np.sum(diff == 1) == 2 and np.sum(diff == 0) == n - 3:
-                # get the number of lineages that were present in s1
-                j1, j2 = s1[diff == 1]
-
-                return comb(j1, 1) * comb(j2, 1) / comb(i, 2)
-
-        return 0
-
 
 class BetaCoalescent(CoalescentModel):
     """
@@ -405,17 +268,6 @@ class BetaCoalescent(CoalescentModel):
 
         return combinations * self._get_base_rate(b=n, k=k.sum())
 
-    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-
-        TODO deprecate this?
-
-        :param n: The total number of lineages
-        :return: The probabilities of all possible sample configurations.
-        """
-        raise NotImplementedError()
-
 
 class DiracCoalescent(CoalescentModel):
     """
@@ -460,8 +312,7 @@ class DiracCoalescent(CoalescentModel):
         :param N: The effective population size.
         :return: The generation time.
         """
-        # TODO remove this
-        if hasattr(self, 'scale_time') and not self.scale_time:
+        if not self.scale_time:
             return N
 
         return N ** 2
@@ -505,14 +356,3 @@ class DiracCoalescent(CoalescentModel):
         rate_multi = p_psi * self.c
 
         return rate_binary + rate_multi
-
-    def get_sample_config_probs(self, n: int) -> Dict[Tuple, float]:
-        """
-        Get the probabilities of all possible sample configurations.
-
-        TODO deprecate this?
-
-        :param n: The total number of lineages
-        :return: The probabilities of all possible sample configurations.
-        """
-        raise NotImplementedError()

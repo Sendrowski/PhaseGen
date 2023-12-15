@@ -542,34 +542,6 @@ class TimeHomogeneousDemography(PiecewiseTimeHomogeneousDemography):
         """
         return {p: t / self.pop_size[p] for p in self.pop_names}
 
-    def __eq__(self, other: Any) -> bool:
-        """
-        Check if two demographic scenarios are equal.
-
-        TODO no longer used
-
-        :param other: Any other object.
-        :return: Whether the two demographic scenarios are equal.
-        """
-        raise NotImplementedError
-
-        if not isinstance(other, TimeHomogeneousDemography):
-            return False
-
-        if self.n_pops != other.n_pops:
-            return False
-
-        if self.pop_names != other.pop_names:
-            return False
-
-        if not all(self.pop_size[p] == other.pop_size[p] for p in self.pop_names):
-            return False
-
-        if not all(self._migration_rates[pair] == other._migration_rates[pair] for pair in self._migration_rates):
-            return False
-
-        return True
-
 
 class DiscretizedDemography(PiecewiseTimeHomogeneousDemography):
     """

@@ -144,19 +144,10 @@ class SFSReward(Reward):
         :return: reward matrix
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, DefaultStateSpace):
-            # When calculating the first moment
-            # we can easily merge the states of the different tree topologies
-            # by taking the average of those states weighted by the probability
-            # of the tree topology. This is much faster than the general case
-            # as we work with a much smaller state space.
-            # TODO reimplement this
-            raise NotImplementedError('SFS reward not implemented for default state space')
-
         if isinstance(state_space, InfiniteAllelesStateSpace):
             return np.diag(state_space.states[:, :, self.index].sum(axis=1))
 
-        raise NotImplementedError(f'Unknown state space type: {type(state_space)}')
+        raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
     def __hash__(self) -> int:
         """

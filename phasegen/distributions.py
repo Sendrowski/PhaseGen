@@ -692,24 +692,6 @@ class SFSDistribution(PhaseTypeDistribution):
         return SFS([0] + list(moments) + [0])
 
     @cached_property
-    def _default_rewards(self) -> np.ndarray:
-        """
-        Get the rewards suitable for calculating the expected SFS using a reduced state
-        space where we don't distinguish between different topologies.
-        TODO reimplement or trash
-
-        :return:
-        """
-        probs = self.state_space.model.get_sample_config_probs(self.pop_config.n)
-
-        R = np.zeros((self.pop_config.n, self.pop_config.n))
-
-        for state, prob in probs.items():
-            R[:, self.pop_config.n - sum(state)] += prob * np.array(state)
-
-        return R
-
-    @cached_property
     def cov(self) -> SFS2:
         """
         If no arguments are given, get the 2-SFS, i.e. the covariance matrix of the site-frequencies.
