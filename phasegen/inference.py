@@ -87,7 +87,6 @@ class Inference:
         Execute the optimization.
 
         :returns: Result of the optimization procedure.
-        :rtype: scipy.optimize.OptimizeResult
         """
 
         # convert dictionaries to lists

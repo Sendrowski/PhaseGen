@@ -225,11 +225,10 @@ class PhaseTypeDistribution(ProbabilityDistribution, ABC):
         return np.block([[S if i == j else R[i] if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)])
 
     @abstractmethod
-    def moment(self, k: int, r: np.ndarray = None) -> float | SFS:
+    def moment(self, k: int) -> float | SFS:
         """
         Get the nth moment.
 
-        :param r: Full reward vector
         :param k: The order of the moment
         :return: The nth moment
         """
@@ -347,7 +346,7 @@ class TimeHomogeneousDistribution(PhaseTypeDistribution):
         if reward is None:
             reward = self.reward
 
-        R = reward.get(state_space=self.state_space, invert=True)[:-1, :-1]
+        R = reward.get(state_space=self.state_space)[:-1, :-1]
 
         M = matrix_power(self.state_space.U @ R, k)
 
@@ -460,7 +459,7 @@ class PiecewiseTimeHomogeneousDistribution(PhaseTypeDistribution):
             rewards = [self.reward] * k
 
         # get reward matrix
-        R = [r.get(state_space=self.state_space, invert=True) for r in rewards]
+        R = [r.get(state_space=self.state_space) for r in rewards]
 
         # number of states
         n_states = self.state_space.k

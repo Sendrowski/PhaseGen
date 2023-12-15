@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, List, Iterable
 
 import numpy as np
+
+logger = logging.getLogger('phasegen')
 
 
 class PopConfig:
@@ -15,6 +18,8 @@ class PopConfig:
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
         or a dictionary with population names as keys and number of lineages as values.
         """
+        self._logger = logger.getChild(self.__class__.__name__)
+
         if not isinstance(n, dict):
 
             # assume we have a scalar
@@ -32,6 +37,12 @@ class PopConfig:
 
         #: Total number of lineages
         self.n: int = sum(list(n_lineages.values()))
+
+        # warn if the number of lineages is large
+        if self.n > 20:
+            self._logger.warning(f"Total number of lineages ({self.n}) is large. "
+                                 f"Note that the state space and thus the runtime "
+                                 f"grows exponentially with the number of lineages.")
 
         #: Number of populations
         self.n_pops = len(n_lineages)

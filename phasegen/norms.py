@@ -26,14 +26,14 @@ class LNorm(Norm):
     Class for L-norms.
     """
 
-    def __init__(self, p: int | str):
+    def __init__(self, p: int):
         """
         Initialize the class with the provided parameters.
 
         :param p: The order of the norm. see :func:`numpy.linalg.norm` for details.
         """
         #: The order of the norm.
-        self.p: int | str = p
+        self.p: int = p
 
     def compute(self, a: float | np.ndarray, b: float | np.ndarray) -> float | int:
         """
@@ -48,41 +48,44 @@ class LNorm(Norm):
 
 class L2Norm(LNorm):
     """
-    Class for L2-norms (Euclidean distance).
+    Class for L2-norm (Euclidean distance).
     """
 
     def __init__(self):
         """
         Initialize the class.
         """
-        super().__init__(2)
+        super().__init__(p=2)
 
 
 class L1Norm(LNorm):
     """
-    Class for L1-norms (Manhattan distance).
+    Class for L1-norm (Manhattan distance).
     """
 
     def __init__(self):
         """
         Initialize the class.
         """
-        super().__init__(1)
+        super().__init__(p=1)
 
 
 class LInfNorm(LNorm):
     """
-    Class for L-infinity norms (Chebyshev distance).
+    Class for L-infinity norm (Chebyshev distance).
     """
 
     def __init__(self):
         """
         Initialize the class.
         """
-        super().__init__(np.inf)
+        super().__init__(p=np.inf)
 
 
 class Likelihood(Norm, ABC):
+    """
+    Abstract class for likelihoods.
+    """
     pass
 
 
