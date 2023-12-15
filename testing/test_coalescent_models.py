@@ -11,36 +11,36 @@ class CoalescentModelTestCase(TestCase):
     Test coalescent models.
     """
 
-    def test_standard_coalescent_infinite_alleles_n_2(self):
+    def test_standard_coalescent_block_counting_n_2(self):
         """
-        Test standard coalescent with infinite alleles for n = 2.
-        """
-        model = pg.StandardCoalescent()
-
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([0, 1])), 1)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([0, 1]), np.array([2, 1])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([2, 0])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([0, 2])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([3, 0]), np.array([1, 2])), 0)
-
-    def test_standard_coalescent_infinite_alleles_n_3(self):
-        """
-        Test standard coalescent with infinite alleles for n = 3.
+        Test standard coalescent with block counting state space for n = 2.
         """
         model = pg.StandardCoalescent()
 
-        self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([1, 1, 0])), 3)
-        self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([0, 1])), 1)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([0, 1]), np.array([2, 1])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([2, 0])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([0, 2])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([3, 0]), np.array([1, 2])), 0)
 
-    def test_standard_coalescent_infinite_alleles_n_10(self):
+    def test_standard_coalescent_block_counting_n_3(self):
         """
-        Test beta coalescent with infinite alleles for n = 10.
+        Test standard coalescent with block counting state space for n = 3.
+        """
+        model = pg.StandardCoalescent()
+
+        self.assertEqual(model.get_rate_block_counting(3, np.array([3, 0, 0]), np.array([1, 1, 0])), 3)
+        self.assertEqual(model.get_rate_block_counting(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
+        self.assertEqual(model.get_rate_block_counting(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
+
+    def test_standard_coalescent_block_counting_n_10(self):
+        """
+        Test beta coalescent with block counting state space for n = 10.
         """
         model = pg.StandardCoalescent()
 
         def f(s1, s2):
-            return model.get_rate_infinite_alleles(n=10, s1=np.array(s1), s2=np.array(s2))
+            return model.get_rate_block_counting(n=10, s1=np.array(s1), s2=np.array(s2))
 
         self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]), 4)
 
@@ -62,37 +62,37 @@ class CoalescentModelTestCase(TestCase):
             [0.0000, 0.00000, 0.00000, -1.000000]
         ]))
 
-    def test_beta_coalescent_infinite_alleles_n_2_alpha_1_5(self):
+    def test_beta_coalescent_block_counting_n_2_alpha_1_5(self):
         """
-        Test beta coalescent with infinite alleles for n = 2.
+        Test beta coalescent with block counting state space for n = 2.
         """
         model = pg.BetaCoalescent(alpha=1.5)
 
         # n = 2
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([0, 1])), 1)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([0, 1]), np.array([2, 1])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([2, 0])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([2, 0]), np.array([0, 2])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(2, np.array([3, 0]), np.array([1, 2])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([0, 1])), 1)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([0, 1]), np.array([2, 1])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([2, 0])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([2, 0]), np.array([0, 2])), 0)
+        self.assertEqual(model.get_rate_block_counting(2, np.array([3, 0]), np.array([1, 2])), 0)
 
-    def test_beta_coalescent_infinite_alleles_n_3_alpha_close_to_2(self):
+    def test_beta_coalescent_block_counting_n_3_alpha_close_to_2(self):
         """
-        Test beta coalescent with infinite alleles for n = 3.
+        Test beta coalescent with block counting state space for n = 3.
         """
         model = pg.BetaCoalescent(alpha=2 - 1e-10)
 
-        self.assertAlmostEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([1, 1, 0])), 3)
-        self.assertAlmostEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
-        self.assertEqual(model.get_rate_infinite_alleles(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
+        self.assertAlmostEqual(model.get_rate_block_counting(3, np.array([3, 0, 0]), np.array([1, 1, 0])), 3)
+        self.assertAlmostEqual(model.get_rate_block_counting(3, np.array([3, 0, 0]), np.array([0, 0, 1])), 0)
+        self.assertEqual(model.get_rate_block_counting(3, np.array([3, 0, 0, 0]), np.array([1, 1, 0, 0])), 0)
 
-    def test_beta_coalescent_infinite_alleles_n_3_alpha_1_5(self):
+    def test_beta_coalescent_block_counting_n_3_alpha_1_5(self):
         """
-        Test beta coalescent with infinite alleles for n = 3.
+        Test beta coalescent with block counting state space for n = 3.
         """
         model = pg.BetaCoalescent(alpha=1.5)
 
         def f(s1, s2):
-            return model.get_rate_infinite_alleles(n=3, s1=np.array(s1), s2=np.array(s2))
+            return model.get_rate_block_counting(n=3, s1=np.array(s1), s2=np.array(s2))
 
         self.assertEqual(f([3, 0, 0], [3, 0, 0]), 0)
         self.assertEqual(f([3, 0, 0], [0, 1, 0]), 0)
@@ -138,11 +138,11 @@ class CoalescentModelTestCase(TestCase):
     @pytest.mark.skip(reason="Not finished")
     def test_dirac_coalescent_n_5(self):
         """
-        Test Dirac coalescent with infinite alleles for n = 2.
+        Test Dirac coalescent with block counting state space for n = 2.
         """
         model = pg.DiracCoalescent(psi=0.8, c=1)
 
         self.assertAlmostEqual(
-            model.get_rate_infinite_alleles(5, np.array([5, 0, 0, 0, 0]), np.array([3, 1, 0, 0, 0])), 8.33333333)
+            model.get_rate_block_counting(5, np.array([5, 0, 0, 0, 0]), np.array([3, 1, 0, 0, 0])), 8.33333333)
 
-        self.assertEqual(model.get_rate_infinite_alleles(5, np.array([5, 0, 0, 0, 0]), np.array([0, 0, 0, 0, 1])), 5)
+        self.assertEqual(model.get_rate_block_counting(5, np.array([5, 0, 0, 0, 0]), np.array([0, 0, 0, 0, 1])), 5)

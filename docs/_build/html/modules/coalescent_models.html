@@ -73,13 +73,13 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Coalescent models</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel"><code class="docutils literal notranslate"><span class="pre">CoalescentModel</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_rate"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.CoalescentModel.get_rate_block_counting"><code class="docutils literal notranslate"><span class="pre">CoalescentModel.get_rate_block_counting()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent</span></code></a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles_dep"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_infinite_alleles_dep()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting_dep"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_block_counting_dep()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting"><code class="docutils literal notranslate"><span class="pre">StandardCoalescent.get_rate_block_counting()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent</span></code></a><ul>
@@ -87,7 +87,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.scale_time"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.scale_time</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.alpha"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.alpha</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_block_counting"><code class="docutils literal notranslate"><span class="pre">BetaCoalescent.get_rate_block_counting()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent</span></code></a><ul>
@@ -96,7 +96,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent.c"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent.c</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent.scale_time"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent.scale_time</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent.get_rate"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent.get_rate()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent.get_rate_infinite_alleles"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent.get_rate_infinite_alleles()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.coalescent_models.DiracCoalescent.get_rate_block_counting"><code class="docutils literal notranslate"><span class="pre">DiracCoalescent.get_rate_block_counting()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -159,9 +159,9 @@
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles">
-<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
-<dd><p>Get (positive) rate between two infinite alleles states.
+<dt class="sig sig-object py" id="phasegen.coalescent_models.CoalescentModel.get_rate_block_counting">
+<span class="sig-name descname"><span class="pre">get_rate_block_counting</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.CoalescentModel.get_rate_block_counting" title="Permalink to this definition"></a></dt>
+<dd><p>Get (positive) rate between two block counting states.
 <span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -190,9 +190,9 @@
 <a class="reference external" href="https://tskit.dev/msprime/docs/stable/api.html?highlight=standard+coalescent#msprime.StandardCoalescent">Msprime docs</a>
 for more information.</p>
 <dl class="py method">
-<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles_dep">
-<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles_dep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles_dep" title="Permalink to this definition"></a></dt>
-<dd><p>Get (positive) rate between two infinite alleles states.</p>
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting_dep">
+<span class="sig-name descname"><span class="pre">get_rate_block_counting_dep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting_dep" title="Permalink to this definition"></a></dt>
+<dd><p>Get (positive) rate between two block counting states.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -231,9 +231,9 @@ for more information.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles">
-<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
-<dd><p>Get (positive) rate between two infinite alleles states.
+<dt class="sig sig-object py" id="phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting">
+<span class="sig-name descname"><span class="pre">get_rate_block_counting</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.StandardCoalescent.get_rate_block_counting" title="Permalink to this definition"></a></dt>
+<dd><p>Get (positive) rate between two block counting states.
 <span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -310,9 +310,9 @@ for more information.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles">
-<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
-<dd><p>Get (positive) rate between two infinite alleles states.
+<dt class="sig sig-object py" id="phasegen.coalescent_models.BetaCoalescent.get_rate_block_counting">
+<span class="sig-name descname"><span class="pre">get_rate_block_counting</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.BetaCoalescent.get_rate_block_counting" title="Permalink to this definition"></a></dt>
+<dd><p>Get (positive) rate between two block counting states.
 <span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -396,9 +396,9 @@ for more information.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="phasegen.coalescent_models.DiracCoalescent.get_rate_infinite_alleles">
-<span class="sig-name descname"><span class="pre">get_rate_infinite_alleles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.DiracCoalescent.get_rate_infinite_alleles" title="Permalink to this definition"></a></dt>
-<dd><p>Get (positive) rate between two infinite alleles states.
+<dt class="sig sig-object py" id="phasegen.coalescent_models.DiracCoalescent.get_rate_block_counting">
+<span class="sig-name descname"><span class="pre">get_rate_block_counting</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">numpy.ndarray</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.coalescent_models.DiracCoalescent.get_rate_block_counting" title="Permalink to this definition"></a></dt>
+<dd><p>Get (positive) rate between two block counting states.
 <span class="math notranslate nohighlight">\({ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}\)</span>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>

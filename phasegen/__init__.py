@@ -98,7 +98,7 @@ from .demography import Demography, PiecewiseTimeHomogeneousDemography, Discreti
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 
-from .state_space import DefaultStateSpace, InfiniteAllelesStateSpace
+from .state_space import DefaultStateSpace, BlockCountingStateSpace
 
 from.rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
 
@@ -137,7 +137,7 @@ __all__ = [
     'TotalBranchLengthReward',
     'SFSReward',
     'DefaultStateSpace',
-    'InfiniteAllelesStateSpace',
+    'BlockCountingStateSpace',
     'CoalescentModel',
     'PopConfig'
 ]

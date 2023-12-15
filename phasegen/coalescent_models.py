@@ -24,9 +24,9 @@ class CoalescentModel(ABC):
 
         return self._get_rate(b=s1, k=s1 + 1 - s2)
 
-    def get_rate_infinite_alleles(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def get_rate_block_counting(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         r"""
-        Get (positive) rate between two infinite alleles states.
+        Get (positive) rate between two block counting states.
         :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
 
         :param n: Number of lineages.
@@ -60,7 +60,7 @@ class CoalescentModel(ABC):
                     k = b - s2[where_less]
 
                     # get rate
-                    rate = self._get_rate_infinite_alleles(n=s1.sum(), b=b, k=k)
+                    rate = self._get_rate_block_counting(n=s1.sum(), b=b, k=k)
                     return rate
 
         return 0
@@ -88,7 +88,7 @@ class CoalescentModel(ABC):
         pass
 
     @abstractmethod
-    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_block_counting(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
         Negative rates will be inferred later
@@ -133,7 +133,7 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers can happen
         return 0
 
-    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_block_counting(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
@@ -155,9 +155,9 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers are possible
         return 0
 
-    def get_rate_infinite_alleles_dep(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def get_rate_block_counting_dep(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Get (positive) rate between two infinite alleles states.
+        Get (positive) rate between two block counting states.
 
         :param n: Number of lineages.
         :param s1: Sample configuration 1.
@@ -255,7 +255,7 @@ class BetaCoalescent(CoalescentModel):
 
         return comb(b, k, exact=True) * self._get_base_rate(b, k)
 
-    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_block_counting(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
@@ -337,7 +337,7 @@ class DiracCoalescent(CoalescentModel):
 
         return rate_binary + rate_multi
 
-    def _get_rate_infinite_alleles(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
+    def _get_rate_block_counting(self, n: int, b: np.ndarray[int], k: np.ndarray[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
@@ -347,7 +347,7 @@ class DiracCoalescent(CoalescentModel):
         :return: The rate.
         """
         # rate of binary merger
-        rate_binary = self._standard._get_rate_infinite_alleles(n=n, b=b, k=k)
+        rate_binary = self._standard._get_rate_block_counting(n=n, b=b, k=k)
 
         # probability of multiple merger of k out of n lineages
         p_psi = binom.pmf(k=k.sum(), n=n, p=self.psi)

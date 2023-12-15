@@ -24,7 +24,7 @@ from .demography import Demography, TimeHomogeneousDemography
 from .population import PopConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
 from .spectrum import SFS, SFS2
-from .state_space import InfiniteAllelesStateSpace, DefaultStateSpace, StateSpace
+from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
@@ -626,7 +626,7 @@ class SFSDistribution(PhaseTypeDistribution):
             self,
             pop_config: PopConfig,
             state_space: DefaultStateSpace,
-            state_space_IAM: InfiniteAllelesStateSpace,
+            state_space_BCP: BlockCountingStateSpace,
             demography: Demography,
             pbar: bool = False,
             parallelize: bool = False
@@ -636,14 +636,14 @@ class SFSDistribution(PhaseTypeDistribution):
 
         :param pop_config: The population configuration.
         :param state_space: The state space.
-        :param state_space_IAM: The state space for the infinite alleles model.
+        :param state_space_BCP: The state space for the block counting process.
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
         """
         self.pop_config: PopConfig = pop_config
         self.state_space: DefaultStateSpace = state_space
-        self.state_space_IAM: InfiniteAllelesStateSpace = state_space_IAM
+        self.state_space_BCP: BlockCountingStateSpace = state_space_BCP
         self.demography: Demography = demography
         self.pbar: bool = pbar
         self.parallelize: bool = parallelize
@@ -668,7 +668,7 @@ class SFSDistribution(PhaseTypeDistribution):
             d = PiecewiseTimeHomogeneousDistribution(
                 pop_config=self.pop_config,
                 reward=SFSReward(i),
-                state_space=self.state_space_IAM,
+                state_space=self.state_space_BCP,
                 demography=self.demography
             )
 
@@ -734,7 +734,7 @@ class SFSDistribution(PhaseTypeDistribution):
         """
         d = PiecewiseTimeHomogeneousDistribution(
             pop_config=self.pop_config,
-            state_space=self.state_space_IAM,
+            state_space=self.state_space_BCP,
             demography=self.demography
         )
 
@@ -1054,11 +1054,11 @@ class TimeHomogeneousCoalescent(Coalescent):
         )
 
     @cached_property
-    def _state_space_IAM(self) -> InfiniteAllelesStateSpace:
+    def _state_space_BCP(self) -> BlockCountingStateSpace:
         """
-        The infinite alleles state space.
+        The block counting state space.
         """
-        return InfiniteAllelesStateSpace(
+        return BlockCountingStateSpace(
             pop_config=self.pop_config,
             model=self.model,
             demography=self.demography
@@ -1096,7 +1096,7 @@ class TimeHomogeneousCoalescent(Coalescent):
         return SFSDistribution(
             pop_config=self.pop_config,
             state_space=self._state_space,
-            state_space_IAM=self._state_space_IAM,
+            state_space_BCP=self._state_space_BCP,
             demography=self.demography
         )
 
@@ -1177,7 +1177,7 @@ class PiecewiseTimeHomogeneousCoalescent(TimeHomogeneousCoalescent):
         return SFSDistribution(
             pop_config=self.pop_config,
             state_space=self._state_space,
-            state_space_IAM=self._state_space_IAM,
+            state_space_BCP=self._state_space_BCP,
             demography=self._demography
         )
 
@@ -1616,7 +1616,7 @@ class _EdgeworthExpansion:
         :return: Partitions formatted as a list of tuples where the first element is the partition and the second
             element is the number of times the partition is repeated.
         """
-        x = InfiniteAllelesStateSpace._find_sample_configs(n, n)
+        x = BlockCountingStateSpace._find_sample_configs(n, n)
 
         for v in x:
 

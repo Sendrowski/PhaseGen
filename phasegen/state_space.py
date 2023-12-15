@@ -298,9 +298,9 @@ class DefaultStateSpace(StateSpace):
         return states.reshape(states.shape + (1,))
 
 
-class InfiniteAllelesStateSpace(StateSpace):
+class BlockCountingStateSpace(StateSpace):
     r"""
-    Infinite alleles rate matrix where there is one state per sample configuration:
+    Rate matrix for block counting state space where there is one state per sample configuration:
     :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`,
 
     per deme and per locus. This state space can distinguish between different tree topologies
@@ -316,7 +316,7 @@ class InfiniteAllelesStateSpace(StateSpace):
         :param s2: State 2.
         :return: The coalescent rate from state ``s1`` to state ``s2``.
         """
-        return self.model.get_rate_infinite_alleles(n=n, s1=s1, s2=s2)
+        return self.model.get_rate_block_counting(n=n, s1=s1, s2=s2)
 
     @cached_property
     def states(self) -> np.ndarray:

@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 
 import numpy as np
 
-from .state_space import StateSpace, DefaultStateSpace, InfiniteAllelesStateSpace
+from .state_space import StateSpace, DefaultStateSpace, BlockCountingStateSpace
 
 
 class Reward(ABC):
@@ -85,8 +85,8 @@ class TreeHeightReward(Reward):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
             return np.diag((np.dot(state_space.states, np.arange(1, state_space.m + 1)).sum(axis=1) > 1).astype(int))
 
-        if isinstance(state_space, InfiniteAllelesStateSpace):
-            raise NotImplementedError('Tree height reward not implemented for infinite alleles state space')
+        if isinstance(state_space, BlockCountingStateSpace):
+            raise NotImplementedError('Tree height reward not implemented for block counting state space')
         
         raise NotImplementedError(f'Unknown state space type: {type(state_space)}')
 
@@ -116,8 +116,8 @@ class TotalBranchLengthReward(Reward):
 
             return np.diag(lineages)
 
-        if isinstance(state_space, InfiniteAllelesStateSpace):
-            raise NotImplementedError('Total branch length reward not implemented for infinite alleles state space')
+        if isinstance(state_space, BlockCountingStateSpace):
+            raise NotImplementedError('Total branch length reward not implemented for block counting state space')
 
         raise NotImplementedError(f'Unknown state space type: {type(state_space)}')
 
@@ -144,7 +144,7 @@ class SFSReward(Reward):
         :return: reward matrix
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, InfiniteAllelesStateSpace):
+        if isinstance(state_space, BlockCountingStateSpace):
             return np.diag(state_space.states[:, :, self.index].sum(axis=1))
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
