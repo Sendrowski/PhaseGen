@@ -13,16 +13,6 @@ class Inference:
     The Inference class is designed to perform arbitrary inference using the
     provided loss function, through coalescent simulation based on phase-type
     theory. The optimization is performed via the BFGS algorithm from scipy.
-
-    :Example:
-
-    >>> def loss_fn(a=0, b=0):
-    ...     return (a - 2) ** 2 + (b - 3) ** 2
-    ...
-    >>> x0 = {'a': 0, 'b': 0}
-    >>> bounds = {'a': (None, None), 'b': (None, None)}
-    >>> inf = Inference(x0, bounds, loss_fn, None)
-    >>> result = inf.run()
     """
 
     def __init__(

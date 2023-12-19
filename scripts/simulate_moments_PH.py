@@ -29,10 +29,10 @@ except NameError:
 
 import phasegen as pg
 
-cd = pg.PiecewiseTimeHomogeneousCoalescent(
+cd = pg.Coalescent(
     model=pg.StandardCoalescent(),
     n=n,
-    demography=pg.PiecewiseTimeHomogeneousDemography(pop_sizes=pop_sizes, times=times)
+    demography=pg.PiecewiseConstantDemography(pop_sizes=pop_sizes, times=times)
 )
 
 cd.sfs.var.plot()

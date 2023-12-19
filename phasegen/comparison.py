@@ -1,13 +1,13 @@
 from functools import cached_property
-from typing import List, Iterable, Dict, Tuple, Literal
+from typing import List, Iterable, Dict, Literal
 
 import numpy as np
 from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
-from .demography import PiecewiseTimeHomogeneousDemography, TimeHomogeneousDemography, Demography, DiscretizedDemography
-from .distributions import PiecewiseTimeHomogeneousCoalescent, TimeHomogeneousCoalescent, MsprimeCoalescent
+from .demography import PiecewiseConstantDemography, Demography
+from .distributions import Coalescent, _MsprimeCoalescent
 from .serialization import Serializable
 from .spectrum import SFS2
 
@@ -73,7 +73,7 @@ class Comparison(Serializable):
         """
         Get the demography.
         """
-        return PiecewiseTimeHomogeneousDemography(
+        return PiecewiseConstantDemography(
             pop_sizes=self.pop_sizes,
             migration_rates=self.migration_rates
         )
@@ -105,24 +105,9 @@ class Comparison(Serializable):
         """
         Get the phase-type coalescent.
         """
-        return PiecewiseTimeHomogeneousCoalescent(
+        return Coalescent(
             n=self.n,
             demography=self.get_demography(),
-            parallelize=self.parallelize,
-            model=self.model
-        )
-
-    @cached_property
-    def ph_const(self):
-        """
-        Get the phase-type coalescent with constant population size.
-        """
-        return TimeHomogeneousCoalescent(
-            n=self.n,
-            demography=TimeHomogeneousDemography(
-                pop_sizes={pop: sizes[0] for pop, sizes in self.pop_sizes.items()},
-                migration_rates=self.migration_rates[0]
-            ),
             parallelize=self.parallelize,
             model=self.model
         )
@@ -132,7 +117,7 @@ class Comparison(Serializable):
         """
         Get the msprime coalescent.
         """
-        return MsprimeCoalescent(
+        return _MsprimeCoalescent(
             n=self.n,
             demography=self.get_demography(),
             num_replicates=self.num_replicates,
@@ -165,7 +150,7 @@ class Comparison(Serializable):
         :param title: Title of the plot.
         :param do_assertion: Whether to assert that the distributions are the same.
         :param plot: Whether to plot the distributions.
-        :raises AssertionError: if do_assertion is True and the distributions differ by more than the given tolerance.
+        :raises AssertionError: If `do_assertion is True and the distributions differ by more than the given tolerance.
             ValueError: if the type is unknown.
         """
         # iterate over types
@@ -210,7 +195,7 @@ class Comparison(Serializable):
                     # assume we have a PDF or CDF
                     elif callable(ph_stat):
 
-                        x = np.linspace(0, 2, 100)
+                        x = np.linspace(0, getattr(getattr(self, t), dist).quantile(0.99), 100)
 
                         y_ph = ph_stat(x)
                         y_ms = ms_stat(x)
@@ -223,14 +208,14 @@ class Comparison(Serializable):
                             plt.title(f"{stat.upper()}: {title}")
 
                             plt.show()
-
-                        diff = self.rel_diff(y_ms, y_ph).max()
+                        
+                        diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[1:].max()
 
                     else:
                         raise ValueError(f"Unknown type {type(ph_stat)}.")
 
                     if do_assertion:
-                        if not diff < tol:
+                        if not diff <= tol:
                             raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol}.")
 
                     plt.clf()

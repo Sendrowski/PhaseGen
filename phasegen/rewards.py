@@ -29,7 +29,21 @@ class Reward(ABC):
         return hash(self.__class__.__name__)
 
 
-class TreeHeightReward(Reward):
+class DefaultReward(Reward, ABC):
+    """
+    Default reward where all non-absorbing states have a reward of 1.
+    """
+    pass
+
+
+class NonDefaultReward(Reward, ABC):
+    """
+    Non-default reward where not all non-absorbing states have a reward of 1.
+    """
+    pass
+
+
+class TreeHeightReward(DefaultReward):
     """
     Reward based on tree height.
     """
@@ -49,7 +63,7 @@ class TreeHeightReward(Reward):
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
-class TotalBranchLengthReward(Reward):
+class TotalBranchLengthReward(NonDefaultReward):
     """
     Reward based on total branch length.
     """
@@ -74,7 +88,7 @@ class TotalBranchLengthReward(Reward):
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
-class SFSReward(Reward):
+class SFSReward(NonDefaultReward):
     """
     Reward based on Site Frequency Spectrum.
     """

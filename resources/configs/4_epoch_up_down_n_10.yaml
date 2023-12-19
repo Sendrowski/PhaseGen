@@ -12,6 +12,8 @@ comparisons:
     - ph
   tolerance:
     tree_height:
+      pdf: 0.03
+      cdf: 0.03
       mean: 0.01
       var: 0.01
     total_branch_length:

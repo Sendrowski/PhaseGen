@@ -2,7 +2,7 @@ name: build-phasegen
 channels:
   - conda-forge
 dependencies:
-  - python
+  - python=3.11
   - urllib3<2.0.0
   - pip
   - pip:

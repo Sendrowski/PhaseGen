@@ -18,7 +18,7 @@ class DemographyTestCase(TestCase):
         """
         Test creating migration rates from arrays for piecewise constant demography.
         """
-        d = pg.PiecewiseTimeHomogeneousDemography(
+        d = pg.PiecewiseConstantDemography(
             pop_sizes=[{0: 1}] * 2,
             migration_rates={
                 0: np.array([[0, 0.1], [0.3, 0]]),
@@ -41,7 +41,7 @@ class DemographyTestCase(TestCase):
         """
         Test creating migration rates from dicts for piecewise constant demography.
         """
-        d = pg.PiecewiseTimeHomogeneousDemography(
+        d = pg.PiecewiseConstantDemography(
             pop_sizes=dict(a={0: 1}, b={0: 1}),
             migration_rates={
                 ('a', 'b'): {0: 0.1, 1: 0.2},
@@ -64,7 +64,7 @@ class DemographyTestCase(TestCase):
         """
         Test plotting pop sizes of piecewise constant demography.
         """
-        d = pg.PiecewiseTimeHomogeneousDemography(
+        d = pg.PiecewiseConstantDemography(
             pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5})
         )
 
@@ -75,7 +75,7 @@ class DemographyTestCase(TestCase):
         """
         Test plotting migration rates of piecewise constant demography.
         """
-        d = pg.PiecewiseTimeHomogeneousDemography(
+        d = pg.PiecewiseConstantDemography(
             migration_rates={('a', 'b'): {0: 0.1, 1: 0.2}, ('a', 'c'): {0: 0.3, 1.5: 0.4}, ('b', 'a'): {0: 0.5}}
         )
 
@@ -86,7 +86,7 @@ class DemographyTestCase(TestCase):
         """
         Test creating constant demography from dict.
         """
-        d = pg.TimeHomogeneousDemography(
+        d = pg.ConstantDemography(
             pop_sizes=dict(a=1, b=2, c=3),
             migration_rates={('a', 'b'): 0.1, ('a', 'c'): 0.2, ('b', 'a'): 0.3}
         )
@@ -112,7 +112,7 @@ class DemographyTestCase(TestCase):
         """
         Test creating constant demography from array.
         """
-        d = pg.TimeHomogeneousDemography(
+        d = pg.ConstantDemography(
             pop_sizes=[1, 2],
             migration_rates=np.array([[0, 0.1], [0.3, 0]])
         )
@@ -132,7 +132,7 @@ class DemographyTestCase(TestCase):
         """
         Test creating constant demography from scalar.
         """
-        d = pg.TimeHomogeneousDemography(
+        d = pg.ConstantDemography(
             pop_sizes=1
         )
 
@@ -185,7 +185,7 @@ class DemographyTestCase(TestCase):
         Test constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.TimeHomogeneousDemography(
+            pg.ConstantDemography(
                 pop_sizes=dict(a=1, b=4, c=-2)
             )
 
@@ -196,7 +196,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseTimeHomogeneousDemography(
+            pg.PiecewiseConstantDemography(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: -3.5})
             )
 
@@ -207,7 +207,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseTimeHomogeneousDemography(
+            pg.PiecewiseConstantDemography(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 0, 2: 3.5})
             )
 
@@ -218,7 +218,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseTimeHomogeneousDemography(
+            pg.PiecewiseConstantDemography(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5}),
                 migration_rates={
                     ('a', 'b'): {0: 0.1, 1: 0.2},
@@ -234,7 +234,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if times is negative.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseTimeHomogeneousDemography(
+            pg.PiecewiseConstantDemography(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5}),
                 migration_rates={
                     ('a', 'b'): {0: 0.1, -1: 0.2},
@@ -245,9 +245,9 @@ class DemographyTestCase(TestCase):
 
         self.assertEqual(str(error.exception), "All times must not be negative.")
 
-    def test_piecewise_time_homogenous_demography_to_msprime(self):
+    def test_piecewise_constant_demography_to_msprime(self):
         """
-        Test converting piecewise time homogeneous demography to msprime.
+        Test converting piecewise constant demography to msprime.
         """
         d = pg.DiscretizedDemography(
             pop_sizes=pg.Demography.exponential_growth(x0=dict(a=10, b=20), growth_rate=dict(a=0.1, b=-2)),
@@ -268,8 +268,8 @@ class DemographyTestCase(TestCase):
         Test passing different population names to demography and n_lineages raises ValueError.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseTimeHomogeneousCoalescent(
-                demography=pg.PiecewiseTimeHomogeneousDemography(
+            pg.Coalescent(
+                demography=pg.PiecewiseConstantDemography(
                     pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}),
                 ),
                 n=dict(c=1, d=2)

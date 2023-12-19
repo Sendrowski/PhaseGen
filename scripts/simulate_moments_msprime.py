@@ -51,9 +51,9 @@ except NameError:
 
 import phasegen as pg
 
-ms = pg.MsprimeCoalescent(
+ms = pg._MsprimeCoalescent(
     n=n,
-    demography=pg.PiecewiseTimeHomogeneousDemography(
+    demography=pg.PiecewiseConstantDemography(
         pop_sizes=pop_sizes,
         times=times,
         migration_rates=migration_rates

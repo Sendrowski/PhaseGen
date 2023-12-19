@@ -33,7 +33,7 @@ class Demography(ABC):
     pop_names: List[str]
 
     #: Migration rates.
-    _migration_rates: Dict[Tuple[str, str], float]
+    _migration_rates: Dict[Tuple[str, str], Iterable[float]]
 
     def __init__(self):
         """
@@ -221,26 +221,6 @@ class Demography(ABC):
         return dict((p, (n for n in self._migration_rates[p])) for p in self._migration_rates)
 
     @abstractmethod
-    def get_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the coalescence rate.
-
-        :param t: Time at which to get the rate.
-        :return: Coalescence rate.
-        """
-        pass
-
-    @abstractmethod
-    def get_cum_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the cumulative coalescence rate.
-
-        :param t: Time at which to get the cumulative rate.
-        :return: Cumulative coalescence rate.
-        """
-        pass
-
-    @abstractmethod
     def to_msprime(self):
         """
         Convert the demographic scenario to an msprime demographic model.
@@ -249,8 +229,15 @@ class Demography(ABC):
         """
         pass
 
+    @abstractmethod
+    def _to_constant(self) -> 'ConstantDemography':
+        """
+        Convert to a time-homogeneous demographic scenario.
+        """
+        pass
 
-class PiecewiseTimeHomogeneousDemography(Demography):
+
+class PiecewiseConstantDemography(Demography):
     """
     Piecewise constant demographic scenario.
     """
@@ -348,13 +335,13 @@ class PiecewiseTimeHomogeneousDemography(Demography):
             raise ValueError('Population sizes must be positive at all times.')
 
         #: Times at which the population sizes change.
-        self._times: Iterable[float] = times
+        self._times: np.ndarray = times
 
         #: Population sizes at each time.
-        self._pop_sizes: Dict[str, Iterable[float]] = {p: rates[p] for p in self.pop_names}
+        self._pop_sizes: Dict[str, np.ndarray] = {p: rates[p] for p in self.pop_names}
 
         #: Migration rates at each time.
-        self._migration_rates: Dict[Tuple[str, str], Iterable[float]] = {p: rates[p] for p in migration_rates}
+        self._migration_rates: Dict[Tuple[str, str], np.ndarray] = {p: rates[p] for p in migration_rates}
 
         #: Number of epochs.
         self.n_epochs: int | None = len(self._times)
@@ -392,41 +379,15 @@ class PiecewiseTimeHomogeneousDemography(Demography):
 
         return times_all, dict(new_rates)
 
-    def get_rate(self, t: float) -> Dict[str, float]:
+    def _to_constant(self) -> 'ConstantDemography':
         """
-        Get the coalescence rate per population.
-
-        :param t: Time at which to get the rate.
-        :return: Coalescence rate.
+        Convert to a time-homogeneous demographic scenario by taking the
+        population sizes and migration rates at time 0.
         """
-        # obtain index of previous epoch
-        i = np.sum(np.array(self._times) <= t) - 1
-
-        # return rate
-        return {p: 1 / next(islice(self.pop_sizes[p], i, None)) for p in self.pop_names}
-
-    def get_cum_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the cumulative coalescence rate per population.
-
-        :param t: Time at which to get the cumulative rate.
-        :return: Cumulative coalescence rate.
-        """
-        # obtain index of previous epoch
-        i = np.sum(np.array(self._times) <= t) - 1
-
-        if i <= 0:
-            return {p: t / next(self.pop_sizes[p]) for p in self.pop_names}
-
-        rate = dict()
-        for p in self.pop_names:
-            # get population sizes up to i + 1
-            pop_sizes = np.array(list(islice(self.pop_sizes[p], i + 1)))
-            time = next(islice(self.times, i))
-
-            rate[p] = np.dot(self._times[:i], 1 / pop_sizes[:i]) + (t - time) / pop_sizes[i]
-
-        return rate
+        return ConstantDemography(
+            pop_sizes={p: next(self.pop_sizes[p]) for p in self.pop_names},
+            migration_rates={p: next(self.migration_rates[p]) for p in self._migration_rates}
+        )
 
     def to_msprime(
             self,
@@ -479,7 +440,7 @@ class PiecewiseTimeHomogeneousDemography(Demography):
         return d
 
 
-class TimeHomogeneousDemography(PiecewiseTimeHomogeneousDemography):
+class ConstantDemography(PiecewiseConstantDemography):
     """
     Demographic scenario that is constant over time.
     """
@@ -524,26 +485,8 @@ class TimeHomogeneousDemography(PiecewiseTimeHomogeneousDemography):
             migration_rates=migration_rates
         )
 
-    def get_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the coalescence rate per population.
 
-        :param t: Time at which to get the rate.
-        :return: Coalescence rate.
-        """
-        return {p: 1 / self.pop_size[p] for p in self.pop_names}
-
-    def get_cum_rate(self, t: float) -> Dict[str, float]:
-        """
-        Get the cumulative coalescence rate per population.
-
-        :param t: Time at which to get the cumulative rate.
-        :return: Cumulative coalescence rate.
-        """
-        return {p: t / self.pop_size[p] for p in self.pop_names}
-
-
-class DiscretizedDemography(PiecewiseTimeHomogeneousDemography):
+class DiscretizedDemography(PiecewiseConstantDemography):
     """
     Discretized demographic scenario.
     """
@@ -618,7 +561,7 @@ class DiscretizedDemography(PiecewiseTimeHomogeneousDemography):
 
         :return: Population sizes.
         """
-        pop_sizes: Dict[str, Iterable[float]] = {}
+        pop_sizes = {}
 
         # obtain epoch population sizes generator
         for pop in self.pop_names:

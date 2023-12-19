@@ -89,38 +89,34 @@ from .serialization import NumpyArrayHandler
 # register custom json handlers
 jsonpickle.handlers.registry.register(np.ndarray, NumpyArrayHandler)
 
-from .distributions import TimeHomogeneousDistribution, PiecewiseTimeHomogeneousDistribution
+from .distributions import PhaseTypeDistribution
 
-from .distributions import Coalescent, TimeHomogeneousCoalescent, PiecewiseTimeHomogeneousCoalescent, MsprimeCoalescent
+from .distributions import Coalescent
 
-from .demography import Demography, PiecewiseTimeHomogeneousDemography, DiscretizedDemography, \
-    TimeHomogeneousDemography
+from .demography import Demography, PiecewiseConstantDemography, DiscretizedDemography, \
+    ConstantDemography
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 
 from .state_space import DefaultStateSpace, BlockCountingStateSpace
 
-from.rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward
+from .rewards import Reward, DefaultReward, NonDefaultReward, TreeHeightReward, TotalBranchLengthReward, SFSReward
 
 from .spectrum import SFS, SFS2
 
 from .inference import Inference
 
-from.population import PopConfig
+from .population import PopConfig
 
 from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
 
 __all__ = [
-    'TimeHomogeneousDistribution',
-    'PiecewiseTimeHomogeneousDistribution',
+    'PhaseTypeDistribution',
     'Coalescent',
-    'TimeHomogeneousCoalescent',
-    'PiecewiseTimeHomogeneousCoalescent',
-    'MsprimeCoalescent',
     'Demography',
-    'PiecewiseTimeHomogeneousDemography',
+    'PiecewiseConstantDemography',
     'DiscretizedDemography',
-    'TimeHomogeneousDemography',
+    'ConstantDemography',
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',

@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
@@ -7,8 +8,10 @@ import numpy as np
 from scipy.linalg import expm, inv
 
 from .coalescent_models import CoalescentModel
-from .demography import TimeHomogeneousDemography
+from .demography import ConstantDemography
 from .population import PopConfig
+
+logger = logging.getLogger('phasegen')
 
 
 class StateSpace(ABC):
@@ -20,7 +23,7 @@ class StateSpace(ABC):
             self,
             pop_config: PopConfig,
             model: CoalescentModel,
-            demography: TimeHomogeneousDemography
+            demography: ConstantDemography
     ):
         """
         Create a rate matrix.
@@ -30,6 +33,9 @@ class StateSpace(ABC):
         :param demography: Time homogeneous demography (we can only construct a state space
             for a fixed demography).
         """
+        #: Logger
+        self._logger = logger.getChild(self.__class__.__name__)
+
         #: Coalescent model
         self.model: CoalescentModel = model
 
@@ -37,10 +43,15 @@ class StateSpace(ABC):
         self.pop_config: PopConfig = pop_config
 
         # we first determine the non-zero states by using default values for the demography
-        self.demography = TimeHomogeneousDemography(
+        self.demography = ConstantDemography(
             pop_sizes={p: 1 for p in demography.pop_names},
             migration_rates={(p, q): 1 for p, q in product(demography.pop_names, demography.pop_names)}
         )
+
+        # warn if state space is large
+        if self.k > 2000:
+            self._logger.warning(f'State space is large ({self.k} states). Note that the computation time'
+                                 f'increase exponentially with the number of states.')
 
         # get the rate matrix for the default demography
         default_rate_matrix = np.fromfunction(
@@ -54,7 +65,7 @@ class StateSpace(ABC):
         self._non_zero_states = np.where(default_rate_matrix != 0)
 
         #: Demography
-        self.demography: TimeHomogeneousDemography = demography
+        self.demography: ConstantDemography = demography
 
     @cached_property
     @abstractmethod
@@ -114,9 +125,11 @@ class StateSpace(ABC):
         # obtain intensity matrix
         return self._get_rate_matrix()
 
-    def update_demography(self, demography: TimeHomogeneousDemography):
+    def update_demography(self, demography: ConstantDemography):
         """
         Update the demography.
+
+        TODO check for equality of demographies
 
         :param demography: Demography.
         :return: State space.
@@ -128,6 +141,13 @@ class StateSpace(ABC):
         try:
             # noinspection all
             del self.S
+        except AttributeError:
+            pass
+
+        # try to delete transition matrix cache
+        try:
+            # noinspection all
+            del self.T
         except AttributeError:
             pass
 

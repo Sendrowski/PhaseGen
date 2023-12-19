@@ -115,7 +115,7 @@ class Visualization:
     @clear_show_save
     def plot_rates(
             ax: plt.Axes,
-            times: np.ndarray[float] | List[float],
+            times: List[float],
             rates: Dict[str, np.ndarray],
             xlabel: str = 't',
             ylabel: str = '$N_e(t)$',
@@ -130,7 +130,6 @@ class Visualization:
         :param ax: Axes to plot on
         :param times: Dictionary of times
         :param rates: Dictionary of rates
-        :param t_max: Maximum time to plot
         :param xlabel: x label
         :param ylabel: y label
         :param file: File to save plot to

@@ -18,7 +18,7 @@ class RewardsTestCase(TestCase):
         """
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=4),
-            demography=pg.TimeHomogeneousDemography(),
+            demography=pg.ConstantDemography(),
             model=pg.StandardCoalescent()
         )
 

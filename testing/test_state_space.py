@@ -19,7 +19,7 @@ class StateSpaceTestCase(TestCase):
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=4),
             model=pg.StandardCoalescent(),
-            demography=pg.TimeHomogeneousDemography()
+            demography=pg.ConstantDemography()
         )
 
         testing.assert_array_equal(s.S, np.array([[-6., 6., 0., 0.],
@@ -35,7 +35,7 @@ class StateSpaceTestCase(TestCase):
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=3),
             model=pg.StandardCoalescent(),
-            demography=pg.TimeHomogeneousDemography(
+            demography=pg.ConstantDemography(
                 pop_sizes=[1, 2]
             )
         )

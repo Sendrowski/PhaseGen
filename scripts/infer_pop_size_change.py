@@ -14,11 +14,10 @@ def get_dist(t: float, Ne: float) -> pg.Coalescent:
     :param Ne: New population size at time ``t``.
     :return: Coalescent distribution.
     """
-    return pg.PiecewiseTimeHomogeneousCoalescent(
+    return pg.Coalescent(
         n=10,
-        demography=pg.PiecewiseTimeHomogeneousDemography(
-            pop_sizes=[1, Ne],
-            times=[0, t]
+        demography=pg.PiecewiseConstantDemography(
+            pop_sizes={0: 1, t: Ne}
         ),
         pbar=False,
         parallelize=False
@@ -59,6 +58,6 @@ s = Spectra.from_spectra(dict(
 
 s.plot()
 
-inf.dist_inferred.demography.plot(t_max=inf.dist_inferred.tree_height.mean)
+inf.dist_inferred.demography.plot_pop_sizes(t_max=inf.dist_inferred.tree_height.quantile(0.99))
 
 pass

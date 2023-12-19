@@ -1,3 +1,4 @@
+import itertools
 from unittest import TestCase
 
 import matplotlib.pyplot as plt
@@ -6,6 +7,7 @@ from scipy.stats import norm, expon, rv_continuous
 from statsmodels.distributions.edgeworth import cumulant_from_moments, ExpandedNormal
 from statsmodels.stats.moment_helpers import mnc2cum
 
+import phasegen as pg
 from phasegen.distributions import _EdgeworthExpansion
 from phasegen.distributions import _GramCharlierExpansion
 
@@ -14,6 +16,60 @@ class DistributionTestCase(TestCase):
     """
     Test distributions.
     """
+
+    @staticmethod
+    def get_test_coalescent() -> pg.Coalescent:
+        """
+        Get a test coalescent.
+        """
+        return pg.Coalescent(
+            demography=pg.PiecewiseConstantDemography(
+                pop_sizes=dict(
+                    pop_0={0: 1, 0.2: 5},
+                    pop_1={0: 0.4, 0.1: 3, 0.25: 0.3},
+                    pop_2={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 0.1},
+                    ('pop_1', 'pop_2'): {0: 0.2, 0.1: 0.3},
+                    ('pop_2', 'pop_0'): {0: 0.4, 0.1: 0.5, 0.2: 0.6},
+                    ('pop_0', 'pop_2'): {0: 0.7, 0.1: 0.8, 0.2: 0.9, 0.3: 1},
+                    ('pop_2', 'pop_1'): {0: 0.1}
+                }
+            ),
+            n=pg.PopConfig(dict(
+                pop_0=1,
+                pop_1=2,
+                pop_2=3
+            ))
+        )
+
+    def test_quantile_raises_error_below_0(self):
+        """
+        Test quantile function raises error when quantile is below 0.
+        """
+        with self.assertRaises(ValueError) as context:
+            self.get_test_coalescent().tree_height.quantile(-0.1)
+
+        self.assertEqual(str(context.exception), 'Quantile must be between 0 and 1.')
+
+    def test_quantile_raises_error_above_1(self):
+        """
+        Test quantile function raises error when quantile is above 1.
+        """
+        with self.assertRaises(ValueError) as context:
+            self.get_test_coalescent().tree_height.quantile(1.1)
+
+        self.assertEqual(str(context.exception), 'Quantile must be between 0 and 1.')
+
+    def test_quantile(self):
+        """
+        Test quantile function.
+        """
+        dist = self.get_test_coalescent().tree_height
+
+        for (quantile, tol) in itertools.product([0, 0.01, 0.5, 0.99, 1], [1e-1, 1e-5, 1e-10]):
+            self.assertAlmostEqual(dist.cdf(dist.quantile(quantile, tol=tol)), quantile, delta=tol)
 
     @staticmethod
     def test_expand_exponential_gram_charlier():

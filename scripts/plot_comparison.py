@@ -37,7 +37,7 @@ except NameError:
     num_replicates = 100000
     n_threads = 100
     parallelize = True
-    models = ['ph_const', 'ms']
+    models = ['ph', 'ms']
     type = 'total_branch_length'
     dist = 'plot_pdf'
     out = "scratch/test_comp.png"

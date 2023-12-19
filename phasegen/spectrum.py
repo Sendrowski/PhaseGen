@@ -221,16 +221,12 @@ class SFS2(Iterable):
     def copy(self) -> 'SFS2':
         """
         Copy SFS.
-        
-        :return: 
         """
         return copy.deepcopy(self)
 
     def symmetrize(self) -> 'SFS2':
         """
         Symmetric SFS.
-        
-        :return:
         """
         return SFS2((self.data + self.data.T) / 2, folded=self.folded)
 
