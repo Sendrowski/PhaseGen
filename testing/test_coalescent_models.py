@@ -52,7 +52,7 @@ class CoalescentModelTestCase(TestCase):
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=5),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
-            demography=pg.ConstantDemography()
+            epoch=pg.Epoch()
         )
 
         np.testing.assert_array_almost_equal(s.S[:-1, :-1], np.array([
@@ -115,13 +115,13 @@ class CoalescentModelTestCase(TestCase):
         c = pg.Coalescent(
             n=pg.PopConfig(n=n),
             model=pg.BetaCoalescent(alpha=1.1),
-            demography=pg.ConstantDemography()
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1}})
         )
 
         c2 = pg.Coalescent(
             n=pg.PopConfig(n=n),
             model=pg.StandardCoalescent(),
-            demography=pg.ConstantDemography()
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1}})
         )
 
         # many more positive entries for beta coalescent

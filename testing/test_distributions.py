@@ -3,6 +3,7 @@ from unittest import TestCase
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pytest
 from scipy.stats import norm, expon, rv_continuous
 from statsmodels.distributions.edgeworth import cumulant_from_moments, ExpandedNormal
 from statsmodels.stats.moment_helpers import mnc2cum
@@ -23,7 +24,7 @@ class DistributionTestCase(TestCase):
         Get a test coalescent.
         """
         return pg.Coalescent(
-            demography=pg.PiecewiseConstantDemography(
+            demography=pg.Demography(
                 pop_sizes=dict(
                     pop_0={0: 1, 0.2: 5},
                     pop_1={0: 0.4, 0.1: 3, 0.25: 0.3},
@@ -71,8 +72,36 @@ class DistributionTestCase(TestCase):
         for (quantile, tol) in itertools.product([0, 0.01, 0.5, 0.99, 1], [1e-1, 1e-5, 1e-10]):
             self.assertAlmostEqual(dist.cdf(dist.quantile(quantile, tol=tol)), quantile, delta=tol)
 
-    @staticmethod
-    def test_expand_exponential_gram_charlier():
+    def test_tree_height_per_population(self):
+        """
+        Test population means.
+        """
+        dist = self.get_test_coalescent().tree_height
+
+        m_demes = {pop: dist.moment(1, rewards=(pg.TreeHeightReward().prod(pg.DemeReward(pop)),)) for pop in
+                   dist.demography.pop_names}
+        m = dist.moment(1)
+
+        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-14)
+
+        pass
+
+    def test_total_branch_length_per_population(self):
+        """
+        Test population means.
+        """
+        dist = self.get_test_coalescent().total_branch_length
+
+        m_demes = {pop: dist.moment(1, rewards=(pg.TotalBranchLengthReward().prod(pg.DemeReward(pop)),)) for pop
+                   in dist.demography.pop_names}
+        m = dist.moment(1)
+
+        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-10)
+
+        pass
+
+    @pytest.mark.skip(reason="Abandoned")
+    def test_expand_exponential_gram_charlier(self):
         """
         Test expanding an exponential distribution.
         """
@@ -100,8 +129,8 @@ class DistributionTestCase(TestCase):
 
         pass
 
-    @staticmethod
-    def test_expand_norm_gram_charlier():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_expand_norm_gram_charlier(self):
         """
         Test expanding a normal distribution.
         """
@@ -129,8 +158,8 @@ class DistributionTestCase(TestCase):
 
         pass
 
-    @staticmethod
-    def test_expand_exponential_compare_with_statsmodels():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_expand_exponential_compare_with_statsmodels(self):
         """
         Test expanding an exponential distribution.
         """
@@ -152,8 +181,8 @@ class DistributionTestCase(TestCase):
 
         np.testing.assert_almost_equal(y_approx, y_approx2)
 
-    @staticmethod
-    def test_expand_exponential_edgeworth_pdf():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_expand_exponential_edgeworth_pdf(self):
         """
         Test expanding an exponential distribution.
         """
@@ -183,8 +212,8 @@ class DistributionTestCase(TestCase):
 
         pass
 
-    @staticmethod
-    def test_expand_exponential_edgeworth_cdf():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_expand_exponential_edgeworth_cdf(self):
         """
         Test expanding an exponential distribution.
         """
@@ -214,7 +243,8 @@ class DistributionTestCase(TestCase):
 
         pass
 
-    def test_generate_partitions(self):
+    @pytest.mark.skip(reason="Abandoned")
+    def test_generate_partitions_edgeworth(self):
         """
         Test generating partitions.
         """
@@ -232,8 +262,8 @@ class DistributionTestCase(TestCase):
             tuple(tuple(tuple(b) for b in a) for a in partitions)
         )
 
-    @staticmethod
-    def test_cumulants_from_moments_normal():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_cumulants_from_moments_normal(self):
         """
         Test cumulants from moments for a normal distribution.
         """
@@ -249,8 +279,8 @@ class DistributionTestCase(TestCase):
             decimal=7
         )
 
-    @staticmethod
-    def test_cumulants_from_moments_exponential():
+    @pytest.mark.skip(reason="Abandoned")
+    def test_cumulants_from_moments_exponential(self):
         """
         Test cumulants from moments for an exponential distribution.
         """

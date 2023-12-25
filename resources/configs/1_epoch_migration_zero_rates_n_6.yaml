@@ -3,9 +3,10 @@ n:
   pop_1: 0
 num_replicates: 1000000
 migration_rates:
-  0:
-    - [ 0, 0 ]
-    - [ 0, 0 ]
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
+    0: 0
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 0
 pop_sizes:
   pop_0:
     0: 1
@@ -13,8 +14,6 @@ pop_sizes:
     0: 1
 model: standard
 comparisons:
-  types:
-    - ph
   tolerance:
     tree_height:
       pdf: 1

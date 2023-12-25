@@ -6,8 +6,6 @@ pop_sizes:
     1: 5
 model: standard
 comparisons:
-  types:
-    - ph
   tolerance:
     tree_height:
       pdf: 0.02

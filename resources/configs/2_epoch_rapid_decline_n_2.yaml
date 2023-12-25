@@ -6,8 +6,6 @@ pop_sizes:
     1: 0.001
 model: standard
 comparisons:
-  types:
-    - ph
   tolerance:
     # hard to compare PDF and CDF here
     tree_height:

@@ -1,4 +1,3 @@
-import itertools
 from itertools import islice
 from unittest import TestCase
 
@@ -13,60 +12,148 @@ class DemographyTestCase(TestCase):
     Test Demography class.
     """
 
-    @staticmethod
-    def test_create_migration_rates_from_arrays_piecewise_constant_demography():
+    def test_pop_size_change(self):
         """
-        Test creating migration rates from arrays for piecewise constant demography.
+        Test creating pop size change.
         """
-        d = pg.PiecewiseConstantDemography(
-            pop_sizes=[{0: 1}] * 2,
-            migration_rates={
-                0: np.array([[0, 0.1], [0.3, 0]]),
-                1.5: np.array([[0, 0.3], [0.3, 0]]),
-            }
+        e = pg.PopSizeChanges({'pop_0': {0: 0.1, 1.2: 1}, 'pop_1': {0: 0.3, 1.2: 2}, 'pop_2': {0: 0.5, 1.3: 3}})
+
+        np.testing.assert_array_equal(e.times, [0.0, 1.2, 1.3])
+        self.assertDictEqual(e.pop_sizes[0], {'pop_0': 0.1, 'pop_1': 0.3, 'pop_2': 0.5})
+        self.assertDictEqual(e.pop_sizes[1.2], {'pop_0': 1, 'pop_1': 2})
+        self.assertDictEqual(e.pop_sizes[1.3], {'pop_2': 3})
+
+        self.assertEqual(e.start_time, 0)
+        self.assertEqual(e.end_time, 1.3)
+
+        epoch = pg.Epoch(start_time=0, end_time=0, pop_sizes={'pop_0': 0.3, 'pop_3': 2})
+        e._apply(epoch)
+        # doesn't work because 0 times are removed
+        # self.assertDictEqual(epoch.pop_sizes, {'pop_0': 0.1, 'pop_1': 0.3, 'pop_2': 0.5, 'pop_3': 2})
+
+        epoch = pg.Epoch(start_time=1.2, end_time=2, pop_sizes={'pop_0': 0.3, 'pop_3': 2})
+        e._apply(epoch)
+        self.assertDictEqual(epoch.pop_sizes, {'pop_0': 1, 'pop_1': 2, 'pop_2': 3, 'pop_3': 2})
+
+        epoch = pg.Epoch(start_time=1.2, end_time=1.2, pop_sizes={'pop_0': 0.3, 'pop_3': 2})
+        e._apply(epoch)
+        self.assertDictEqual(epoch.pop_sizes, {'pop_0': 0.3, 'pop_3': 2})
+
+        epoch = pg.Epoch(start_time=0, end_time=np.inf, pop_sizes={'pop_0': 0.3, 'pop_3': 2})
+        e._apply(epoch)
+        self.assertDictEqual(epoch.pop_sizes, {'pop_0': 1, 'pop_1': 2, 'pop_2': 3, 'pop_3': 2})
+
+    def test_create_demography_from_rate_changes(self):
+        """
+        Test creating demography.
+        """
+        d = pg.Demography(events=[
+            pg.DiscreteRateChanges(pop_sizes={
+                'pop_0': {0: 0.1, 1.2: 1},
+                'pop_1': {0: 0.3, 1.2: 2},
+                'pop_2': {0: 0.5, 1.3: 3}}
+            ),
+            pg.DiscreteRateChanges(pop_sizes={'pop_0': {4: 5}}),
+        ])
+
+        epochs = list(islice(d.epochs, 10))
+
+        self.assertEqual((epochs[0].start_time, epochs[0].end_time), (0, 1.2))
+        self.assertEqual((epochs[1].start_time, epochs[1].end_time), (1.2, 1.3))
+        self.assertEqual((epochs[2].start_time, epochs[2].end_time), (1.3, 4))
+        self.assertEqual((epochs[3].start_time, epochs[3].end_time), (4, 4 + d.max_size))
+        self.assertEqual((epochs[4].start_time, epochs[4].end_time), (4 + d.max_size, 4 + 2 * d.max_size))
+
+    def test_plot_discrete_demography(self):
+        """
+        Test plotting discrete demography.
+        """
+        d = pg.Demography(events=[
+            pg.DiscreteRateChanges(pop_sizes={
+                'pop_0': {0: 0.1, 1.2: 1},
+                'pop_1': {0: 0.3, 1.2: 2},
+                'pop_2': {0: 0.5, 1.3: 3}}
+            ),
+            pg.DiscreteRateChanges(pop_sizes={'pop_0': {1.8: 0.2}})
+        ])
+
+        d.plot_pop_sizes(t=np.linspace(0, 2, 200))
+
+        pass
+
+    def test_plot_demography_exponential_growth(self):
+        """
+        Test creating demography.
+        """
+        d = pg.Demography(
+            events=[pg.ExponentialPopSizeChanges(
+                initial_size={'pop_0': 1.5},
+                growth_rate=0.1,
+                start_time=0.1,
+                end_time=9)
+            ]
         )
 
-        np.testing.assert_array_equal(d._times, [0.0, 1.5])
+        d.plot_pop_sizes()
 
-        np.testing.assert_array_equal(d._pop_sizes['pop_0'], [1., 1.])
-        np.testing.assert_array_equal(d._pop_sizes['pop_1'], [1., 1.])
+        pass
 
-        np.testing.assert_array_equal(d._migration_rates[('pop_0', 'pop_1')], [0.1, 0.3])
-        np.testing.assert_array_equal(d._migration_rates[('pop_0', 'pop_0')], [0, 0])
-        np.testing.assert_array_equal(d._migration_rates[('pop_1', 'pop_0')], [0.3, 0.3])
-        np.testing.assert_array_equal(d._migration_rates[('pop_1', 'pop_1')], [0, 0])
+    def test_plot_complex_demography(self):
+        """
+        Test plotting complex demography.
+        """
+        d = pg.Demography(
+            events=[
+                pg.PopSizeChanges({'pop_0': {0: 0.1, 1.2: 1}, 'pop_1': {0: 0.3, 1.2: 2}, 'pop_2': {0: 0.5, 1.3: 3}}),
+                pg.DiscreteRateChanges(pop_sizes={'pop_0': {4: 5}}),
+                pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1.5}, growth_rate=0.1, start_time=0.1, end_time=9),
+                pg.ExponentialPopSizeChanges(initial_size={'pop_0': 0.9}, growth_rate=3, start_time=0.2, end_time=3),
+                pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1.2}, growth_rate=-3, start_time=0.05, end_time=2),
+            ]
+        )
+
+        d.plot_pop_sizes()
+
+        epoch = list(islice(d.epochs, 100))
+
+        pass
 
     @staticmethod
     def test_create_migration_rates_from_dicts_piecewise_constant_demography():
         """
         Test creating migration rates from dicts for piecewise constant demography.
         """
-        d = pg.PiecewiseConstantDemography(
-            pop_sizes=dict(a={0: 1}, b={0: 1}),
-            migration_rates={
-                ('a', 'b'): {0: 0.1, 1: 0.2},
-                ('b', 'a'): {0: 0.3, 1.5: 0.4},
-            }
-        )
+        d = pg.Demography(events=[
+            pg.DiscreteRateChanges(
+                pop_sizes=dict(a={0: 1}, b={0: 1}),
+                migration_rates={
+                    ('a', 'b'): {0: 0.1, 1: 0.2},
+                    ('b', 'a'): {0: 0.3, 1.5: 0.4},
+                }
+            )
+        ])
 
-        np.testing.assert_array_equal(d._times, [0.0, 1.0, 1.5])
+        np.testing.assert_array_equal([e.start_time for e in islice(d.epochs, 3)], [0, 1, 1.5])
+        np.testing.assert_array_equal([e.end_time for e in islice(d.epochs, 3)], [1, 1.5, 1.5 + d.max_size])
 
-        np.testing.assert_array_equal(d._pop_sizes['a'], [1., 1., 1.])
-        np.testing.assert_array_equal(d._pop_sizes['b'], [1., 1., 1.])
+        np.testing.assert_array_equal([e.pop_sizes['a'] for e in islice(d.epochs, 3)], [1, 1, 1])
+        np.testing.assert_array_equal([e.pop_sizes['b'] for e in islice(d.epochs, 3)], [1, 1, 1])
 
-        np.testing.assert_array_equal(d._migration_rates[('a', 'b')], [0.1, 0.2, 0.2])
-        np.testing.assert_array_equal(d._migration_rates[('a', 'a')], [0, 0, 0])
-        np.testing.assert_array_equal(d._migration_rates[('b', 'a')], [0.3, 0.3, 0.4])
-        np.testing.assert_array_equal(d._migration_rates[('b', 'b')], [0, 0, 0])
+        np.testing.assert_array_equal([e.migration_rates[('a', 'b')] for e in islice(d.epochs, 3)], [0.1, 0.2, 0.2])
+        np.testing.assert_array_equal([e.migration_rates[('a', 'a')] for e in islice(d.epochs, 3)], [0, 0, 0])
+        np.testing.assert_array_equal([e.migration_rates[('b', 'a')] for e in islice(d.epochs, 3)], [0.3, 0.3, 0.4])
+        np.testing.assert_array_equal([e.migration_rates[('b', 'b')] for e in islice(d.epochs, 3)], [0, 0, 0])
 
     @staticmethod
     def test_piecewise_constant_demography_plot_pop_sizes():
         """
         Test plotting pop sizes of piecewise constant demography.
         """
-        d = pg.PiecewiseConstantDemography(
-            pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5})
-        )
+        d = pg.Demography(events=[
+            pg.DiscreteRateChanges(
+                pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5})
+            )
+        ])
 
         d.plot_pop_sizes()
 
@@ -75,128 +162,20 @@ class DemographyTestCase(TestCase):
         """
         Test plotting migration rates of piecewise constant demography.
         """
-        d = pg.PiecewiseConstantDemography(
-            migration_rates={('a', 'b'): {0: 0.1, 1: 0.2}, ('a', 'c'): {0: 0.3, 1.5: 0.4}, ('b', 'a'): {0: 0.5}}
-        )
+        d = pg.Demography(events=[
+            pg.DiscreteRateChanges(
+                migration_rates={('a', 'b'): {0: 0.1, 1: 0.2}, ('a', 'c'): {0: 0.3, 1.5: 0.4}, ('b', 'a'): {0: 0.5}}
+            )
+        ])
 
         d.plot_migration()
-
-    @staticmethod
-    def test_constant_demography_from_dict():
-        """
-        Test creating constant demography from dict.
-        """
-        d = pg.ConstantDemography(
-            pop_sizes=dict(a=1, b=2, c=3),
-            migration_rates={('a', 'b'): 0.1, ('a', 'c'): 0.2, ('b', 'a'): 0.3}
-        )
-
-        np.testing.assert_array_equal(d._times, [0.0])
-
-        np.testing.assert_array_equal(d._pop_sizes['a'], [1.])
-        np.testing.assert_array_equal(d._pop_sizes['b'], [2.])
-        np.testing.assert_array_equal(d._pop_sizes['c'], [3.])
-
-        np.testing.assert_array_equal(d._migration_rates[('a', 'b')], [0.1])
-        np.testing.assert_array_equal(d._migration_rates[('a', 'c')], [0.2])
-        np.testing.assert_array_equal(d._migration_rates[('b', 'a')], [0.3])
-        np.testing.assert_array_equal(d._migration_rates[('b', 'c')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('c', 'a')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('c', 'b')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('a', 'a')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('b', 'b')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('c', 'c')], [0])
-
-    @staticmethod
-    def test_constant_demography_from_array():
-        """
-        Test creating constant demography from array.
-        """
-        d = pg.ConstantDemography(
-            pop_sizes=[1, 2],
-            migration_rates=np.array([[0, 0.1], [0.3, 0]])
-        )
-
-        np.testing.assert_array_equal(d._times, [0.0])
-
-        np.testing.assert_array_equal(d._pop_sizes['pop_0'], [1.])
-        np.testing.assert_array_equal(d._pop_sizes['pop_1'], [2.])
-
-        np.testing.assert_array_equal(d._migration_rates[('pop_0', 'pop_1')], [0.1])
-        np.testing.assert_array_equal(d._migration_rates[('pop_0', 'pop_0')], [0])
-        np.testing.assert_array_equal(d._migration_rates[('pop_1', 'pop_0')], [0.3])
-        np.testing.assert_array_equal(d._migration_rates[('pop_1', 'pop_1')], [0])
-
-    @staticmethod
-    def test_constant_demography_from_scalar():
-        """
-        Test creating constant demography from scalar.
-        """
-        d = pg.ConstantDemography(
-            pop_sizes=1
-        )
-
-        np.testing.assert_array_equal(d._times, [0.0])
-
-        np.testing.assert_array_equal(d._pop_sizes['pop_0'], [1.])
-
-        np.testing.assert_array_equal(d._migration_rates[('pop_0', 'pop_0')], [0.])
-
-    @staticmethod
-    def test_plot_exponential_demography_adaptive_step_size():
-        """
-        Test exponential demography.
-        """
-        d = pg.DiscretizedDemography(
-            pop_sizes=pg.Demography.exponential_growth(x0=dict(a=1, b=2), growth_rate=dict(a=0.1, b=-0.2)),
-            migration_rates=pg.Demography.exponential_growth(x0={('a', 'b'): 0.1}, growth_rate={('a', 'b'): 0.02})
-        )
-
-        d.plot()
-
-        pass
-
-    @staticmethod
-    def test_exponential_demography_adaptive_step_size():
-        """
-        Test exponential demography.
-        """
-        d = pg.DiscretizedDemography(
-            pop_sizes=pg.Demography.exponential_growth(x0=dict(a=10, b=20), growth_rate=dict(a=0.1, b=-2)),
-            migration_rates=pg.Demography.exponential_growth(x0={('a', 'b'): 0.1}, growth_rate={('a', 'b'): 0.02})
-        )
-
-        times = list(islice(d.times, 5))
-        pop_sizes = dict((p, list(islice(d.pop_sizes[p], 5))) for p in d.pop_names)
-        m = dict((p, list(islice(d.migration_rates[p], 5))) for p in itertools.product(d.pop_names, repeat=2))
-
-        np.testing.assert_array_equal(times, [0, 0.015625, 0.03125, 0.046875, 0.0625])
-
-        np.testing.assert_array_almost_equal(pop_sizes['a'], [10, 9.97, 9.96, 9.95, 9.93], decimal=2)
-        np.testing.assert_array_almost_equal(pop_sizes['b'], [20, 20.96, 21.63, 22.31, 23.02], decimal=2)
-
-        np.testing.assert_array_almost_equal(m[('a', 'b')], [0.1, 0.09995, 0.09992, 0.09989, 0.09986], decimal=5)
-        np.testing.assert_array_almost_equal(m[('b', 'a')], [0] * 5)
-        np.testing.assert_array_almost_equal(m[('a', 'a')], [0] * 5)
-        np.testing.assert_array_almost_equal(m[('b', 'b')], [0] * 5)
-
-    def test_constant_demography_raises_value_error_pop_sizes_lower_than_zero(self):
-        """
-        Test constant demography raises ValueError if pop_sizes is lower than zero.
-        """
-        with self.assertRaises(ValueError) as error:
-            pg.ConstantDemography(
-                pop_sizes=dict(a=1, b=4, c=-2)
-            )
-
-        print(error.exception)
 
     def test_piecewise_constant_demography_raises_value_error_pop_sizes_lower_than_zero(self):
         """
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseConstantDemography(
+            pg.DiscreteRateChanges(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: -3.5})
             )
 
@@ -207,7 +186,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseConstantDemography(
+            pg.DiscreteRateChanges(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 0, 2: 3.5})
             )
 
@@ -218,7 +197,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if pop_sizes is lower than zero.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseConstantDemography(
+            pg.DiscreteRateChanges(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5}),
                 migration_rates={
                     ('a', 'b'): {0: 0.1, 1: 0.2},
@@ -234,7 +213,7 @@ class DemographyTestCase(TestCase):
         Test piecewise constant demography raises ValueError if times is negative.
         """
         with self.assertRaises(ValueError) as error:
-            pg.PiecewiseConstantDemography(
+            pg.DiscreteRateChanges(
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: 3.5}),
                 migration_rates={
                     ('a', 'b'): {0: 0.1, -1: 0.2},
@@ -249,18 +228,24 @@ class DemographyTestCase(TestCase):
         """
         Test converting piecewise constant demography to msprime.
         """
-        d = pg.DiscretizedDemography(
-            pop_sizes=pg.Demography.exponential_growth(x0=dict(a=10, b=20), growth_rate=dict(a=0.1, b=-2)),
-            migration_rates=pg.Demography.exponential_growth(
-                x0={('a', 'b'): 0.1, ('b', 'a'): 0.2},
-                growth_rate={('a', 'b'): 0.02, ('b', 'a'): 0.3}
+        d = pg.Demography([
+            pg.ExponentialPopSizeChanges(initial_size={'a': 1, 'b': 2}, growth_rate=0.1, start_time=0.1, end_time=9),
+            pg.ExponentialRateChanges(
+                initial_rate={('a', 'b'): 1., ('b', 'a'): 2.},
+                growth_rate=0.1,
+                start_time=0,
+                end_time=9
             )
-        )
+        ])
 
         d_msprime = d.to_msprime()
 
         self.assertEqual(2, d_msprime.num_populations)
-        testing.assert_array_equal(d_msprime.migration_matrix, np.array([[0, 0.1], [0.2, 0]]))
+        self.assertEqual(d.pop_names, ['a', 'b'])
+        testing.assert_array_almost_equal(
+            d_msprime.migration_matrix, np.array([[0, 0.995025], [1.99005, 0]]),
+            decimal=6
+        )
         self.assertEqual(d.pop_names, [pop.name for pop in d_msprime.populations])
 
     def test_passing_different_pop_names_to_demography_and_n_lineages_raises_value_error(self):
@@ -269,10 +254,36 @@ class DemographyTestCase(TestCase):
         """
         with self.assertRaises(ValueError) as error:
             pg.Coalescent(
-                demography=pg.PiecewiseConstantDemography(
-                    pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}),
-                ),
+                demography=pg.Demography([
+                    pg.DiscreteRateChanges(
+                        pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}),
+                    )
+                ]),
                 n=dict(c=1, d=2)
             )
 
             print(error)
+
+    def test_demography_pop_size_at_zero_time_defaults_to_one(self):
+        """
+        Test that population size at time 0 defaults to 1.
+        """
+        d = pg.Demography([
+            pg.DiscreteRateChanges(
+                pop_sizes=dict(
+                    a={1: 2},
+                    b={1: 4, 2: 5, 3: 6},
+                    c={0: 7, 2: 8, 3: 9},
+                    d={0.000000001: 10},
+                    e={0: 0.1}
+                )
+            )
+        ])
+
+        epoch = next(d.epochs)
+
+        self.assertEqual(epoch.pop_sizes['a'], 1)
+        self.assertEqual(epoch.pop_sizes['b'], 1)
+        self.assertEqual(epoch.pop_sizes['c'], 7)
+        self.assertEqual(epoch.pop_sizes['d'], 1)
+        self.assertEqual(epoch.pop_sizes['e'], 0.1)

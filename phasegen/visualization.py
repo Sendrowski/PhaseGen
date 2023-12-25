@@ -109,6 +109,9 @@ class Visualization:
         # add title
         ax.set_title(title)
 
+        # remove margins
+        plt.margins(x=0)
+
         return plt.gca()
 
     @staticmethod

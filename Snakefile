@@ -71,4 +71,6 @@ rule generate_requirements_poetry:
             poetry export --with dev -f requirements.txt --without-hashes -o {output.testing}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.testing_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.docs}
+            mamba env update -f envs/dev.yaml
+            mamba env update -f envs/base.yaml
         """

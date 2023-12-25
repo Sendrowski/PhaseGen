@@ -3,36 +3,39 @@ n:
   pop_1: 2
   pop_2: 2
 num_replicates: 1000000
-record_migration: true
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 3
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 4
   !!python/tuple [ 'pop_0', 'pop_2' ]:
     0: 1
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 4
+  !!python/tuple [ 'pop_1', 'pop_2' ]:
+    0: 10
   !!python/tuple [ 'pop_2', 'pop_0' ]:
     0: 15
-  !!python/tuple [ 'pop_1', 'pop_2' ]:
-    0: 6
   !!python/tuple [ 'pop_2', 'pop_1' ]:
-    0: 10
+    0: 6
 pop_sizes:
   pop_0:
     0: 1.5
+    0.3: 2.4
+    1.1: 0.3
   pop_1:
     0: 0.5
+    0.1: 0.6
+    0.45: 0.7
   pop_2:
-    0: 1
-model: standard
+    0: 0.02
+    1: 0.01
+    2: 1.4
+model: beta
+alpha: 1.5
 comparisons:
   tolerance:
     tree_height:
-      demes:
-        mean: 0.01
-        var: 0.02
       pdf: 0.01
-      cdf: 0.3
+      cdf: 0.2
       mean: 0.01
       var: 0.02
     total_branch_length:

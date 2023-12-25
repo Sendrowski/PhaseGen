@@ -9,7 +9,7 @@ __date__ = "2023-03-11"
 try:
     import sys
 
-    # necessary to import dfe module
+    # necessary to import local module
     sys.path.append('.')
 
     testing = False

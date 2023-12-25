@@ -1,15 +1,16 @@
-n: 5
+n: 2
 num_replicates: 1000000
 pop_sizes:
   pop_0:
     0: 1
-    1: 0.001
-model: standard
+model: dirac
+psi: 0.5
+c: 0
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.1
-      cdf: 2
+      pdf: 0.02
+      cdf: 0.02
       mean: 0.01
       var: 0.01
     total_branch_length:
@@ -18,4 +19,4 @@ comparisons:
     sfs:
       mean: 0.01
       cov: 0.05
-      corr: 0.03
+      corr: 0.02

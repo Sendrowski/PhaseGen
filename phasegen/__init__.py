@@ -93,30 +93,73 @@ from .distributions import PhaseTypeDistribution
 
 from .distributions import Coalescent
 
-from .demography import Demography, PiecewiseConstantDemography, DiscretizedDemography, \
-    ConstantDemography
+from .demography import (
+    Demography,
+    Epoch,
+    DiscreteRateChanges,
+    PopSizeChanges,
+    PopSizeChange,
+    MigrationRateChanges,
+    MigrationRateChange,
+    DiscretizedRateChanges,
+    ExponentialPopSizeChanges,
+    ExponentialRateChanges
+)
 
-from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
+from .models import (
+    CoalescentModel,
+    StandardCoalescent,
+    BetaCoalescent,
+    DiracCoalescent
+)
 
-from .state_space import DefaultStateSpace, BlockCountingStateSpace
+from .state_space import (
+    DefaultStateSpace,
+    BlockCountingStateSpace
+)
 
-from .rewards import Reward, DefaultReward, NonDefaultReward, TreeHeightReward, TotalBranchLengthReward, SFSReward
+from .rewards import (
+    Reward,
+    DefaultReward,
+    NonDefaultReward,
+    TreeHeightReward,
+    TotalBranchLengthReward,
+    SFSReward,
+    CustomReward,
+    ProductReward,
+    DemeReward
+)
 
-from .spectrum import SFS, SFS2
+from .spectrum import (
+    SFS,
+    SFS2
+)
 
 from .inference import Inference
 
 from .population import PopConfig
 
-from .norms import LNorm, L1Norm, L2Norm, LInfNorm, PoissonLikelihood
+from .norms import (
+    LNorm,
+    L1Norm,
+    L2Norm,
+    LInfNorm,
+    PoissonLikelihood
+)
 
 __all__ = [
     'PhaseTypeDistribution',
     'Coalescent',
     'Demography',
-    'PiecewiseConstantDemography',
-    'DiscretizedDemography',
-    'ConstantDemography',
+    'Epoch',
+    'DiscreteRateChanges',
+    'PopSizeChanges',
+    'PopSizeChange',
+    'MigrationRateChanges',
+    'MigrationRateChange',
+    'ExponentialPopSizeChanges',
+    'ExponentialRateChanges',
+    'Epoch',
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',
@@ -132,6 +175,9 @@ __all__ = [
     'TreeHeightReward',
     'TotalBranchLengthReward',
     'SFSReward',
+    'CustomReward',
+    'ProductReward',
+    'DemeReward',
     'DefaultStateSpace',
     'BlockCountingStateSpace',
     'CoalescentModel',

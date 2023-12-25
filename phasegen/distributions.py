@@ -1,32 +1,43 @@
 import logging
 from abc import ABC, abstractmethod
 from functools import cached_property, cache
-from itertools import chain, islice
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Dict, Iterator
+from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable
 
-import msprime as ms
 import numpy as np
 import tskit
 from matplotlib import pyplot as plt
-from msprime import AncestryModel
 from multiprocess import Pool
 from numpy.polynomial.hermite_e import HermiteE
 from scipy import special
-from scipy.linalg import expm
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
 from tqdm import tqdm
 
-from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
-from .demography import Demography, ConstantDemography
+from .demography import Demography, Epoch
+from .models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .population import PopConfig
-from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DefaultReward
+from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
+
+
+def expm(m: np.ndarray) -> np.ndarray:
+    """
+    Compute the matrix exponential using TensorFlow. This is because scipy.linalg.expm sometimes produces
+    erroneous results for large matrices (see https://github.com/scipy/scipy/issues/18086).
+
+    TODO remove this function once the issue is resolved in scipy.
+
+    :param m: Matrix
+    :return: Matrix exponential
+    """
+    import tensorflow as tf
+
+    return tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy()
 
 
 def _parallelize(
@@ -74,7 +85,7 @@ class _ProbabilityDistribution(ABC):
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self):
+    def _touch(self):
         """
         Touch all cached properties.
         """
@@ -233,15 +244,15 @@ class PhaseTypeDistribution(_MomentAwareDistribution):
     Phase-type distribution for a piecewise time-homogenous process.
     """
 
-    #: Maximum number iterations when iterating to convergence in the last epoch
-    max_iter = 100
-
     def __init__(
             self,
             pop_config: PopConfig,
             state_space: StateSpace,
-            demography: Demography = ConstantDemography(),
+            demography: Demography = Demography(),
             reward: Reward = TreeHeightReward(),
+            max_iter: int = 100,
+            rtol: float = 1e-9,
+            atol: float = 1e-16
     ):
         """
         Initialize the distribution.
@@ -250,6 +261,10 @@ class PhaseTypeDistribution(_MomentAwareDistribution):
         :param state_space: The state space.
         :param demography: The demography.
         :param reward: The reward.
+        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+            when calculating the moments of the distribution.
+        :param rtol: Relative tolerance for convergence when determining the moments of the distribution.
+        :param atol: Absolute tolerance for convergence when determining the moments of the distribution.
         """
         super().__init__()
 
@@ -264,6 +279,16 @@ class PhaseTypeDistribution(_MomentAwareDistribution):
 
         #: Demography
         self.demography: Demography = demography
+
+        #: Maximum number of iterations when iterating to convergence in the last epoch
+        #: when calculating the moments of the distribution.
+        self.max_iter: int = max_iter
+
+        #: Relative tolerance for convergence when determining the moments of the distribution.
+        self.rtol: float = rtol
+
+        #: Absolute tolerance for convergence when determining the moments of the distribution.
+        self.atol: float = atol
 
     @cached_property
     def alpha(self) -> np.ndarray:
@@ -324,6 +349,36 @@ class PhaseTypeDistribution(_MomentAwareDistribution):
         """
         return self.moment(k=2)
 
+    @cached_property
+    def demes(self) -> Dict[str, 'PhaseTypeDistribution']:
+        """
+        Get the distribution for each deme.
+
+        :return: Dictionary of distributions.
+        """
+        # get class of distribution but use PhaseTypeDistribution
+        # if this is a TreeHeightDistribution as TreeHeightDistribution
+        # only work with default rewards
+        cls = self.__class__ if not isinstance(self, TreeHeightDistribution) else PhaseTypeDistribution
+
+        demes = {}
+        for pop in self.pop_config.pop_names:
+            demes[pop] = cls(
+                pop_config=self.pop_config,
+                state_space=self.state_space,
+                demography=self.demography,
+                reward=self.reward.prod(DemeReward(pop)),
+                max_iter=self.max_iter,
+                rtol=self.rtol,
+                atol=self.atol
+            )
+
+            # remove demes property to avoid deeper recursion
+            # noinspection all
+            demes[pop].demes = None
+
+        return demes
+
     @cache
     def moment(
             self,
@@ -350,69 +405,37 @@ class PhaseTypeDistribution(_MomentAwareDistribution):
         # initialize Van Loan matrix holding (rewarded) moments
         M = np.eye(n_states * (k + 1))
 
-        # get time and population size, and migration rate generators
-        times: Iterator[float] = self.demography.times
-        pop_sizes: Dict[str, Iterator[float]] = self.demography.pop_sizes
-        migration_rates: Dict[Tuple[str, str], Iterator[float]] = self.demography.migration_rates
-
-        # previous time
-        time_prev: float = next(times)
-
         # iterate through epochs and compute initial values
-        for i, time in enumerate(chain(times, [np.inf])):
-
-            # get population sizes for this epoch
-            pop_size = dict((p, next(pop_sizes[p])) for p in pop_sizes)
-
-            # get migration rates for this epoch
-            migration_rate = dict((p, next(migration_rates[p])) for p in migration_rates)
+        for i, epoch in enumerate(self.demography.epochs):
 
             # get state space for this epoch
-            self.state_space.update_demography(
-                demography=ConstantDemography(
-                    pop_sizes=pop_size,
-                    migration_rates=migration_rate
-                )
-            )
+            self.state_space.update_epoch(epoch)
 
             # get Van Loan matrix
             A = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
 
-            # if not in the last epoch
-            if time < np.inf:
+            tau = epoch.end_time - epoch.start_time
+            B = expm(A * tau)
 
-                tau = time - time_prev
-                B = expm(A * tau)
+            # simply multiply by B
+            M_next = M @ B
 
-                # simply multiply by B
-                M @= B
+            # if the matrix is already converged, we can skip the rest of the epochs
+            if np.allclose(M, M_next, rtol=self.rtol, atol=self.atol):
+                break
 
-                # noinspection all
-                time_prev = time
-            else:
-                # if in the last epoch, we need to iterate until convergence
-                max_pop_size = np.max(list(pop_size.values()))
+            # if we have not converged after max_iter epochs, we raise an error
+            if i >= self.max_iter:
+                rdiff = np.nanmax((M - M_next) / M)
 
-                # determine tau
-                tau = max_pop_size * 1000
+                raise RuntimeError(f"No convergence after {self.max_iter} epochs. "
+                                   f"Current relative difference: {rdiff}. "
+                                   f"Check if the demography is well defined and consider increasing "
+                                   f"the maximum number of iterations (max_iter) or "
+                                   f"decreasing the relative tolerance (rtol) if necessary.")
 
-                B = expm(A * tau)
-                M_next = M @ B
-
-                i = 0
-                # iterate until convergence
-                while not np.allclose(M, M_next, rtol=1e-10, atol=1e-16):
-
-                    if i > self.max_iter:
-                        # TODO what to do if we have demes that are unreachable and that start without lineages?
-                        raise RuntimeError(f"No convergence after {int(tau * self.max_iter)} time steps. "
-                                           f"Check if the demography is well defined and consider increasing "
-                                           f"the maximum number of iterations (max_iter) if necessary.")
-
-                    M = M_next
-                    M_next = M @ B
-
-                    i += 1
+            # update matrix
+            M = M_next
 
         # compute moment
         m = factorial(k) * self.alpha @ M[:n_states, -n_states:] @ self.state_space.e
@@ -430,8 +453,10 @@ class TreeHeightDistribution(PhaseTypeDistribution, _DensityAwareDistribution):
             self,
             pop_config: PopConfig,
             state_space: DefaultStateSpace,
-            demography: Demography = ConstantDemography(),
-            reward: DefaultReward = TreeHeightReward(),
+            demography: Demography = Demography(),
+            max_iter: int = 100,
+            rtol: float = 1e-9,
+            atol: float = 1e-16
     ):
         """
         Initialize the distribution.
@@ -439,13 +464,19 @@ class TreeHeightDistribution(PhaseTypeDistribution, _DensityAwareDistribution):
         :param pop_config: The population configuration.
         :param state_space: The state space.
         :param demography: The demography.
-        :param reward: The reward.
+        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+            when calculating the moments of the distribution.
+        :param rtol: Relative tolerance for convergence when determining the moments of the distribution.
+        :param atol: Absolute tolerance for convergence when determining the moments of the distribution.
         """
         super().__init__(
             pop_config=pop_config,
             state_space=state_space,
             demography=demography,
-            reward=reward
+            reward=TreeHeightReward(),
+            max_iter=max_iter,
+            rtol=rtol,
+            atol=atol
         )
 
         #: State space
@@ -464,7 +495,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, _DensityAwareDistribution):
             raise NotImplementedError("PDF not implemented for non-default rewards.")
 
         # assume scalar if not array
-        if not isinstance(t, np.ndarray):
+        if not isinstance(t, Iterable):
             return self.cdf(np.array([t]))[0]
 
         # check for negative values
@@ -472,61 +503,42 @@ class TreeHeightDistribution(PhaseTypeDistribution, _DensityAwareDistribution):
             raise ValueError("Negative values are not allowed.")
 
         # sort array in ascending order but keep track of original indices
-        t_sorted = np.sort(t)
+        t_sorted: Collection[float] = np.sort(t)
+
+        epochs = self.demography.epochs
+        epoch: Epoch = next(epochs)
 
         # get the transition matrix for the first epoch
-        self.state_space.update_demography(
-            demography=self.demography._to_constant()
-        )
-
-        # get time and population size, and migration rate generators
-        times = self.demography.times
-        pop_sizes = self.demography.pop_sizes
-        migration_rates = self.demography.migration_rates
+        self.state_space.update_epoch(epoch)
 
         # initialize transition matrix
         T_curr = np.eye(self.state_space.k)
-        x_prev = 0
-
-        # get next time
-        t_next: float = next(islice(times, 1, None), np.inf)
-
-        # wind up generators
-        [next(pop_sizes[p]) for p in pop_sizes]
-        [next(migration_rates[p]) for p in migration_rates]
+        u_prev = 0
 
         # initialize probabilities
         probs = np.zeros_like(t_sorted)
 
         # iterate through sorted values
-        for i, x in enumerate(t_sorted):
+        for i, u in enumerate(t_sorted):
 
-            if x > t_next:
+            while u > epoch.end_time:
                 # update transition matrix with remaining time in current epoch
-                T_curr @= expm(self.state_space.S * (t_next - x_prev))
+                T_curr @= expm(self.state_space.S * (epoch.end_time - u_prev))
 
-                # update demography
-                self.state_space.update_demography(
-                    ConstantDemography(
-                        pop_sizes={p: next(pop_sizes[p]) for p in pop_sizes},
-                        migration_rates={p: next(migration_rates[p]) for p in migration_rates}
-                    )
-                )
+                # fetch and update next epoch
+                u_prev = epoch.end_time
+                epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
 
-                # update transition matrix with time in next epoch
-                T_curr @= expm(self.state_space.S * (x - t_next))
-
-                t_next = next(times, np.inf)
-            else:
-                # update transition matrix with time in current epoch
-                T_curr @= expm(self.state_space.S * (x - x_prev))
+            # update transition matrix with time in current epoch
+            T_curr @= expm(self.state_space.S * (u - u_prev))
 
             # take exit vector to be the diagonal of the reward matrix
             e = np.diag(self.reward.get(self.state_space))
 
             probs[i] = 1 - self.alpha @ T_curr @ e
 
-            x_prev = x
+            u_prev = u
 
         # sort probabilities back to original order
         probs = probs[np.argsort(t)]
@@ -602,7 +614,11 @@ class SFSDistribution(PhaseTypeDistribution):
             state_space: BlockCountingStateSpace,
             demography: Demography,
             pbar: bool = False,
-            parallelize: bool = False
+            parallelize: bool = False,
+            reward: Reward = UnitReward(),
+            max_iter: int = 100,
+            rtol: float = 1e-9,
+            atol: float = 1e-16
     ):
         """
         Initialize the distribution.
@@ -612,11 +628,20 @@ class SFSDistribution(PhaseTypeDistribution):
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
+        :param reward: The reward to multiply the SFS reward with.
+        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+            when calculating the moments of the distribution.
+        :param rtol: Relative tolerance for convergence when determining the moments of the distribution.
+        :param atol: Absolute tolerance for convergence when determining the moments of the distribution.
         """
         super().__init__(
             pop_config=pop_config,
             state_space=state_space,
-            demography=demography
+            demography=demography,
+            reward=reward,
+            max_iter=max_iter,
+            rtol=rtol,
+            atol=atol
         )
 
         #: Whether to show a progress bar
@@ -629,6 +654,8 @@ class SFSDistribution(PhaseTypeDistribution):
     def moment(self, k: int, i: int = None) -> SFS | float:
         """
         Get the nth moment.
+
+        TODO remove parallelization and do in one go by vectorizing the moment function
 
         :param k: The order of the moment
         :param i: The ith SFS count. Return full SFS if not specified.
@@ -644,9 +671,12 @@ class SFSDistribution(PhaseTypeDistribution):
             """
             d = PhaseTypeDistribution(
                 pop_config=self.pop_config,
-                reward=SFSReward(i),
+                reward=SFSReward(i).prod(self.reward),
                 state_space=self.state_space,
-                demography=self.demography
+                demography=self.demography,
+                max_iter=self.max_iter,
+                rtol=self.rtol,
+                atol=self.atol
             )
 
             return d.moment(
@@ -712,12 +742,15 @@ class SFSDistribution(PhaseTypeDistribution):
         d = PhaseTypeDistribution(
             pop_config=self.pop_config,
             state_space=self.state_space,
-            demography=self.demography
+            demography=self.demography,
+            max_iter=self.max_iter,
+            rtol=self.rtol,
+            atol=self.atol
         )
 
         return d.moment(
             k=2,
-            rewards=(SFSReward(i), SFSReward(j))
+            rewards=(SFSReward(i).prod(self.reward), SFSReward(j).prod(self.reward))
         )
 
     @cached_property
@@ -767,6 +800,26 @@ class _EmpiricalDistribution(_DensityAwareDistribution):
         super().__init__()
 
         self.samples = np.array(samples, dtype=float)
+
+    def _touch(self, t: np.ndarray):
+        """
+        Touch all cached properties.
+
+        :param t: Times to cache properties for.
+        """
+        super()._touch()
+
+        self._cache = dict(
+            t=t,
+            cdf=self.cdf(t),
+            pdf=self.pdf(t)
+        )
+
+    def _drop(self):
+        """
+        Drop all cached properties.
+        """
+        self.samples = None
 
     @cached_property
     def mean(self) -> float | np.ndarray:
@@ -832,7 +885,13 @@ class _EmpiricalDistribution(_DensityAwareDistribution):
         x = np.sort(self.samples)
         y = np.arange(1, len(self.samples) + 1) / len(self.samples)
 
-        return np.interp(t, x, y)
+        if x.ndim == 1:
+            return np.interp(t, x, y)
+
+        if x.ndim == 2:
+            return np.array([np.interp(t, x_, y) for x_ in x.T])
+
+        raise ValueError("Samples must be 1 or 2 dimensional.")
 
     def quantile(self, q: float) -> float:
         """
@@ -843,16 +902,28 @@ class _EmpiricalDistribution(_DensityAwareDistribution):
         """
         return np.quantile(self.samples, q=q)
 
-    def pdf(self, t: float | np.ndarray, n_bins: int = 10000, sigma: float = None) -> float | np.ndarray:
+    def pdf(
+            self,
+            t: float | np.ndarray,
+            n_bins: int = 10000,
+            sigma: float = None,
+            samples: np.ndarray = None
+    ) -> float | np.ndarray:
         """
         Density function.
 
         :param sigma: Sigma for Gaussian filter.
         :param n_bins: Number of bins.
         :param t: Time.
+        :param samples: Samples.
         :return: Density.
         """
-        hist, bin_edges = np.histogram(self.samples, range=(0, max(self.samples)), bins=n_bins, density=True)
+        samples = self.samples if samples is None else samples
+
+        if samples.ndim == 2:
+            return np.array([self.pdf(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
+
+        hist, bin_edges = np.histogram(samples, range=(0, max(samples)), bins=n_bins, density=True)
 
         # determine bins for u
         bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, n_bins - 1, dtype=int))
@@ -918,11 +989,12 @@ class _EmpiricalSFSDistribution(_EmpiricalDistribution):
         return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
-class _Coalescent(ABC):
+class AbstractCoalescent(ABC):
     """
     Abstract base class for coalescent distributions. This class provides probability distributions for the
     tree height, total branch length and site frequency spectrum.
     """
+
     def __init__(
             self,
             n: int | Dict[str, int] | List[int] | PopConfig,
@@ -971,7 +1043,7 @@ class _Coalescent(ABC):
         pass
 
 
-class Coalescent(_Coalescent):
+class Coalescent(AbstractCoalescent):
     """
     Coalescent distribution for the piecewise time-homogeneous coalescent.
     """
@@ -980,9 +1052,12 @@ class Coalescent(_Coalescent):
             self,
             n: int | Dict[str, int] | List[int] | PopConfig,
             model: CoalescentModel = StandardCoalescent(),
-            demography: Demography = ConstantDemography(),
+            demography: Demography = Demography(),
             pbar: bool = True,
-            parallelize: bool = True
+            parallelize: bool = True,
+            max_iter: int = 100,
+            rtol: float = 1e-9,
+            atol: float = 1e-16
     ):
         """
         Create object.
@@ -993,6 +1068,10 @@ class Coalescent(_Coalescent):
         :param model: Coalescent model.
         :param pbar: Whether to show a progress bar
         :param parallelize: Whether to parallelize computations
+        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+            when calculating the moments of the distribution.
+        :param rtol: Relative tolerance for convergence when determining the moments of the distribution.
+        :param atol: Absolute tolerance for convergence when determining the moments of the distribution.
         """
         super().__init__(n=n, model=model)
 
@@ -1009,26 +1088,35 @@ class Coalescent(_Coalescent):
         #: Whether to parallelize computations
         self.parallelize: bool = parallelize
 
+        #: Maximum number of iterations when iterating to convergence in the last epoch
+        self.max_iter: int = max_iter
+
+        #: Relative tolerance for convergence when determining the moments of the distribution.
+        self.rtol: float = rtol
+
+        #: Absolute tolerance for convergence when determining the moments of the distribution.
+        self.atol: float = atol
+
     @cached_property
-    def _state_space(self) -> DefaultStateSpace:
+    def state_space(self) -> DefaultStateSpace:
         """
         The default state space.
         """
         return DefaultStateSpace(
             pop_config=self.pop_config,
             model=self.model,
-            demography=self.demography._to_constant()
+            epoch=self.demography.get_epochs(0)
         )
 
     @cached_property
-    def _state_space_BCP(self) -> BlockCountingStateSpace:
+    def state_space_BCP(self) -> BlockCountingStateSpace:
         """
         The block counting state space.
         """
         return BlockCountingStateSpace(
             pop_config=self.pop_config,
             model=self.model,
-            demography=self.demography._to_constant()
+            epoch=self.demography.get_epochs(0)
         )
 
     @cached_property
@@ -1038,9 +1126,11 @@ class Coalescent(_Coalescent):
         """
         return TreeHeightDistribution(
             pop_config=self.pop_config,
-            reward=TreeHeightReward(),
-            state_space=self._state_space,
-            demography=self.demography
+            state_space=self.state_space,
+            demography=self.demography,
+            max_iter=self.max_iter,
+            rtol=self.rtol,
+            atol=self.atol
         )
 
     @cached_property
@@ -1051,8 +1141,11 @@ class Coalescent(_Coalescent):
         return PhaseTypeDistribution(
             pop_config=self.pop_config,
             reward=TotalBranchLengthReward(),
-            state_space=self._state_space,
-            demography=self.demography
+            state_space=self.state_space,
+            demography=self.demography,
+            max_iter=self.max_iter,
+            rtol=self.rtol,
+            atol=self.atol
         )
 
     @cached_property
@@ -1062,12 +1155,15 @@ class Coalescent(_Coalescent):
         """
         return SFSDistribution(
             pop_config=self.pop_config,
-            state_space=self._state_space_BCP,
-            demography=self.demography
+            state_space=self.state_space_BCP,
+            demography=self.demography,
+            max_iter=self.max_iter,
+            rtol=self.rtol,
+            atol=self.atol
         )
 
 
-class _MsprimeCoalescent(_Coalescent):
+class _MsprimeCoalescent(AbstractCoalescent):
     """
     Empirical coalescent distribution based on msprime simulations.
     """
@@ -1084,7 +1180,8 @@ class _MsprimeCoalescent(_Coalescent):
             exclude_finished: bool = False,
             num_replicates: int = 10000,
             n_threads: int = 100,
-            parallelize: bool = True
+            parallelize: bool = True,
+            record_migration: bool = False
     ):
         """
         Simulate data using msprime.
@@ -1100,6 +1197,7 @@ class _MsprimeCoalescent(_Coalescent):
         :param num_replicates: Number of replicates
         :param n_threads: Number of threads
         :param parallelize: Whether to parallelize
+        :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme
         """
         super().__init__(n=n, model=model)
 
@@ -1108,6 +1206,7 @@ class _MsprimeCoalescent(_Coalescent):
         self.heights: np.ndarray | None = None
 
         self.demography: Demography = demography
+        self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
         self.start_time: float = start_time
         self.end_time: float = end_time
         self.exclude_unfinished: bool = exclude_unfinished
@@ -1115,34 +1214,18 @@ class _MsprimeCoalescent(_Coalescent):
         self.num_replicates: int = num_replicates
         self.n_threads: int = n_threads
         self.parallelize: bool = parallelize
-        self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
+        self.record_migration: bool = record_migration
 
         self.p_accepted: int = 0
 
-    @staticmethod
-    def _calculate_sfs(tree: tskit.trees.Tree) -> np.ndarray:
-        """
-        Calculate the SFS of given tree by looking at mutational opportunities.
-
-        :param tree: Tree to calculate SFS for.
-        :return: SFS.
-        """
-        sfs = np.zeros(tree.sample_size + 1)
-
-        for u in tree.nodes():
-            t = tree.get_branch_length(u)
-            n = tree.get_num_leaves(u)
-
-            sfs[n] += t
-
-        return sfs
-
-    def get_coalescent_model(self) -> AncestryModel:
+    def get_coalescent_model(self) -> 'msprime.AncestryModel':
         """
         Get the coalescent model.
 
         :return: msprime coalescent model.
         """
+        import msprime as ms
+
         if isinstance(self.model, StandardCoalescent):
             return ms.StandardCoalescent()
 
@@ -1156,42 +1239,117 @@ class _MsprimeCoalescent(_Coalescent):
     def simulate(self):
         """
         Simulate data using msprime.
-        Tes
         """
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
-
+        samples = self.pop_config.lineage_dict
         demography = self.demography.to_msprime()
+        model = self.get_coalescent_model()
+        end_time = self.end_time
+        n_pops = self.demography.n_pops
+        sample_size = self.pop_config.n
 
         def simulate_batch(_) -> (np.ndarray, np.ndarray, np.ndarray):
             """
             Simulate statistics.
 
             :param _:
-            :return:
+            :return: Statistics.
             """
+            import msprime as ms
+
             # simulate trees
             g: Generator = ms.sim_ancestry(
-                samples=self.pop_config.lineage_dict,
+                samples=samples,
                 num_replicates=num_replicates,
+                record_migrations=self.record_migration,
                 demography=demography,
-                model=self.get_coalescent_model(),
+                model=model,
                 ploidy=1,
-                end_time=self.end_time
+                end_time=end_time
             )
 
             # initialize variables
-            heights = np.zeros(num_replicates)
-            total_branch_lengths = np.zeros(num_replicates)
-            sfs = np.zeros((num_replicates, self.pop_config.n + 1))
+            heights = np.zeros((n_pops, num_replicates))
+            total_branch_lengths = np.zeros((n_pops, num_replicates))
+            sfs = np.zeros((n_pops, num_replicates, sample_size + 1))
 
-            # iterate over trees and compute statistics
-            ts: tskit.TreeSequence
-            for i, ts in enumerate(g):
-                t: tskit.Tree = ts.first()
-                total_branch_lengths[i] = t.total_branch_length
-                heights[i] = np.sum([t.time(r) for r in t.roots])
-                sfs[i] = self._calculate_sfs(t)
+            if self.record_migration:
+
+                # iterate over trees and compute statistics
+                ts: tskit.TreeSequence
+                for i, ts in enumerate(g):
+                    tree: tskit.Tree = ts.first()
+
+                    lineages = np.array(list(samples.values()))
+                    t_coal = ts.tables.nodes.time[sample_size:]
+                    node = sample_size - 1
+                    t_migration = ts.migrations_time
+                    i_migration = 0
+                    time = 0
+
+                    # population state per leave
+                    pop_states = {n: tree.population(n) for n in range(sample_size)}
+
+                    # iterate over coalescent events
+                    for coal_time in t_coal:
+
+                        # iterate over migration events within this coalescent event
+                        while i_migration < len(t_migration) and time < t_migration[i_migration] <= coal_time:
+                            delta = t_migration[i_migration] - time
+
+                            # update statistics
+                            heights[:, i] += delta * lineages / sum(lineages)
+                            total_branch_lengths[:, i] += delta * lineages
+
+                            for n, pop in pop_states.items():
+                                sfs[pop, i, tree.get_num_leaves(n)] += delta
+
+                            # update lineages with migrations
+                            lineages[ts.migrations_source[i_migration]] -= 1
+                            lineages[ts.migrations_dest[i_migration]] += 1
+                            pop_states[ts.migrations_node[i_migration]] = ts.migrations_dest[i_migration]
+
+                            i_migration += 1
+                            time += delta
+
+                        # remaining time to next coalescent event
+                        delta = coal_time - time
+
+                        # update statistics
+                        heights[:, i] += delta * lineages / sum(lineages)
+                        total_branch_lengths[:, i] += delta * lineages
+
+                        for n, pop in pop_states.items():
+                            sfs[pop, i, tree.get_num_leaves(n)] += delta
+
+                        # reduce by number of coalesced lineages
+                        lineages[tree.population(node + 1)] -= len(tree.get_children(node + 1)) - 1
+
+                        # delete children from pop_states
+                        [pop_states.__delitem__(n) for n in tree.get_children(node + 1)]
+
+                        # add parent to pop_states
+                        pop_states[node + 1] = tree.population(node + 1)
+
+                        time += delta
+                        node += 1
+
+            else:
+
+                # iterate over trees and compute statistics
+                ts: tskit.TreeSequence
+                for i, ts in enumerate(g):
+                    tree: tskit.Tree = ts.first()
+
+                    heights[0][i] = tree.time(tree.root)
+                    total_branch_lengths[0][i] = tree.total_branch_length
+
+                    for node in tree.nodes():
+                        t = tree.get_branch_length(node)
+                        n = tree.get_num_leaves(node)
+
+                        sfs[0][i][n] += t
 
             return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T])
 
@@ -1222,13 +1380,39 @@ class _MsprimeCoalescent(_Coalescent):
         # store results
         self.heights, self.total_branch_lengths, self.sfs_counts = res[0], res[1], res[2:]
 
+    def _get_cached_times(self) -> np.ndarray:
+        """
+        Get cached times.
+
+        """
+        t_max = self.heights.sum(axis=1).max()
+
+        return np.linspace(0, t_max, 100)
+
+    def _get_dists(self) -> List[_EmpiricalDistribution]:
+        """
+        Get all empirical distributions.
+        """
+        dists = []
+
+        for dist in [self.tree_height, self.total_branch_length, self.sfs]:
+            dists.append(dist)
+
+            if hasattr(dist, "demes"):
+                for deme in dist.demes.values():
+                    dists.append(deme)
+
+        return dists
+
     def _touch(self):
         """
         Touch cached properties.
         """
-        self.total_branch_length.touch()
-        self.tree_height.touch()
-        self.sfs.touch()
+        self.simulate()
+
+        t = self._get_cached_times()
+
+        [dist._touch(t) for dist in self._get_dists()]
 
     def _drop(self):
         """
@@ -1238,6 +1422,26 @@ class _MsprimeCoalescent(_Coalescent):
         self.total_branch_lengths = None
         self.sfs_counts = None
 
+        [dist._drop() for dist in self._get_dists()]
+
+        # caused problems when serializing
+        self.demography = None
+
+    def _add_demes(self, dist: _EmpiricalDistribution, samples: np.ndarray) -> _EmpiricalDistribution:
+        """
+        Add demes to the distribution if migrations are recorded.
+
+        :param dist: Distribution.
+        :param samples: Samples per deme.
+        """
+        if self.record_migration:
+            dist.demes = {}
+
+            for i, pop in enumerate(self.demography.pop_names):
+                dist.demes[pop] = dist.__class__(samples[i])
+
+        return dist
+
     @cached_property
     def tree_height(self) -> _EmpiricalDistribution:
         """
@@ -1245,7 +1449,7 @@ class _MsprimeCoalescent(_Coalescent):
         """
         self.simulate()
 
-        return _EmpiricalDistribution(samples=self.heights)
+        return self._add_demes(_EmpiricalDistribution(self.heights.sum(axis=1)), self.heights.T)
 
     @cached_property
     def total_branch_length(self) -> _EmpiricalDistribution:
@@ -1254,7 +1458,10 @@ class _MsprimeCoalescent(_Coalescent):
         """
         self.simulate()
 
-        return _EmpiricalDistribution(samples=self.total_branch_lengths)
+        return self._add_demes(
+            _EmpiricalDistribution(self.total_branch_lengths.sum(axis=1)),
+            self.total_branch_lengths.T
+        )
 
     @cached_property
     def sfs(self) -> _EmpiricalDistribution:
@@ -1263,7 +1470,10 @@ class _MsprimeCoalescent(_Coalescent):
         """
         self.simulate()
 
-        return _EmpiricalSFSDistribution(samples=self.sfs_counts.T)
+        return self._add_demes(
+            _EmpiricalSFSDistribution(self.sfs_counts.sum(axis=2).T),
+            self.sfs_counts.transpose(2, 1, 0)
+        )
 
 
 class _GramCharlierExpansion:

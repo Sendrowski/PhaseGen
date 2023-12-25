@@ -1,11 +1,10 @@
 n: 4
 num_replicates: 1000000
 pop_sizes:
+  pop_0:
     0: 1
 model: standard
 comparisons:
-  types:
-    - ph
   tolerance:
     tree_height:
       pdf: 0.02

@@ -5,10 +5,9 @@ from itertools import product
 from typing import List
 
 import numpy as np
-from scipy.linalg import expm, inv
 
-from .coalescent_models import CoalescentModel
-from .demography import ConstantDemography
+from .models import CoalescentModel
+from .demography import Epoch
 from .population import PopConfig
 
 logger = logging.getLogger('phasegen')
@@ -23,14 +22,14 @@ class StateSpace(ABC):
             self,
             pop_config: PopConfig,
             model: CoalescentModel,
-            demography: ConstantDemography
+            epoch: Epoch
     ):
         """
         Create a rate matrix.
 
         :param pop_config: Population configuration.
         :param model: Coalescent model.
-        :param demography: Time homogeneous demography (we can only construct a state space
+        :param epoch: Time homogeneous demography (we can only construct a state space
             for a fixed demography).
         """
         #: Logger
@@ -43,9 +42,9 @@ class StateSpace(ABC):
         self.pop_config: PopConfig = pop_config
 
         # we first determine the non-zero states by using default values for the demography
-        self.demography = ConstantDemography(
-            pop_sizes={p: 1 for p in demography.pop_names},
-            migration_rates={(p, q): 1 for p, q in product(demography.pop_names, demography.pop_names)}
+        self.epoch = Epoch(
+            pop_sizes={p: 1 for p in epoch.pop_names},
+            migration_rates={(p, q): 1 for p, q in product(epoch.pop_names, epoch.pop_names)}
         )
 
         # warn if state space is large
@@ -64,8 +63,8 @@ class StateSpace(ABC):
         # this improves performance when computing the rate matrix
         self._non_zero_states = np.where(default_rate_matrix != 0)
 
-        #: Demography
-        self.demography: ConstantDemography = demography
+        #: Epoch
+        self.epoch: Epoch = epoch
 
     @cached_property
     @abstractmethod
@@ -90,34 +89,6 @@ class StateSpace(ABC):
         return np.ones(self.S.shape[0])
 
     @cached_property
-    def T(self) -> np.ndarray:
-        """
-        Transition matrix.
-        """
-        return expm(self.S)
-
-    @cached_property
-    def t(self) -> np.ndarray:
-        """
-        Exit probability vector.
-        """
-        return 1 - self.T @ self.e
-
-    @cached_property
-    def U(self) -> np.ndarray:
-        """
-        Green matrix (negative inverse of sub-intensity matrix).
-        """
-        return -inv(self.S[:-1, :-1])
-
-    @cached_property
-    def T_inv(self) -> np.ndarray:
-        """
-        Inverse of transition matrix.
-        """
-        return inv(self.T)
-
-    @cached_property
     def S(self) -> np.ndarray:
         """
         Get full intensity matrix.
@@ -125,17 +96,17 @@ class StateSpace(ABC):
         # obtain intensity matrix
         return self._get_rate_matrix()
 
-    def update_demography(self, demography: ConstantDemography):
+    def update_epoch(self, epoch: Epoch):
         """
-        Update the demography.
+        Update the epoch.
 
-        TODO check for equality of demographies
+        TODO check for equality of epoch
 
-        :param demography: Demography.
+        :param epoch: Epoch.
         :return: State space.
         """
         # update the demography
-        self.demography = demography
+        self.epoch = epoch
 
         # try to delete rate matrix cache
         try:
@@ -193,7 +164,7 @@ class StateSpace(ABC):
 
             rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
 
-            pop_size = next(self.demography.pop_sizes[self.demography.pop_names[deme_index]])
+            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme_index]]
 
             return rate / self.model._get_timescale(pop_size)
 
@@ -213,14 +184,14 @@ class StateSpace(ABC):
                         i_dest = np.where((diff == -1).sum(axis=1) == 1)[0][0]
 
                         # get the deme names
-                        source = self.demography.pop_names[i_source]
-                        dest = self.demography.pop_names[i_dest]
+                        source = self.epoch.pop_names[i_source]
+                        dest = self.epoch.pop_names[i_dest]
 
                         # get the number of lineages in deme i before migration
                         n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
 
                         # scale migration rate by population size
-                        migration_rate = self.demography._migration_rates[(source, dest)]
+                        migration_rate = self.epoch.migration_rates[(source, dest)]
 
                         rate = migration_rate * n_lineages_source
 
@@ -310,7 +281,7 @@ class DefaultStateSpace(StateSpace):
         # iterate over possible number of lineages and find all possible deme configurations
         states = []
         for i in lineages:
-            states += self._find_vectors(n=i, k=self.demography.n_pops)
+            states += self._find_vectors(n=i, k=self.epoch.n_pops)
 
         states = np.array(states)
 
@@ -356,7 +327,7 @@ class BlockCountingStateSpace(StateSpace):
             # find all possible deme configurations
             vectors = []
             for i in config:
-                vectors += [self._find_vectors(n=i, k=self.demography.n_pops)]
+                vectors += [self._find_vectors(n=i, k=self.epoch.n_pops)]
 
             # find all possible combinations of deme configurations for each multiplicity
             states += list(product(*vectors))

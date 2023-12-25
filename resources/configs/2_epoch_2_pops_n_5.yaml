@@ -1,23 +1,25 @@
 n:
-  pop_0: 1
-  pop_1: 1
+  pop_0: 2
+  pop_1: 3
 num_replicates: 1000000
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
-    0: 0.1
+    0: 1
   !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 0
+    0: 1
 pop_sizes:
   pop_0:
-    0: 10000
+    0: 1
+    0.2: 0.1
   pop_1:
-    0: 0.0001
+    0: 0.1
+    0.2: 1
 model: standard
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.02
-      cdf: 0.02
+      pdf: 1
+      cdf: 1
       mean: 0.01
       var: 0.02
     total_branch_length:

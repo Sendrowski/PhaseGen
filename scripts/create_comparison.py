@@ -9,7 +9,7 @@ __date__ = "2023-03-11"
 try:
     import sys
 
-    # necessary to import dfe module
+    # necessary to import local module
     sys.path.append('.')
 
     testing = False
@@ -18,21 +18,19 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_dirac_n_2_psi_0_5_c_1"
+    name = "2_epoch_varying_migration_low_coalescence"
     file = f"resources/configs/{name}.yaml"
+    parallelize = True
     out = f"scratch/{name}.json"
-
-import yaml
 
 from phasegen.comparison import Comparison
 
-# load config from file
-with open(file, 'r') as f:
-    config = yaml.safe_load(f)
+c = Comparison.from_yaml(file)
 
-c = Comparison(**config)
+if testing:
+    c.parallelize = parallelize
 
-# touch msprime stats
+# touch msprime stats to cache them
 c.ms._touch()
 
 # drop simulated data

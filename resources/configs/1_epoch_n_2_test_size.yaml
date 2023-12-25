@@ -1,0 +1,26 @@
+n: 2
+num_replicates: 1000
+record_migration: true
+n_threads: 1
+parallelize: false
+pop_sizes:
+  pop_0:
+    0: 1
+model: standard
+comparisons:
+  tolerance:
+    tree_height:
+      demes:
+        mean: 0.15
+        var: 0.2
+      pdf: 2
+      cdf: 2
+      mean: 0.15
+      var: 0.2
+    total_branch_length:
+      mean: 0.15
+      var: 0.2
+    sfs:
+      mean: 0.15
+      cov: 0.2
+      corr: 0.2
