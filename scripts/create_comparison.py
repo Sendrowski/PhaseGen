@@ -18,9 +18,9 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "2_epoch_varying_migration_low_coalescence"
+    name = "1_epoch_migration_disparate_migration_sizes_2_each_n_6"
     file = f"resources/configs/{name}.yaml"
-    parallelize = True
+    parallelize = False
     out = f"scratch/{name}.json"
 
 from phasegen.comparison import Comparison
