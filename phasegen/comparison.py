@@ -1,14 +1,15 @@
 from functools import cached_property
-from typing import Iterable, Dict, Literal
+from typing import Iterable, Dict, Literal, List
 
 import numpy as np
-from fastdfe import Spectra, Spectrum
 import yaml
+from fastdfe import Spectra, Spectrum
 from matplotlib import pyplot as plt
 
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .demography import Demography, DiscreteRateChanges
-from .distributions import Coalescent, _MsprimeCoalescent, PhaseTypeDistribution
-from .models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
+from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution
+from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS2
 
@@ -21,16 +22,17 @@ class Comparison(Serializable):
 
     def __init__(
             self,
-            n: int,
+            n: int | Dict[str, int] | List[int],
             pop_sizes: Dict[str, Dict[float, float]],
             migration_rates: Dict[tuple[str, str], Dict[float, float]] = {},
+            n_loci: int = 1,
+            recombination_rate: float = 0,
             num_replicates: int = 10000,
             record_migration: bool = False,
             n_threads: int = 100,
             parallelize: bool = True,
             max_iter: int = 100,
-            rtol: float = 1e-9,
-            atol: float = 1e-16,
+            precision: float = 1e-16,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
             alpha: float = 1.5,
@@ -40,7 +42,8 @@ class Comparison(Serializable):
         """
         Initialize Comparison object.
 
-        :param n: Number of lineages.
+        :param n: Either a single integer if only one population, or a list of integers
+            or a dictionary with population names as keys and number of lineages as values.
         :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
             indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
             by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
@@ -51,6 +54,8 @@ class Comparison(Serializable):
             Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source
             population and the columns to the destination. Note that migration rates for which the source and
             destination population are the same are ignored and that the first time must always be 0.
+        :param n_loci: Number of loci.
+        :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
         :param record_migration: Whether to record migrations.
         :param n_threads: Number of threads to use.
@@ -61,18 +66,21 @@ class Comparison(Serializable):
         :param alpha: Alpha parameter of the beta coalescent.
         :param psi: Psi parameter of the Dirac coalescent.
         :param c: C parameter of the Dirac coalescent.
+        :param max_iter: Maximum number of iterations.
+        :param precision: Precision of the phase-type coalescent.
         """
         self.comparisons = comparisons
         self.n = n
         self.pop_sizes = pop_sizes
         self.migration_rates = migration_rates
+        self.n_loci = n_loci
+        self.recombination_rate = recombination_rate
         self.num_replicates = num_replicates
         self.record_migration = record_migration
         self.n_threads = n_threads
         self.parallelize = parallelize
         self.max_iter = max_iter
-        self.rtol = rtol
-        self.atol = atol
+        self.precision = precision
         self.alpha = alpha
         self.psi = psi
         self.c = c
@@ -99,6 +107,15 @@ class Comparison(Serializable):
         return Demography(events=[
             DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
         ])
+
+    def get_locus_config(self) -> LocusConfig:
+        """
+        Get the locus configuration.
+        """
+        return LocusConfig(
+            n=self.n_loci,
+            recombination_rate=self.recombination_rate
+        )
 
     def load_coalescent_model(
             self,
@@ -130,11 +147,11 @@ class Comparison(Serializable):
         return Coalescent(
             n=self.n,
             demography=self.get_demography(),
+            loci=self.get_locus_config(),
             parallelize=self.parallelize,
             model=self.model,
             max_iter=self.max_iter,
-            rtol=self.rtol,
-            atol=self.atol
+            precision=self.precision
         )
 
     @cached_property
@@ -142,9 +159,10 @@ class Comparison(Serializable):
         """
         Get the msprime coalescent.
         """
-        return _MsprimeCoalescent(
+        return MsprimeCoalescent(
             n=self.n,
             demography=self.get_demography(),
+            loci=self.get_locus_config(),
             num_replicates=self.num_replicates,
             record_migration=self.record_migration,
             n_threads=self.n_threads,
@@ -169,11 +187,11 @@ class Comparison(Serializable):
         # only consider finite values
         return diff[np.isfinite(diff)]
 
-    def compare_dist_(
+    def compare_stat(
             self,
             ph: PhaseTypeDistribution,
             ms: PhaseTypeDistribution,
-            stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr'],
+            stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'cov_demes'],
             tol: float,
             visualize: bool = True,
             title: str = 'stat',
@@ -190,8 +208,21 @@ class Comparison(Serializable):
         :param title: Title of the plot.
         :param do_assertion: Whether to assert that the distributions are the same.
         """
-        ph_stat = getattr(ph, stat)
-        ms_stat = getattr(ms, stat)
+        title = f"{title}: {stat}"
+
+        if stat in ['cov_demes', 'corr_demes']:
+            pops = self.get_demography().pop_names
+            ph_stat = np.array([[getattr(ph, 'get_' + stat)(p1, p2) for p1 in pops] for p2 in pops])
+            ms_stat = np.array([[getattr(ms, 'get_' + stat)(p1, p2) for p1 in pops] for p2 in pops])
+
+        elif stat in ['cov_loci', 'corr_loci']:
+            loci = range(self.n_loci)
+            ph_stat = np.array([[getattr(ph, 'get_' + stat)(l1, l2) for l1 in loci] for l2 in loci])
+            ms_stat = np.array([[getattr(ms, 'get_' + stat)(l1, l2) for l1 in loci] for l2 in loci])
+
+        else:
+            ph_stat = getattr(ph, stat)
+            ms_stat = getattr(ms, stat)
 
         if isinstance(ph_stat, float):
 
@@ -211,7 +242,7 @@ class Comparison(Serializable):
 
                     s.plot(title=title)
 
-                # assume we have a 2-dimensional SFS
+                # assume we have a 2-dimensional statistic
                 elif len(ph_stat) > 3:
                     fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
 
@@ -238,7 +269,7 @@ class Comparison(Serializable):
                 plt.plot(t, y_ms, label='msprime')
 
                 plt.legend()
-                plt.title(f"{stat.upper()}: {title}")
+                plt.title(title)
 
                 plt.show()
 
@@ -274,7 +305,7 @@ class Comparison(Serializable):
         """
 
         # statistic, distribution or nested demes dictionary
-        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes']
+        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'cov_demes']
 
         # tolerance or dictionary of statistics
         sub: float | dict
@@ -289,11 +320,22 @@ class Comparison(Serializable):
                         ms=ms.demes[pop],
                         data=sub,
                         visualize=visualize,
-                        title=f"{title}: {pop}",
+                        title=f"{title}: {pop}"
+                    )
+
+            elif stat == 'loci':
+
+                for locus in range(self.n_loci):
+                    self._compare_stat_recursively(
+                        ph=ph.loci[locus],
+                        ms=ms.loci[locus],
+                        data=sub,
+                        visualize=visualize,
+                        title=f"{title}: locus_{locus}"
                     )
             else:
 
-                self.compare_dist_(
+                self.compare_stat(
                     ph=ph,
                     ms=ms,
                     stat=stat,
@@ -320,5 +362,5 @@ class Comparison(Serializable):
                 ms=getattr(self.ms, dist),
                 data=data,
                 visualize=visualize,
-                title=title
+                title=f"{title}: {dist}"
             )

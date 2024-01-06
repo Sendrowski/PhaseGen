@@ -106,7 +106,7 @@ from .demography import (
     ExponentialRateChanges
 )
 
-from .models import (
+from .coalescent_models import (
     CoalescentModel,
     StandardCoalescent,
     BetaCoalescent,
@@ -123,6 +123,7 @@ from .rewards import (
     DefaultReward,
     NonDefaultReward,
     TreeHeightReward,
+    TotalTreeHeightReward,
     TotalBranchLengthReward,
     SFSReward,
     CustomReward,
@@ -139,6 +140,8 @@ from .inference import Inference
 
 from .population import PopConfig
 
+from .locus import LocusConfig
+
 from .norms import (
     LNorm,
     L1Norm,
@@ -152,14 +155,14 @@ __all__ = [
     'Coalescent',
     'Demography',
     'Epoch',
-    'DiscreteRateChanges',
     'PopSizeChanges',
     'PopSizeChange',
     'MigrationRateChanges',
     'MigrationRateChange',
     'ExponentialPopSizeChanges',
     'ExponentialRateChanges',
-    'Epoch',
+    'DiscreteRateChanges',
+    'DiscretizedRateChanges',
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',
@@ -173,13 +176,17 @@ __all__ = [
     'PoissonLikelihood',
     'Reward',
     'TreeHeightReward',
+    'TotalTreeHeightReward',
     'TotalBranchLengthReward',
     'SFSReward',
     'CustomReward',
     'ProductReward',
     'DemeReward',
+    'DefaultReward',
+    'NonDefaultReward',
     'DefaultStateSpace',
     'BlockCountingStateSpace',
     'CoalescentModel',
-    'PopConfig'
+    'PopConfig',
+    'LocusConfig',
 ]

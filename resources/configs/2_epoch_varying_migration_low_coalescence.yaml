@@ -15,7 +15,7 @@ pop_sizes:
   pop_1:
     0: 0.000001
 model: standard
-rtol: 1.0e-7
+precision: 1.0e-10
 comparisons:
   tolerance:
     tree_height:

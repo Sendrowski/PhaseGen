@@ -152,41 +152,7 @@ class StandardCoalescent(CoalescentModel):
                 # same as b[0] choose k[0] times b[1] choose k[1]
                 return b[0] * b[1]
 
-        # no other mergers are possible
-        return 0
-
-    def get_rate_block_counting_dep(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
-        """
-        Get (positive) rate between two block counting states.
-
-        :param n: Number of lineages.
-        :param s1: Sample configuration 1.
-        :param s2: Sample configuration 2.
-        :return: The rate.
-        """
-        diff = s2 - s1
-
-        # make sure only one class has one more lineage
-        if np.sum(diff == 1) == 1 and n == s1.shape[0]:
-
-            # if two lineages of different classes coalesce
-            if np.sum(diff == -1) == 2 and np.sum(diff == 0) == n - 3:
-
-                # check that (a_1,...,a_n) -> (a_1,...,a_i - 1,...,a_j - 1,...,a_{i+j} + 1,...,a_n)
-                if diff[(np.where(diff == -1)[0] + 1).sum() - 1] == 1:
-                    b = s1[np.where(diff == -1)[0]]
-                    rate = b.prod()
-                    return rate
-
-            # if two lineages of the same class coalesce
-            if np.sum(diff == -2) == 1 and np.sum(diff == 0) == n - 2:
-
-                # check that (a_1,...,a_n) -> (a_1,...,a_i - 2,...,a_2i + 1,...,a_n)
-                if diff[2 * (np.where(diff == -2)[0][0] + 1) - 1] == 1:
-                    b = s1[np.where(diff == -2)[0][0]]
-                    rate = self._get_rate(b=b, k=2)
-                    return rate
-
+        # no other mergers possible
         return 0
 
 

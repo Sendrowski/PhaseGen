@@ -6,7 +6,7 @@ import pytest
 import phasegen as pg
 
 
-class CoalescentModelTestCase(TestCase):
+class ModelTestCase(TestCase):
     """
     Test coalescent models.
     """

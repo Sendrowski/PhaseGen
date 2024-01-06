@@ -1,13 +1,15 @@
+import itertools
 import logging
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 
-from .models import CoalescentModel
+from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
+from .locus import LocusConfig
 from .population import PopConfig
 
 logger = logging.getLogger('phasegen')
@@ -21,8 +23,9 @@ class StateSpace(ABC):
     def __init__(
             self,
             pop_config: PopConfig,
-            model: CoalescentModel,
-            epoch: Epoch
+            locus_config: LocusConfig = LocusConfig(),
+            model: CoalescentModel = StandardCoalescent(),
+            epoch: Epoch = Epoch()
     ):
         """
         Create a rate matrix.
@@ -41,16 +44,35 @@ class StateSpace(ABC):
         #: Population configuration
         self.pop_config: PopConfig = pop_config
 
-        # we first determine the non-zero states by using default values for the demography
-        self.epoch = Epoch(
-            pop_sizes={p: 1 for p in epoch.pop_names},
-            migration_rates={(p, q): 1 for p, q in product(epoch.pop_names, epoch.pop_names)}
-        )
+        #: Locus configuration
+        self.locus_config: LocusConfig = locus_config
+
+        #: Epoch
+        self.epoch: Epoch = epoch
+
+        # number of lineages shared across loci
+        self.n_shared: np.ndarray | None = None
 
         # warn if state space is large
         if self.k > 2000:
-            self._logger.warning(f'State space is large ({self.k} states). Note that the computation time'
-                                 f'increase exponentially with the number of states.')
+            self._logger.warning(f'State space is large ({self.k} states). Note that the computation time '
+                                 f'increases exponentially with the number of states.')
+
+    @cached_property
+    def _non_zero_states(self) -> Tuple[np.ndarray, ...]:
+        """
+        Get the indices of non-zero rates. This improves performance when computing the rate matrix.
+
+        :return: Indices of non-zero rates.
+        """
+        # cache the current epoch
+        epoch = self.epoch
+
+        # we first determine the non-zero states by using default values for the demography
+        self.epoch = Epoch(
+            pop_sizes={p: 1 for p in epoch.pop_names},
+            migration_rates={(p, q): 1 for p, q in product(epoch.pop_names, epoch.pop_names) if p != q}
+        )
 
         # get the rate matrix for the default demography
         default_rate_matrix = np.fromfunction(
@@ -59,18 +81,52 @@ class StateSpace(ABC):
             dtype=int
         )
 
-        # indices of non-zero rates
-        # this improves performance when computing the rate matrix
-        self._non_zero_states = np.where(default_rate_matrix != 0)
+        # restore the epoch
+        self.epoch = epoch
 
-        #: Epoch
-        self.epoch: Epoch = epoch
+        # indices of non-zero rates
+        # this improves performance when recomputing the rate matrix for different epochs
+        return np.where(default_rate_matrix != 0)
+
+    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
+        """
+        Expand the given states to include all possible combinations of locus configurations.
+        TODO clean up
+
+        :param states: States.
+        """
+        if self.locus_config.n == 1:
+            # all lineages are shared
+            self.n_shared = np.zeros(states.shape[0], dtype=int)
+
+            # add extra dimension for locus configuration
+            return states[:, np.newaxis]
+
+        if self.locus_config.n == 2:
+            # create array with same shape and fill first element with number of shared lineages
+            n_shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
+            n_shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
+
+            # take product of number of shared lineages and states
+            states = np.array(list(itertools.product(n_shared, states, states)))
+
+            n_lineages = states.sum(axis=(2, 3)).T
+
+            # remove states where n_shared is larger than the total number of lineages
+            states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
+
+            self.n_shared = states[:, 0, 0, 0]
+
+            return states[:, 1:, :, :]
+
+        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 
     @cached_property
     @abstractmethod
     def states(self) -> np.ndarray:
         """
-        Get the states.
+        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
+        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
         """
         pass
 
@@ -95,6 +151,16 @@ class StateSpace(ABC):
         """
         # obtain intensity matrix
         return self._get_rate_matrix()
+
+    @cached_property
+    def alpha(self) -> np.ndarray:
+        """
+        Initial state vector.
+        """
+        pops = self.pop_config.get_initial_states(self)
+        loci = self.locus_config.get_initial_states(self)
+
+        return pops * loci
 
     def update_epoch(self, epoch: Epoch):
         """
@@ -144,10 +210,13 @@ class StateSpace(ABC):
         """
         Get the rate from the state indexed by i to the state indexed by j.
 
-        :param i: Index i.
-        :param j: Index j.
+        :param i: Index of outgoing state.
+        :param j: Index of incoming state.
         :return: The rate from the state indexed by i to the state indexed by j.
         """
+        if i == j:
+            return 0
+
         # get the states
         s1 = self.states[i]
         s2 = self.states[j]
@@ -155,47 +224,139 @@ class StateSpace(ABC):
         # get the difference between the states
         diff = s1 - s2
 
-        # get the number of different demes
-        n_diff = (diff != 0).any(axis=1).sum()
+        # mask for affected demes
+        has_diff_demes = np.any(diff != 0, axis=(0, 2))
 
-        # eligible for coalescent event
-        if n_diff == 1:
-            deme_index = np.where(diff != 0)[0][0]
+        # number of affected demes
+        n_demes = has_diff_demes.sum()
 
-            rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
+        n_shared1 = self.n_shared[i]
+        n_shared2 = self.n_shared[j]
 
-            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme_index]]
+        # possible recombination event
+        if n_demes == 0:
 
-            return rate / self.model._get_timescale(pop_size)
+            # no recombination or back recombination from or to absorbing state
+            if np.all(s1.sum(axis=(1, 2)) == 1) or np.all(s2.sum(axis=(1, 2)) == 1):
+                return 0
+
+            # recombination onto different loci
+            if n_shared1 - n_shared2 == 1:
+                rate = self.n_shared[i] * self.locus_config.recombination_rate
+                return rate
+
+            # back recombination onto same locus
+            if n_shared1 - n_shared2 == -1:
+                rate = (s1[0].sum() - n_shared1) * (s1[1].sum() - n_shared1)
+                return rate
+
+            return 0
+
+        # possible coalescent event
+        if n_demes == 1:
+
+            # get the index of the affected deme
+            deme = np.where(has_diff_demes)[0][0]
+
+            deme_s1 = s1[:, deme]
+            deme_s2 = s2[:, deme]
+
+            diff_deme = deme_s1 - deme_s2
+
+            # number of loci that are affected within deme
+            has_diff_loci = np.any(diff_deme != 0, axis=1)
+
+            n_diff_loci = has_diff_loci.sum()
+
+            is_shared = n_diff_loci > 1
+
+            if is_shared:
+                # if coalescent event is shared across loci but the reduction in
+                # the number of shared lineages is not equal to the reduction in
+                # the number of coalesced lineages for each locus, then the rate
+                # is zero.
+                if np.any(n_shared1 - n_shared2 != diff_deme.sum(axis=1)):
+                    return 0
+
+                # Alternatively, if the number of shared lineages is
+                # less than the number of shared coalesced lineages, then the
+                # rate is also zero.
+                if diff_deme[0].sum() + 1 > n_shared1:
+                    return 0
+
+                base_rate = self._get_coalescent_rate(
+                    n=self.pop_config.n,
+                    s1=np.array([n_shared1]),
+                    s2=np.array([n_shared2])
+                )
+
+            # not shared
+            else:
+
+                n_unshared1 = deme_s1[has_diff_loci].sum() - n_shared1
+                n_unshared2 = deme_s2[has_diff_loci].sum() - n_shared2
+
+                # number of reduced unshared lineages has to equal numbers of coalesced
+                # lineages if coalescent event is not shared across loci
+                if n_unshared1 - n_unshared2 != diff_deme[has_diff_loci].sum():
+                    return 0
+
+                if n_unshared1 - n_unshared2 == 1:
+                    base_rate = self._get_coalescent_rate(
+                        n=self.pop_config.n,
+                        s1=np.array([n_unshared1]),
+                        s2=np.array([n_unshared2])
+                    ) + n_shared1 * n_unshared1
+                else:
+                    return 0
+
+                x = 1
+                pass
+
+            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme]]
+
+            return base_rate / self.model._get_timescale(pop_size)
 
         # eligible for migration event
-        if n_diff == 2:
+        # TODO if loci are linked, we allow lineage movement in several locus contexts simultaneously
+        if n_demes == 2:
 
-            # check if one migration event
-            if (diff == 1).sum(axis=1).sum() == 1 and (diff == -1).sum(axis=1).sum() == 1:
+            # number of locus contexts that are affected
+            has_diff_loci = np.any(diff != 0, axis=(1, 2))
 
-                # make sure that the other demes are not changing
-                if (diff != 0).sum(axis=1).sum() == 2:
+            # migration only possible if one locus context is affected
+            if has_diff_loci.sum() == 1:
+                s1_locus = s1[has_diff_loci][0]
+                s2_locus = s2[has_diff_loci][0]
 
-                    # make sure that the number of lineages is greater than 1
-                    if s1.sum() > 1:
-                        # get the indices of the source and destination demes
-                        i_source = np.where((diff == 1).sum(axis=1) == 1)[0][0]
-                        i_dest = np.where((diff == -1).sum(axis=1) == 1)[0][0]
+                diff_locus = s1_locus - s2_locus
 
-                        # get the deme names
-                        source = self.epoch.pop_names[i_source]
-                        dest = self.epoch.pop_names[i_dest]
+                # check if one migration event
+                if (diff_locus == 1).sum(axis=1).sum() == 1 and (diff_locus == -1).sum(axis=1).sum() == 1:
 
-                        # get the number of lineages in deme i before migration
-                        n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
+                    # make sure that the other demes are not changing
+                    if (diff_locus != 0).sum(axis=1).sum() == 2:
 
-                        # scale migration rate by population size
-                        migration_rate = self.epoch.migration_rates[(source, dest)]
+                        # make sure that the number of lineages is greater than 1
+                        if s1_locus.sum() > 1:
+                            # get the indices of the source and destination demes
+                            i_source = np.where((diff_locus == 1).sum(axis=1) == 1)[0][0]
+                            i_dest = np.where((diff_locus == -1).sum(axis=1) == 1)[0][0]
 
-                        rate = migration_rate * n_lineages_source
+                            # get the deme names
+                            source = self.epoch.pop_names[i_source]
+                            dest = self.epoch.pop_names[i_dest]
 
-                        return rate
+                            # get the number of lineages in deme i before migration
+                            n_lineages_source = s1_locus[i_source][np.where(diff_locus == 1)[1][0]]
+
+                            # get migration rate from source to destination
+                            migration_rate = self.epoch.migration_rates[(source, dest)]
+
+                            # scale migration rate by number of lineages in source deme
+                            rate = migration_rate * n_lineages_source
+
+                            return rate
 
         return 0
 
@@ -270,23 +431,29 @@ class DefaultStateSpace(StateSpace):
         return self.model.get_rate(s1=s1[0], s2=s2[0])
 
     @cached_property
-    @abstractmethod
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the number of lineages per deme.
+        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
+        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
         """
         # the number of lineages
         lineages = np.arange(1, self.pop_config.n + 1)[::-1]
 
-        # iterate over possible number of lineages and find all possible deme configurations
+        # iterate lineage configurations and find all possible deme configurations
         states = []
         for i in lineages:
             states += self._find_vectors(n=i, k=self.epoch.n_pops)
 
+        # convert to numpy array
         states = np.array(states)
 
-        # add extra dimension to make it compatible with the other state spaces
-        return states.reshape(states.shape + (1,))
+        # add extra dimension for lineage configuration
+        states = states.reshape(states.shape + (1,))
+
+        # expand the states to include all possible combinations of locus configurations
+        states = self._expand_loci(states)
+
+        return states
 
 
 class BlockCountingStateSpace(StateSpace):
@@ -297,6 +464,65 @@ class BlockCountingStateSpace(StateSpace):
     per deme and per locus. This state space can distinguish between different tree topologies
     and is thus used when computing statistics based on the SFS.
     """
+
+    def _matrix_indices_to_rates(self, i: int, j: int) -> float:
+        """
+        Get the rate from the state indexed by i to the state indexed by j.
+
+        :param i: Index i.
+        :param j: Index j.
+        :return: The rate from the state indexed by i to the state indexed by j.
+        """
+        # get the states
+        s1 = self.states[i].sum(axis=0)
+        s2 = self.states[j].sum(axis=0)
+
+        # get the difference between the states
+        diff = s1 - s2
+
+        # get the number of different demes
+        n_diff = (diff != 0).any(axis=1).sum()
+
+        # eligible for coalescent event
+        if n_diff == 1:
+            deme_index = np.where(diff != 0)[0][0]
+
+            rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
+
+            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme_index]]
+
+            return rate / self.model._get_timescale(pop_size)
+
+        # eligible for migration event
+        if n_diff == 2:
+
+            # check if one migration event
+            if (diff == 1).sum(axis=1).sum() == 1 and (diff == -1).sum(axis=1).sum() == 1:
+
+                # make sure that the other demes are not changing
+                if (diff != 0).sum(axis=1).sum() == 2:
+
+                    # make sure that the number of lineages is greater than 1
+                    if s1.sum() > 1:
+                        # get the indices of the source and destination demes
+                        i_source = np.where((diff == 1).sum(axis=1) == 1)[0][0]
+                        i_dest = np.where((diff == -1).sum(axis=1) == 1)[0][0]
+
+                        # get the deme names
+                        source = self.epoch.pop_names[i_source]
+                        dest = self.epoch.pop_names[i_dest]
+
+                        # get the number of lineages in deme i before migration
+                        n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
+
+                        # scale migration rate by population size
+                        migration_rate = self.epoch.migration_rates[(source, dest)]
+
+                        rate = migration_rate * n_lineages_source
+
+                        return rate
+
+        return 0
 
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
@@ -312,16 +538,17 @@ class BlockCountingStateSpace(StateSpace):
     @cached_property
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the allele configuration per deme.
+        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
+        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
 
         :return: The states.
         """
         # the possible allele configurations
-        allele_configs = np.array(self._find_sample_configs(m=self.pop_config.n, n=self.pop_config.n))
+        lineage_configs = np.array(self._find_sample_configs(m=self.pop_config.n, n=self.pop_config.n))
 
         # iterate over possible allele configurations and find all possible deme configurations
         states = []
-        for config in allele_configs:
+        for config in lineage_configs:
 
             # iterate over possible number of lineages with multiplicity k and
             # find all possible deme configurations
@@ -334,6 +561,9 @@ class BlockCountingStateSpace(StateSpace):
 
         # transpose the array to have the deme configurations as columns
         states = np.transpose(np.array(states), (0, 2, 1))
+
+        # expand the states to include all possible combinations of locus configurations
+        states = self._expand_loci(states)
 
         return states
 

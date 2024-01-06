@@ -16,9 +16,9 @@ class ComparisonTestCase(TestCase):
         c = Comparison.from_yaml("../resources/configs/1_epoch_n_2_test_size.yaml")
 
         # touch msprime stats to cache them
-        c.ms._touch()
+        c.ms.touch()
 
         # drop simulated data
-        c.ms._drop()
+        c.ms.drop()
 
         c.compare()

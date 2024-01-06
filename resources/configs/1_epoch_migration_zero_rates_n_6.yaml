@@ -2,6 +2,7 @@ n:
   pop_0: 6
   pop_1: 0
 num_replicates: 1000000
+record_migration: true
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 0
@@ -16,6 +17,7 @@ model: standard
 comparisons:
   tolerance:
     tree_height:
+      cov_demes: 0.01
       pdf: 1
       cdf: 1
       mean: 0.01

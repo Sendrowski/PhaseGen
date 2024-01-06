@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_migration_disparate_migration_sizes_2_each_n_6"
+    name = "1_epoch_2_loci_n_2"
     file = f"resources/configs/{name}.yaml"
     parallelize = False
     out = f"scratch/{name}.json"
@@ -31,10 +31,10 @@ if testing:
     c.parallelize = parallelize
 
 # touch msprime stats to cache them
-c.ms._touch()
+c.ms.touch()
 
 # drop simulated data
-c.ms._drop()
+c.ms.drop()
 
 c.to_file(out)
 
