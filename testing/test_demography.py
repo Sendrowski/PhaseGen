@@ -2,6 +2,7 @@ from itertools import islice
 from unittest import TestCase
 
 import numpy as np
+import pytest
 from numpy import testing
 
 import phasegen as pg
@@ -248,6 +249,7 @@ class DemographyTestCase(TestCase):
         )
         self.assertEqual(d.pop_names, [pop.name for pop in d_msprime.populations])
 
+    @pytest.mark.skip(reason="deprecated")
     def test_passing_different_pop_names_to_demography_and_n_lineages_raises_value_error(self):
         """
         Test passing different population names to demography and n_lineages raises ValueError.

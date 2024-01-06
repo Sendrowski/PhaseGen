@@ -167,6 +167,9 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
         """
+        if len(pop_sizes) == 0 and len(migration_rates) == 0:
+            raise ValueError('Either one population size or migration rate must be specified.')
+
         # make sure population sizes are positive
         for p, sizes in pop_sizes.items():
             if any(s <= 0 for s in sizes.values()):
@@ -716,6 +719,24 @@ class Demography:
 
         # sort back to original order
         return np.array(epochs[np.argsort(t)])
+
+    def add_events(self, events: List[DemographicEvent]):
+        """
+        Add demographic events.
+
+        :param events: List of demographic events.
+        """
+        self.events = np.append(self.events, np.array(events))
+
+        self._prepare_events()
+
+    def add_event(self, event: DemographicEvent):
+        """
+        Add a demographic event.
+
+        :param event: Demographic event.
+        """
+        self.add_events([event])
 
     def plot_pop_sizes(
             self,

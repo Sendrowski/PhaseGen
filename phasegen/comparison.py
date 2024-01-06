@@ -1,14 +1,15 @@
 from functools import cached_property
-from typing import Iterable, Dict, Literal
+from typing import Iterable, Dict, Literal, List
 
 import numpy as np
 from fastdfe import Spectra, Spectrum
 import yaml
 from matplotlib import pyplot as plt
 
+from .locus import LocusConfig
 from .demography import Demography, DiscreteRateChanges
-from .distributions import Coalescent, _MsprimeCoalescent, PhaseTypeDistribution
-from .models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
+from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .serialization import Serializable
 from .spectrum import SFS2
 
@@ -21,9 +22,11 @@ class Comparison(Serializable):
 
     def __init__(
             self,
-            n: int,
+            n: int | Dict[str, int] | List[int],
             pop_sizes: Dict[str, Dict[float, float]],
             migration_rates: Dict[tuple[str, str], Dict[float, float]] = {},
+            n_loci: int = 1,
+            recombination_rate: float = 0,
             num_replicates: int = 10000,
             record_migration: bool = False,
             n_threads: int = 100,
@@ -40,7 +43,8 @@ class Comparison(Serializable):
         """
         Initialize Comparison object.
 
-        :param n: Number of lineages.
+        :param n: Either a single integer if only one population, or a list of integers
+            or a dictionary with population names as keys and number of lineages as values.
         :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
             indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
             by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
@@ -51,6 +55,8 @@ class Comparison(Serializable):
             Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source
             population and the columns to the destination. Note that migration rates for which the source and
             destination population are the same are ignored and that the first time must always be 0.
+        :param n_loci: Number of loci.
+        :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
         :param record_migration: Whether to record migrations.
         :param n_threads: Number of threads to use.
@@ -66,6 +72,8 @@ class Comparison(Serializable):
         self.n = n
         self.pop_sizes = pop_sizes
         self.migration_rates = migration_rates
+        self.n_loci = n_loci
+        self.recombination_rate = recombination_rate
         self.num_replicates = num_replicates
         self.record_migration = record_migration
         self.n_threads = n_threads
@@ -100,6 +108,15 @@ class Comparison(Serializable):
             DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
         ])
 
+    def get_locus_config(self) -> LocusConfig:
+        """
+        Get the locus configuration.
+        """
+        return LocusConfig(
+            n=self.n_loci,
+            recombination_rate=self.recombination_rate
+        )
+
     def load_coalescent_model(
             self,
             name: Literal['standard', 'beta', 'dirac']
@@ -130,6 +147,7 @@ class Comparison(Serializable):
         return Coalescent(
             n=self.n,
             demography=self.get_demography(),
+            loci=self.get_locus_config(),
             parallelize=self.parallelize,
             model=self.model,
             max_iter=self.max_iter,
@@ -142,9 +160,10 @@ class Comparison(Serializable):
         """
         Get the msprime coalescent.
         """
-        return _MsprimeCoalescent(
+        return MsprimeCoalescent(
             n=self.n,
             demography=self.get_demography(),
+            loci=self.get_locus_config(),
             num_replicates=self.num_replicates,
             record_migration=self.record_migration,
             n_threads=self.n_threads,

@@ -14,10 +14,10 @@ class Reward(ABC):
     @abstractmethod
     def get(self, state_space: StateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
         
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         """
         pass
 
@@ -55,45 +55,65 @@ class NonDefaultReward(Reward, ABC):
 
 class TreeHeightReward(DefaultReward):
     """
-    Reward based on tree height.
+    Reward based on tree height. Note that when using multiple loci, this will provide the
+    height of the locus with the highest tree.
     """
 
     def get(self, state_space: DefaultStateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
-            return np.diag((state_space.states.sum(axis=(1, 2)) > 1).astype(int))
+            return np.any(state_space.states.sum(axis=(2, 3)) > 1, axis=1).astype(int)
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
-class TotalBranchLengthReward(NonDefaultReward):
+class TotalTreeHeightReward(TreeHeightReward):
     """
-    Reward based on total branch length.
+    Reward based on tree height. When using multiple loci, this will provide the sum of the
+    heights of all loci, regardless of whether they are linked or not.
     """
 
     def get(self, state_space: DefaultStateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
-            # get total number of lineages per state
-            lineages = state_space.states.sum(axis=(1, 2))
+            # a reward of 1 for non-absorbing states and 0 for absorbing states
+            return state_space.states.sum(axis=(1, 2, 3)) * super().get(state_space)
 
-            # for fewer than 2 lineages, we have an absorbing state which has a reward of 0
-            lineages[lineages < 2] = 0
+        raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
-            return np.diag(lineages)
+
+class TotalBranchLengthReward(TreeHeightReward):
+    """
+    Reward based on total branch length. When using multiple loci, this will provide the sum of the
+    total branch lengths of all loci, regardless of whether they are linked or not. Note that due to
+    inherent limitation to rewards, we cannot determine the total branch length of the tree with
+    the largest total branch length as done in :class:`TreeHeightReward`.
+    """
+
+    def get(self, state_space: DefaultStateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+            # get total number of lineages per state and multiply by tree height reward
+            return state_space.states.sum(axis=(1, 2, 3)) * super().get(state_space)
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
@@ -113,14 +133,15 @@ class SFSReward(NonDefaultReward):
 
     def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, BlockCountingStateSpace):
-            return np.diag(state_space.states[:, :, self.index].sum(axis=1))
+            # sum over demes and average over loci
+            return state_space.states[:, :, :, self.index].sum(axis=2).mean(axis=1)
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
@@ -149,10 +170,10 @@ class DemeReward(NonDefaultReward):
 
     def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
@@ -160,9 +181,9 @@ class DemeReward(NonDefaultReward):
             pop_index: int = state_space.epoch.pop_names.index(self.pop)
 
             # fraction of total lineages in the population
-            fraction = (state_space.states.sum(axis=2)[:, pop_index] / state_space.states.sum(axis=(1, 2)))
+            fraction = (state_space.states.sum(axis=(1, 3))[:, pop_index] / state_space.states.sum(axis=(1, 2, 3)))
 
-            return np.diag(fraction)
+            return fraction
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
@@ -175,6 +196,45 @@ class DemeReward(NonDefaultReward):
         return hash(self.__class__.__name__ + str(self.pop))
 
 
+class LocusReward(NonDefaultReward):
+    """
+    Reward based on fraction of lineages in a specific locus. Taking the product of this reward with another reward
+    will result in a reward that only considers the specified locus.
+    """
+
+    def __init__(self, locus: int):
+        """
+        Initialize the reward.
+
+        :param locus: The locus index to use.
+        """
+        self.locus: int = locus
+
+    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+            # fraction of total lineages in the population
+            fraction = (state_space.states.sum(axis=(1, 3))[:, :, self.locus] / state_space.states.sum(axis=(1, 2, 3)))
+
+            return fraction
+
+        raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name and the population name.
+
+        :return: hash
+        """
+        return hash(self.__class__.__name__ + str(self.locus))
+
+
 class UnitReward(DefaultReward):
     """
     Rewards all states with 1.
@@ -182,12 +242,12 @@ class UnitReward(DefaultReward):
 
     def get(self, state_space: StateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         """
-        return np.diag(np.ones(state_space.k))
+        return np.ones(state_space.k)
 
 
 class CompositeReward(Reward, ABC):
@@ -219,10 +279,10 @@ class ProductReward(CompositeReward):
 
     def get(self, state_space: StateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         """
         return np.prod([r.get(state_space) for r in self.rewards], axis=0)
 
@@ -236,16 +296,16 @@ class CustomReward(Reward):
         """
         Initialize the custom reward.
 
-        :param func: The function to use to calculate the reward.
+        :param func: The function to use to calculate the reward vector.
         """
         self.func: Callable[[StateSpace], np.ndarray] = func
 
     def get(self, state_space: StateSpace) -> np.ndarray:
         """
-        Get the reward matrix.
+        Get the reward vector.
 
         :param state_space: state space
-        :return: reward matrix
+        :return: reward vector
         """
         return self.func(state_space)
 

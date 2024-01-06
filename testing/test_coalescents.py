@@ -3,7 +3,7 @@ from unittest import TestCase
 import numpy as np
 
 import phasegen as pg
-from phasegen.distributions import _MsprimeCoalescent
+from phasegen.distributions import MsprimeCoalescent
 
 
 class CoalescentTestCase(TestCase):
@@ -60,13 +60,13 @@ class CoalescentTestCase(TestCase):
         Test deme-wise complex coalescents.
         """
         coals = [
-            # pg.Coalescent(
-            #    n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
-            #    model=pg.BetaCoalescent(alpha=1.7),
-            #    demography=self.get_complex_demography(),
-            #    parallelize=False
-            # ),
-            _MsprimeCoalescent(
+            pg.Coalescent(
+                n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+                model=pg.BetaCoalescent(alpha=1.7),
+                demography=self.get_complex_demography(),
+                parallelize=False
+            ),
+            MsprimeCoalescent(
                 n_threads=1,
                 num_replicates=1000,
                 n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
@@ -97,3 +97,82 @@ class CoalescentTestCase(TestCase):
                 np.sum([coal.sfs.demes[p].mean.data for p in coal.demography.pop_names], axis=0),
                 decimal=14
             )
+
+    def test_msprime_complex_coalescent(self):
+        """
+        Test msprime complex coalescent.
+        """
+        coal = MsprimeCoalescent(
+            n_threads=1,
+            num_replicates=1000,
+            n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        )
+
+        m = coal.tree_height.mean
+
+    def test_msprime_coalescent_two_loci(self):
+        """
+        Test msprime coalescent.
+        """
+        coal = MsprimeCoalescent(
+            n_threads=1,
+            parallelize=False,
+            num_replicates=1000,
+            n=pg.PopConfig(2),
+            loci=2,
+            recombination_rate=10,
+            model=pg.StandardCoalescent(),
+            demography=pg.Demography([pg.PopSizeChange(pop='pop_0', time=0, size=1)])
+        )
+
+        m = coal.tree_height.mean
+
+        pass
+
+    def test_two_loci_one_deme(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.PopConfig(2),
+            loci=pg.LocusConfig(n=2, n_start=1, recombination_rate=10),
+            rtol=1e-8,
+            parallelize=False,
+            max_iter=100
+        )
+
+        m1 = coal.tree_height.mean
+        m2 = coal.sfs.mean
+
+        pass
+
+    def test_two_loci_n_4(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.PopConfig(4),
+            loci=pg.LocusConfig(n=2, n_start=1, recombination_rate=1.1111111),
+            rtol=1e-8,
+            parallelize=False,
+            max_iter=100
+        )
+
+        m1 = coal.tree_height.mean
+        m2 = coal.sfs.mean
+
+        pass
+
+    def test_two_loci_two_demes(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.PopConfig([2, 2]),
+            loci=2
+        )
+
+        coal.sfs.mean
+        coal.tree_height.mean

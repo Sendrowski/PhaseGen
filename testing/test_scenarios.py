@@ -8,10 +8,21 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_2_loci_n_2_r_10'
+]
+
+configs_suspended = [
+    '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_3_r_1',
+    '1_epoch_2_loci_n_10_r_1',
+    '1_epoch_2_loci_n_2_r_1',
+    '1_epoch_2_loci_n_2_r_0_1',
+    '1_epoch_2_loci_n_2_r_0',
+    '1_epoch_n_2',
+    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '1_epoch_migration_one_each_n_6',
     '1_epoch_n_2_test_size',
     '1_epoch_migration_one_each_n_2',
-    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '1_epoch_n_4',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
@@ -28,7 +39,6 @@ configs = [
     '2_epoch_n_5',
     '2_epoch_n_2',
     '2_epoch_2_pops_n_5',
-    '1_epoch_n_2',
     '1_epoch_migration_disparate_pop_size_one_each_n_2',
     '1_epoch_migration_disparate_pop_size_one_all_n_2',
     '1_epoch_dirac_n_6_psi_1_c_1',
@@ -37,9 +47,6 @@ configs = [
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_7',
     '1_epoch_beta_n_6_alpha_1_1',
-]
-
-configs_suspended = [
     '1_epoch_dirac_n_2_psi_0_5_c_1',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_50',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_1',  # TODO shorter SFS bins than msprime

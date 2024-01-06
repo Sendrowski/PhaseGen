@@ -18,19 +18,20 @@ class PopConfig:
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
         or a dictionary with population names as keys and number of lineages as values.
         """
+        #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-        if not isinstance(n, dict):
-
-            # assume we have a scalar
-            if not isinstance(n, Iterable):
-                n_lineages = dict(pop_0=n)
-            else:
-                # we have an iterable
-                n_lineages = {f"pop_{i}": i for i in n}
-        else:
+        if isinstance(n, dict):
             # we have a dictionary
             n_lineages = n
+
+        elif isinstance(n, Iterable):
+            # we have an iterable
+            n_lineages = {f"pop_{i}": n for i, n in enumerate(n)}
+
+        else:
+            # assume we have a scalar
+            n_lineages = dict(pop_0=n)
 
         #: Number of lineages per deme
         self.lineages: np.array = np.array(list(n_lineages.values()))
@@ -67,4 +68,5 @@ class PopConfig:
         :return: Initial state vector
         """
         # determine the states that correspond to the population configuration
-        return (s.states[:, :, 0] == self.lineages).all(axis=1).astype(int)
+        # it is enough here to focus on the first lineage class
+        return (s.states[:, :, :, 0] == self.lineages).all(axis=(1, 2)).astype(int)
