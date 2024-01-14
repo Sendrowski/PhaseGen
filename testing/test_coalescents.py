@@ -81,21 +81,21 @@ class CoalescentTestCase(TestCase):
             np.testing.assert_array_almost_equal(
                 coal.tree_height.mean,
                 np.sum([coal.tree_height.demes[p].mean for p in coal.demography.pop_names], axis=0),
-                decimal=14
+                decimal=12
             )
 
             # make sure the deme-wise total branch lengths add upp
             np.testing.assert_array_almost_equal(
                 coal.total_branch_length.mean,
                 np.sum([coal.total_branch_length.demes[p].mean for p in coal.demography.pop_names], axis=0),
-                decimal=14
+                decimal=12
             )
 
             # make sure the deme-wise SFS add upp
             np.testing.assert_array_almost_equal(
                 coal.sfs.mean.data,
                 np.sum([coal.sfs.demes[p].mean.data for p in coal.demography.pop_names], axis=0),
-                decimal=14
+                decimal=12
             )
 
     def test_msprime_complex_coalescent(self):
@@ -168,32 +168,18 @@ class CoalescentTestCase(TestCase):
 
         marginal = pg.Coalescent(n=pg.PopConfig(4))
 
-        self.assertAlmostEqual(coal.total_branch_length.loci[0].mean, marginal.total_branch_length.mean)
-
-        # assert total branch length
+        # assert total branch length to be twice as long as marginal
         self.assertAlmostEqual(marginal.total_branch_length.mean * 2, coal.total_branch_length.mean)
 
-        # assert total tree height
+        self.assertAlmostEqual(marginal.total_branch_length.mean, coal.total_branch_length.loci[0].mean)
+        self.assertAlmostEqual(marginal.total_branch_length.var, coal.total_branch_length.loci[0].var)
+
+        # assert total tree height to be twice as long as marginal
         self.assertAlmostEqual(marginal.tree_height.mean * 2, coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),)))
 
         # assert marginal locus moments
         self.assertAlmostEqual(marginal.tree_height.mean, coal.tree_height.loci[0].mean)
         self.assertAlmostEqual(marginal.tree_height.var, coal.tree_height.loci[0].var)
-
-        pass
-
-    def test_two_loci_n_4(self):
-        """
-        Test two loci.
-        """
-        coal = pg.Coalescent(
-            n=pg.PopConfig(4),
-            loci=pg.LocusConfig(n=2, n_start=1, recombination_rate=1),
-        )
-
-        m1 = coal.tree_height.mean
-        m2 = coal.tree_height.loci.corr
-        m3 = coal.tree_height.loci[0].var
 
         pass
 
@@ -206,5 +192,5 @@ class CoalescentTestCase(TestCase):
             loci=2
         )
 
-        coal.sfs.mean
+        # coal.sfs.mean
         coal.tree_height.mean

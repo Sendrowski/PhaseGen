@@ -72,6 +72,8 @@ class StateSpaceTestCase(TestCase):
 
         s.S
 
+        pass
+
     def test_default_state_space_two_loci_two_demes_four_lineages(self):
         """
         Test two loci, two demes, four lineages.

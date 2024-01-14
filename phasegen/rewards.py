@@ -1,5 +1,5 @@
 from abc import abstractmethod, ABC
-from typing import List, Callable
+from typing import List, Callable, Tuple, Dict
 
 import numpy as np
 
@@ -59,7 +59,7 @@ class TreeHeightReward(DefaultReward):
     height of the locus with the highest tree.
     """
 
-    def get(self, state_space: DefaultStateSpace) -> np.ndarray:
+    def get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -80,7 +80,7 @@ class TotalTreeHeightReward(NonDefaultReward):
     heights of all loci, regardless of whether they are linked or not.
     """
 
-    def get(self, state_space: DefaultStateSpace) -> np.ndarray:
+    def get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -102,7 +102,7 @@ class TotalBranchLengthReward(NonDefaultReward):
     the largest total branch length as done in :class:`TreeHeightReward`.
     """
 
-    def get(self, state_space: DefaultStateSpace) -> np.ndarray:
+    def get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -111,7 +111,6 @@ class TotalBranchLengthReward(NonDefaultReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
-
             # sum over demes and blocks
             loci = state_space.states.sum(axis=(2, 3))
 
@@ -176,7 +175,7 @@ class DemeReward(NonDefaultReward):
         """
         self.pop: str = pop
 
-    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -218,7 +217,7 @@ class LocusReward(NonDefaultReward):
         """
         self.locus: int = locus
 
-    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -253,6 +252,31 @@ class UnitReward(NonDefaultReward):
         :return: reward vector
         """
         return np.ones(state_space.k)
+
+
+class TotalBranchLengthLocusReward(LocusReward):
+    """
+    Reward based on total branch length per locus.
+    """
+
+    def get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+            # number of branches for focal locus
+            n_branches = state_space.states.sum(axis=(2, 3))[:, self.locus]
+
+            # no reward for loci with less than two branches
+            n_branches[n_branches < 2] = 0
+
+            return n_branches
+
+        raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
 class CompositeReward(Reward, ABC):
@@ -290,6 +314,39 @@ class ProductReward(CompositeReward):
         :return: reward vector
         """
         return np.prod([r.get(state_space) for r in self.rewards], axis=0)
+
+
+class CombinedReward(ProductReward):
+    """
+    Class extending ProductReward to allow for meaningful combination of rewards.
+    """
+    #: Dictionary of reward combinations
+    combinations: Dict[Tuple[Reward, Reward], Callable[[Reward, Reward], Reward]] = {
+        (TotalBranchLengthReward, LocusReward): lambda r1, r2: TotalBranchLengthLocusReward(r2.locus)
+    }
+
+    def __init__(self, rewards: List[Reward]):
+        """
+        Initialize the combined reward.
+
+        :param rewards: Rewards to combine
+        """
+        # replace rewards with combined rewards if possible
+        for (c1, c2), comb in CombinedReward.combinations.items():
+            # keep looping until we have no rewards to combine
+            while any([isinstance(r, c1) for r in rewards]) and any([isinstance(r, c2) for r in rewards]):
+                # get first occurrence of r1 and r2
+                r1 = next(r for r in rewards if isinstance(r, c1))
+                r2 = next(r for r in rewards if isinstance(r, c2))
+
+                # remove first occurrence of r1 and r2
+                rewards.remove(r1)
+                rewards.remove(r2)
+
+                # add combined reward
+                rewards.append(comb(r1, r2))
+
+        super().__init__(rewards)
 
 
 class CustomReward(Reward):

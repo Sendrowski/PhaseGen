@@ -11,6 +11,7 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .locus import LocusConfig
 from .population import PopConfig
+from .transition import Transition
 
 logger = logging.getLogger('phasegen')
 
@@ -87,39 +88,6 @@ class StateSpace(ABC):
         # indices of non-zero rates
         # this improves performance when recomputing the rate matrix for different epochs
         return np.where(default_rate_matrix != 0)
-
-    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
-        """
-        Expand the given states to include all possible combinations of locus configurations.
-        TODO clean up
-
-        :param states: States.
-        """
-        if self.locus_config.n == 1:
-            # all lineages are shared
-            self.n_shared = np.zeros(states.shape[0], dtype=int)
-
-            # add extra dimension for locus configuration
-            return states[:, np.newaxis]
-
-        if self.locus_config.n == 2:
-            # create array with same shape and fill first element with number of shared lineages
-            n_shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
-            n_shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
-
-            # take product of number of shared lineages and states
-            states = np.array(list(itertools.product(n_shared, states, states)))
-
-            n_lineages = states.sum(axis=(2, 3)).T
-
-            # remove states where n_shared is larger than the total number of lineages
-            states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
-
-            self.n_shared = states[:, 0, 0, 0]
-
-            return states[:, 1:, :, :]
-
-        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 
     @cached_property
     @abstractmethod
@@ -206,7 +174,54 @@ class StateSpace(ABC):
         """
         return self.states.shape[2]
 
+    def _get_rate_matrix(self) -> np.ndarray:
+        """
+        Get the rate matrix.
+
+        :return: The rate matrix.
+        """
+        matrix_indices_to_rates = np.vectorize(self._matrix_indices_to_rates, otypes=[float])
+
+        # create empty matrix
+        S = np.zeros((self.k, self.k))
+
+        # fill matrix with non-zero rates
+        S[self._non_zero_states] = matrix_indices_to_rates(*self._non_zero_states)
+
+        # fill diagonal with negative sum of row
+        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
+
+        return S
+
+    @abstractmethod
+    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+        """
+        Get the coalescent rate from state ``s1`` to state ``s2``.
+
+        :param n: Number of lineages.
+        :param s1: State 1.
+        :param s2: State 2.
+        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        """
+        pass
+
     def _matrix_indices_to_rates(self, i: int, j: int) -> float:
+        """
+        Get the rate from the state indexed by i to the state indexed by j.
+
+        :param i: Index of outgoing state.
+        :param j: Index of incoming state.
+        :return: The rate from the state indexed by i to the state indexed by j.
+        """
+        return Transition(
+            marginal1=self.states[i],
+            marginal2=self.states[j],
+            shared1=self.n_shared[i],
+            shared2=self.n_shared[j],
+            state_space=self
+        ).get_rate()
+
+    def _matrix_indices_to_rates_old(self, i: int, j: int) -> float:
         """
         Get the rate from the state indexed by i to the state indexed by j.
 
@@ -224,19 +239,24 @@ class StateSpace(ABC):
         # get the difference between the states
         diff = s1 - s2
 
+        # shared lineages
+        n_shared1 = self.n_shared[i]
+        n_shared2 = self.n_shared[j]
+
+        # difference in shared lineages
+        diff_shared = n_shared1 - n_shared2
+
         # mask for affected demes
-        has_diff_demes = np.any(diff != 0, axis=(0, 2))
+        has_diff_demes = np.any((diff != 0) | (diff_shared != 0), axis=(0, 2))
 
         # number of affected demes
         n_demes = has_diff_demes.sum()
-
-        n_shared1 = self.n_shared[i]
-        n_shared2 = self.n_shared[j]
 
         # possible recombination event
         if n_demes == 0:
 
             # no recombination or back recombination from or to absorbing state
+            # TODO necessary/possible despite need to get max(mrca) for tree height distribution?
             if np.all(s1.sum(axis=(1, 2)) == 1) or np.all(s2.sum(axis=(1, 2)) == 1):
                 return 0
 
@@ -252,7 +272,7 @@ class StateSpace(ABC):
 
             return 0
 
-        # possible coalescent event
+        # possible coalescence event
         if n_demes == 1:
 
             # get the index of the affected deme
@@ -270,8 +290,9 @@ class StateSpace(ABC):
 
             is_shared = n_diff_loci > 1
 
+            # shared coalescence event
             if is_shared:
-                # if coalescent event is shared across loci but the reduction in
+                # if coalescence event is shared across loci but the reduction in
                 # the number of shared lineages is not equal to the reduction in
                 # the number of coalesced lineages for each locus, then the rate
                 # is zero.
@@ -290,14 +311,14 @@ class StateSpace(ABC):
                     s2=np.array([n_shared2])
                 )
 
-            # not shared
+            # marginal coalescence event
             else:
 
-                n_unshared1 = deme_s1[has_diff_loci].sum() - n_shared1
-                n_unshared2 = deme_s2[has_diff_loci].sum() - n_shared2
+                n_unshared1 = deme_s1[has_diff_loci] - n_shared1[has_diff_loci, deme]
+                n_unshared2 = deme_s2[has_diff_loci] - n_shared2[has_diff_loci, deme]
 
                 # number of reduced unshared lineages has to equal numbers of coalesced
-                # lineages if coalescent event is not shared across loci
+                # lineages if coalescence event is not shared across loci
                 if n_unshared1 - n_unshared2 != diff_deme[has_diff_loci].sum():
                     return 0
 
@@ -309,9 +330,6 @@ class StateSpace(ABC):
                     ) + n_shared1 * n_unshared1
                 else:
                     return 0
-
-                x = 1
-                pass
 
             pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme]]
 
@@ -360,37 +378,6 @@ class StateSpace(ABC):
 
         return 0
 
-    def _get_rate_matrix(self) -> np.ndarray:
-        """
-        Get the rate matrix.
-
-        :return: The rate matrix.
-        """
-        matrix_indices_to_rates = np.vectorize(self._matrix_indices_to_rates, otypes=[float])
-
-        # create empty matrix
-        S = np.zeros((self.k, self.k))
-
-        # fill matrix with non-zero rates
-        S[self._non_zero_states] = matrix_indices_to_rates(*self._non_zero_states)
-
-        # fill diagonal with negative sum of row
-        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
-
-        return S
-
-    @abstractmethod
-    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
-        """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
-
-        :param n: Number of lineages.
-        :param s1: State 1.
-        :param s2: State 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
-        """
-        pass
-
     @staticmethod
     def _find_vectors(n: int, k: int) -> List[List[int]]:
         """
@@ -430,6 +417,40 @@ class DefaultStateSpace(StateSpace):
         """
         return self.model.get_rate(s1=s1[0], s2=s2[0])
 
+    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
+        """
+        Expand the given states to include all possible combinations of locus configurations.
+        TODO clean up and expanded n_shared by loci, demes and blocks (nest)
+          to make compatible with BlockCountingStateSpace
+
+        :param states: States.
+        """
+        if self.locus_config.n == 1:
+            # all lineages are shared
+            self.n_shared = np.zeros(states.shape[0], dtype=int)
+
+            # add extra dimension for locus configuration
+            return states[:, np.newaxis]
+
+        if self.locus_config.n == 2:
+            # create array with same shape and fill first element with number of shared lineages
+            n_shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
+            n_shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
+
+            # take product of number of shared lineages and states
+            states = np.array(list(itertools.product(n_shared, states, states)))
+
+            n_lineages = states.sum(axis=(2, 3)).T
+
+            # remove states where n_shared is larger than the total number of lineages
+            states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
+
+            self.n_shared = states[:, 0, 0, 0]
+
+            return states[:, 1:, :, :]
+
+        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
+
     @cached_property
     def states(self) -> np.ndarray:
         """
@@ -465,7 +486,7 @@ class BlockCountingStateSpace(StateSpace):
     and is thus used when computing statistics based on the SFS.
     """
 
-    def _matrix_indices_to_rates(self, i: int, j: int) -> float:
+    def _matrix_indices_to_rates_single_locus(self, i: int, j: int) -> float:
         """
         Get the rate from the state indexed by i to the state indexed by j.
 
@@ -483,7 +504,7 @@ class BlockCountingStateSpace(StateSpace):
         # get the number of different demes
         n_diff = (diff != 0).any(axis=1).sum()
 
-        # eligible for coalescent event
+        # eligible for coalescence event
         if n_diff == 1:
             deme_index = np.where(diff != 0)[0][0]
 
@@ -534,6 +555,50 @@ class BlockCountingStateSpace(StateSpace):
         :return: The coalescent rate from state ``s1`` to state ``s2``.
         """
         return self.model.get_rate_block_counting(n=n, s1=s1, s2=s2)
+
+    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
+        """
+        Expand the given states to include all possible combinations of locus configurations.
+        TODO clean up
+
+        :param states: States.
+        """
+        if self.locus_config.n == 1:
+            # all lineages are shared
+            self.n_shared = np.zeros(states.shape[0], dtype=int)
+
+            # add extra dimension for locus configuration
+            return states[:, np.newaxis]
+
+        if self.locus_config.n == 2:
+
+            locus = []
+
+            for state in states.reshape(states.shape[0], -1):
+
+                n_shared = []
+                for block in state:
+                    n_shared += [range(block + 1)]
+
+                locus += itertools.product([state], itertools.product(*n_shared))
+
+            # combine loci
+            expanded = np.array(list(itertools.product(locus, repeat=2)))
+
+            # reshape two last dimensions to get the correct shape
+            expanded = expanded.reshape(*expanded.shape[:3], *states.shape[1:])
+
+            # state for which the number of shared lineages is the same across loci
+            same_shared = expanded[:, 0, 1].sum(axis=(1, 2)) == expanded[:, 1, 1].sum(axis=(1, 2))
+
+            # remove states where the number of shared lineages is not the same across loci
+            expanded = expanded[same_shared]
+
+            self.n_shared = expanded[:, :, 1]
+
+            return expanded[:, :, 0]
+
+        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 
     @cached_property
     def states(self) -> np.ndarray:

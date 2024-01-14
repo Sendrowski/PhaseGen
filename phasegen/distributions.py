@@ -20,7 +20,8 @@ from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalesce
 from .demography import Demography, Epoch, PopSizeChanges
 from .locus import LocusConfig
 from .population import PopConfig
-from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward
+from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward, \
+    CombinedReward
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .visualization import Visualization
@@ -134,9 +135,16 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
         pass
 
 
-class MarginalLocusDistributions(Mapping):
+class MarginalDistributions(Mapping, ABC):
     """
-    Marginal distributions for each locus.
+    Base class for marginal distributions.
+    """
+    pass
+
+
+class MarginalLocusDistributions(MarginalDistributions):
+    """
+    Marginal locus distributions.
     """
 
     def __init__(self, dist: 'PhaseTypeDistribution'):
@@ -189,7 +197,7 @@ class MarginalLocusDistributions(Mapping):
             loci[locus] = cls(
                 state_space=self.dist.state_space,
                 demography=self.dist.demography,
-                reward=self.dist.reward.prod(LocusReward(locus)),
+                reward=CombinedReward([self.dist.reward, LocusReward(locus)]),
                 max_iter=self.dist.max_iter,
                 precision=self.dist.precision
             )
@@ -208,8 +216,8 @@ class MarginalLocusDistributions(Mapping):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
         m2 = self.dist.moment(k=2, rewards=(
-            self.dist.reward.prod(LocusReward(locus1)),
-            self.dist.reward.prod(LocusReward(locus2))
+            CombinedReward([self.dist.reward, LocusReward(locus1)]),
+            CombinedReward([self.dist.reward, LocusReward(locus2)])
         ))
 
         return m2 - self.loci[locus1].mean * self.loci[locus2].mean
@@ -247,9 +255,9 @@ class MarginalLocusDistributions(Mapping):
         return np.array([[self._get_corr_loci(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
 
-class MarginalDemeDistributions(Mapping):
+class MarginalDemeDistributions(MarginalDistributions):
     """
-    Marginal distributions for each deme.
+    Marginal deme distributions.
     """
 
     def __init__(self, dist: 'PhaseTypeDistribution'):
@@ -302,7 +310,7 @@ class MarginalDemeDistributions(Mapping):
             demes[pop] = cls(
                 state_space=self.dist.state_space,
                 demography=self.dist.demography,
-                reward=self.dist.reward.prod(DemeReward(pop)),
+                reward=CombinedReward([self.dist.reward, DemeReward(pop)]),
                 max_iter=self.dist.max_iter,
                 precision=self.dist.precision
             )
@@ -321,8 +329,8 @@ class MarginalDemeDistributions(Mapping):
             raise ValueError(f"Population {pop1} or {pop2} does not exist.")
 
         m2 = self.dist.moment(k=2, rewards=(
-            self.dist.reward.prod(DemeReward(pop1)),
-            self.dist.reward.prod(DemeReward(pop2))
+            CombinedReward([self.dist.reward, DemeReward(pop1)]),
+            CombinedReward([self.dist.reward, DemeReward(pop2)])
         ))
 
         return m2 - self.demes[pop1].mean * self.demes[pop2].mean
@@ -480,7 +488,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             demography: Demography = Demography(),
             reward: Reward = TreeHeightReward(),
             max_iter: int = 100,
-            precision: float = 1e-16,
+            precision: float = 1e-10,
     ):
         """
         Initialize the distribution.
@@ -613,7 +621,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         M = np.eye(n_states * (k + 1))
 
         # current value for moment
-        m = 0
+        m = -1
 
         # iterate through epochs and compute initial values
         for i, epoch in enumerate(self.demography.epochs):
@@ -634,7 +642,13 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             m_next = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
 
             # terminate if we have converged
+            # TODO this approach has other problems as it works with the absolute value
+            #   meaning it is dependent on the coalescence rate. It might also stop
+            #   prematurely if the coalescence rate is very low temporarily. Another
+            #   problem is that may still be numerical imprecision even if the moment
+            #   has converged.
             if np.abs(m_next - m) < self.precision:
+                m = m_next
                 break
 
             # if we have not converged after max_iter epochs, we raise an error
@@ -648,9 +662,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             # update matrix and moment
             M = M_next
             m = m_next
-
-        # compute moment
-        m = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
 
         # round using precision and return
         return np.round(m, decimals=-int(np.log10(self.precision)))
@@ -667,7 +678,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space: DefaultStateSpace,
             demography: Demography = Demography(),
             max_iter: int = 100,
-            precision: float = 1e-16
+            precision: float = 1e-10
     ):
         """
         Initialize the distribution.
@@ -823,7 +834,7 @@ class SFSDistribution(PhaseTypeDistribution):
             parallelize: bool = False,
             reward: Reward = UnitReward(),
             max_iter: int = 100,
-            precision: float = 1e-16
+            precision: float = 1e-10
     ):
         """
         Initialize the distribution.
@@ -871,7 +882,7 @@ class SFSDistribution(PhaseTypeDistribution):
             :return: The moment
             """
             d = PhaseTypeDistribution(
-                reward=SFSReward(i).prod(self.reward),
+                reward=CombinedReward([self.reward, SFSReward(i)]),
                 state_space=self.state_space,
                 demography=self.demography,
                 max_iter=self.max_iter,
@@ -945,7 +956,10 @@ class SFSDistribution(PhaseTypeDistribution):
 
         return d.moment(
             k=2,
-            rewards=(SFSReward(i).prod(self.reward), SFSReward(j).prod(self.reward))
+            rewards=(
+                CombinedReward([self.reward, SFSReward(i)]),
+                CombinedReward([self.reward, SFSReward(j)])
+            )
         )
 
     @cached_property
@@ -1193,6 +1207,10 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
         return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
+class DictContainer(dict):
+    pass
+
+
 class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
     """
     Phase-type distribution based on realisations.
@@ -1260,7 +1278,16 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
 
         :return: Dictionary of distributions.
         """
-        return {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
+        demes = DictContainer(
+            {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
+        )
+
+        # TODO this is the covariance in the tree height but phasegen
+        #  provides the covariance in the number of lineages per deme
+        demes.cov = self.pops_cov
+        demes.corr = self.pops_corr
+
+        return demes
 
     @cached_property
     def loci(self) -> Dict[int, EmpiricalDistribution]:
@@ -1269,47 +1296,14 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
 
         :return: Dictionary of distributions.
         """
-        return {i: EmpiricalDistribution(self._samples[i].sum(axis=0)) for i in range(self._samples.shape[0])}
+        loci = DictContainer(
+            {i: EmpiricalDistribution(self._samples[i].sum(axis=0)) for i in range(self._samples.shape[0])}
+        )
 
-    def get_cov_demes(self, pop1: str, pop2: str) -> float:
-        """
-        Get the covariance between two demes.
+        loci.cov = self.loci_cov
+        loci.corr = self.loci_corr
 
-        :param pop1: The first deme.
-        :param pop2: The second deme.
-        :return: The covariance.
-        """
-        return float(self.pops_cov[self.pops.index(pop1), self.pops.index(pop2)])
-
-    def get_corr_demes(self, pop1: str, pop2: str) -> float:
-        """
-        Get the correlation between two demes.
-
-        :param pop1: The first deme.
-        :param pop2: The second deme.
-        :return: The correlation.
-        """
-        return float(self.pops_corr[self.pops.index(pop1), self.pops.index(pop2)])
-
-    def get_cov_loci(self, i: int, j: int) -> float:
-        """
-        Get the covariance between two loci.
-
-        :param i: The first locus.
-        :param j: The second locus.
-        :return: The covariance.
-        """
-        return float(self.loci_cov[i, j])
-
-    def get_corr_loci(self, i: int, j: int) -> float:
-        """
-        Get the correlation between two loci.
-
-        :param i: The first locus.
-        :param j: The second locus.
-        :return: The correlation.
-        """
-        return float(self.loci_corr[i, j])
+        return loci
 
 
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):
@@ -1339,10 +1333,15 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):
         #: Samples by deme and locus
         self._samples = samples
 
+        #: Correlation matrix for the loci
         self.pops_corr = self._get_stat_pops(over_loci, np.corrcoef)
 
         #: Covariance matrix for the demes
         self.pops_cov: np.ndarray = self._get_stat_pops(over_loci, np.cov)
+
+        self.loci_corr = None
+
+        self.loci_cov = None
 
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
@@ -1459,7 +1458,7 @@ class Coalescent(AbstractCoalescent):
             pbar: bool = True,
             parallelize: bool = True,
             max_iter: int = 100,
-            precision: float = 1e-16
+            precision: float = 1e-10
     ):
         """
         Create object.
@@ -1706,10 +1705,10 @@ class MsprimeCoalescent(AbstractCoalescent):
                         # population state per leave
                         pop_states = {n: tree.population(n) for n in range(sample_size)}
 
-                        # iterate over coalescent events
+                        # iterate over coalescence events
                         for coal_time in t_coal:
 
-                            # iterate over migration events within this coalescent event
+                            # iterate over migration events within this coalescence event
                             while i_migration < len(t_migration) and time < t_migration[i_migration] <= coal_time:
                                 delta = t_migration[i_migration] - time
 
@@ -1728,7 +1727,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                                 i_migration += 1
                                 time += delta
 
-                            # remaining time to next coalescent event
+                            # remaining time to next coalescence event
                             delta = coal_time - time
 
                             # update statistics

@@ -1,3 +1,4 @@
+import logging
 from functools import cached_property
 from typing import Iterable, Dict, Literal, List
 
@@ -8,10 +9,13 @@ from matplotlib import pyplot as plt
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .demography import Demography, DiscreteRateChanges
-from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution
+from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution, MarginalDistributions, \
+    MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS2
+
+logger = logging.getLogger('phasegen')
 
 
 class Comparison(Serializable):
@@ -32,7 +36,7 @@ class Comparison(Serializable):
             n_threads: int = 100,
             parallelize: bool = True,
             max_iter: int = 100,
-            precision: float = 1e-16,
+            precision: float = 1e-10,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
             alpha: float = 1.5,
@@ -69,6 +73,8 @@ class Comparison(Serializable):
         :param max_iter: Maximum number of iterations.
         :param precision: Precision of the phase-type coalescent.
         """
+        self.logger = logging.getLogger('phasegen').getChild(self.__class__.__name__)
+
         self.comparisons = comparisons
         self.n = n
         self.pop_sizes = pop_sizes
@@ -86,6 +92,9 @@ class Comparison(Serializable):
         self.c = c
 
         self.model = self.load_coalescent_model(model)
+
+        #: Number of assertions made
+        self.n_assertions: int = 0
 
     @staticmethod
     def from_yaml(file: str) -> 'Comparison':
@@ -182,7 +191,7 @@ class Comparison(Serializable):
         a, b = np.array(a), np.array(b)
 
         # compute relative difference
-        diff = np.abs(a - b) / ((a + b) / 2)
+        diff = np.abs(a - b) / ((np.abs(a) + np.abs(b)) / 2)
 
         # only consider finite values
         return diff[np.isfinite(diff)]
@@ -278,16 +287,22 @@ class Comparison(Serializable):
         else:
             raise ValueError(f"Unknown type {type(ph_stat)}.")
 
-        if do_assertion:
-            if not diff <= tol:
+        if not diff <= tol:
+            self.logger.critical(f"{title}: {diff} > {tol}")
+
+            if do_assertion:
                 raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol}.")
+
+            self.n_assertions += 1
+        else:
+            self.logger.info(f"{title}: {diff} <= {tol}")
 
         plt.clf()
 
     def _compare_stat_recursively(
             self,
-            ph: PhaseTypeDistribution,
-            ms: PhaseTypeDistribution,
+            ph: PhaseTypeDistribution | MarginalDistributions,
+            ms: PhaseTypeDistribution | MarginalDistributions,
             data: dict,
             do_assertion: bool = True,
             visualize: bool = True,
@@ -305,34 +320,44 @@ class Comparison(Serializable):
         """
 
         # statistic, distribution or nested demes dictionary
-        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'cov_demes']
+        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes']
 
         # tolerance or dictionary of statistics
         sub: float | dict
 
         for stat, sub in data.items():
 
-            if stat == 'demes':
+            # if the statistic is nested, recurse
+            if isinstance(ph, MarginalDistributions) and not hasattr(ph, stat):
+                if isinstance(ph, MarginalDemeDistributions):
+                    items = self.ph.demography.pop_names
+                elif isinstance(ph, MarginalLocusDistributions):
+                    items = range(self.n_loci)
+                else:
+                    raise ValueError(f"Unknown type {type(ph)} for marginal distributions.")
 
-                for pop in self.ph.demography.pop_names:
-                    self._compare_stat_recursively(
-                        ph=ph.demes[pop],
-                        ms=ms.demes[pop],
-                        data=sub,
+                # iterate over demes or loci
+                for item in items:
+                    self.compare_stat(
+                        ph=ph[item],
+                        ms=ms[item],
+                        stat=stat,
+                        tol=sub,
                         visualize=visualize,
-                        title=f"{title}: {pop}"
+                        title=f"{title}: {item}",
+                        do_assertion=do_assertion
                     )
 
-            elif stat == 'loci':
+            elif stat in ['demes', 'loci']:
 
-                for locus in range(self.n_loci):
-                    self._compare_stat_recursively(
-                        ph=ph.loci[locus],
-                        ms=ms.loci[locus],
-                        data=sub,
-                        visualize=visualize,
-                        title=f"{title}: locus_{locus}"
-                    )
+                self._compare_stat_recursively(
+                    ph=getattr(ph, stat),
+                    ms=getattr(ms, stat),
+                    data=sub,
+                    visualize=visualize,
+                    title=f"{title}: {stat}"
+                )
+
             else:
 
                 self.compare_stat(
@@ -364,3 +389,5 @@ class Comparison(Serializable):
                 visualize=visualize,
                 title=f"{title}: {dist}"
             )
+
+        self.logger.info(f"Number of assertions: {self.n_assertions}")

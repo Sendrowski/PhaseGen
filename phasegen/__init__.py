@@ -128,6 +128,7 @@ from .rewards import (
     SFSReward,
     CustomReward,
     ProductReward,
+    CombinedReward,
     DemeReward
 )
 
