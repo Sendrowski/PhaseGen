@@ -280,6 +280,8 @@ class Comparison(Serializable):
                 plt.legend()
                 plt.title(title)
 
+                plt.tight_layout()
+
                 plt.show()
 
             diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[2:].max()

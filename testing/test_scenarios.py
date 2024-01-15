@@ -8,12 +8,14 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
-    '1_epoch_2_loci_n_4_r_1',
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
 ]
 
 configs_suspended = [
     '1_epoch_2_loci_n_2_r_1',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_10_r_1',
     '1_epoch_migration_one_each_n_6',
     '2_epoch_n_5',
     '2_epoch_n_2',
@@ -21,7 +23,6 @@ configs_suspended = [
     '2_epoch_rapid_decline_n_5',
     '2_epoch_rapid_decline_n_2',
     '1_epoch_2_loci_n_2_r_10',
-    '1_epoch_2_loci_n_10_r_1',
     '1_epoch_2_loci_n_2_r_0_1',
     '1_epoch_2_loci_n_2_r_0',
     '1_epoch_2_loci_n_3_r_1',
@@ -36,7 +37,6 @@ configs_suspended = [
     '5_epoch_beta_varying_migration_2_pops',
     '4_epoch_up_down_n_2',
     '4_epoch_up_down_n_10',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '3_epoch_extreme_bottleneck_n_5',
     '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '3_epoch_2_pops_n_5',

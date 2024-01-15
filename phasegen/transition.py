@@ -334,7 +334,7 @@ class Transition:
         In case of a shared coalescence event, whether the reduction in the number of shared lineages is equal
         to the reduction in the number of coalesced lineages for each locus.
         """
-        return not np.any(self.shared1 - self.shared2 != self.diff_deme_coal_marginal.sum(axis=1))
+        return np.all(self.diff_shared[:, self.deme_coal] == self.diff_marginal[:, self.deme_coal])
 
     @cached_property
     def has_sufficient_shared_lineages_shared_coalescence(self) -> bool:
@@ -436,7 +436,6 @@ class Transition:
     def is_eligible_migration(self) -> bool:
         """
         Whether the transition is eligible for a migration event.
-        TODO if loci are linked, we allow lineage movement in several locus contexts simultaneously?
         TODO do we also need to move shared lineages?
         """
         # two demes must be affected
@@ -533,7 +532,7 @@ class Transition:
         """
         Get the rate of a shared coalescence event.
         """
-        # TODO we assume shared lineages are same across loci which need not be the case
+        # TODO we assume shared lineages are the same across loci which need not be the case
         rate = self.state_space._get_coalescent_rate(
             n=self.state_space.pop_config.n,
             s1=self.shared1[0, self.deme_coal],
@@ -551,13 +550,20 @@ class Transition:
             n=self.state_space.pop_config.n,
             s1=self.deme_unshared_coal_marginal1,
             s2=self.deme_unshared_coal_marginal2
-        ) / self.get_scaled_pop_size_deme_coalescence()
+        )
+
+        # difference in marginal number of lineages between state 1 and state 2
+        diff = self.deme_unshared_coal_marginal2 - self.deme_unshared_coal_marginal1
 
         # get coalescence rate of shared lineages
-        rate_shared = self.get_rate_shared_coalescence()
+        rate_shared = self.state_space._get_coalescent_rate(
+            n=self.state_space.pop_config.n,
+            s1=self.shared1[0, self.deme_coal],
+            s2=self.shared1[0, self.deme_coal] + diff
+        )
 
         # get unshared coalescence rate by subtracting shared coalescence rate from total coalescence rate
-        return rate_all - rate_shared
+        return (rate_all - rate_shared) / self.get_scaled_pop_size_deme_coalescence()
 
     def get_rate_migration(self) -> float:
         """
@@ -607,3 +613,25 @@ class Transition:
             return self.get_rate_migration()
 
         return 0
+
+    @cached_property
+    def type(self) -> str:
+        """
+        Get the type of the transition.
+        """
+        if self.is_forward_recombination:
+            return 'forward_recombination'
+
+        if self.is_backward_recombination:
+            return 'backward_recombination'
+
+        if self.is_shared_coalescence:
+            return 'shared_coalescence'
+
+        if self.is_unshared_coalescence:
+            return 'unshared_coalescence'
+
+        if self.is_migration:
+            return 'migration'
+
+        return 'invalid'

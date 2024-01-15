@@ -217,3 +217,22 @@ class TransitionTestCase(TestCase):
         self.assertFalse(t.is_forward_recombination)
 
         self.assertEqual(4, t.get_rate())
+
+    def test_unshared_coalescence_two_loci_default_state_space(self):
+        """
+        Test unshared coalescence for two loci, default state space.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=4),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[4]], [[4]]]),
+            marginal2=np.array([[[4]], [[3]]]),
+            shared1=np.array([[[3]], [[3]]]),
+            shared2=np.array([[[3]], [[3]]])
+        )
+
+        t.get_rate()

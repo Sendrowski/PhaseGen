@@ -213,26 +213,28 @@ class StateSpace(ABC):
         :param j: Index of incoming state.
         :return: The rate from the state indexed by i to the state indexed by j.
         """
-        if isinstance(Transition(
-            marginal1=self.states[i],
-            marginal2=self.states[j],
-            shared1=self.n_shared[i],
-            shared2=self.n_shared[j],
-            state_space=self
-        ).get_rate(), np.ndarray):
-            pass
+        return self.get_transition(i=i, j=j).get_rate()
 
+    def get_transition(self, i: int, j: int) -> Transition:
+        """
+        Get the transition from the state indexed by i to the state indexed by j.
+
+        :param i: Index of outgoing state.
+        :param j: Index of incoming state.
+        :return: The transition from the state indexed by i to the state indexed by j.
+        """
         return Transition(
             marginal1=self.states[i],
             marginal2=self.states[j],
             shared1=self.n_shared[i],
             shared2=self.n_shared[j],
             state_space=self
-        ).get_rate()
+        )
 
     def _matrix_indices_to_rates_old(self, i: int, j: int) -> float:
         """
         Get the rate from the state indexed by i to the state indexed by j.
+        TODO remove
 
         :param i: Index of outgoing state.
         :param j: Index of incoming state.
@@ -500,6 +502,7 @@ class BlockCountingStateSpace(StateSpace):
     def _matrix_indices_to_rates_single_locus(self, i: int, j: int) -> float:
         """
         Get the rate from the state indexed by i to the state indexed by j.
+        TODO remove
 
         :param i: Index i.
         :param j: Index j.
