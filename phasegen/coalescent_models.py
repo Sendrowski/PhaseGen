@@ -30,8 +30,8 @@ class CoalescentModel(ABC):
         :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
 
         :param n: Number of lineages.
-        :param s1: Sample configuration 1.
-        :param s2: Sample configuration 2.
+        :param s1: Block configuration 1, a vector of length n.
+        :param s2: Block configuration 2, a vector of length n.
         :return: The rate.
         """
         diff = s2 - s1

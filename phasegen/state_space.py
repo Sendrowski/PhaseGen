@@ -213,6 +213,15 @@ class StateSpace(ABC):
         :param j: Index of incoming state.
         :return: The rate from the state indexed by i to the state indexed by j.
         """
+        if isinstance(Transition(
+            marginal1=self.states[i],
+            marginal2=self.states[j],
+            shared1=self.n_shared[i],
+            shared2=self.n_shared[j],
+            state_space=self
+        ).get_rate(), np.ndarray):
+            pass
+
         return Transition(
             marginal1=self.states[i],
             marginal2=self.states[j],
@@ -426,11 +435,13 @@ class DefaultStateSpace(StateSpace):
         :param states: States.
         """
         if self.locus_config.n == 1:
-            # all lineages are shared
-            self.n_shared = np.zeros(states.shape[0], dtype=int)
-
             # add extra dimension for locus configuration
-            return states[:, np.newaxis]
+            states = states[:, np.newaxis]
+
+            # all lineages are shared
+            self.n_shared = np.zeros_like(states, dtype=int)
+
+            return states
 
         if self.locus_config.n == 2:
             # create array with same shape and fill first element with number of shared lineages
@@ -445,7 +456,7 @@ class DefaultStateSpace(StateSpace):
             # remove states where n_shared is larger than the total number of lineages
             states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
 
-            self.n_shared = states[:, 0, 0, 0]
+            self.n_shared = states[:, [0, 0], :, :]
 
             return states[:, 1:, :, :]
 
@@ -564,11 +575,14 @@ class BlockCountingStateSpace(StateSpace):
         :param states: States.
         """
         if self.locus_config.n == 1:
+            # add extra dimension for locus configuration
+            states = states[:, np.newaxis]
+
             # all lineages are shared
-            self.n_shared = np.zeros(states.shape[0], dtype=int)
+            self.n_shared = np.zeros_like(states, dtype=int)
 
             # add extra dimension for locus configuration
-            return states[:, np.newaxis]
+            return states
 
         if self.locus_config.n == 2:
 

@@ -488,7 +488,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             demography: Demography = Demography(),
             reward: Reward = TreeHeightReward(),
             max_iter: int = 100,
-            precision: float = 1e-10,
+            precision: float = 1e-8,
     ):
         """
         Initialize the distribution.
@@ -678,7 +678,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space: DefaultStateSpace,
             demography: Demography = Demography(),
             max_iter: int = 100,
-            precision: float = 1e-10
+            precision: float = 1e-8
     ):
         """
         Initialize the distribution.
@@ -834,7 +834,7 @@ class SFSDistribution(PhaseTypeDistribution):
             parallelize: bool = False,
             reward: Reward = UnitReward(),
             max_iter: int = 100,
-            precision: float = 1e-10
+            precision: float = 1e-8
     ):
         """
         Initialize the distribution.
@@ -1458,7 +1458,7 @@ class Coalescent(AbstractCoalescent):
             pbar: bool = True,
             parallelize: bool = True,
             max_iter: int = 100,
-            precision: float = 1e-10
+            precision: float = 1e-8
     ):
         """
         Create object.

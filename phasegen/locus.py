@@ -52,6 +52,7 @@ class LocusConfig:
     def get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         """
         Get initial state vector for the locus configuration.
+        TODO test this
 
         :param s: State space
         :return: Initial state vector
@@ -62,8 +63,10 @@ class LocusConfig:
 
         if self.n_start == 1:
             # all lineages are shared
-            return (s.n_shared == s.pop_config.n).astype(int)
+            # sum over demes and lineage blocks, and require all loci to have all lineages shared
+            return (s.n_shared.sum(axis=(2, 3)) == s.pop_config.n).all(axis=1).astype(int)
 
         if self.n_start == 2:
             # no lineage is shared
-            return (s.n_shared == 0).astype(int)
+            # sum over demes and lineage blocks, and require all loci to have zero shared lineages
+            return (s.n_shared.sum(axis=(2, 3)) == 0).all(axis=1).astype(int)

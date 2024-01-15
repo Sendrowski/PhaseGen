@@ -36,7 +36,7 @@ class Comparison(Serializable):
             n_threads: int = 100,
             parallelize: bool = True,
             max_iter: int = 100,
-            precision: float = 1e-10,
+            precision: float = 1e-8,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
             alpha: float = 1.5,
@@ -292,10 +292,11 @@ class Comparison(Serializable):
 
             if do_assertion:
                 raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol}.")
-
-            self.n_assertions += 1
         else:
             self.logger.info(f"{title}: {diff} <= {tol}")
+
+        if do_assertion:
+            self.n_assertions += 1
 
         plt.clf()
 
