@@ -17,19 +17,19 @@ model: standard
 comparisons:
   tolerance:
     tree_height:
-      cov_demes: 0.01
       demes:
         mean: 0.01
         var: 0.02
+        cov: 0.01
       pdf: 0.02
       cdf: 0.02
       mean: 0.01
       var: 0.02
     total_branch_length:
-      cov_demes: 0.01
       demes:
         mean: 0.01
         var: 0.02
+        cov: 0.01
       mean: 0.01
       var: 0.02
     sfs:

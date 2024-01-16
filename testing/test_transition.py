@@ -3,7 +3,7 @@ from unittest import TestCase
 import numpy as np
 
 import phasegen as pg
-from phasegen.transition import Transition
+from phasegen.transition import Transition, State
 
 
 class TransitionTestCase(TestCase):
@@ -236,3 +236,84 @@ class TransitionTestCase(TestCase):
         )
 
         t.get_rate()
+
+    def test_is_not_shared_coalescence_reverse_coalescence(self):
+        """
+        Test whether we detect non-shared coalescence.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=2)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[0, 1]], [[0, 1]]]),
+            marginal2=np.array([[[2, 0]], [[2, 0]]]),
+            shared1=np.array([[[0, 1]], [[0, 1]]]),
+            shared2=np.array([[[2, 0]], [[2, 0]]])
+        )
+
+        self.assertFalse(t.is_shared_coalescence)
+
+    def test_state_is_absorbing(self):
+        """
+        Test whether we detect absorbing states.
+        """
+        # default state space
+        self.assertTrue(State.is_absorbing(np.array([[[1]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[2]]])))
+
+        # default state space, two demes
+        self.assertTrue(State.is_absorbing(np.array([[[1], [0]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[1], [1]]])))
+
+        # default state space, two loci
+        self.assertTrue(State.is_absorbing(np.array([[[1]], [[1]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[1]], [[2]]])))  # both loci must be absorbing
+
+        # block counting state space
+        self.assertTrue(State.is_absorbing(np.array([[[0, 1]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[1, 0]]])))
+
+        # block counting state space, two demes
+        self.assertTrue(State.is_absorbing(np.array([[[0, 1], [0, 0]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[0, 1], [0, 1]]])))
+        self.assertFalse(State.is_absorbing(np.array([[[0, 1], [1, 0]]])))
+
+    def test_unshared_coalescent_with_shared_lineages_default_state_space_two_loci(self):
+        """
+        Test unshared coalescence with shared lineages for default state space.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[1]], [[2]]]),
+            marginal2=np.array([[[1]], [[1]]]),
+            shared1=np.array([[[1]], [[1]]]),
+            shared2=np.array([[[1]], [[1]]])
+        )
+
+        self.assertTrue(t.is_unshared_coalescence)
+
+    def test_unshared_coalescent_with_shared_lineages_block_counting_state_space_two_loci(self):
+        """
+        Test unshared coalescence with shared lineages for block counting state space.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[0, 1]], [[2, 0]]]),
+            marginal2=np.array([[[0, 1]], [[0, 1]]]),
+            shared1=np.array([[[0, 1]], [[1, 0]]]),
+            shared2=np.array([[[0, 1]], [[0, 1]]])
+        )
+
+        self.assertTrue(t.is_unshared_coalescence)

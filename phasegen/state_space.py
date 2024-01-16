@@ -52,7 +52,7 @@ class StateSpace(ABC):
         self.epoch: Epoch = epoch
 
         # number of lineages shared across loci
-        self.n_shared: np.ndarray | None = None
+        self.shared: np.ndarray | None = None
 
         # warn if state space is large
         if self.k > 2000:
@@ -218,18 +218,27 @@ class StateSpace(ABC):
     def get_transition(self, i: int, j: int) -> Transition:
         """
         Get the transition from the state indexed by i to the state indexed by j.
+        TODO remove debug code
 
         :param i: Index of outgoing state.
         :param j: Index of incoming state.
         :return: The transition from the state indexed by i to the state indexed by j.
         """
-        return Transition(
+        data = dict(
             marginal1=self.states[i],
             marginal2=self.states[j],
-            shared1=self.n_shared[i],
-            shared2=self.n_shared[j],
+            shared1=self.shared[i],
+            shared2=self.shared[j],
             state_space=self
         )
+
+        transition = Transition(**data)
+
+        kind = transition.type
+
+        rate = transition.get_rate()
+
+        return transition
 
     def _matrix_indices_to_rates_old(self, i: int, j: int) -> float:
         """
@@ -251,11 +260,11 @@ class StateSpace(ABC):
         diff = s1 - s2
 
         # shared lineages
-        n_shared1 = self.n_shared[i]
-        n_shared2 = self.n_shared[j]
+        shared1 = self.shared[i]
+        shared2 = self.shared[j]
 
         # difference in shared lineages
-        diff_shared = n_shared1 - n_shared2
+        diff_shared = shared1 - shared2
 
         # mask for affected demes
         has_diff_demes = np.any((diff != 0) | (diff_shared != 0), axis=(0, 2))
@@ -272,13 +281,13 @@ class StateSpace(ABC):
                 return 0
 
             # recombination onto different loci
-            if n_shared1 - n_shared2 == 1:
-                rate = self.n_shared[i] * self.locus_config.recombination_rate
+            if shared1 - shared2 == 1:
+                rate = self.shared[i] * self.locus_config.recombination_rate
                 return rate
 
             # back recombination onto same locus
-            if n_shared1 - n_shared2 == -1:
-                rate = (s1[0].sum() - n_shared1) * (s1[1].sum() - n_shared1)
+            if shared1 - shared2 == -1:
+                rate = (s1[0].sum() - shared1) * (s1[1].sum() - shared1)
                 return rate
 
             return 0
@@ -307,26 +316,26 @@ class StateSpace(ABC):
                 # the number of shared lineages is not equal to the reduction in
                 # the number of coalesced lineages for each locus, then the rate
                 # is zero.
-                if np.any(n_shared1 - n_shared2 != diff_deme.sum(axis=1)):
+                if np.any(shared1 - shared2 != diff_deme.sum(axis=1)):
                     return 0
 
                 # Alternatively, if the number of shared lineages is
                 # less than the number of shared coalesced lineages, then the
                 # rate is also zero.
-                if diff_deme[0].sum() + 1 > n_shared1:
+                if diff_deme[0].sum() + 1 > shared1:
                     return 0
 
                 base_rate = self._get_coalescent_rate(
                     n=self.pop_config.n,
-                    s1=np.array([n_shared1]),
-                    s2=np.array([n_shared2])
+                    s1=np.array([shared1]),
+                    s2=np.array([shared2])
                 )
 
             # marginal coalescence event
             else:
 
-                n_unshared1 = deme_s1[has_diff_loci] - n_shared1[has_diff_loci, deme]
-                n_unshared2 = deme_s2[has_diff_loci] - n_shared2[has_diff_loci, deme]
+                n_unshared1 = deme_s1[has_diff_loci] - shared1[has_diff_loci, deme]
+                n_unshared2 = deme_s2[has_diff_loci] - shared2[has_diff_loci, deme]
 
                 # number of reduced unshared lineages has to equal numbers of coalesced
                 # lineages if coalescence event is not shared across loci
@@ -338,7 +347,7 @@ class StateSpace(ABC):
                         n=self.pop_config.n,
                         s1=np.array([n_unshared1]),
                         s2=np.array([n_unshared2])
-                    ) + n_shared1 * n_unshared1
+                    ) + shared1 * n_unshared1
                 else:
                     return 0
 
@@ -431,7 +440,7 @@ class DefaultStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        TODO clean up and expanded n_shared by loci, demes and blocks (nest)
+        TODO clean up and expanded `shared` by loci, demes and blocks (nest)
           to make compatible with BlockCountingStateSpace
 
         :param states: States.
@@ -441,24 +450,24 @@ class DefaultStateSpace(StateSpace):
             states = states[:, np.newaxis]
 
             # all lineages are shared
-            self.n_shared = np.zeros_like(states, dtype=int)
+            self.shared = np.zeros_like(states, dtype=int)
 
             return states
 
         if self.locus_config.n == 2:
             # create array with same shape and fill first element with number of shared lineages
-            n_shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
-            n_shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
+            shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
+            shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
 
             # take product of number of shared lineages and states
-            states = np.array(list(itertools.product(n_shared, states, states)))
+            states = np.array(list(itertools.product(shared, states, states)))
 
             n_lineages = states.sum(axis=(2, 3)).T
 
-            # remove states where n_shared is larger than the total number of lineages
+            # remove states where `shared` is larger than the total number of lineages
             states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
 
-            self.n_shared = states[:, [0, 0], :, :]
+            self.shared = states[:, [0, 0], :, :]
 
             return states[:, 1:, :, :]
 
@@ -582,7 +591,7 @@ class BlockCountingStateSpace(StateSpace):
             states = states[:, np.newaxis]
 
             # all lineages are shared
-            self.n_shared = np.zeros_like(states, dtype=int)
+            self.shared = np.zeros_like(states, dtype=int)
 
             # add extra dimension for locus configuration
             return states
@@ -593,11 +602,11 @@ class BlockCountingStateSpace(StateSpace):
 
             for state in states.reshape(states.shape[0], -1):
 
-                n_shared = []
+                shared = []
                 for block in state:
-                    n_shared += [range(block + 1)]
+                    shared += [range(block + 1)]
 
-                locus += itertools.product([state], itertools.product(*n_shared))
+                locus += itertools.product([state], itertools.product(*shared))
 
             # combine loci
             expanded = np.array(list(itertools.product(locus, repeat=2)))
@@ -611,7 +620,7 @@ class BlockCountingStateSpace(StateSpace):
             # remove states where the number of shared lineages is not the same across loci
             expanded = expanded[same_shared]
 
-            self.n_shared = expanded[:, :, 1]
+            self.shared = expanded[:, :, 1]
 
             return expanded[:, :, 0]
 

@@ -64,9 +64,9 @@ class LocusConfig:
         if self.n_start == 1:
             # all lineages are shared
             # sum over demes and lineage blocks, and require all loci to have all lineages shared
-            return (s.n_shared.sum(axis=(2, 3)) == s.pop_config.n).all(axis=1).astype(int)
+            return (s.shared.sum(axis=(2, 3)) == s.pop_config.n).all(axis=1).astype(int)
 
         if self.n_start == 2:
             # no lineage is shared
             # sum over demes and lineage blocks, and require all loci to have zero shared lineages
-            return (s.n_shared.sum(axis=(2, 3)) == 0).all(axis=1).astype(int)
+            return (s.shared.sum(axis=(2, 3)) == 0).all(axis=1).astype(int)

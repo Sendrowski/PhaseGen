@@ -46,35 +46,42 @@ class StateSpaceTestCase(TestCase):
                                                      [0., 0., 0., -0., 0.],
                                                      [0., 0., 0., 0., -0.]]))
 
-    def test_default_state_space_two_loci_one_deme_four_lineages(self):
+    def test_block_counting_state_space_two_loci_one_deme_2_n(self):
+        """
+        Test two loci, one deme, two lineages.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2)
+        )
+
+        s.S
+
+    def test_default_state_space_two_loci_one_deme_4_n(self):
         """
         Test two loci, one deme, four lineages.
         """
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=4),
-            locus_config=pg.LocusConfig(n=2),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 1})
+            locus_config=pg.LocusConfig(n=2)
         )
 
         s.S
 
-    def test_block_counting_state_space_two_loci_one_deme_four_lineages(self):
+    def test_block_counting_state_space_two_loci_one_deme_4_n(self):
         """
         Test two loci, one deme, four lineages.
         """
         s = pg.BlockCountingStateSpace(
             pop_config=pg.PopConfig(n=4),
-            locus_config=pg.LocusConfig(n=2),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 1})
+            locus_config=pg.LocusConfig(n=2)
         )
 
         s.S
 
         pass
 
-    def test_default_state_space_two_loci_two_demes_four_lineages(self):
+    def test_default_state_space_two_loci_two_demes_4_n(self):
         """
         Test two loci, two demes, four lineages.
         """
@@ -87,7 +94,7 @@ class StateSpaceTestCase(TestCase):
 
         s.S
 
-    def test_block_counting_state_space_two_loci_two_demes_four_lineages(self):
+    def test_block_counting_state_space_two_loci_two_demes_4_n(self):
         """
         Test two loci, two demes, four lineages.
         """

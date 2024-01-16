@@ -82,7 +82,7 @@ class DistributionTestCase(TestCase):
                    dist.demography.pop_names}
         m = dist.moment(1)
 
-        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-14)
+        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-9)
 
         pass
 

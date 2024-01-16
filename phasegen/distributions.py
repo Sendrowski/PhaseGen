@@ -1506,7 +1506,7 @@ class Coalescent(AbstractCoalescent):
         self.precision: float = precision
 
     @cached_property
-    def state_space(self) -> DefaultStateSpace:
+    def default_state_space(self) -> DefaultStateSpace:
         """
         The default state space.
         """
@@ -1518,7 +1518,7 @@ class Coalescent(AbstractCoalescent):
         )
 
     @cached_property
-    def state_space_BCP(self) -> BlockCountingStateSpace:
+    def block_counting_state_space(self) -> BlockCountingStateSpace:
         """
         The block counting state space.
         """
@@ -1535,7 +1535,7 @@ class Coalescent(AbstractCoalescent):
         Tree height distribution.
         """
         return TreeHeightDistribution(
-            state_space=self.state_space,
+            state_space=self.default_state_space,
             demography=self.demography,
             max_iter=self.max_iter,
             precision=self.precision
@@ -1548,7 +1548,7 @@ class Coalescent(AbstractCoalescent):
         """
         return PhaseTypeDistribution(
             reward=TotalBranchLengthReward(),
-            state_space=self.state_space,
+            state_space=self.default_state_space,
             demography=self.demography,
             max_iter=self.max_iter,
             precision=self.precision
@@ -1560,7 +1560,7 @@ class Coalescent(AbstractCoalescent):
         Site frequency spectrum distribution.
         """
         return SFSDistribution(
-            state_space=self.state_space_BCP,
+            state_space=self.block_counting_state_space,
             demography=self.demography,
             max_iter=self.max_iter,
             precision=self.precision

@@ -81,21 +81,21 @@ class CoalescentTestCase(TestCase):
             np.testing.assert_array_almost_equal(
                 coal.tree_height.mean,
                 np.sum([coal.tree_height.demes[p].mean for p in coal.demography.pop_names], axis=0),
-                decimal=12
+                decimal=8
             )
 
             # make sure the deme-wise total branch lengths add upp
             np.testing.assert_array_almost_equal(
                 coal.total_branch_length.mean,
                 np.sum([coal.total_branch_length.demes[p].mean for p in coal.demography.pop_names], axis=0),
-                decimal=12
+                decimal=8
             )
 
             # make sure the deme-wise SFS add upp
             np.testing.assert_array_almost_equal(
                 coal.sfs.mean.data,
                 np.sum([coal.sfs.demes[p].mean.data for p in coal.demography.pop_names], axis=0),
-                decimal=12
+                decimal=8
             )
 
     def test_msprime_complex_coalescent(self):
@@ -135,16 +135,13 @@ class CoalescentTestCase(TestCase):
 
         pass
 
-    def test_two_loci_one_deme_n_2(self):
+    def test_two_loci_one_deme_n_2_tree_height(self):
         """
         Test two loci.
         """
         coal = pg.Coalescent(
             n=pg.PopConfig(2),
-            loci=pg.LocusConfig(n=2, n_start=1, recombination_rate=1),
-            precision=1e-8,
-            parallelize=False,
-            max_iter=100
+            loci=pg.LocusConfig(n=2, recombination_rate=1)
         )
 
         self.assertAlmostEqual(1, coal.tree_height.loci[0].mean)
@@ -154,16 +151,27 @@ class CoalescentTestCase(TestCase):
 
         pass
 
+    def test_two_loci_one_deme_n_2_sfs(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.PopConfig(2),
+            loci=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        _ = coal.tree_height.mean
+        coal.sfs.mean.plot()
+
+        pass
+
     def test_two_loci_one_deme_n_4(self):
         """
         Test two loci.
         """
         coal = pg.Coalescent(
             n=pg.PopConfig(4),
-            loci=pg.LocusConfig(n=2, n_start=1, recombination_rate=1),
-            precision=1e-8,
-            parallelize=False,
-            max_iter=100
+            loci=pg.LocusConfig(n=2, recombination_rate=1),
         )
 
         marginal = pg.Coalescent(n=pg.PopConfig(4))

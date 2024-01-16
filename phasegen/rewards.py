@@ -148,20 +148,14 @@ class SFSReward(NonDefaultReward):
         """
         if isinstance(state_space, BlockCountingStateSpace):
             # sum over demes and average over loci
-            return state_space.states[:, :, :, self.index].sum(axis=2).mean(axis=1)
+            weights1 = state_space.states[:, :, :, self.index].sum(axis=2).mean(axis=1)
 
             # TODO adjust reward to work with recombination
 
             # sum over demes and select block
-            loci = state_space.states[:, :, :, self.index].sum(axis=2)
+            weights2 = state_space.states[:, :, :, self.index].sum(axis=(1, 2))
 
-            # number of loci
-            n_loci = state_space.locus_config.n
-
-            # multiply by number of lineages for each locus for which we have more than one lineage
-            weights = np.sum([loci[:, i] * (loci[:, i] > 1).astype(int) for i in range(n_loci)], axis=0)
-
-            return weights
+            return weights2
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 

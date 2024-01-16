@@ -27,7 +27,7 @@ class State:
         :param state: State array.
         :return: Whether the state is absorbing.
         """
-        return np.all(state.sum(axis=(1, 2)) == 1)
+        return np.all(np.sum(state * np.arange(1, state.shape[2] + 1)[::-1], axis=(1, 2)) == 1)
 
 
 class Transition:
@@ -348,6 +348,13 @@ class Transition:
         return np.all(shared >= coalesced)
 
     @cached_property
+    def is_lineage_reduction(self) -> bool:
+        """
+        Whether we have a lineage reduction.
+        """
+        return self.diff_marginal.sum() > 0
+
+    @cached_property
     def is_shared_coalescence(self) -> bool:
         """
         Whether the coalescence event is a shared coalescence event.
@@ -355,6 +362,7 @@ class Transition:
         return (
                 self.is_eligible_coalescence and
                 self.is_eligible_shared_coalescence and
+                self.is_lineage_reduction and
                 self.is_valid_lineage_reduction_shared_coalescence and
                 self.has_sufficient_shared_lineages_shared_coalescence
         )
@@ -411,7 +419,7 @@ class Transition:
         reduction = self.deme_coal_unshared1 - self.deme_coal_unshared2
         diff = self.diff_deme_coal_marginal[self.locus_coal_unshared]
 
-        return (reduction == diff).all()
+        return reduction.sum() == diff.sum()
 
     @cached_property
     def is_unshared_coalescence(self) -> bool:
@@ -421,6 +429,7 @@ class Transition:
         return (
                 self.is_eligible_coalescence and
                 self.is_eligible_unshared_coalescence and
+                self.is_lineage_reduction and
                 self.is_binary_lineage_reduction_marginal_coalescence and
                 self.is_valid_lineage_reduction_marginal_coalescence
         )
@@ -503,7 +512,7 @@ class Transition:
     def get_rate_forward_recombination(self) -> float:
         """
         Get the rate of a forward recombination event.
-        TODO here we assume there number of shared lineages is the same across loci which need not be the case
+        Here we assume there number of shared lineages is the same across loci which should be the case.
         """
         return self.shared1[self.diff_shared == 1][0] * self.state_space.locus_config.recombination_rate
 

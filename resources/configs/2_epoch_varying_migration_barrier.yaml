@@ -19,7 +19,8 @@ model: standard
 comparisons:
   tolerance:
     tree_height:
-      cov_demes: 0.01
+      demes:
+        cov: 0.01
       pdf: 0.001
       cdf: 2
       mean: 0.01
