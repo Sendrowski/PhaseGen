@@ -474,3 +474,24 @@ class TransitionTestCase(TestCase):
         )
 
         self.assertFalse(t.is_mixed_coalescence)
+
+    def test_bug_default_state_space_two_loci_n_2(self):
+        """
+        Test mixed coalescence with for block counting state space.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[2]], [[2]]]),
+            marginal2=np.array([[[2]], [[1]]]),
+            shared1=np.array([[[1]], [[1]]]),
+            shared2=np.array([[[0]], [[0]]])
+        )
+
+        self.assertFalse(t.is_mixed_coalescence)
+
+        self.assertEqual(0, t.get_rate())

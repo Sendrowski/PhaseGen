@@ -407,7 +407,7 @@ class Transition:
         #if not self.has_diff_shared:
         #    return False
 
-        if self.n_blocks == 1:
+        if self.n_blocks == 1 and not self.has_diff_shared:
             return True
 
         if np.sum(np.any(self.diff_shared != 0, axis=(1, 2))) == 1:

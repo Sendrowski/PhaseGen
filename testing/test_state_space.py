@@ -46,6 +46,29 @@ class StateSpaceTestCase(TestCase):
                                                      [0., 0., 0., -0., 0.],
                                                      [0., 0., 0., 0., -0.]]))
 
+    def test_2_loci_n_2(self):
+        """
+        Test two loci, n = 2.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        expected = np.array(
+            [[-3.22, 2.22, 0., 0., 1., 0., 0., 0., 0.],
+             [1., -4.11, 1., 1., 0., 1.11, 0., 0., 0.],
+             [0., 0., -2.11, 0., 1., 0., 1.11, 0., 0.],
+             [0., 0., 0., -2.11, 1., 0., 0., 1.11, 0.],
+             [0., 0., 0., 0., -0., 0., 0., 0., 0.],
+             [0., 4., 0., 0., 0., -6., 1., 1., 0.],
+             [0., 0., 2., 0., 0., 0., -3., 0., 1.],
+             [0., 0., 0., 2., 0., 0., 0., -3., 1.],
+             [0., 0., 0., 0., 0., 0., 0., 0., -0.]]
+        )
+
+        np.testing.assert_array_almost_equal(s.S, expected)
+
     def test_block_counting_state_space_two_loci_one_deme_n_2(self):
         """
         Test two loci, one deme, two lineages.
