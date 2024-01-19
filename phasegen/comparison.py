@@ -358,7 +358,8 @@ class Comparison(Serializable):
                     ms=getattr(ms, stat),
                     data=sub,
                     visualize=visualize,
-                    title=f"{title}: {stat}"
+                    title=f"{title}: {stat}",
+                    do_assertion=do_assertion
                 )
 
             else:

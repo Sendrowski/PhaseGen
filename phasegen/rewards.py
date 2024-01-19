@@ -147,15 +147,8 @@ class SFSReward(NonDefaultReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, BlockCountingStateSpace):
-            # sum over demes and average over loci
-            weights1 = state_space.states[:, :, :, self.index].sum(axis=2).mean(axis=1)
-
-            # TODO adjust reward to work with recombination
-
-            # sum over demes and select block
-            weights2 = state_space.states[:, :, :, self.index].sum(axis=(1, 2))
-
-            return weights2
+            # sum over demes and loci, and select block
+            return state_space.states[:, :, :, self.index].sum(axis=(1, 2))
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 

@@ -197,8 +197,18 @@ class CoalescentTestCase(TestCase):
         """
         coal = pg.Coalescent(
             n=pg.PopConfig([2, 2]),
-            loci=2
+            loci=pg.LocusConfig(n=2, recombination_rate=1.11),
         )
 
-        # coal.sfs.mean
-        coal.tree_height.mean
+        pass
+
+    def test_two_loci_one_deme_n_2(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.PopConfig([2]),
+            loci=pg.LocusConfig(n=2, recombination_rate=1.11),
+        )
+
+        coal.sfs.mean.plot()

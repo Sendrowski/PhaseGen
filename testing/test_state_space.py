@@ -46,7 +46,7 @@ class StateSpaceTestCase(TestCase):
                                                      [0., 0., 0., -0., 0.],
                                                      [0., 0., 0., 0., -0.]]))
 
-    def test_block_counting_state_space_two_loci_one_deme_2_n(self):
+    def test_block_counting_state_space_two_loci_one_deme_n_2(self):
         """
         Test two loci, one deme, two lineages.
         """
@@ -57,7 +57,20 @@ class StateSpaceTestCase(TestCase):
 
         s.S
 
-    def test_default_state_space_two_loci_one_deme_4_n(self):
+    def test_block_counting_state_space_two_loci_one_deme_n_3(self):
+        """
+        Test two loci, one deme, two lineages.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        _ = s.S
+
+        pass
+
+    def test_default_state_space_two_loci_one_deme_n_4(self):
         """
         Test two loci, one deme, four lineages.
         """
@@ -66,9 +79,11 @@ class StateSpaceTestCase(TestCase):
             locus_config=pg.LocusConfig(n=2)
         )
 
-        s.S
+        _ = s.S
 
-    def test_block_counting_state_space_two_loci_one_deme_4_n(self):
+        pass
+
+    def test_block_counting_state_space_two_loci_one_deme_n_4(self):
         """
         Test two loci, one deme, four lineages.
         """
@@ -77,11 +92,11 @@ class StateSpaceTestCase(TestCase):
             locus_config=pg.LocusConfig(n=2)
         )
 
-        s.S
+        _ = s.S
 
         pass
 
-    def test_default_state_space_two_loci_two_demes_4_n(self):
+    def test_default_state_space_two_loci_two_demes_n_4(self):
         """
         Test two loci, two demes, four lineages.
         """
@@ -92,9 +107,9 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         )
 
-        s.S
+        _ = s.S
 
-    def test_block_counting_state_space_two_loci_two_demes_4_n(self):
+    def test_block_counting_state_space_two_loci_two_demes_n_4(self):
         """
         Test two loci, two demes, four lineages.
         """
@@ -107,7 +122,7 @@ class StateSpaceTestCase(TestCase):
 
         s._matrix_indices_to_rates(223, 400)
 
-        s.S
+        _ = s.S
 
     def test_default_state_space_size(self):
         """

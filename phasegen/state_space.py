@@ -238,6 +238,9 @@ class StateSpace(ABC):
 
         rate = transition.get_rate()
 
+        if 'coalescence' in kind:
+            pass
+
         return transition
 
     def _matrix_indices_to_rates_old(self, i: int, j: int) -> float:
@@ -331,7 +334,7 @@ class StateSpace(ABC):
                     s2=np.array([shared2])
                 )
 
-            # marginal coalescence event
+            # unshared coalescence event
             else:
 
                 n_unshared1 = deme_s1[has_diff_loci] - shared1[has_diff_loci, deme]

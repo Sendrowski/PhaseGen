@@ -35,7 +35,6 @@ class TransitionTestCase(TestCase):
         self.assertFalse(t.is_eligible_migration)
         self.assertFalse(t.is_migration)
 
-        self.assertFalse(t.is_eligible_recombination)
         self.assertFalse(t.is_recombination)
 
         self.assertEqual(1, t.get_rate())
@@ -62,8 +61,6 @@ class TransitionTestCase(TestCase):
         self.assertTrue(t.is_unshared_coalescence)
 
         self.assertFalse(t.is_eligible_migration)
-
-        self.assertFalse(t.is_eligible_recombination)
 
         self.assertEqual(2, t.get_rate())
 
@@ -126,7 +123,7 @@ class TransitionTestCase(TestCase):
             shared2=np.array([[[1]], [[1]]])
         )
 
-        self.assertFalse(t.is_valid_lineage_reduction_marginal_coalescence)
+        self.assertFalse(t.is_valid_lineage_reduction_unshared_coalescence)
 
     def test_migration_two_demes_default_state_space(self):
         """
@@ -172,9 +169,9 @@ class TransitionTestCase(TestCase):
 
         self.assertFalse(t.is_one_migration_event)
 
-    def test_forward_recombination_two_loci_default_state_space(self):
+    def test_recombination_two_loci_default_state_space(self):
         """
-        Test forward recombination for two loci, default state space.
+        Test recombination for two loci, default state space.
         """
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=4),
@@ -189,15 +186,15 @@ class TransitionTestCase(TestCase):
             shared2=np.array([[[1]], [[1]]])
         )
 
-        self.assertTrue(t.is_forward_recombination)
+        self.assertTrue(t.is_recombination)
 
-        self.assertFalse(t.is_backward_recombination)
+        self.assertFalse(t.is_locus_coalescence)
 
         self.assertEqual(2.22, t.get_rate())
 
-    def test_backward_recombination_two_loci_default_state_space(self):
+    def test_locus_coalescence_two_loci_default_state_space(self):
         """
-        Test backward recombination for two loci, default state space.
+        Test locus coalescence for two loci, default state space.
         """
         s = pg.DefaultStateSpace(
             pop_config=pg.PopConfig(n=4),
@@ -212,9 +209,9 @@ class TransitionTestCase(TestCase):
             shared2=np.array([[[2]], [[2]]])
         )
 
-        self.assertTrue(t.is_backward_recombination)
+        self.assertTrue(t.is_locus_coalescence)
 
-        self.assertFalse(t.is_forward_recombination)
+        self.assertFalse(t.is_recombination)
 
         self.assertEqual(4, t.get_rate())
 
@@ -280,7 +277,7 @@ class TransitionTestCase(TestCase):
         self.assertFalse(State.is_absorbing(np.array([[[0, 1], [0, 1]]])))
         self.assertFalse(State.is_absorbing(np.array([[[0, 1], [1, 0]]])))
 
-    def test_unshared_coalescent_with_shared_lineages_default_state_space_two_loci(self):
+    def test_unshared_coalescence_with_shared_lineages_default_state_space_two_loci(self):
         """
         Test unshared coalescence with shared lineages for default state space.
         """
@@ -298,10 +295,13 @@ class TransitionTestCase(TestCase):
         )
 
         self.assertTrue(t.is_unshared_coalescence)
+        self.assertTrue(t.is_mixed_coalescence)
 
-    def test_unshared_coalescent_with_shared_lineages_block_counting_state_space_two_loci(self):
+        self.assertEqual(1, t.get_rate())
+
+    def test_mixed_coalescence_block_counting_state_space_two_loci_n_2(self):
         """
-        Test unshared coalescence with shared lineages for block counting state space.
+        Test mixed coalescence with for block counting state space.
         """
         s = pg.BlockCountingStateSpace(
             pop_config=pg.PopConfig(n=2),
@@ -316,4 +316,161 @@ class TransitionTestCase(TestCase):
             shared2=np.array([[[0, 1]], [[0, 1]]])
         )
 
+        self.assertTrue(t.is_mixed_coalescence)
+
+    def test_mixed_coalescence_default_state_space_two_loci_n_3(self):
+        """
+        Test mixed coalescence for default state space.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        # here one of the coalescing lineages has to be shared
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[3]], [[3]]]),
+            marginal2=np.array([[[3]], [[2]]]),
+            shared1=np.array([[[1]], [[1]]]),
+            shared2=np.array([[[1]], [[0]]])
+        )
+
+        self.assertTrue(t.is_mixed_coalescence)
+        self.assertFalse(t.is_unshared_coalescence)
+
+        self.assertEqual(2, t.get_rate())
+
+    def test_mixed_coalescence_block_counting_state_space_two_loci_n_3(self):
+        """
+        Test unshared coalescence with shared lineages for block counting state space.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        # here one of the coalescing lineages has to be shared
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[3, 0, 0]], [[3, 0, 0]]]),
+            marginal2=np.array([[[3, 0, 0]], [[1, 1, 0]]]),
+            shared1=np.array([[[1, 0, 0]], [[1, 0, 0]]]),
+            shared2=np.array([[[1, 0, 0]], [[0, 1, 0]]])
+        )
+
+        self.assertTrue(t.is_mixed_coalescence)
+        self.assertFalse(t.is_unshared_coalescence)
+
+        self.assertEqual(2, t.get_rate())
+
+    def test_unshared_coalescence_block_counting_state_space_two_loci_n_3(self):
+        """
+        Test unshared coalescence with shared lineages for block counting state space.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        # here both of the coalescing lineages have to be unshared
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[3, 0, 0]], [[3, 0, 0]]]),
+            marginal2=np.array([[[3, 0, 0]], [[1, 1, 0]]]),
+            shared1=np.array([[[1, 0, 0]], [[1, 0, 0]]]),
+            shared2=np.array([[[1, 0, 0]], [[1, 0, 0]]])
+        )
+
         self.assertTrue(t.is_unshared_coalescence)
+        self.assertFalse(t.is_mixed_coalescence)
+
+        self.assertEqual(1, t.get_rate())
+
+    def test_unshared_coalescence_default_state_space_two_loci_n_3(self):
+        """
+        Test unshared coalescence with shared lineages for default state space.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        # here both of the coalescing lineages have to be unshared
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[3]], [[3]]]),
+            marginal2=np.array([[[3]], [[2]]]),
+            shared1=np.array([[[1]], [[1]]]),
+            shared2=np.array([[[1]], [[1]]])
+        )
+
+        self.assertTrue(t.is_unshared_coalescence)
+        self.assertTrue(t.is_mixed_coalescence)
+
+        self.assertEqual(3, t.get_rate())
+
+    def test_shared_coalescence_two_loci_n_3_same_rate_across_loci(self):
+        """
+        Test shared coalescence for equal lineage blocks when the coalescence rate is the same across loci.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[1, 1, 0]], [[3, 0, 0]]]),
+            marginal2=np.array([[[0, 0, 1]], [[1, 1, 0]]]),
+            shared1=np.array([[[1, 1, 0]], [[2, 0, 0]]]),
+            shared2=np.array([[[0, 0, 1]], [[0, 1, 0]]])
+        )
+
+        self.assertTrue(t.is_eligible)
+        self.assertTrue(t.is_shared_coalescence)
+
+        self.assertEqual(1, t.get_rate())
+
+    def test_shared_coalescence_two_loci_n_4_different_rate_across_loci(self):
+        """
+        Test shared coalescence for unequal lineage blocks when the coalescence rate is different across loci.
+        TODO what to do when rates are different across loci? Select the minimum?
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[2, 1, 0]], [[4, 0, 0]]]),
+            marginal2=np.array([[[1, 0, 1]], [[2, 1, 0]]]),
+            shared1=np.array([[[2, 1, 0]], [[3, 0, 0]]]),
+            shared2=np.array([[[1, 0, 1]], [[1, 1, 0]]])
+        )
+
+        self.assertTrue(t.is_eligible)
+        self.assertTrue(t.is_shared_coalescence)
+
+        self.assertEqual(2, t.get_rate())
+
+    def test_mixed_coalescence_only_possible_if_only_one_locus_changes(self):
+        """
+        Test whether we detect mixed coalescence when only one locus changes.
+        """
+        # default state space
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.PopConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+        )
+
+        t = Transition(
+            state_space=s,
+            marginal1=np.array([[[2, 0]], [[0, 1]]]),
+            marginal2=np.array([[[0, 1]], [[0, 1]]]),
+            shared1=np.array([[[1, 0]], [[0, 1]]]),
+            shared2=np.array([[[0, 0]], [[0, 0]]])
+        )
+
+        self.assertFalse(t.is_mixed_coalescence)

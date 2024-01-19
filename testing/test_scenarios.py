@@ -8,15 +8,18 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_2_loci_n_2_r_1',
 ]
 
 configs_suspended = [
-    '1_epoch_2_loci_n_3_r_1',
-    '1_epoch_2_loci_n_3_r_1',
-    '1_epoch_n_4',
-    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_2_loci_n_2_r_1',
+    '1_epoch_2_loci_n_3_r_100',
+    '1_epoch_2_loci_n_3_r_0',
     '1_epoch_2_loci_n_10_r_1',
+    '1_epoch_2_loci_n_4_r_1',
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_n_4',
     '1_epoch_migration_one_each_n_6',
     '2_epoch_n_5',
     '2_epoch_n_2',
@@ -26,7 +29,6 @@ configs_suspended = [
     '1_epoch_2_loci_n_2_r_10',
     '1_epoch_2_loci_n_2_r_0_1',
     '1_epoch_2_loci_n_2_r_0',
-    '1_epoch_2_loci_n_3_r_1',
     '2_epoch_2_pops_n_5',
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
@@ -62,8 +64,8 @@ class ScenariosTestCase(TestCase):
     """
     Test scenarios.
     """
-    #: Whether assert that compare statistics are within specified tolerance
-    do_assertion: bool = False
+    #: Whether assert that compared statistics are within specified tolerance
+    do_assertion: bool = True
 
 
 def get_filenames(path) -> List[str]:
@@ -87,12 +89,12 @@ def generate_tests(config: str):
         """
         Run test for the given config.
         """
-        Comparison.from_file(f"../results/comparisons/serialized/{config}.json").compare(
+        c = Comparison.from_file(f"../results/comparisons/serialized/{config}.json")
+
+        c.compare(
             title=config,
             do_assertion=ScenariosTestCase.do_assertion
         )
-
-        pass
 
     return run_test
 
