@@ -333,13 +333,13 @@ class TransitionTestCase(TestCase):
             marginal1=np.array([[[3]], [[3]]]),
             marginal2=np.array([[[3]], [[2]]]),
             shared1=np.array([[[1]], [[1]]]),
-            shared2=np.array([[[1]], [[0]]])
+            shared2=np.array([[[1]], [[1]]])
         )
 
         self.assertTrue(t.is_mixed_coalescence)
-        self.assertFalse(t.is_unshared_coalescence)
+        self.assertTrue(t.is_unshared_coalescence)
 
-        self.assertEqual(2, t.get_rate())
+        self.assertEqual(3, t.get_rate())
 
     def test_mixed_coalescence_block_counting_state_space_two_loci_n_3(self):
         """

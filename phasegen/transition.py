@@ -472,6 +472,15 @@ class Transition:
         return reduction.sum() == 1
 
     @cached_property
+    def is_binary_lineage_reduction_mixed_coalescence(self) -> bool:
+        """
+        Whether the mixed coalescence event is a binary merger.
+        """
+        reduction = self.deme_coal_unshared1 - self.deme_coal_unshared2
+
+        return reduction.sum() == 1
+
+    @cached_property
     def is_valid_lineage_reduction_unshared_coalescence(self) -> bool:
         """
         In an unshared coalescence event, whether the reduction in the number of unshared lineages is equal
@@ -514,6 +523,7 @@ class Transition:
                 self.is_eligible_coalescence and
                 self.is_eligible_mixed_coalescence and
                 self.is_lineage_reduction and
+                self.is_binary_lineage_reduction_mixed_coalescence and
                 self.is_valid_lineage_reduction_mixed_coalescence
         )
 
