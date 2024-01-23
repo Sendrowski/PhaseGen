@@ -2,6 +2,7 @@ n:
   pop_0: 1
   pop_1: 1
 num_replicates: 1000000
+precision: 1.0e-7
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 0.1

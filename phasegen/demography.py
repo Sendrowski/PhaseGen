@@ -570,7 +570,10 @@ class Demography:
             population.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
-        :param max_size: Maximum size of the discretized epoch.
+        :param max_size: Maximum size of the discretized epoch. This can have repercussions on convergence as we keep
+            iterating over epochs until the contribution of the current epoch to the moment in question is below the
+            specified precision.
+
         """
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)

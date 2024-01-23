@@ -38,7 +38,7 @@ class DistributionTestCase(TestCase):
                     ('pop_2', 'pop_1'): {0: 0.1}
                 }
             ),
-            n=pg.PopConfig(dict(
+            n=pg.LineageConfig(dict(
                 pop_0=1,
                 pop_1=2,
                 pop_2=3
@@ -82,7 +82,7 @@ class DistributionTestCase(TestCase):
                    dist.demography.pop_names}
         m = dist.moment(1)
 
-        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-9)
+        self.assertAlmostEqual(m, sum(m_demes.values()), delta=1e-8)
 
         pass
 

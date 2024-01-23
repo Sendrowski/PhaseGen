@@ -40,8 +40,8 @@ class Transition:
             state_space: 'StateSpace',
             marginal1: np.ndarray,
             marginal2: np.ndarray,
-            shared1: np.ndarray,
-            shared2: np.ndarray
+            linked1: np.ndarray,
+            linked2: np.ndarray
     ):
         """
         Initialize a transition.
@@ -49,8 +49,8 @@ class Transition:
         :param state_space: State space.
         :param marginal1: Marginal lineages in outgoing state.
         :param marginal2: Marginal lineages in incoming state.
-        :param shared1: Numbers of shared lineages in outgoing state.
-        :param shared2: Numbers of shared lineages in incoming state.
+        :param linked1: Numbers of linked lineages in outgoing state.
+        :param linked2: Numbers of linked lineages in incoming state.
         """
         #: State space.
         self.state_space: 'StateSpace' = state_space
@@ -61,25 +61,25 @@ class Transition:
         #: Marginal lineages in incoming state.
         self.marginal2: np.ndarray = marginal2
 
-        #: Shared lineages in outgoing state.
-        self.shared1: np.ndarray = shared1
+        #: linked lineages in outgoing state.
+        self.linked1: np.ndarray = linked1
 
-        #: Shared lineages in incoming state.
-        self.shared2: np.ndarray = shared2
-
-    @cached_property
-    def unshared1(self) -> np.ndarray:
-        """
-        Unshared lineages in outgoing state.
-        """
-        return self.marginal1 - self.shared1
+        #: linked lineages in incoming state.
+        self.linked2: np.ndarray = linked2
 
     @cached_property
-    def unshared2(self) -> np.ndarray:
+    def unlinked1(self) -> np.ndarray:
         """
-        Unshared lineages in incoming state.
+        Unlinked lineages in outgoing state.
         """
-        return self.marginal2 - self.shared2
+        return self.marginal1 - self.linked1
+
+    @cached_property
+    def unlinked2(self) -> np.ndarray:
+        """
+        Unlinked lineages in incoming state.
+        """
+        return self.marginal2 - self.linked2
 
     @cached_property
     def diff_marginal(self) -> np.ndarray:
@@ -89,18 +89,18 @@ class Transition:
         return self.marginal1 - self.marginal2
 
     @cached_property
-    def diff_shared(self) -> np.ndarray:
+    def diff_linked(self) -> np.ndarray:
         """
-        Difference in shared lineages.
+        Difference in linked lineages.
         """
-        return self.shared1 - self.shared2
+        return self.linked1 - self.linked2
 
     @cached_property
-    def diff_unshared(self) -> np.ndarray:
+    def diff_unlinked(self) -> np.ndarray:
         """
-        Difference in unshared lineages.
+        Difference in unlinked lineages.
         """
-        return self.unshared1 - self.unshared2
+        return self.unlinked1 - self.unlinked2
 
     @cached_property
     def diff_deme_coal_marginal(self) -> np.ndarray:
@@ -166,32 +166,32 @@ class Transition:
         return bool(self.is_diff_demes_marginal.any())
 
     @cached_property
-    def is_diff_demes_shared(self) -> np.ndarray:
+    def is_diff_demes_linked(self) -> np.ndarray:
         """
-        Mask for demes with affected shared lineages.
+        Mask for demes with affected linked lineages.
         """
-        return np.any(self.diff_shared != 0, axis=(0, 2))
+        return np.any(self.diff_linked != 0, axis=(0, 2))
 
     @cached_property
-    def is_diff_demes_unshared(self) -> np.ndarray:
+    def is_diff_demes_unlinked(self) -> np.ndarray:
         """
-        Mask for demes with affected unshared lineages.
+        Mask for demes with affected unlinked lineages.
         """
-        return np.any(self.diff_unshared != 0, axis=(0, 2))
+        return np.any(self.diff_unlinked != 0, axis=(0, 2))
 
     @cached_property
-    def has_diff_shared(self) -> bool:
+    def has_diff_linked(self) -> bool:
         """
-        Whether there are any affected shared lineages.
+        Whether there are any affected linked lineages.
         """
-        return bool(self.is_diff_demes_shared.any())
+        return bool(self.is_diff_demes_linked.any())
 
     @cached_property
-    def has_diff_unshared(self) -> bool:
+    def has_diff_unlinked(self) -> bool:
         """
-        Whether there are any affected unshared lineages.
+        Whether there are any affected unlinked lineages.
         """
-        return bool(self.is_diff_demes_unshared.any())
+        return bool(self.is_diff_demes_unlinked.any())
 
     @cached_property
     def is_diff_loci(self) -> np.ndarray:
@@ -215,25 +215,25 @@ class Transition:
         return int(np.where(self.is_diff_demes_marginal)[0][0])
 
     @cached_property
-    def locus_coal_unshared(self) -> int:
+    def locus_coal_unlinked(self) -> int:
         """
         Index of locus where coalescence event occurs.
         """
         return int(np.where(self.is_diff_loci)[0][0])
 
     @cached_property
-    def deme_unshared_coal_marginal1(self) -> np.ndarray:
+    def deme_unlinked_coal_marginal1(self) -> np.ndarray:
         """
         Marginal block config in deme and locus where coalescence event occurs in state 1.
         """
-        return self.marginal1[self.locus_coal_unshared, self.deme_coal]
+        return self.marginal1[self.locus_coal_unlinked, self.deme_coal]
 
     @cached_property
-    def deme_unshared_coal_marginal2(self) -> np.ndarray:
+    def deme_unlinked_coal_marginal2(self) -> np.ndarray:
         """
         Marginal block config in deme and locus where coalescence event occurs in state 2.
         """
-        return self.marginal2[self.locus_coal_unshared, self.deme_coal]
+        return self.marginal2[self.locus_coal_unlinked, self.deme_coal]
 
     @cached_property
     def deme_coal_marginal1(self) -> np.ndarray:
@@ -250,38 +250,38 @@ class Transition:
         return self.marginal2[:, self.deme_coal]
 
     @cached_property
-    def deme_coal_shared1(self) -> np.ndarray:
+    def deme_coal_linked1(self) -> np.ndarray:
         """
-        Shared lineages in deme and locus where coalescence event occurs in state 1.
+        linked lineages in deme and locus where coalescence event occurs in state 1.
         """
-        return self.shared1[self.is_diff_loci_deme_coal][0][self.deme_coal]
+        return self.linked1[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
     @cached_property
-    def deme_coal_shared2(self) -> np.ndarray:
+    def deme_coal_linked2(self) -> np.ndarray:
         """
-        Shared lineages in deme and locus where coalescence event occurs in state 2.
+        linked lineages in deme and locus where coalescence event occurs in state 2.
         """
-        return self.shared2[self.is_diff_loci_deme_coal][0][self.deme_coal]
+        return self.linked2[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
     @cached_property
-    def deme_coal_unshared1(self) -> np.ndarray:
+    def deme_coal_unlinked1(self) -> np.ndarray:
         """
-        Unshared lineages in deme and locus where coalescence event occurs in state 1.
+        Unlinked lineages in deme and locus where coalescence event occurs in state 1.
         """
         marginal = self.deme_coal_marginal1[self.is_diff_loci_deme_coal][0]
-        shared = self.shared1[self.is_diff_loci_deme_coal][0][self.deme_coal]
+        linked = self.linked1[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
-        return marginal - shared
+        return marginal - linked
 
     @cached_property
-    def deme_coal_unshared2(self) -> np.ndarray:
+    def deme_coal_unlinked2(self) -> np.ndarray:
         """
-        Unshared lineages in deme where coalescence event occurs in state 2.
+        Unlinked lineages in deme where coalescence event occurs in state 2.
         """
         marginal = self.deme_coal_marginal2[self.is_diff_loci_deme_coal][0]
-        shared = self.shared2[self.is_diff_loci_deme_coal][0][self.deme_coal]
+        linked = self.linked2[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
-        return marginal - shared
+        return marginal - linked
 
     @cached_property
     def lineages_locus1(self) -> np.ndarray:
@@ -329,11 +329,11 @@ class Transition:
             return False
 
         # if there are not exactly `n_loci` different lineages, it can't be a recombination event
-        if not np.all((self.diff_shared == 0).sum() == self.shared1.size - self.n_loci):
+        if not np.all((self.diff_linked == 0).sum() == self.linked1.size - self.n_loci):
             return False
 
-        # make sure change in shared lineages is in the same deme for each locus
-        demes = np.where(self.diff_shared != 0)[1]
+        # make sure change in linked lineages is in the same deme for each locus
+        demes = np.where(self.diff_linked != 0)[1]
         if not np.all(demes == demes[0]):
             return False
 
@@ -352,9 +352,9 @@ class Transition:
         if not self.is_eligible_recombination_or_locus_coalescence:
             return False
 
-        # if there is not exactly one more shared lineage in state 1 than in state 2 for each locus,
+        # if there is not exactly one more linked lineage in state 1 than in state 2 for each locus,
         # it can't be a recombination event
-        if not np.all((self.diff_shared == 1).sum(axis=(1, 2)) == 1):
+        if not np.all((self.diff_linked == 1).sum(axis=(1, 2)) == 1):
             return False
 
         return True
@@ -370,10 +370,11 @@ class Transition:
 
         # if there is not exactly one more lineage in state 2 than in state 1 for each locus,
         # it can't be a recombination event
-        if not np.all((self.diff_shared == -1).sum(axis=(1, 2)) == 1):
+        if not np.all((self.diff_linked == -1).sum(axis=(1, 2)) == 1):
             return False
 
         return True
+
     @cached_property
     def is_eligible_coalescence(self) -> bool:
         """
@@ -383,19 +384,19 @@ class Transition:
         return self.n_demes_marginal == 1
 
     @cached_property
-    def is_eligible_shared_coalescence(self) -> bool:
+    def is_eligible_linked_coalescence(self) -> bool:
         """
-        Whether the coalescence event is eligible for shared coalescence.
+        Whether the coalescence event is eligible for linked coalescence.
         """
         return self.n_diff_loci_deme_coal > 1
-    
+
     @cached_property
-    def is_eligible_unshared_coalescence(self) -> bool:
+    def is_eligible_unlinked_coalescence(self) -> bool:
         """
-        Whether the coalescence event is eligible for unshared coalescence.
+        Whether the coalescence event is eligible for unlinked coalescence.
         """
-        return self.n_diff_loci_deme_coal == 1 and not self.has_diff_shared
-    
+        return self.n_diff_loci_deme_coal == 1 and not self.has_diff_linked
+
     @cached_property
     def is_eligible_mixed_coalescence(self) -> bool:
         """
@@ -404,13 +405,13 @@ class Transition:
         if self.n_diff_loci_deme_coal != 1:
             return False
 
-        #if not self.has_diff_shared:
+        # if not self.has_diff_linked:
         #    return False
 
-        if self.n_blocks == 1 and not self.has_diff_shared:
+        if self.n_blocks == 1 and not self.has_diff_linked:
             return True
 
-        if np.sum(np.any(self.diff_shared != 0, axis=(1, 2))) == 1:
+        if np.sum(np.any(self.diff_linked != 0, axis=(1, 2))) == 1:
             return True
 
         return False
@@ -424,23 +425,23 @@ class Transition:
         return True
 
     @cached_property
-    def is_valid_lineage_reduction_shared_coalescence(self) -> bool:
+    def is_valid_lineage_reduction_linked_coalescence(self) -> bool:
         """
-        In case of a shared coalescence event, whether the reduction in the number of shared lineages is equal
-        to the reduction in the number of coalesced lineages for each locus.
+        In case of a linked coalescence event, whether the reduction in the number of linked lineages is equal
+        to the reduction of marginal lineages.
         """
-        return np.all(self.diff_shared[:, self.deme_coal] == self.diff_marginal[:, self.deme_coal])
+        return np.all(self.diff_linked[:, self.deme_coal] == self.diff_marginal[:, self.deme_coal])
 
     @cached_property
-    def has_sufficient_shared_lineages_shared_coalescence(self) -> bool:
+    def has_sufficient_linked_lineages_linked_coalescence(self) -> bool:
         """
-        In case of a shared coalescence event, whether the number of shared lineages is greater than
-        equal to the number of shared coalesced lineages.
+        In case of a linked coalescence event, whether the number of linked lineages is greater than
+        equal to the number of linked coalesced lineages.
         """
-        shared = self.shared1[:, self.deme_coal].sum(axis=1)
+        linked = self.linked1[:, self.deme_coal].sum(axis=1)
         coalesced = self.diff_deme_coal_marginal.sum(axis=1) + 1
 
-        return np.all(shared >= coalesced)
+        return np.all(linked >= coalesced)
 
     @cached_property
     def is_lineage_reduction(self) -> bool:
@@ -450,24 +451,24 @@ class Transition:
         return self.diff_marginal.sum() > 0
 
     @cached_property
-    def is_shared_coalescence(self) -> bool:
+    def is_linked_coalescence(self) -> bool:
         """
-        Whether the coalescence event is a shared coalescence event, i.e. only shared lineages coalesce.
+        Whether the coalescence event is a linked coalescence event, i.e. only linked lineages coalesce.
         """
         return (
                 self.is_eligible_coalescence and
-                self.is_eligible_shared_coalescence and
+                self.is_eligible_linked_coalescence and
                 self.is_lineage_reduction and
-                self.is_valid_lineage_reduction_shared_coalescence and
-                self.has_sufficient_shared_lineages_shared_coalescence
+                self.is_valid_lineage_reduction_linked_coalescence and
+                self.has_sufficient_linked_lineages_linked_coalescence
         )
 
     @cached_property
-    def is_binary_lineage_reduction_unshared_coalescence(self) -> bool:
+    def is_binary_lineage_reduction_unlinked_coalescence(self) -> bool:
         """
-        Whether the unshared coalescence event is a binary merger.
+        Whether the unlinked coalescence event is a binary merger.
         """
-        reduction = self.deme_coal_unshared1 - self.deme_coal_unshared2
+        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
 
         return reduction.sum() == 1
 
@@ -476,50 +477,66 @@ class Transition:
         """
         Whether the mixed coalescence event is a binary merger.
         """
-        reduction = self.deme_coal_unshared1 - self.deme_coal_unshared2
+        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
 
         return reduction.sum() == 1
 
     @cached_property
-    def is_valid_lineage_reduction_unshared_coalescence(self) -> bool:
+    def is_valid_lineage_reduction_unlinked_coalescence(self) -> bool:
         """
-        In an unshared coalescence event, whether the reduction in the number of unshared lineages is equal
+        In an unlinked coalescence event, whether the reduction in the number of unlinked lineages is equal
         to the reduction in the number of coalesced lineages.
         """
-        reduction = self.deme_coal_unshared1 - self.deme_coal_unshared2
-        diff = self.diff_deme_coal_marginal[self.locus_coal_unshared]
+        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
+        diff = self.diff_deme_coal_marginal[self.locus_coal_unlinked]
 
         return reduction.sum() == diff.sum()
 
     @cached_property
     def is_valid_lineage_reduction_mixed_coalescence(self) -> bool:
         """
-        In a mixed coalescence event there has to be reduction in the number of shared lineages.
+        In a mixed coalescence event there has to be reduction in the number of linked lineages.
         """
-        if self.n_blocks == 1 and not self.has_diff_shared:
+        # in the default state space, where we only keep track of the number of linked lineages per deme,
+        # we may have a mixed coalescence event where the number of linked lineages does not change
+        if self.n_blocks == 1 and not self.has_diff_linked:
             return True
 
-        return np.any(self.diff_shared[self.locus_coal_unshared, self.deme_coal] != 0)
+        diff_unlinked = self.diff_unlinked[self.locus_coal_unlinked, self.deme_coal]
+
+        # make sure number of unlinked lineages is reduced by one in one lineage block
+        if np.abs(diff_unlinked).sum() != 1:
+            return False
+
+        diff_linked = self.diff_linked[self.locus_coal_unlinked, self.deme_coal]
+
+        # exactly one linked lineage must be lost in one block and one
+        # linked lineage must be gained in another block
+        if not (1 in diff_linked and -1 in diff_linked and np.abs(diff_linked).sum() == 2):
+            return False
+
+        return True
 
     @cached_property
-    def is_unshared_coalescence(self) -> bool:
+    def is_unlinked_coalescence(self) -> bool:
         """
-        Whether the coalescence event is an unshared coalescence event, i.e. only unshared lineages coalesce.
+        Whether the coalescence event is an unlinked coalescence event, i.e. only unlinked lineages coalesce.
         """
         return (
                 self.is_eligible_coalescence and
-                self.is_eligible_unshared_coalescence and
+                self.is_eligible_unlinked_coalescence and
                 self.is_lineage_reduction and
-                self.is_binary_lineage_reduction_unshared_coalescence and
-                self.is_valid_lineage_reduction_unshared_coalescence
+                #self.is_binary_lineage_reduction_unlinked_coalescence and
+                self.is_valid_lineage_reduction_unlinked_coalescence
         )
-    
+
     @cached_property
     def is_mixed_coalescence(self) -> bool:
         """
-        Whether the coalescence event is a mixed coalescence event, i.e. both shared and unshared lineages coalesce.
+        Whether the coalescence event is a mixed coalescence event, i.e. both linked and unlinked lineages coalesce.
         """
         return (
+                self.n_loci > 1 and
                 self.is_eligible_coalescence and
                 self.is_eligible_mixed_coalescence and
                 self.is_lineage_reduction and
@@ -533,8 +550,8 @@ class Transition:
         Whether the transition is a coalescence event.
         """
         return (
-                self.is_shared_coalescence or
-                self.is_unshared_coalescence or
+                self.is_linked_coalescence or
+                self.is_unlinked_coalescence or
                 self.is_mixed_coalescence or
                 self.is_locus_coalescence
         )
@@ -543,7 +560,7 @@ class Transition:
     def is_eligible_migration(self) -> bool:
         """
         Whether the transition is eligible for a migration event.
-        TODO do we also need to move shared lineages?
+        TODO do we also need to move linked lineages?
         """
         # two demes must be affected
         return self.n_demes_marginal == 2
@@ -591,45 +608,48 @@ class Transition:
         """
         Get the type of the transition.
         """
-        if self.is_recombination:
-            return 'recombination'
+        types = []
 
-        if self.is_locus_coalescence:
-            return 'locus_coalescence'
+        opts = [
+            'recombination',
+            'locus_coalescence',
+            'linked_coalescence',
+            'unlinked_coalescence',
+            'mixed_coalescence',
+            'migration'
+        ]
 
-        if self.is_shared_coalescence:
-            return 'shared_coalescence'
+        for t in opts:
+            if getattr(self, f'is_{t}'):
+                types.append(t)
 
-        if self.is_unshared_coalescence:
-            return 'unshared_coalescence'
-
-        if self.is_mixed_coalescence:
-            return 'mixed_coalescence'
-
-        if self.is_migration:
-            return 'migration'
-
-        return 'invalid'
+        return '+'.join(types) or 'invalid'
 
     def get_rate_recombination(self) -> float:
         """
         Get the rate of a recombination event.
-        Here we assume the number of shared lineages is the same across loci which should be the case.
-        TODO number of shared lineages need not be the same across loci for lineage blocks
+        Here we assume the number of linked lineages is the same across loci which should be the case.
+        TODO number of linked lineages need not be the same across loci for lineage blocks
         """
-        shared1 = self.shared1[self.diff_shared == 1]
+        # linked1 = self.linked1[self.diff_linked == 1]
+        linked1 = self.linked1.sum(axis=(1, 2))
 
-        rate = shared1[0] * self.state_space.locus_config.recombination_rate
+        rate = linked1[0] * self.state_space.locus_config.recombination_rate
 
         return rate
 
     def get_rate_locus_coalescence(self) -> float:
         """
         Get the rate of a locus coalescence event.
+        TODO scale by population size in deme
         """
-        unshared1 = self.unshared1[self.diff_shared == -1]
+        # return 0 if locus coalescence is not allowed
+        if not self.state_space.locus_config.allow_coalescence:
+            return 0
 
-        return unshared1.prod()
+        unlinked1 = self.unlinked1[self.diff_linked == -1]
+
+        return unlinked1.prod()
 
     def get_pop_size_deme_coalescence(self) -> float:
         """
@@ -643,85 +663,70 @@ class Transition:
         """
         return self.state_space.model._get_timescale(self.get_pop_size_deme_coalescence())
 
-    def get_rate_shared_coalescence(self) -> float:
+    def get_rate_linked_coalescence(self) -> float:
         """
-        Get the rate of a shared coalescence event.
-        TODO what to do when rates are different across loci? Select the minimum?
+        Get the rate of a linked coalescence event.
+        It seems as though the current parametrization does not allow us to compute the site-frequency spectrum for
+        more than one locus. The problem is that initially if all lineages are linked, transitions with different
+        coalescent pattern between loci are not allowed. However, once we have experienced a recombination event,
+        a mixed or unlined coalescence event, and a subsequent locus coalescence event, we can have different
+        coalescent patterns between loci. We would thus be required to keep track of the associations between
+        lineages which would further expand the state space.
         """
-        rates = np.zeros(self.n_loci)
-        for i in range(self.n_loci):
-            rates[i] = self.state_space._get_coalescent_rate(
-                n=self.state_space.pop_config.n,
-                s1=self.shared1[i, self.deme_coal],
-                s2=self.shared2[i, self.deme_coal]
-            )
+        return self.state_space._get_coalescent_rate(
+            n=self.state_space.pop_config.n,
+            s1=self.linked1[0, self.deme_coal],
+            s2=self.linked2[0, self.deme_coal]
+        ) / self.get_scaled_pop_size_deme_coalescence()
 
-        return rates.min() / self.get_scaled_pop_size_deme_coalescence()
+        # if (
+        #        np.all(self.linked1[:, self.deme_coal] == self.linked1[0, self.deme_coal]) and
+        #        np.any(self.linked2[:, self.deme_coal] != self.linked2[0, self.deme_coal])
+        # ):
+        #    return 0
 
-    def get_rate_unshared_coalescence(self) -> float:
+        # rates = np.zeros(self.n_loci)
+        # for i in range(self.n_loci):
+        #    rates[i] = self.state_space._get_coalescent_rate(
+        #        n=self.state_space.pop_config.n,
+        #        s1=self.linked1[i, self.deme_coal],
+        #        s2=self.linked2[i, self.deme_coal]
+        #    )
+
+        # return rates.min() / self.get_scaled_pop_size_deme_coalescence()
+
+    def get_rate_unlinked_coalescence(self) -> float:
         """
-        Get the rate of an unshared coalescence event.
+        Get the rate of an unlinked coalescence event.
         """
-        unshared1 = self.unshared1[self.locus_coal_unshared, self.deme_coal]
-        unshared2 = self.unshared2[self.locus_coal_unshared, self.deme_coal]
+        unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
+        unlinked2 = self.unlinked2[self.locus_coal_unlinked, self.deme_coal]
 
         rate = self.state_space._get_coalescent_rate(
             n=self.state_space.pop_config.n,
-            s1=unshared1,
-            s2=unshared2
+            s1=unlinked1,
+            s2=unlinked2
         )
 
-        return rate
+        return rate / self.get_scaled_pop_size_deme_coalescence()
 
     def get_rate_mixed_coalescence(self) -> float:
         """
         Get the rate of a mixed coalescence event.
         """
-        unshared1 = self.unshared1[self.locus_coal_unshared, self.deme_coal]
-        unshared2 = self.unshared2[self.locus_coal_unshared, self.deme_coal]
+        unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
+        linked1 = self.linked1[self.locus_coal_unlinked, self.deme_coal]
 
-        rate_unshared = self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
-            s1=unshared1,
-            s2=unshared2
-        )
+        blocks = self.diff_marginal[self.locus_coal_unlinked, self.deme_coal] > 0
 
-        shared1 = self.shared1[self.locus_coal_unshared, self.deme_coal]
-        blocks = self.diff_marginal[self.locus_coal_unshared, self.deme_coal] > 0
-        rates_cross = (unshared1[blocks] * shared1[blocks])
+        if blocks.sum() == 1:
+            rates_cross = unlinked1[blocks] * linked1[blocks]
+        elif blocks.sum() == 2:
+            rates_cross = [unlinked1[blocks][0] * linked1[blocks][1], unlinked1[blocks][1] * linked1[blocks][0]]
+        else:
+            raise ValueError('Invalid number of blocks.')
 
-        if sum(shared1[blocks]):
-            pass
-
-        # get the total coalescent rate when all lineages are considered
-        rate_all = self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
-            s1=self.marginal1[self.locus_coal_unshared, self.deme_coal],
-            s2=self.marginal2[self.locus_coal_unshared, self.deme_coal]
-        )
-
-        # difference in marginal number of lineages between state 1 and state 2
-        diff = self.diff_marginal[self.locus_coal_unshared, self.deme_coal]
-
-        # get coalescence rate of shared lineages
-        rate_shared = self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
-            s1=self.shared1[self.locus_coal_unshared, self.deme_coal],
-            s2=self.shared1[self.locus_coal_unshared, self.deme_coal] - diff
-        )
-
-        # get unshared coalescence rate by subtracting shared coalescence rate from total coalescence rate
-        rate_old = (rate_all - rate_shared) / self.get_scaled_pop_size_deme_coalescence()
-
-        rate_new = (rate_unshared + rates_cross.prod()) / self.get_scaled_pop_size_deme_coalescence()
-
-        if rate_old != rate_new:
-            pass
-
-        if self.shared1.sum != self.shared2.sum():
-            pass
-
-        return rates_cross.prod() / self.get_scaled_pop_size_deme_coalescence()
+        return np.sum(rates_cross) / self.get_scaled_pop_size_deme_coalescence()
 
     def get_rate_migration(self) -> float:
         """
@@ -761,16 +766,18 @@ class Transition:
         if self.is_locus_coalescence:
             return self.get_rate_locus_coalescence()
 
-        if self.is_shared_coalescence:
-            return self.get_rate_shared_coalescence()
+        if self.is_linked_coalescence:
+            return self.get_rate_linked_coalescence()
 
         if self.is_migration:
             return self.get_rate_migration()
 
+        # From here on we may have both linked and unlinked lineages coalescing,
+        # if using the default state space.
         rate = 0
 
-        if self.is_unshared_coalescence:
-            rate += self.get_rate_unshared_coalescence()
+        if self.is_unlinked_coalescence:
+            rate += self.get_rate_unlinked_coalescence()
 
         if self.is_mixed_coalescence:
             rate += self.get_rate_mixed_coalescence()

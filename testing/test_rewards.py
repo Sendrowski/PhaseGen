@@ -17,7 +17,7 @@ class RewardsTestCase(TestCase):
         Test tree height reward for default state space.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.PopConfig(n=4),
+            pop_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
         )
@@ -31,7 +31,7 @@ class RewardsTestCase(TestCase):
         Test tree height reward for block counting state space.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.PopConfig(n=4),
+            pop_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
         )
@@ -46,7 +46,7 @@ class RewardsTestCase(TestCase):
         Test total branch length reward for default state space.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.PopConfig(n=4),
+            pop_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
         )
@@ -60,7 +60,7 @@ class RewardsTestCase(TestCase):
         Test total branch length reward for block counting state space.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.PopConfig(n=4),
+            pop_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
         )

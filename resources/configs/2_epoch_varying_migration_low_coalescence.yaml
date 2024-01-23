@@ -2,6 +2,8 @@ n:
   pop_0: 0
   pop_1: 3
 num_replicates: 1000000
+max_epoch_size: 100
+precision: 1.0e-12
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 0
@@ -15,17 +17,16 @@ pop_sizes:
   pop_1:
     0: 0.000001
 model: standard
-precision: 1.0e-10
 comparisons:
   tolerance:
     tree_height:
       pdf: 20000 # very large values / short coalescence time
       cdf: 0.02
       mean: 0.01
-      var: 0.02
+      var: 0.1 # precision problems due to very low variance, increasing precision doesn't converge
     total_branch_length:
       mean: 0.01
-      var: 0.02
+      var: 0.02 # this is larger than for the tree height, so it works
     sfs:
       mean: 0.01
       cov: 0.02

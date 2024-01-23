@@ -6,9 +6,9 @@ import numpy as np
 logger = logging.getLogger('phasegen')
 
 
-class PopConfig:
+class LineageConfig:
     """
-    Class to hold the configuration of a population such as the number of lineages.
+    Class to hold the configuration for the number of lineages.
     """
 
     def __init__(self, n: int | Dict[str, int] | List[int] | np.ndarray):

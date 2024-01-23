@@ -8,23 +8,24 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '2_epoch_varying_migration_low_coalescence',
+    '1_epoch_beta_n_6_alpha_1_7',
+    '1_epoch_beta_n_2_alpha_1_5',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
-]
-
-configs_suspended = [
+    '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_3_r_1',
+    '1_epoch_2_loci_n_10_r_1',
+    '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_3_r_100',
     '1_epoch_migration_one_each_n_6',
     '1_epoch_migration_one_each_n_2',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '1_epoch_2_loci_n_3_r_0',
-    '1_epoch_2_loci_n_2_r_1',
-    '1_epoch_2_loci_n_2_r_1',
-    '1_epoch_2_loci_n_3_r_100',
-    '1_epoch_2_loci_n_10_r_1',
     '1_epoch_2_loci_n_4_r_1',
     '1_epoch_n_4',
     '2_epoch_n_5',
     '2_epoch_n_2',
-    '2_epoch_varying_migration_low_coalescence',
     '2_epoch_rapid_decline_n_5',
     '2_epoch_rapid_decline_n_2',
     '1_epoch_2_loci_n_2_r_10',
@@ -40,7 +41,6 @@ configs_suspended = [
     '4_epoch_up_down_n_2',
     '4_epoch_up_down_n_10',
     '3_epoch_extreme_bottleneck_n_5',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '3_epoch_2_pops_n_5',
     '1_epoch_migration_disparate_pop_size_one_each_n_2',
     '1_epoch_migration_disparate_pop_size_one_all_n_2',
@@ -48,8 +48,10 @@ configs_suspended = [
     '1_epoch_dirac_n_6_psi_0_5_c_0',
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
-    '1_epoch_beta_n_6_alpha_1_7',
     '1_epoch_beta_n_6_alpha_1_1',
+]
+
+configs_suspended = [
     '1_epoch_dirac_n_2_psi_0_5_c_1',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_50',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_1',  # TODO shorter SFS bins than msprime

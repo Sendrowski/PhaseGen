@@ -40,7 +40,8 @@ wildcard_constraints:
 rule all:
     input:
         (
-            expand("results/comparisons/serialized/{config}.json",config=configs)
+            expand("results/comparisons/serialized/{config}.json",config=configs),
+            "results/benchmarks/state_space/all.csv"
         )
 
 rule create_comparison:
@@ -52,6 +53,26 @@ rule create_comparison:
         "envs/dev.yaml"
     script:
         "scripts/create_comparison.py"
+
+rule benchmark_state_space_creation:
+    input:
+        "resources/configs/{config}.yaml"
+    output:
+        "results/benchmarks/state_space/{config}.csv"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/benchmark_state_space_creation.py"
+
+rule merge_benchmarks:
+    input:
+        expand("results/benchmarks/state_space/{config}.csv",config=configs)
+    output:
+        "results/benchmarks/state_space/all.csv"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/merge_benchmarks.py"
 
 # generate a requirements.txt using poetry
 rule generate_requirements_poetry:

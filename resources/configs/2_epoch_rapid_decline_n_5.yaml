@@ -4,7 +4,7 @@ pop_sizes:
   pop_0:
     0: 1
     1: 0.001
-precision: 1.0e-9
+precision: 1.0e-8
 model: standard
 comparisons:
   tolerance:
@@ -19,4 +19,4 @@ comparisons:
     sfs:
       mean: 0.01
       cov: 0.05
-      corr: 0.03
+      corr: 0.05

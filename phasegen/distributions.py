@@ -19,7 +19,7 @@ from tqdm import tqdm
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, Epoch, PopSizeChanges
 from .locus import LocusConfig
-from .population import PopConfig
+from .lineage import LineageConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward, \
     CombinedReward
 from .spectrum import SFS, SFS2
@@ -198,7 +198,7 @@ class MarginalLocusDistributions(MarginalDistributions):
                 state_space=self.dist.state_space,
                 demography=self.dist.demography,
                 reward=CombinedReward([self.dist.reward, LocusReward(locus)]),
-                max_iter=self.dist.max_iter,
+                max_epochs=self.dist.max_epochs,
                 precision=self.dist.precision
             )
 
@@ -311,7 +311,7 @@ class MarginalDemeDistributions(MarginalDistributions):
                 state_space=self.dist.state_space,
                 demography=self.dist.demography,
                 reward=CombinedReward([self.dist.reward, DemeReward(pop)]),
-                max_iter=self.dist.max_iter,
+                max_epochs=self.dist.max_epochs,
                 precision=self.dist.precision
             )
 
@@ -487,7 +487,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             state_space: StateSpace,
             demography: Demography = Demography(),
             reward: Reward = TreeHeightReward(),
-            max_iter: int = 100,
+            max_epochs: int = 100,
             precision: float = 1e-8,
     ):
         """
@@ -496,14 +496,14 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param state_space: The state space.
         :param demography: The demography.
         :param reward: The reward.
-        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
             when calculating the moments of the distribution.
         :param precision: Precision for convergence when determining the moments of the distribution.
         """
         super().__init__()
 
         #: Population configuration
-        self.pop_config: PopConfig = state_space.pop_config
+        self.pop_config: LineageConfig = state_space.pop_config
 
         #: Locus configuration
         self.locus_config: LocusConfig = state_space.locus_config
@@ -519,7 +519,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         #: Maximum number of iterations when iterating to convergence in the last epoch
         #: when calculating the moments of the distribution.
-        self.max_iter: int = max_iter
+        self.max_epochs: int = max_epochs
 
         #: Precision for convergence when determining the moments of the distribution.
         self.precision: float = precision
@@ -645,18 +645,18 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             # TODO this approach has other problems as it works with the absolute value
             #   meaning it is dependent on the coalescence rate. It might also stop
             #   prematurely if the coalescence rate is very low temporarily. Another
-            #   problem is that may still be numerical imprecision even if the moment
+            #   problem is that there may still be numerical imprecision even if the moment
             #   has converged.
             if np.abs(m_next - m) < self.precision:
                 m = m_next
                 break
 
-            # if we have not converged after max_iter epochs, we raise an error
-            if i >= self.max_iter:
-                raise RuntimeError(f"No convergence after {self.max_iter} epochs. "
+            # if we have not converged after max_epochs epochs, we raise an error
+            if i >= self.max_epochs:
+                raise RuntimeError(f"No convergence after {self.max_epochs} epochs. "
                                    f"Current difference of moments: {np.abs(m_next - m)}. "
-                                   f"Check if the demography is well defined and consider increasing "
-                                   f"the maximum number of iterations (max_iter) or "
+                                   f"Check if the demography is well-defined and consider increasing "
+                                   f"the maximum number of iterations (max_epochs) or "
                                    f"decreasing the precision if necessary.")
 
             # update matrix and moment
@@ -677,7 +677,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             self,
             state_space: DefaultStateSpace,
             demography: Demography = Demography(),
-            max_iter: int = 100,
+            max_epochs: int = 100,
             precision: float = 1e-8
     ):
         """
@@ -685,7 +685,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         :param state_space: The state space.
         :param demography: The demography.
-        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
             when calculating the moments of the distribution.
         :param precision: Precision for convergence when determining the moments of the distribution.
         """
@@ -693,7 +693,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space=state_space,
             demography=demography,
             reward=TreeHeightReward(),
-            max_iter=max_iter,
+            max_epochs=max_epochs,
             precision=precision
         )
 
@@ -768,7 +768,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             q: float,
             expansion_factor: float = 2,
             tol: float = 1e-5,
-            max_iter: int = 1000
+            max_epochs: int = 1000
     ):
         """
         Find the nth quantile of a CDF using an adaptive bisection method.
@@ -776,7 +776,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param q: The desired quantile (between 0 and 1).
         :param expansion_factor: Factor by which to expand the upper bound that does not yet contain the quantile.
         :param tol: The tolerance for convergence.
-        :param max_iter: Maximum number of iterations for the bisection method.
+        :param max_epochs: Maximum number of iterations for the bisection method.
         :return: The approximate x value for the nth quantile.
         """
         if q < 0 or q > 1:
@@ -786,21 +786,21 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         a, b = 0, self.mean + 5 * np.sqrt(self.var)
 
         # expand upper bound until it contains the quantile
-        while self.cdf(b) < q and max_iter > 0:
+        while self.cdf(b) < q and max_epochs > 0:
             b *= expansion_factor
-            max_iter -= 1
+            max_epochs -= 1
 
         # use bisection method within the determined bounds
-        while (b - a) > tol and max_iter > 0:
+        while (b - a) > tol and max_epochs > 0:
             m = (a + b) / 2
             if self.cdf(m) < q:
                 a = m
             else:
                 b = m
-            max_iter -= 1
+            max_epochs -= 1
 
         # warn if maximum number of iterations reached
-        if max_iter == 0:
+        if max_epochs == 0:
             self._logger.warning("Maximum number of iterations reached.")
 
         return (a + b) / 2
@@ -833,7 +833,7 @@ class SFSDistribution(PhaseTypeDistribution):
             pbar: bool = False,
             parallelize: bool = False,
             reward: Reward = UnitReward(),
-            max_iter: int = 100,
+            max_epochs: int = 100,
             precision: float = 1e-8
     ):
         """
@@ -844,7 +844,7 @@ class SFSDistribution(PhaseTypeDistribution):
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
         :param reward: The reward to multiply the SFS reward with.
-        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
             when calculating the moments of the distribution.
         :param precision: Precision for convergence when determining the moments of the distribution.
         """
@@ -852,7 +852,7 @@ class SFSDistribution(PhaseTypeDistribution):
             state_space=state_space,
             demography=demography,
             reward=reward,
-            max_iter=max_iter,
+            max_epochs=max_epochs,
             precision=precision
         )
 
@@ -885,7 +885,7 @@ class SFSDistribution(PhaseTypeDistribution):
                 reward=CombinedReward([self.reward, SFSReward(i)]),
                 state_space=self.state_space,
                 demography=self.demography,
-                max_iter=self.max_iter,
+                max_epochs=self.max_epochs,
                 precision=self.precision
             )
 
@@ -950,7 +950,7 @@ class SFSDistribution(PhaseTypeDistribution):
         d = PhaseTypeDistribution(
             state_space=self.state_space,
             demography=self.demography,
-            max_iter=self.max_iter,
+            max_epochs=self.max_epochs,
             precision=self.precision
         )
 
@@ -1271,6 +1271,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
 
         self._samples = None
 
+        [d.drop() for d in self.demes.values()]
+        [l.drop() for l in self.loci.values()]
+
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
         """
@@ -1376,7 +1379,7 @@ class AbstractCoalescent(ABC):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | PopConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig,
             model: CoalescentModel = StandardCoalescent(),
             demography: Demography = Demography(),
             loci: int | LocusConfig = 1,
@@ -1391,12 +1394,12 @@ class AbstractCoalescent(ABC):
         :param model: Coalescent model.
         :param loci: Number of loci or locus configuration.
         """
-        if not isinstance(n, PopConfig):
+        if not isinstance(n, LineageConfig):
             #: Population configuration
-            self.pop_config: PopConfig = PopConfig(n)
+            self.pop_config: LineageConfig = LineageConfig(n)
         else:
             #: Population configuration
-            self.pop_config: PopConfig = n
+            self.pop_config: LineageConfig = n
 
         # set up locus configuration
         if isinstance(loci, int):
@@ -1450,14 +1453,14 @@ class Coalescent(AbstractCoalescent):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | PopConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig,
             model: CoalescentModel = StandardCoalescent(),
             demography: Demography = Demography(),
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             pbar: bool = True,
             parallelize: bool = True,
-            max_iter: int = 100,
+            max_epochs: int = 100,
             precision: float = 1e-8
     ):
         """
@@ -1472,7 +1475,7 @@ class Coalescent(AbstractCoalescent):
         :param recombination_rate: Recombination rate.
         :param pbar: Whether to show a progress bar
         :param parallelize: Whether to parallelize computations
-        :param max_iter: Maximum number of iterations when iterating to convergence in the last epoch
+        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
             when calculating the moments of the distribution.
         :param precision: Precision for convergence when determining the moments of the distribution.
         """
@@ -1500,7 +1503,7 @@ class Coalescent(AbstractCoalescent):
         self.parallelize: bool = parallelize
 
         #: Maximum number of iterations when iterating to convergence in the last epoch
-        self.max_iter: int = max_iter
+        self.max_epochs: int = max_epochs
 
         #: Precision for convergence when determining the moments of the distribution.
         self.precision: float = precision
@@ -1537,7 +1540,7 @@ class Coalescent(AbstractCoalescent):
         return TreeHeightDistribution(
             state_space=self.default_state_space,
             demography=self.demography,
-            max_iter=self.max_iter,
+            max_epochs=self.max_epochs,
             precision=self.precision
         )
 
@@ -1550,7 +1553,7 @@ class Coalescent(AbstractCoalescent):
             reward=TotalBranchLengthReward(),
             state_space=self.default_state_space,
             demography=self.demography,
-            max_iter=self.max_iter,
+            max_epochs=self.max_epochs,
             precision=self.precision
         )
 
@@ -1562,7 +1565,7 @@ class Coalescent(AbstractCoalescent):
         return SFSDistribution(
             state_space=self.block_counting_state_space,
             demography=self.demography,
-            max_iter=self.max_iter,
+            max_epochs=self.max_epochs,
             precision=self.precision
         )
 
@@ -1574,7 +1577,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | PopConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig,
             demography: Demography = None,
             model: CoalescentModel = StandardCoalescent(),
             loci: int | LocusConfig = 1,

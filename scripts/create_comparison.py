@@ -3,7 +3,7 @@ Compare moments of msprime and phasegen.
 """
 
 __author__ = "Janek Sendrowski"
-__contact__ = "j.sendrowski18@gmail.com"
+__contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-03-11"
 
 try:
@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_migration_disparate_migration_sizes_2_each_n_6"
+    name = "1_epoch_n_2_test_size"
     file = f"resources/configs/{name}.yaml"
     parallelize = False
     out = f"scratch/{name}.json"

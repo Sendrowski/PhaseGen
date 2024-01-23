@@ -9,8 +9,8 @@ import numpy as np
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
+from .lineage import LineageConfig
 from .locus import LocusConfig
-from .population import PopConfig
 from .transition import Transition
 
 logger = logging.getLogger('phasegen')
@@ -23,7 +23,7 @@ class StateSpace(ABC):
 
     def __init__(
             self,
-            pop_config: PopConfig,
+            pop_config: LineageConfig,
             locus_config: LocusConfig = LocusConfig(),
             model: CoalescentModel = StandardCoalescent(),
             epoch: Epoch = Epoch()
@@ -36,6 +36,9 @@ class StateSpace(ABC):
         :param epoch: Time homogeneous demography (we can only construct a state space
             for a fixed demography).
         """
+        if not isinstance(model, StandardCoalescent) and locus_config.n > 1:
+            raise NotImplementedError('Only one locus is currently supported for non-standard coalescent models.')
+
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
@@ -43,7 +46,7 @@ class StateSpace(ABC):
         self.model: CoalescentModel = model
 
         #: Population configuration
-        self.pop_config: PopConfig = pop_config
+        self.pop_config: LineageConfig = pop_config
 
         #: Locus configuration
         self.locus_config: LocusConfig = locus_config
@@ -51,8 +54,8 @@ class StateSpace(ABC):
         #: Epoch
         self.epoch: Epoch = epoch
 
-        # number of lineages shared across loci
-        self.shared: np.ndarray | None = None
+        # number of lineages linked across loci
+        self.linked: np.ndarray | None = None
 
         # warn if state space is large
         if self.k > 2000:
@@ -224,21 +227,28 @@ class StateSpace(ABC):
         :param j: Index of incoming state.
         :return: The transition from the state indexed by i to the state indexed by j.
         """
-        data = dict(
+        transition = Transition(
             marginal1=self.states[i],
             marginal2=self.states[j],
-            shared1=self.shared[i],
-            shared2=self.shared[j],
+            linked1=self.linked[i],
+            linked2=self.linked[j],
             state_space=self
         )
 
-        transition = Transition(**data)
+        data = dict(
+            marginal1=transition.marginal1,
+            marginal2=transition.marginal2,
+            linked1=transition.linked1,
+            linked2=transition.linked2,
+            # unlinked1=transition.unlinked1,
+            # unlinked2=transition.unlinked2
+        )
 
         kind = transition.type
 
         rate = transition.get_rate()
 
-        if 'coalescence' in kind:
+        if kind == 'linked_coalescence':
             pass
 
         return transition
@@ -262,15 +272,15 @@ class StateSpace(ABC):
         # get the difference between the states
         diff = s1 - s2
 
-        # shared lineages
-        shared1 = self.shared[i]
-        shared2 = self.shared[j]
+        # linked lineages
+        linked1 = self.linked[i]
+        linked2 = self.linked[j]
 
-        # difference in shared lineages
-        diff_shared = shared1 - shared2
+        # difference in linked lineages
+        diff_linked = linked1 - linked2
 
         # mask for affected demes
-        has_diff_demes = np.any((diff != 0) | (diff_shared != 0), axis=(0, 2))
+        has_diff_demes = np.any((diff != 0) | (diff_linked != 0), axis=(0, 2))
 
         # number of affected demes
         n_demes = has_diff_demes.sum()
@@ -284,13 +294,13 @@ class StateSpace(ABC):
                 return 0
 
             # recombination onto different loci
-            if shared1 - shared2 == 1:
-                rate = self.shared[i] * self.locus_config.recombination_rate
+            if linked1 - linked2 == 1:
+                rate = self.linked[i] * self.locus_config.recombination_rate
                 return rate
 
             # back recombination onto same locus
-            if shared1 - shared2 == -1:
-                rate = (s1[0].sum() - shared1) * (s1[1].sum() - shared1)
+            if linked1 - linked2 == -1:
+                rate = (s1[0].sum() - linked1) * (s1[1].sum() - linked1)
                 return rate
 
             return 0
@@ -311,46 +321,46 @@ class StateSpace(ABC):
 
             n_diff_loci = has_diff_loci.sum()
 
-            is_shared = n_diff_loci > 1
+            is_linked = n_diff_loci > 1
 
-            # shared coalescence event
-            if is_shared:
-                # if coalescence event is shared across loci but the reduction in
-                # the number of shared lineages is not equal to the reduction in
+            # linked coalescence event
+            if is_linked:
+                # if coalescence event is linked across loci but the reduction in
+                # the number of linked lineages is not equal to the reduction in
                 # the number of coalesced lineages for each locus, then the rate
                 # is zero.
-                if np.any(shared1 - shared2 != diff_deme.sum(axis=1)):
+                if np.any(linked1 - linked2 != diff_deme.sum(axis=1)):
                     return 0
 
-                # Alternatively, if the number of shared lineages is
-                # less than the number of shared coalesced lineages, then the
+                # Alternatively, if the number of linked lineages is
+                # less than the number of linked coalesced lineages, then the
                 # rate is also zero.
-                if diff_deme[0].sum() + 1 > shared1:
+                if diff_deme[0].sum() + 1 > linked1:
                     return 0
 
                 base_rate = self._get_coalescent_rate(
                     n=self.pop_config.n,
-                    s1=np.array([shared1]),
-                    s2=np.array([shared2])
+                    s1=np.array([linked1]),
+                    s2=np.array([linked2])
                 )
 
-            # unshared coalescence event
+            # unlinked coalescence event
             else:
 
-                n_unshared1 = deme_s1[has_diff_loci] - shared1[has_diff_loci, deme]
-                n_unshared2 = deme_s2[has_diff_loci] - shared2[has_diff_loci, deme]
+                n_unlinked1 = deme_s1[has_diff_loci] - linked1[has_diff_loci, deme]
+                n_unlinked2 = deme_s2[has_diff_loci] - linked2[has_diff_loci, deme]
 
-                # number of reduced unshared lineages has to equal numbers of coalesced
-                # lineages if coalescence event is not shared across loci
-                if n_unshared1 - n_unshared2 != diff_deme[has_diff_loci].sum():
+                # number of reduced unlinked lineages has to equal numbers of coalesced
+                # lineages if coalescence event is not linked across loci
+                if n_unlinked1 - n_unlinked2 != diff_deme[has_diff_loci].sum():
                     return 0
 
-                if n_unshared1 - n_unshared2 == 1:
+                if n_unlinked1 - n_unlinked2 == 1:
                     base_rate = self._get_coalescent_rate(
                         n=self.pop_config.n,
-                        s1=np.array([n_unshared1]),
-                        s2=np.array([n_unshared2])
-                    ) + shared1 * n_unshared1
+                        s1=np.array([n_unlinked1]),
+                        s2=np.array([n_unlinked2])
+                    ) + linked1 * n_unlinked1
                 else:
                     return 0
 
@@ -423,6 +433,28 @@ class StateSpace(ABC):
 
         return vectors
 
+    def _get_outgoing_rates(self, i: int, remove_zero: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get the outgoing rates from state indexed by `i`.
+
+        :param i: Index of outgoing state.
+        :param remove_zero: Whether to remove zero rates.
+        :return: The outgoing rates and the indices of the states to which the rates correspond.
+        """
+        rates = self.S[i, :]
+        indices = np.arange(self.k)
+
+        # mask diagonal
+        mask = np.arange(self.k) != i
+
+        if remove_zero:
+            mask &= rates != 0
+
+        rates = rates[mask]
+        indices = indices[mask]
+
+        return rates, indices
+
 
 class DefaultStateSpace(StateSpace):
     """
@@ -443,7 +475,7 @@ class DefaultStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        TODO clean up and expanded `shared` by loci, demes and blocks (nest)
+        TODO clean up and expanded `linked` by loci, demes and blocks (nest)
           to make compatible with BlockCountingStateSpace
 
         :param states: States.
@@ -452,25 +484,25 @@ class DefaultStateSpace(StateSpace):
             # add extra dimension for locus configuration
             states = states[:, np.newaxis]
 
-            # all lineages are shared
-            self.shared = np.zeros_like(states, dtype=int)
+            # all lineages are linked
+            self.linked = np.zeros_like(states, dtype=int)
 
             return states
 
         if self.locus_config.n == 2:
-            # create array with same shape and fill first element with number of shared lineages
-            shared = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
-            shared[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
+            # create array with same shape and fill first element with number of linked lineages
+            linked = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
+            linked[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
 
-            # take product of number of shared lineages and states
-            states = np.array(list(itertools.product(shared, states, states)))
+            # take product of number of linked lineages and states
+            states = np.array(list(itertools.product(linked, states, states)))
 
             n_lineages = states.sum(axis=(2, 3)).T
 
-            # remove states where `shared` is larger than the total number of lineages
+            # remove states where `linked` is larger than the total number of lineages
             states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
 
-            self.shared = states[:, [0, 0], :, :]
+            self.linked = states[:, [0, 0], :, :]
 
             return states[:, 1:, :, :]
 
@@ -510,6 +542,19 @@ class BlockCountingStateSpace(StateSpace):
     per deme and per locus. This state space can distinguish between different tree topologies
     and is thus used when computing statistics based on the SFS.
     """
+
+    def __init__(
+            self,
+            pop_config: LineageConfig,
+            locus_config: LocusConfig = LocusConfig(),
+            model: CoalescentModel = StandardCoalescent(),
+            epoch: Epoch = Epoch()
+    ):
+        # currently only one locus is supported, due to a very complex state space for multiple loci
+        if locus_config.n > 1:
+            raise NotImplementedError('BlockCountingStateSpace only supports one locus.')
+
+        super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
 
     def _matrix_indices_to_rates_single_locus(self, i: int, j: int) -> float:
         """
@@ -585,7 +630,8 @@ class BlockCountingStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        TODO clean up
+        TODO two-locus state space not sufficient for computing SFS as lineages are not longer
+          exchangeable in this case.
 
         :param states: States.
         """
@@ -593,8 +639,8 @@ class BlockCountingStateSpace(StateSpace):
             # add extra dimension for locus configuration
             states = states[:, np.newaxis]
 
-            # all lineages are shared
-            self.shared = np.zeros_like(states, dtype=int)
+            # all lineages are linked
+            self.linked = np.zeros_like(states, dtype=int)
 
             # add extra dimension for locus configuration
             return states
@@ -605,11 +651,11 @@ class BlockCountingStateSpace(StateSpace):
 
             for state in states.reshape(states.shape[0], -1):
 
-                shared = []
+                linked = []
                 for block in state:
-                    shared += [range(block + 1)]
+                    linked += [range(block + 1)]
 
-                locus += itertools.product([state], itertools.product(*shared))
+                locus += itertools.product([state], itertools.product(*linked))
 
             # combine loci
             expanded = np.array(list(itertools.product(locus, repeat=2)))
@@ -617,13 +663,13 @@ class BlockCountingStateSpace(StateSpace):
             # reshape two last dimensions to get the correct shape
             expanded = expanded.reshape(*expanded.shape[:3], *states.shape[1:])
 
-            # state for which the number of shared lineages is the same across loci
-            same_shared = expanded[:, 0, 1].sum(axis=(1, 2)) == expanded[:, 1, 1].sum(axis=(1, 2))
+            # states for which the number of linked lineages is the same across loci
+            same_linked = expanded[:, 0, 1].sum(axis=(1, 2)) == expanded[:, 1, 1].sum(axis=(1, 2))
 
-            # remove states where the number of shared lineages is not the same across loci
-            expanded = expanded[same_shared]
+            # remove states where the number of linked lineages is not the same across loci
+            expanded = expanded[same_linked]
 
-            self.shared = expanded[:, :, 1]
+            self.linked = expanded[:, :, 1]
 
             return expanded[:, :, 0]
 

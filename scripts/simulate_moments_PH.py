@@ -3,7 +3,7 @@ Simulate moments of given population scenario using phase-type theory.
 """
 
 __author__ = "Janek Sendrowski"
-__contact__ = "j.sendrowski18@gmail.com"
+__contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-02-25"
 
 import numpy as np

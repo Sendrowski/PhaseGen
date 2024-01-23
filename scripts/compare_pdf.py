@@ -3,7 +3,7 @@ Compare moments of msprime and phasegen.
 """
 
 __author__ = "Janek Sendrowski"
-__contact__ = "j.sendrowski18@gmail.com"
+__contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-03-11"
 
 import time

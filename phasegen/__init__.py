@@ -139,7 +139,7 @@ from .spectrum import (
 
 from .inference import Inference
 
-from .population import PopConfig
+from .lineage import LineageConfig
 
 from .locus import LocusConfig
 
@@ -188,6 +188,6 @@ __all__ = [
     'DefaultStateSpace',
     'BlockCountingStateSpace',
     'CoalescentModel',
-    'PopConfig',
+    'LineageConfig',
     'LocusConfig',
 ]

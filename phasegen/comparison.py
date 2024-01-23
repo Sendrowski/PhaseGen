@@ -35,7 +35,8 @@ class Comparison(Serializable):
             record_migration: bool = False,
             n_threads: int = 100,
             parallelize: bool = True,
-            max_iter: int = 100,
+            max_epochs: int = 100,
+            max_epoch_size: int = 1000,
             precision: float = 1e-8,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
@@ -64,13 +65,18 @@ class Comparison(Serializable):
         :param record_migration: Whether to record migrations.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
+        :param max_epochs: Maximum number of epochs.
+        :param max_epoch_size: Maximum size of the discretized epoch. This can have repercussions on convergence as we 
+            keep iterating over epochs until the contribution of the current epoch to the moment in question is below
+            the specified precision.
+        :param precision: Precision of the phase-type coalescent.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
         :param model: Coalescent model to use.
         :param alpha: Alpha parameter of the beta coalescent.
         :param psi: Psi parameter of the Dirac coalescent.
         :param c: C parameter of the Dirac coalescent.
-        :param max_iter: Maximum number of iterations.
+        :param max_epochs: Maximum number of epochs.
         :param precision: Precision of the phase-type coalescent.
         """
         self.logger = logging.getLogger('phasegen').getChild(self.__class__.__name__)
@@ -85,7 +91,8 @@ class Comparison(Serializable):
         self.record_migration = record_migration
         self.n_threads = n_threads
         self.parallelize = parallelize
-        self.max_iter = max_iter
+        self.max_epochs = max_epochs
+        self.max_epoch_size = max_epoch_size
         self.precision = precision
         self.alpha = alpha
         self.psi = psi
@@ -113,9 +120,12 @@ class Comparison(Serializable):
         """
         Get the demography.
         """
-        return Demography(events=[
-            DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
-        ])
+        return Demography(
+            events=[
+                DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
+            ],
+            max_size=self.max_epoch_size
+        )
 
     def get_locus_config(self) -> LocusConfig:
         """
@@ -159,7 +169,7 @@ class Comparison(Serializable):
             loci=self.get_locus_config(),
             parallelize=self.parallelize,
             model=self.model,
-            max_iter=self.max_iter,
+            max_epochs=self.max_epochs,
             precision=self.precision
         )
 
@@ -192,6 +202,23 @@ class Comparison(Serializable):
 
         # compute relative difference
         diff = np.abs(a - b) / ((np.abs(a) + np.abs(b)) / 2)
+
+        # only consider finite values
+        return diff[np.isfinite(diff)]
+
+    @staticmethod
+    def rel_diff_old(a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
+        """
+        Compute the maximum relative difference between two arrays like done previously.
+
+        :param a: The first array.
+        :param b: The second array.
+        :return: The mean relative difference.
+        """
+        a, b = np.array(a), np.array(b)
+
+        # compute relative difference
+        diff = np.abs(a - b) / ((a + b) / 2)
 
         # only consider finite values
         return diff[np.isfinite(diff)]
@@ -243,6 +270,9 @@ class Comparison(Serializable):
             ms_stat = np.array(list(ms_stat))
             ph_stat = np.array(list(ph_stat))
             diff = self.rel_diff(ms_stat, ph_stat).max()
+
+            # TODO remove later
+            diff_old = self.rel_diff_old(ms_stat, ph_stat).max()
 
             if visualize:
                 if ph_stat.ndim == 1:

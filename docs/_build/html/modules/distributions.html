@@ -70,7 +70,7 @@
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Distributions</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution</span></code></a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution.max_iter"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.max_iter</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution.max_epochs"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.max_epochs</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution.__init__"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.__init__()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution.pop_config"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.pop_config</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.PhaseTypeDistribution.reward"><code class="docutils literal notranslate"><span class="pre">PhaseTypeDistribution.reward</span></code></a></li>
@@ -93,7 +93,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.pdf"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.pdf()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.alpha"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.alpha</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.m2"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.m2</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.max_iter"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.max_iter</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.max_epochs"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.max_epochs</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.mean"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.mean</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.moment"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.moment()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.TreeHeightDistribution.plot_cdf"><code class="docutils literal notranslate"><span class="pre">TreeHeightDistribution.plot_cdf()</span></code></a></li>
@@ -117,7 +117,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.get_corr"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.get_corr()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.alpha"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.alpha</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.m2"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.m2</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.max_iter"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.max_iter</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.max_epochs"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.max_epochs</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.mean"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.mean</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.std"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.std</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#phasegen.distributions.SFSDistribution.touch"><code class="docutils literal notranslate"><span class="pre">SFSDistribution.touch()</span></code></a></li>
@@ -181,8 +181,8 @@
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">_MomentAwareDistribution</span></code></p>
 <p>Phase-type distribution for a piecewise time-homogenous process.</p>
 <dl class="py attribute">
-<dt class="sig sig-object py" id="phasegen.distributions.PhaseTypeDistribution.max_iter">
-<span class="sig-name descname"><span class="pre">max_iter</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.PhaseTypeDistribution.max_iter" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py" id="phasegen.distributions.PhaseTypeDistribution.max_epochs">
+<span class="sig-name descname"><span class="pre">max_epochs</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.PhaseTypeDistribution.max_epochs" title="Permalink to this definition"></a></dt>
 <dd><p>Maximum number iterations when iterating to convergence in the last epoch</p>
 </dd></dl>
 
@@ -354,7 +354,7 @@ density function. This is currently only possible with default rewards.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="phasegen.distributions.TreeHeightDistribution.quantile">
-<span class="sig-name descname"><span class="pre">quantile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expansion_factor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iter</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.distributions.TreeHeightDistribution.quantile" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">quantile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expansion_factor</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_epochs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#phasegen.distributions.TreeHeightDistribution.quantile" title="Permalink to this definition"></a></dt>
 <dd><p>Find the nth quantile of a CDF using an adaptive bisection method.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -362,7 +362,7 @@ density function. This is currently only possible with default rewards.</p>
 <li><p><strong>q</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – The desired quantile (between 0 and 1).</p></li>
 <li><p><strong>expansion_factor</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – Factor by which to expand the upper bound that does not yet contain the quantile.</p></li>
 <li><p><strong>tol</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code>) – The tolerance for convergence.</p></li>
-<li><p><strong>max_iter</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Maximum number of iterations for the bisection method.</p></li>
+<li><p><strong>max_epochs</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code>) – Maximum number of iterations for the bisection method.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -410,8 +410,8 @@ results as the CDF is exact and continuous.</p>
 </dd></dl>
 
 <dl class="py attribute">
-<dt class="sig sig-object py" id="phasegen.distributions.TreeHeightDistribution.max_iter">
-<span class="sig-name descname"><span class="pre">max_iter</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.TreeHeightDistribution.max_iter" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py" id="phasegen.distributions.TreeHeightDistribution.max_epochs">
+<span class="sig-name descname"><span class="pre">max_epochs</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.TreeHeightDistribution.max_epochs" title="Permalink to this definition"></a></dt>
 <dd><p>Maximum number iterations when iterating to convergence in the last epoch</p>
 </dd></dl>
 
@@ -679,8 +679,8 @@ If i and j are given, get the correlation coefficient between the ith and jth si
 </dd></dl>
 
 <dl class="py attribute">
-<dt class="sig sig-object py" id="phasegen.distributions.SFSDistribution.max_iter">
-<span class="sig-name descname"><span class="pre">max_iter</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.SFSDistribution.max_iter" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py" id="phasegen.distributions.SFSDistribution.max_epochs">
+<span class="sig-name descname"><span class="pre">max_epochs</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100</span></em><a class="headerlink" href="#phasegen.distributions.SFSDistribution.max_epochs" title="Permalink to this definition"></a></dt>
 <dd><p>Maximum number iterations when iterating to convergence in the last epoch</p>
 </dd></dl>
 

@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
-
+import pytest
 import phasegen as pg
 from phasegen.distributions import MsprimeCoalescent
 
@@ -16,7 +16,7 @@ class CoalescentTestCase(TestCase):
         Test simple coalescent.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig(n=2),
+            n=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             demography=pg.Demography([pg.PopSizeChange(pop='pop_0', time=0, size=1)])
         )
@@ -45,7 +45,7 @@ class CoalescentTestCase(TestCase):
         Test complex coalescent.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
             model=pg.BetaCoalescent(alpha=1.7),
             demography=self.get_complex_demography()
         )
@@ -61,7 +61,7 @@ class CoalescentTestCase(TestCase):
         """
         coals = [
             pg.Coalescent(
-                n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+                n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
                 model=pg.BetaCoalescent(alpha=1.7),
                 demography=self.get_complex_demography(),
                 parallelize=False
@@ -69,7 +69,7 @@ class CoalescentTestCase(TestCase):
             MsprimeCoalescent(
                 n_threads=1,
                 num_replicates=1000,
-                n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+                n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
                 model=pg.BetaCoalescent(alpha=1.7),
                 demography=self.get_complex_demography(),
                 record_migration=True
@@ -98,6 +98,7 @@ class CoalescentTestCase(TestCase):
                 decimal=8
             )
 
+    @pytest.mark.skip(reason="Too slow")
     def test_msprime_complex_coalescent(self):
         """
         Test msprime complex coalescent.
@@ -106,7 +107,7 @@ class CoalescentTestCase(TestCase):
             n_threads=100,
             parallelize=True,
             num_replicates=1000000,
-            n=pg.PopConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
             # model=pg.BetaCoalescent(alpha=1.7),
             demography=self.get_complex_demography(),
             record_migration=True
@@ -124,7 +125,7 @@ class CoalescentTestCase(TestCase):
             n_threads=1,
             parallelize=False,
             num_replicates=1000,
-            n=pg.PopConfig(2),
+            n=pg.LineageConfig(2),
             loci=2,
             recombination_rate=10,
             model=pg.StandardCoalescent(),
@@ -140,7 +141,7 @@ class CoalescentTestCase(TestCase):
         Test two loci.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig(2),
+            n=pg.LineageConfig(2),
             loci=pg.LocusConfig(n=2, recombination_rate=1)
         )
 
@@ -151,12 +152,13 @@ class CoalescentTestCase(TestCase):
 
         pass
 
+    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
     def test_two_loci_one_deme_n_2_sfs(self):
         """
         Test two loci.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig(2),
+            n=pg.LineageConfig(2),
             loci=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
 
@@ -170,11 +172,11 @@ class CoalescentTestCase(TestCase):
         Test two loci.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig(4),
+            n=pg.LineageConfig(4),
             loci=pg.LocusConfig(n=2, recombination_rate=1),
         )
 
-        marginal = pg.Coalescent(n=pg.PopConfig(4))
+        marginal = pg.Coalescent(n=pg.LineageConfig(4))
 
         # assert total branch length to be twice as long as marginal
         self.assertAlmostEqual(marginal.total_branch_length.mean * 2, coal.total_branch_length.mean)
@@ -196,19 +198,92 @@ class CoalescentTestCase(TestCase):
         Test two loci.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig([2, 2]),
+            n=pg.LineageConfig([2, 2]),
             loci=pg.LocusConfig(n=2, recombination_rate=1.11),
         )
 
         pass
 
+    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
     def test_two_loci_one_deme_n_2(self):
         """
         Test two loci.
         """
         coal = pg.Coalescent(
-            n=pg.PopConfig([2]),
+            n=pg.LineageConfig([2]),
             loci=pg.LocusConfig(n=2, recombination_rate=1.11),
         )
 
         coal.sfs.mean.plot()
+
+    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    def test_two_loci_one_deme_n_linked(self):
+        """
+        Test SFS for two loci with different numbers of linked lineages.
+        """
+        m = []
+        n = 5
+
+        for n_unlinked in range(n + 1):
+            coal = pg.Coalescent(
+                n=pg.LineageConfig(n),
+                loci=pg.LocusConfig(
+                    n=2,
+                    recombination_rate=0,
+                    n_unlinked=n_unlinked,
+                    allow_coalescence=False
+                )
+            )
+
+            m += [coal.sfs.mean.data]
+
+        m = np.array(m)
+
+        pass
+
+    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    def test_two_loci_one_deme_linked_coalescence(self):
+        """
+        Test two loci.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(4),
+            loci=pg.LocusConfig(
+                n=2,
+                recombination_rate=0,
+                n_unlinked=0,
+                allow_coalescence=False
+            )
+        )
+
+        #sfs = coal.sfs.mean.data
+
+        rates1, states1 = coal.block_counting_state_space._get_outgoing_rates(19)
+        rates2, states2 = coal.block_counting_state_space._get_outgoing_rates(states1[0])
+
+        pass
+
+    def test_beta_4_n(self):
+        """
+        Test beta coalescent.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(4),
+            model=pg.BetaCoalescent(alpha=1.7)
+        )
+
+        m = coal.tree_height.mean
+
+        pass
+
+    def test_2_loci_sfs_raises_not_implemented_error(self):
+        """
+        Test two loci SFS raises NotImplementedError.
+        """
+        with self.assertRaises(NotImplementedError):
+            coal = pg.Coalescent(
+                n=pg.LineageConfig(4),
+                loci=pg.LocusConfig(2)
+            )
+
+            _ = coal.sfs
