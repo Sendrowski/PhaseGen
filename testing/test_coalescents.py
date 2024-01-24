@@ -2,6 +2,7 @@ from unittest import TestCase
 
 import numpy as np
 import pytest
+
 import phasegen as pg
 from phasegen.distributions import MsprimeCoalescent
 
@@ -39,6 +40,51 @@ class CoalescentTestCase(TestCase):
                 ('pop_2', 'pop_1'): {0: 0, 0.5: 0.5, 1: 1}
             })
         ])
+
+    def test_t_max_standard_coalescent(self):
+        """
+        Test time until almost sure absorption for standard coalescent.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(2),
+            model=pg.StandardCoalescent()
+        )
+
+        t = coal.tree_height._t_max
+
+        self.assertEqual(t, 32)
+
+    def test_t_max_complex_coalescent(self):
+        """
+        Test time until almost sure absorption for complex coalescent.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        )
+
+        t = coal.tree_height._t_max
+
+        self.assertEqual(t, 129)
+
+    def test_t_max_exponential_growth(self):
+        """
+        Test time until almost sure absorption for exponential growth.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(2),
+            model=pg.StandardCoalescent(),
+            demography=pg.Demography([pg.ExponentialPopSizeChanges(
+                initial_size={'pop_0': 1},
+                growth_rate={'pop_0': 1},
+                start_time={'pop_0': 0}
+            )])
+        )
+
+        t = coal.tree_height._t_max
+
+        self.assertEqual(t, 3.7)
 
     def test_complex_coalescent(self):
         """
@@ -256,7 +302,7 @@ class CoalescentTestCase(TestCase):
             )
         )
 
-        #sfs = coal.sfs.mean.data
+        # sfs = coal.sfs.mean.data
 
         rates1, states1 = coal.block_counting_state_space._get_outgoing_rates(19)
         rates2, states2 = coal.block_counting_state_space._get_outgoing_rates(states1[0])

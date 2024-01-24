@@ -62,8 +62,7 @@ class DemographyTestCase(TestCase):
         self.assertEqual((epochs[0].start_time, epochs[0].end_time), (0, 1.2))
         self.assertEqual((epochs[1].start_time, epochs[1].end_time), (1.2, 1.3))
         self.assertEqual((epochs[2].start_time, epochs[2].end_time), (1.3, 4))
-        self.assertEqual((epochs[3].start_time, epochs[3].end_time), (4, 4 + d.max_size))
-        self.assertEqual((epochs[4].start_time, epochs[4].end_time), (4 + d.max_size, 4 + 2 * d.max_size))
+        self.assertEqual((epochs[3].start_time, epochs[3].end_time), (4, np.inf))
 
     def test_plot_discrete_demography(self):
         """
@@ -135,7 +134,7 @@ class DemographyTestCase(TestCase):
         ])
 
         np.testing.assert_array_equal([e.start_time for e in islice(d.epochs, 3)], [0, 1, 1.5])
-        np.testing.assert_array_equal([e.end_time for e in islice(d.epochs, 3)], [1, 1.5, 1.5 + d.max_size])
+        np.testing.assert_array_equal([e.end_time for e in islice(d.epochs, 3)], [1, 1.5, np.inf])
 
         np.testing.assert_array_equal([e.pop_sizes['a'] for e in islice(d.epochs, 3)], [1, 1, 1])
         np.testing.assert_array_equal([e.pop_sizes['b'] for e in islice(d.epochs, 3)], [1, 1, 1])

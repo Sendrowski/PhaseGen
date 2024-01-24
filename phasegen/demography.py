@@ -2,6 +2,7 @@ import itertools
 import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
+from functools import cached_property
 from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Collection
 
 import numpy as np
@@ -69,6 +70,13 @@ class Epoch:
 
         #: Migration rates.
         self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
+
+    @cached_property
+    def tau(self) -> float:
+        """
+        Time interval of the epoch.
+        """
+        return self.end_time - self.start_time
 
 
 class DemographicEvent(ABC):
@@ -557,8 +565,7 @@ class Demography:
             self,
             events: List[DemographicEvent] = [],
             pop_sizes: Dict[str, Dict[float, float]] = {},
-            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = {},
-            max_size: float = 1e3
+            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = {}
     ):
         """
         Initialize the demography.
@@ -570,16 +577,11 @@ class Demography:
             population.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
-        :param max_size: Maximum size of the discretized epoch. This can have repercussions on convergence as we keep
-            iterating over epochs until the contribution of the current epoch to the moment in question is below the
-            specified precision.
+        :param max_size: Maximum size of the discretized epoch.
 
         """
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
-
-        #: Maximum size of the discretized epoch.
-        self.max_size: float = max_size
 
         # add population size and migration rate changes if specified
         if len(pop_sizes) or len(migration_rates):
@@ -674,7 +676,7 @@ class Demography:
             # potential next epoch
             epoch = Epoch(
                 start_time=prev.end_time,
-                end_time=prev.end_time + self.max_size,
+                end_time=np.inf,
                 pop_sizes=prev.pop_sizes,
                 migration_rates=prev.migration_rates
             )

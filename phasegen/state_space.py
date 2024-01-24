@@ -455,6 +455,17 @@ class StateSpace(ABC):
 
         return rates, indices
 
+    def _get_default(self):
+        """
+        Get the default state space.
+        """
+        return DefaultStateSpace(
+            pop_config=self.pop_config,
+            locus_config=self.locus_config,
+            model=self.model,
+            epoch=self.epoch
+        )
+
 
 class DefaultStateSpace(StateSpace):
     """

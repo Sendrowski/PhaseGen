@@ -18,8 +18,8 @@ from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, Epoch, PopSizeChanges
-from .locus import LocusConfig
 from .lineage import LineageConfig
+from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward, \
     CombinedReward
 from .spectrum import SFS, SFS2
@@ -164,7 +164,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         return self.loci[item]
 
-    def __iter__(self) -> Iterator['PhaseTypeDistribution']:
+    def __iter__(self) -> Iterator:
         """
         Iterate over distributions.
 
@@ -196,10 +196,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         for locus in range(self.dist.locus_config.n):
             loci[locus] = cls(
                 state_space=self.dist.state_space,
+                tree_height=self.dist.tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, LocusReward(locus)]),
-                max_epochs=self.dist.max_epochs,
-                precision=self.dist.precision
+                reward=CombinedReward([self.dist.reward, LocusReward(locus)])
             )
 
         return loci
@@ -277,7 +276,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         """
         return self.demes[item]
 
-    def __iter__(self) -> Iterator['PhaseTypeDistribution']:
+    def __iter__(self) -> Iterator:
         """
         Iterate over distributions.
 
@@ -309,10 +308,9 @@ class MarginalDemeDistributions(MarginalDistributions):
         for pop in self.dist.pop_config.pop_names:
             demes[pop] = cls(
                 state_space=self.dist.state_space,
+                tree_height=self.dist.tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, DemeReward(pop)]),
-                max_epochs=self.dist.max_epochs,
-                precision=self.dist.precision
+                reward=CombinedReward([self.dist.reward, DemeReward(pop)])
             )
 
         return demes
@@ -481,24 +479,23 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     """
     Phase-type distribution for a piecewise time-homogenous process.
     """
+    #: Number of decimals to round moments to.
+    n_decimals: int = 12
 
     def __init__(
             self,
             state_space: StateSpace,
+            tree_height: 'TreeHeightDistribution',
             demography: Demography = Demography(),
             reward: Reward = TreeHeightReward(),
-            max_epochs: int = 100,
-            precision: float = 1e-8,
     ):
         """
         Initialize the distribution.
 
         :param state_space: The state space.
+        :param tree_height: The tree height distribution.
         :param demography: The demography.
         :param reward: The reward.
-        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
-            when calculating the moments of the distribution.
-        :param precision: Precision for convergence when determining the moments of the distribution.
         """
         super().__init__()
 
@@ -517,12 +514,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         #: Demography
         self.demography: Demography = demography
 
-        #: Maximum number of iterations when iterating to convergence in the last epoch
-        #: when calculating the moments of the distribution.
-        self.max_epochs: int = max_epochs
-
-        #: Precision for convergence when determining the moments of the distribution.
-        self.precision: float = precision
+        #: Tree height distribution
+        self.tree_height = tree_height
 
     @staticmethod
     def _get_van_loan_matrix(R: List[np.ndarray], S: np.ndarray, k: int = 1) -> np.ndarray:
@@ -620,9 +613,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # initialize Van Loan matrix holding (rewarded) moments
         M = np.eye(n_states * (k + 1))
 
-        # current value for moment
-        m = -1
-
         # iterate through epochs and compute initial values
         for i, epoch in enumerate(self.demography.epochs):
 
@@ -632,39 +622,24 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             # get Van Loan matrix
             A = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
 
-            tau = epoch.end_time - epoch.start_time
+            # compute tau
+            tau = min(epoch.end_time, self.tree_height._t_max) - epoch.start_time
+
+            # compute matrix exponential
             B = expm(A * tau)
 
-            # simply multiply by B
-            M_next = M @ B
+            # update reward matrix
+            M = M @ B
 
-            # calculate moment
-            m_next = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
-
-            # terminate if we have converged
-            # TODO this approach has other problems as it works with the absolute value
-            #   meaning it is dependent on the coalescence rate. It might also stop
-            #   prematurely if the coalescence rate is very low temporarily. Another
-            #   problem is that there may still be numerical imprecision even if the moment
-            #   has converged.
-            if np.abs(m_next - m) < self.precision:
-                m = m_next
+            # break if we have reached the maximum time
+            if epoch.end_time >= self.tree_height._t_max:
                 break
 
-            # if we have not converged after max_epochs epochs, we raise an error
-            if i >= self.max_epochs:
-                raise RuntimeError(f"No convergence after {self.max_epochs} epochs. "
-                                   f"Current difference of moments: {np.abs(m_next - m)}. "
-                                   f"Check if the demography is well-defined and consider increasing "
-                                   f"the maximum number of iterations (max_epochs) or "
-                                   f"decreasing the precision if necessary.")
+        # calculate moment
+        m = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
 
-            # update matrix and moment
-            M = M_next
-            m = m_next
-
-        # round using precision and return
-        return np.round(m, decimals=-int(np.log10(self.precision)))
+        # round to avoid numerical errors
+        return np.round(m, self.n_decimals)
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
@@ -672,29 +647,31 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     Phase-type distribution for a piecewise time-homogenous process that allows the computation of the
     density function. This is currently only possible with default rewards.
     """
+    #: Maximum number of epochs to consider when determining time to almost sure absorption.
+    max_epochs: int = 10000
+
+    #: Maximum number of iterations when determining time to almost sure absorption in the last epoch.
+    max_iter: int = 50
+
+    #: Probability of almost sure absorption.
+    p_absorption: float = 1
 
     def __init__(
             self,
             state_space: DefaultStateSpace,
-            demography: Demography = Demography(),
-            max_epochs: int = 100,
-            precision: float = 1e-8
+            demography: Demography = Demography()
     ):
         """
         Initialize the distribution.
 
         :param state_space: The state space.
         :param demography: The demography.
-        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
-            when calculating the moments of the distribution.
-        :param precision: Precision for convergence when determining the moments of the distribution.
         """
         super().__init__(
             state_space=state_space,
+            tree_height=self,
             demography=demography,
-            reward=TreeHeightReward(),
-            max_epochs=max_epochs,
-            precision=precision
+            reward=TreeHeightReward()
         )
 
         #: State space
@@ -736,6 +713,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # initialize probabilities
         probs = np.zeros_like(t_sorted)
 
+        # take reward vector as exit vector
+        e = self.reward.get(self.state_space)
+
         # iterate through sorted values
         for i, u in enumerate(t_sorted):
 
@@ -751,9 +731,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             # update transition matrix with remaining time in current epoch
             T_curr @= expm(self.state_space.S * (u - u_prev))
 
-            # take reward vector as exit vector
-            e = self.reward.get(self.state_space)
-
             probs[i] = 1 - self.state_space.alpha @ T_curr @ e
 
             u_prev = u
@@ -768,40 +745,40 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             q: float,
             expansion_factor: float = 2,
             tol: float = 1e-5,
-            max_epochs: int = 1000
+            max_iter: int = 1000
     ):
         """
-        Find the nth quantile of a CDF using an adaptive bisection method.
+        Find the specified quantile of a CDF using an adaptive bisection method.
 
         :param q: The desired quantile (between 0 and 1).
         :param expansion_factor: Factor by which to expand the upper bound that does not yet contain the quantile.
         :param tol: The tolerance for convergence.
-        :param max_epochs: Maximum number of iterations for the bisection method.
+        :param max_iter: Maximum number of iterations for the bisection method.
         :return: The approximate x value for the nth quantile.
         """
         if q < 0 or q > 1:
-            raise ValueError("Quantile must be between 0 and 1.")
+            raise ValueError("Specified quantile must be between 0 and 1.")
 
         # initialize bounds
-        a, b = 0, self.mean + 5 * np.sqrt(self.var)
+        a, b = 0, 1
 
         # expand upper bound until it contains the quantile
-        while self.cdf(b) < q and max_epochs > 0:
+        while self.cdf(b) < q and max_iter > 0:
             b *= expansion_factor
-            max_epochs -= 1
+            max_iter -= 1
 
         # use bisection method within the determined bounds
-        while (b - a) > tol and max_epochs > 0:
+        while (b - a) > tol and max_iter > 0:
             m = (a + b) / 2
             if self.cdf(m) < q:
                 a = m
             else:
                 b = m
-            max_epochs -= 1
+            max_iter -= 1
 
         # warn if maximum number of iterations reached
-        if max_epochs == 0:
-            self._logger.warning("Maximum number of iterations reached.")
+        if max_iter == 0:
+            raise RuntimeError("Maximum number of iterations reached.")
 
         return (a + b) / 2
 
@@ -820,6 +797,68 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return (self.cdf(x2) - self.cdf(x1)) / dx
 
+    @cached_property
+    def _t_max(self) -> float:
+        """
+        Get a time estimate for when we have reached absorption almost surely.
+        """
+        # initialize transition matrix
+        T_curr = np.eye(self.state_space.k)
+
+        # take reward vector as exit vector
+        e = self.reward.get(self.state_space)
+
+        # initialize t_max
+        t_max = 0
+
+        # current probability of absorption
+        p = 0
+
+        for i, epoch in enumerate(self.demography.epochs):
+            # update state space
+            self.state_space.update_epoch(epoch)
+
+            if i > self.max_epochs:
+                self._logger.warning("Could not reliably find time of almost sure absorption."
+                                     f"Using time {t_max} with probability of absorption {p}.")
+                return t_max
+
+            if epoch.tau < np.inf:
+                tau = epoch.tau
+
+                # update transition matrix
+                T_curr = expm(self.state_space.S * tau) @ T_curr
+
+                # calculate probability of absorption
+                p = 1 - self.state_space.alpha @ T_curr @ e
+
+                if p >= self.p_absorption:
+                    return t_max + tau
+
+                t_max += tau
+            else:
+                break
+
+        tau = 1
+
+        # in the last epoch, we increase tau exponentially
+        for i in range(self.max_iter):
+            # update transition matrix
+            T_curr = expm(self.state_space.S * tau) @ T_curr
+
+            # calculate probability of absorption
+            p = 1 - self.state_space.alpha @ T_curr @ e
+
+            if p >= self.p_absorption:
+                return t_max + tau
+
+            tau *= 2
+
+        self._logger.warning("Could not reliably find time of almost sure absorption."
+                             f"Using time {t_max + tau} with probability of absorption {p}.")
+
+        return t_max + tau
+
 
 class SFSDistribution(PhaseTypeDistribution):
     """
@@ -829,31 +868,27 @@ class SFSDistribution(PhaseTypeDistribution):
     def __init__(
             self,
             state_space: BlockCountingStateSpace,
+            tree_height: TreeHeightDistribution,
             demography: Demography,
             pbar: bool = False,
             parallelize: bool = False,
-            reward: Reward = UnitReward(),
-            max_epochs: int = 100,
-            precision: float = 1e-8
+            reward: Reward = UnitReward()
     ):
         """
         Initialize the distribution.
 
         :param state_space: Block counting state space.
+        :param tree_height: The tree height distribution.
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
         :param reward: The reward to multiply the SFS reward with.
-        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
-            when calculating the moments of the distribution.
-        :param precision: Precision for convergence when determining the moments of the distribution.
         """
         super().__init__(
             state_space=state_space,
+            tree_height=tree_height,
             demography=demography,
             reward=reward,
-            max_epochs=max_epochs,
-            precision=precision
         )
 
         #: Whether to show a progress bar
@@ -866,8 +901,6 @@ class SFSDistribution(PhaseTypeDistribution):
     def moment(self, k: int, i: int = None) -> SFS | float:
         """
         Get the nth moment.
-
-        TODO remove parallelization and do in one go by vectorizing the moment function
 
         :param k: The order of the moment
         :param i: The ith SFS count. Return full SFS if not specified.
@@ -883,10 +916,9 @@ class SFSDistribution(PhaseTypeDistribution):
             """
             d = PhaseTypeDistribution(
                 reward=CombinedReward([self.reward, SFSReward(i)]),
+                tree_height=self.tree_height,
                 state_space=self.state_space,
-                demography=self.demography,
-                max_epochs=self.max_epochs,
-                precision=self.precision
+                demography=self.demography
             )
 
             return d.moment(
@@ -949,9 +981,8 @@ class SFSDistribution(PhaseTypeDistribution):
         """
         d = PhaseTypeDistribution(
             state_space=self.state_space,
-            demography=self.demography,
-            max_epochs=self.max_epochs,
-            precision=self.precision
+            tree_height=self.tree_height,
+            demography=self.demography
         )
 
         return d.moment(
@@ -1459,9 +1490,7 @@ class Coalescent(AbstractCoalescent):
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             pbar: bool = True,
-            parallelize: bool = True,
-            max_epochs: int = 100,
-            precision: float = 1e-8
+            parallelize: bool = True
     ):
         """
         Create object.
@@ -1475,9 +1504,6 @@ class Coalescent(AbstractCoalescent):
         :param recombination_rate: Recombination rate.
         :param pbar: Whether to show a progress bar
         :param parallelize: Whether to parallelize computations
-        :param max_epochs: Maximum number of iterations when iterating to convergence in the last epoch
-            when calculating the moments of the distribution.
-        :param precision: Precision for convergence when determining the moments of the distribution.
         """
         super().__init__(
             n=n,
@@ -1501,12 +1527,6 @@ class Coalescent(AbstractCoalescent):
 
         #: Whether to parallelize computations
         self.parallelize: bool = parallelize
-
-        #: Maximum number of iterations when iterating to convergence in the last epoch
-        self.max_epochs: int = max_epochs
-
-        #: Precision for convergence when determining the moments of the distribution.
-        self.precision: float = precision
 
     @cached_property
     def default_state_space(self) -> DefaultStateSpace:
@@ -1539,9 +1559,7 @@ class Coalescent(AbstractCoalescent):
         """
         return TreeHeightDistribution(
             state_space=self.default_state_space,
-            demography=self.demography,
-            max_epochs=self.max_epochs,
-            precision=self.precision
+            demography=self.demography
         )
 
     @cached_property
@@ -1551,10 +1569,9 @@ class Coalescent(AbstractCoalescent):
         """
         return PhaseTypeDistribution(
             reward=TotalBranchLengthReward(),
+            tree_height=self.tree_height,
             state_space=self.default_state_space,
-            demography=self.demography,
-            max_epochs=self.max_epochs,
-            precision=self.precision
+            demography=self.demography
         )
 
     @cached_property
@@ -1564,9 +1581,8 @@ class Coalescent(AbstractCoalescent):
         """
         return SFSDistribution(
             state_space=self.block_counting_state_space,
+            tree_height=self.tree_height,
             demography=self.demography,
-            max_epochs=self.max_epochs,
-            precision=self.precision
         )
 
 

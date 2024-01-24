@@ -52,7 +52,7 @@ class DistributionTestCase(TestCase):
         with self.assertRaises(ValueError) as context:
             self.get_test_coalescent().tree_height.quantile(-0.1)
 
-        self.assertEqual(str(context.exception), 'Quantile must be between 0 and 1.')
+        self.assertEqual(str(context.exception), 'Specified quantile must be between 0 and 1.')
 
     def test_quantile_raises_error_above_1(self):
         """
@@ -61,7 +61,7 @@ class DistributionTestCase(TestCase):
         with self.assertRaises(ValueError) as context:
             self.get_test_coalescent().tree_height.quantile(1.1)
 
-        self.assertEqual(str(context.exception), 'Quantile must be between 0 and 1.')
+        self.assertEqual(str(context.exception), 'Specified quantile must be between 0 and 1.')
 
     def test_quantile(self):
         """

@@ -35,9 +35,6 @@ class Comparison(Serializable):
             record_migration: bool = False,
             n_threads: int = 100,
             parallelize: bool = True,
-            max_epochs: int = 100,
-            max_epoch_size: int = 1000,
-            precision: float = 1e-8,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
             alpha: float = 1.5,
@@ -65,11 +62,6 @@ class Comparison(Serializable):
         :param record_migration: Whether to record migrations.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
-        :param max_epochs: Maximum number of epochs.
-        :param max_epoch_size: Maximum size of the discretized epoch. This can have repercussions on convergence as we 
-            keep iterating over epochs until the contribution of the current epoch to the moment in question is below
-            the specified precision.
-        :param precision: Precision of the phase-type coalescent.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
         :param model: Coalescent model to use.
@@ -91,9 +83,6 @@ class Comparison(Serializable):
         self.record_migration = record_migration
         self.n_threads = n_threads
         self.parallelize = parallelize
-        self.max_epochs = max_epochs
-        self.max_epoch_size = max_epoch_size
-        self.precision = precision
         self.alpha = alpha
         self.psi = psi
         self.c = c
@@ -120,12 +109,9 @@ class Comparison(Serializable):
         """
         Get the demography.
         """
-        return Demography(
-            events=[
-                DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
-            ],
-            max_size=self.max_epoch_size
-        )
+        return Demography(events=[
+            DiscreteRateChanges(pop_sizes=self.pop_sizes, migration_rates=self.migration_rates)
+        ])
 
     def get_locus_config(self) -> LocusConfig:
         """
@@ -168,9 +154,7 @@ class Comparison(Serializable):
             demography=self.get_demography(),
             loci=self.get_locus_config(),
             parallelize=self.parallelize,
-            model=self.model,
-            max_epochs=self.max_epochs,
-            precision=self.precision
+            model=self.model
         )
 
     @cached_property
