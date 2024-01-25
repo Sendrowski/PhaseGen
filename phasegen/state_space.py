@@ -248,7 +248,7 @@ class StateSpace(ABC):
 
         rate = transition.get_rate()
 
-        if kind == 'linked_coalescence':
+        if not kind == 'invalid':
             pass
 
         return transition
@@ -486,8 +486,6 @@ class DefaultStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        TODO clean up and expanded `linked` by loci, demes and blocks (nest)
-          to make compatible with BlockCountingStateSpace
 
         :param states: States.
         """
@@ -495,27 +493,31 @@ class DefaultStateSpace(StateSpace):
             # add extra dimension for locus configuration
             states = states[:, np.newaxis]
 
-            # all lineages are linked
+            # no lineages are linked
             self.linked = np.zeros_like(states, dtype=int)
 
             return states
 
         if self.locus_config.n == 2:
-            # create array with same shape and fill first element with number of linked lineages
-            linked = np.zeros((self.pop_config.n + 1,) + states.shape[-2:], dtype=int)
-            linked[:, 0, 0] = np.arange(self.pop_config.n + 1)[::-1]
+
+            n_pops = self.pop_config.n_pops
+            linked_locus = np.array(list(itertools.product(range(self.pop_config.n + 1), repeat=n_pops)))
+            linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.pop_config.n]
+            linked = np.array(list(itertools.product(linked_locus, linked_locus)))
+            linked = linked[..., np.newaxis]
 
             # take product of number of linked lineages and states
-            states = np.array(list(itertools.product(linked, states, states)))
+            states_new = np.array(list(itertools.product(linked, itertools.product(states, states))))
 
-            n_lineages = states.sum(axis=(2, 3)).T
+            # remove states where `linked` is larger than marginal states
+            states_new = states_new[(states_new[:, 0] <= states_new[:, 1]).all(axis=(1, 2, 3))]
 
-            # remove states where `linked` is larger than the total number of lineages
-            states = states[(n_lineages[0] <= n_lineages[1]) & (n_lineages[0] <= n_lineages[2])]
+            # remove states where number of linked lineages is not the same for both loci
+            states_new = states_new[(states_new[:, 0, 0].sum(axis=(1, 2)) == states_new[:, 0, 1].sum(axis=(1, 2)))]
 
-            self.linked = states[:, [0, 0], :, :]
+            self.linked = states_new[:, 0, :, :]
 
-            return states[:, 1:, :, :]
+            return states_new[:, 1, :, :]
 
         raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 

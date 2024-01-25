@@ -1,5 +1,6 @@
 import logging
 from functools import cached_property
+from typing import cast
 
 import numpy as np
 
@@ -215,6 +216,13 @@ class Transition:
         return int(np.where(self.is_diff_demes_marginal)[0][0])
 
     @cached_property
+    def deme_locus_coal(self) -> int:
+        """
+        Index of deme where coalescence event occurs.
+        """
+        return int(np.where(self.is_diff_demes_linked)[0][0])
+
+    @cached_property
     def locus_coal_unlinked(self) -> int:
         """
         Index of locus where coalescence event occurs.
@@ -284,6 +292,27 @@ class Transition:
         return marginal - linked
 
     @cached_property
+    def deme_migration_source(self) -> int:
+        """
+        Get the source deme of the migration event.
+        """
+        return int(np.where((self.diff_lineages_locus == 1).sum(axis=1) == 1)[0][0])
+
+    @cached_property
+    def deme_migration_dest(self) -> int:
+        """
+        Get the destination deme of the migration event.
+        """
+        return int(np.where((self.diff_lineages_locus == -1).sum(axis=1) == 1)[0][0])
+
+    @cached_property
+    def block_migration(self) -> int:
+        """
+        Get the block where the migration event occurs.
+        """
+        return int(np.where(self.diff_lineages_locus == 1)[1][0])
+
+    @cached_property
     def lineages_locus1(self) -> np.ndarray:
         """
         Lineages in locus where migration event occurs in state 1.
@@ -324,11 +353,11 @@ class Transition:
         """
         Whether the transition is eligible for a recombination or locus coalescence event.
         """
-        # if there are any affected lineages, it can't be a recombination event
+        # there have to be affected lineages
         if self.has_diff_marginal:
             return False
 
-        # if there are not exactly `n_loci` different lineages, it can't be a recombination event
+        # there have to be exactly `n_loci` affected lineages
         if not np.all((self.diff_linked == 0).sum() == self.linked1.size - self.n_loci):
             return False
 
@@ -337,7 +366,7 @@ class Transition:
         if not np.all(demes == demes[0]):
             return False
 
-        # no recombination from or to absorbing state
+        # not possible from or to absorbing state
         if self.is_absorbing:
             return False
 
@@ -395,7 +424,16 @@ class Transition:
         """
         Whether the coalescence event is eligible for unlinked coalescence.
         """
-        return self.n_diff_loci_deme_coal == 1 and not self.has_diff_linked
+        if self.n_diff_loci_deme_coal != 1:
+            return False
+
+        if self.has_diff_linked:
+            return False
+
+        if self.unlinked1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
+            return False
+
+        return True
 
     @cached_property
     def is_eligible_mixed_coalescence(self) -> bool:
@@ -408,13 +446,19 @@ class Transition:
         # if not self.has_diff_linked:
         #    return False
 
-        if self.n_blocks == 1 and not self.has_diff_linked:
+        if self.n_blocks == 1:
+            if self.has_diff_linked:
+                return False
+
+            if self.marginal1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
+                return False
+
             return True
 
-        if np.sum(np.any(self.diff_linked != 0, axis=(1, 2))) == 1:
-            return True
+        if np.sum(np.any(self.diff_linked != 0, axis=(1, 2))) != 1:
+            return False
 
-        return False
+        return True
 
     @cached_property
     def is_eligible(self) -> bool:
@@ -526,7 +570,7 @@ class Transition:
                 self.is_eligible_coalescence and
                 self.is_eligible_unlinked_coalescence and
                 self.is_lineage_reduction and
-                #self.is_binary_lineage_reduction_unlinked_coalescence and
+                # self.is_binary_lineage_reduction_unlinked_coalescence and
                 self.is_valid_lineage_reduction_unlinked_coalescence
         )
 
@@ -560,7 +604,6 @@ class Transition:
     def is_eligible_migration(self) -> bool:
         """
         Whether the transition is eligible for a migration event.
-        TODO do we also need to move linked lineages?
         """
         # two demes must be affected
         return self.n_demes_marginal == 2
@@ -571,6 +614,29 @@ class Transition:
         Whether the migration event is only affecting one locus.
         """
         return self.n_diff_loci == 1
+
+    @cached_property
+    def is_valid_linked_migration(self) -> bool:
+        """
+        Whether the migration event is a valid linked migration event.
+        """
+        # number of affected demes must be 2 for linked lineages
+        if np.any(self.diff_linked != 0, axis=(0, 2)).sum() != self.n_loci:
+            return False
+
+        # difference in linked lineages and marginal lineages must be the same
+        if not np.all(self.diff_marginal == self.diff_linked):
+            return False
+
+        # difference across marginal lineages must be some for all loci
+        if not np.all(self.diff_marginal == self.diff_marginal[0]):
+            return False
+
+        # difference across linked lineages must be some for all loci
+        if not np.all(self.diff_linked == self.diff_linked[0]):
+            return False
+
+        return True
 
     @cached_property
     def is_one_migration_event(self) -> bool:
@@ -585,22 +651,43 @@ class Transition:
         )
 
     @cached_property
-    def has_enough_lineages_migration(self) -> bool:
+    def has_sufficient_linked_lineages_migration(self) -> bool:
         """
-        Whether there are enough lineages to perform a migration event.
+        Whether there are sufficient linked lineages to allow for a migration event.
         """
-        return self.lineages_locus1.sum() > 1
+        return cast(bool, self.linked1[0, self.deme_migration_source, self.block_migration] > 0)
 
     @cached_property
-    def is_migration(self) -> bool:
+    def has_sufficient_unlinked_lineages_migration(self) -> bool:
+        """
+        Whether there are sufficient unlinked lineages to allow for a migration event.
+        """
+        return cast(bool, self.unlinked1[0, self.deme_migration_source, self.block_migration] > 0)
+
+    @cached_property
+    def is_unlinked_migration(self) -> bool:
         """
         Whether the transition is a migration event.
         """
         return (
+                not self.has_diff_linked and
                 self.is_eligible_migration and
                 self.is_valid_migration_one_locus_only and
                 self.is_one_migration_event and
-                self.has_enough_lineages_migration
+                self.has_sufficient_unlinked_lineages_migration
+        )
+
+    @cached_property
+    def is_linked_migration(self) -> bool:
+        """
+        Whether the migration event is a linked migration event, i.e. a linked lineage migrates.
+        """
+        return (
+                self.is_eligible_migration and
+                self.is_one_migration_event and
+                self.has_sufficient_linked_lineages_migration and
+                self.has_diff_linked and
+                self.is_valid_linked_migration
         )
 
     @cached_property
@@ -616,7 +703,8 @@ class Transition:
             'linked_coalescence',
             'unlinked_coalescence',
             'mixed_coalescence',
-            'migration'
+            'linked_migration',
+            'unlinked_migration'
         ]
 
         for t in opts:
@@ -641,27 +729,33 @@ class Transition:
     def get_rate_locus_coalescence(self) -> float:
         """
         Get the rate of a locus coalescence event.
-        TODO scale by population size in deme
         """
         # return 0 if locus coalescence is not allowed
         if not self.state_space.locus_config.allow_coalescence:
             return 0
 
+        # get unlined lineage counts
         unlinked1 = self.unlinked1[self.diff_linked == -1]
 
-        return unlinked1.prod()
+        # get population size of deme where coalescence event occurs
+        pop_size = self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[self.deme_locus_coal]]
 
-    def get_pop_size_deme_coalescence(self) -> float:
+        # scale population size
+        pop_size_scaled = self.state_space.model._get_timescale(pop_size)
+
+        return unlinked1.prod() / pop_size_scaled
+
+    def get_pop_size_coalescence(self) -> float:
         """
         Get the population size of the deme where the coalescence event occurs.
         """
         return self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[self.deme_coal]]
 
-    def get_scaled_pop_size_deme_coalescence(self) -> float:
+    def get_scaled_pop_size_coalescence(self) -> float:
         """
         Get the scaled population size of the deme where the coalescence event occurs.
         """
-        return self.state_space.model._get_timescale(self.get_pop_size_deme_coalescence())
+        return self.state_space.model._get_timescale(self.get_pop_size_coalescence())
 
     def get_rate_linked_coalescence(self) -> float:
         """
@@ -677,7 +771,7 @@ class Transition:
             n=self.state_space.pop_config.n,
             s1=self.linked1[0, self.deme_coal],
             s2=self.linked2[0, self.deme_coal]
-        ) / self.get_scaled_pop_size_deme_coalescence()
+        ) / self.get_scaled_pop_size_coalescence()
 
         # if (
         #        np.all(self.linked1[:, self.deme_coal] == self.linked1[0, self.deme_coal]) and
@@ -693,7 +787,7 @@ class Transition:
         #        s2=self.linked2[i, self.deme_coal]
         #    )
 
-        # return rates.min() / self.get_scaled_pop_size_deme_coalescence()
+        # return rates.min() / self.get_scaled_pop_size_coalescence()
 
     def get_rate_unlinked_coalescence(self) -> float:
         """
@@ -708,7 +802,7 @@ class Transition:
             s2=unlinked2
         )
 
-        return rate / self.get_scaled_pop_size_deme_coalescence()
+        return rate / self.get_scaled_pop_size_coalescence()
 
     def get_rate_mixed_coalescence(self) -> float:
         """
@@ -726,22 +820,37 @@ class Transition:
         else:
             raise ValueError('Invalid number of blocks.')
 
-        return np.sum(rates_cross) / self.get_scaled_pop_size_deme_coalescence()
+        return np.sum(rates_cross) / self.get_scaled_pop_size_coalescence()
 
-    def get_rate_migration(self) -> float:
+    def get_rate_unlinked_migration(self) -> float:
         """
         Get the rate of a migration event.
         """
-        # get the indices of the source and destination demes
-        i_source = np.where((self.diff_lineages_locus == 1).sum(axis=1) == 1)[0][0]
-        i_dest = np.where((self.diff_lineages_locus == -1).sum(axis=1) == 1)[0][0]
-
         # get the deme names
-        source = self.state_space.epoch.pop_names[i_source]
-        dest = self.state_space.epoch.pop_names[i_dest]
+        source = self.state_space.epoch.pop_names[self.deme_migration_source]
+        dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
 
         # get the number of lineages in deme i before migration
-        n_lineages_source = self.lineages_locus1[i_source][np.where(self.diff_lineages_locus == 1)[1][0]]
+        n_lineages_source = self.unlinked1[0, self.deme_migration_source, self.block_migration]
+
+        # get migration rate from source to destination
+        migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
+
+        # scale migration rate by number of lineages in source deme
+        rate = migration_rate * n_lineages_source
+
+        return rate
+
+    def get_rate_linked_migration(self) -> float:
+        """
+        Get the rate of a migration event.
+        """
+        # get the deme names
+        source = self.state_space.epoch.pop_names[self.deme_migration_source]
+        dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
+
+        # get the number of lineages in deme i before migration
+        n_lineages_source = self.linked1[0, self.deme_migration_source, self.block_migration]
 
         # get migration rate from source to destination
         migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
@@ -769,10 +878,13 @@ class Transition:
         if self.is_linked_coalescence:
             return self.get_rate_linked_coalescence()
 
-        if self.is_migration:
-            return self.get_rate_migration()
+        if self.is_linked_migration:
+            return self.get_rate_linked_migration()
 
-        # From here on we may have both linked and unlinked lineages coalescing,
+        if self.is_unlinked_migration:
+            return self.get_rate_unlinked_migration()
+
+        # From here on we may have both unlinked and mixed coalescence simultaneously,
         # if using the default state space.
         rate = 0
 

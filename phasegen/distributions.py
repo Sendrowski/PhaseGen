@@ -1696,8 +1696,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 demography=demography,
                 model=model,
                 ploidy=1,
-                end_time=end_time,
-                # record_full_arg=self.locus_config.n > 1
+                end_time=end_time
             )
 
             # initialize variables

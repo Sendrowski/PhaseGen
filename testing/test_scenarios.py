@@ -8,7 +8,15 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+]
+
+configs_suspended = [
+    '3_epoch_2_loci_n_4_r_1',
     '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_2_loci_2_pops_n_4_r_1',
+    '1_epoch_2_loci_2_pops_n_2_r_1',
+    '1_epoch_2_loci_n_4_r_1_larger_N',
+    '1_epoch_2_loci_n_2_r_1_larger_N',
     '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '2_epoch_varying_migration_low_coalescence',
     '1_epoch_beta_n_6_alpha_1_7',
@@ -49,9 +57,6 @@ configs = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
-]
-
-configs_suspended = [
     '1_epoch_dirac_n_2_psi_0_5_c_1',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_50',  # TODO shorter SFS bins than msprime
     '1_epoch_dirac_n_6_psi_0_5_c_1',  # TODO shorter SFS bins than msprime

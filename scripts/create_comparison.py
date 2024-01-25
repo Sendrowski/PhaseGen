@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_n_2_test_size"
+    name = "1_epoch_2_loci_2_pops_n_2_r_1"
     file = f"resources/configs/{name}.yaml"
     parallelize = False
     out = f"scratch/{name}.json"
