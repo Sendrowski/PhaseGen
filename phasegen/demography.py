@@ -577,7 +577,6 @@ class Demography:
             population.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
-        :param max_size: Maximum size of the discretized epoch.
 
         """
         #: The logger instance

@@ -8,6 +8,7 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_2_loci_n_2_r_1',
 ]
 
 configs_suspended = [

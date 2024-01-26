@@ -651,10 +651,10 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     max_epochs: int = 10000
 
     #: Maximum number of iterations when determining time to almost sure absorption in the last epoch.
-    max_iter: int = 50
+    max_iter: int = 30
 
     #: Probability of almost sure absorption.
-    p_absorption: float = 1
+    p_absorption: float = 1 - 1e-15
 
     def __init__(
             self,
@@ -801,6 +801,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def _t_max(self) -> float:
         """
         Get a time estimate for when we have reached absorption almost surely.
+
+        TODO simplify or get back to doing moments
         """
         # initialize transition matrix
         T_curr = np.eye(self.state_space.k)
@@ -808,8 +810,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # take reward vector as exit vector
         e = self.reward.get(self.state_space)
 
-        # initialize t_max
-        t_max = 0
+        # initialize t
+        t = 0
 
         # current probability of absorption
         p = 0
@@ -819,9 +821,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             self.state_space.update_epoch(epoch)
 
             if i > self.max_epochs:
-                self._logger.warning("Could not reliably find time of almost sure absorption."
-                                     f"Using time {t_max} with probability of absorption {p}.")
-                return t_max
+                self._logger.warning("Could not reliably find time of almost sure absorption. "
+                                     f"Using time {t} with probability of absorption {p}.")
+                return t
 
             if epoch.tau < np.inf:
                 tau = epoch.tau
@@ -833,9 +835,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 p = 1 - self.state_space.alpha @ T_curr @ e
 
                 if p >= self.p_absorption:
-                    return t_max + tau
+                    return t + tau
 
-                t_max += tau
+                t += tau
             else:
                 break
 
@@ -847,17 +849,26 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             T_curr = expm(self.state_space.S * tau) @ T_curr
 
             # calculate probability of absorption
-            p = 1 - self.state_space.alpha @ T_curr @ e
+            p_next = 1 - self.state_space.alpha @ T_curr @ e
+
+            # break if p_next is not increasing anymore
+            if p_next < p:
+                self._logger.warning("Could not reliably find time of almost sure absorption. "
+                                     f"Using time {t + tau / 2} with probability of absorption {p}.")
+
+                return t + tau / 2
+
+            p = p_next
 
             if p >= self.p_absorption:
-                return t_max + tau
+                return t + tau
 
             tau *= 2
 
-        self._logger.warning("Could not reliably find time of almost sure absorption."
-                             f"Using time {t_max + tau} with probability of absorption {p}.")
+        self._logger.warning("Could not reliably find time of almost sure absorption. "
+                             f"Using time {t + tau} with probability of absorption {p}.")
 
-        return t_max + tau
+        return t + tau
 
 
 class SFSDistribution(PhaseTypeDistribution):

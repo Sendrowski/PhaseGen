@@ -102,13 +102,6 @@ class StateSpace(ABC):
         pass
 
     @cached_property
-    def s(self) -> np.ndarray:
-        """
-        Get exit rate vector.
-        """
-        return -self.S[:-1, :-1] @ self.e[:-1]
-
-    @cached_property
     def e(self) -> np.ndarray:
         """
         Vector with ones of size ``n``.

@@ -66,7 +66,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height._t_max
 
-        self.assertEqual(t, 129)
+        self.assertEqual(t, 65)
 
     def test_t_max_exponential_growth(self):
         """
@@ -84,7 +84,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height._t_max
 
-        self.assertEqual(t, 3.7)
+        self.assertEqual(t, 3.6)
 
     def test_complex_coalescent(self):
         """
