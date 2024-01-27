@@ -164,7 +164,7 @@ class Transition:
         """
         Whether there are any marginal differences.
         """
-        return bool(self.is_diff_demes_marginal.any())
+        return cast(bool, self.is_diff_demes_marginal.any())
 
     @cached_property
     def is_diff_demes_linked(self) -> np.ndarray:
@@ -185,14 +185,14 @@ class Transition:
         """
         Whether there are any affected linked lineages.
         """
-        return bool(self.is_diff_demes_linked.any())
+        return cast(bool, self.is_diff_demes_linked.any())
 
     @cached_property
     def has_diff_unlinked(self) -> bool:
         """
         Whether there are any affected unlinked lineages.
         """
-        return bool(self.is_diff_demes_unlinked.any())
+        return cast(bool, self.is_diff_demes_unlinked.any())
 
     @cached_property
     def is_diff_loci(self) -> np.ndarray:
@@ -213,21 +213,28 @@ class Transition:
         """
         Index of deme where coalescence event occurs.
         """
-        return int(np.where(self.is_diff_demes_marginal)[0][0])
+        return cast(int, np.where(self.is_diff_demes_marginal)[0][0])
 
     @cached_property
     def deme_locus_coal(self) -> int:
         """
         Index of deme where coalescence event occurs.
         """
-        return int(np.where(self.is_diff_demes_linked)[0][0])
+        return cast(int, np.where(self.is_diff_demes_linked)[0][0])
 
     @cached_property
     def locus_coal_unlinked(self) -> int:
         """
         Index of locus where coalescence event occurs.
         """
-        return int(np.where(self.is_diff_loci)[0][0])
+        return cast(int, np.where(self.is_diff_loci)[0][0])
+
+    @cached_property
+    def locus_unlinked_migration(self) -> int:
+        """
+        Index of locus where migration event occurs.
+        """
+        return np.where(self.diff_marginal.any(axis=(1, 2)))[0][0]
 
     @cached_property
     def deme_unlinked_coal_marginal1(self) -> np.ndarray:
@@ -344,7 +351,6 @@ class Transition:
     def is_absorbing(self) -> bool:
         """
         Whether one of the states is absorbing.
-        TODO necessary/possible is context of recombination despite need to get max(mrca) for tree height distribution?
         """
         return self.is_absorbing1 or self.is_absorbing2
 
@@ -450,7 +456,12 @@ class Transition:
             if self.has_diff_linked:
                 return False
 
+            # we need at least two marginal lineages
             if self.marginal1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
+                return False
+
+            # we need at least one linked lineage
+            if self.linked1[self.locus_coal_unlinked, self.deme_coal].sum() < 1:
                 return False
 
             return True
@@ -474,7 +485,7 @@ class Transition:
         In case of a linked coalescence event, whether the reduction in the number of linked lineages is equal
         to the reduction of marginal lineages.
         """
-        return np.all(self.diff_linked[:, self.deme_coal] == self.diff_marginal[:, self.deme_coal])
+        return np.all(self.diff_linked == self.diff_marginal)
 
     @cached_property
     def has_sufficient_linked_lineages_linked_coalescence(self) -> bool:
@@ -655,14 +666,26 @@ class Transition:
         """
         Whether there are sufficient linked lineages to allow for a migration event.
         """
-        return cast(bool, self.linked1[0, self.deme_migration_source, self.block_migration] > 0)
+        lineages = self.linked1[
+            self.locus_unlinked_migration,
+            self.deme_migration_source,
+            self.block_migration
+        ]
+
+        return cast(bool, lineages > 0)
 
     @cached_property
     def has_sufficient_unlinked_lineages_migration(self) -> bool:
         """
         Whether there are sufficient unlinked lineages to allow for a migration event.
         """
-        return cast(bool, self.unlinked1[0, self.deme_migration_source, self.block_migration] > 0)
+        lineages = self.unlinked1[
+            self.locus_unlinked_migration,
+            self.deme_migration_source,
+            self.block_migration
+        ]
+
+        return cast(bool, lineages > 0)
 
     @cached_property
     def is_unlinked_migration(self) -> bool:
@@ -717,10 +740,9 @@ class Transition:
         """
         Get the rate of a recombination event.
         Here we assume the number of linked lineages is the same across loci which should be the case.
-        TODO number of linked lineages need not be the same across loci for lineage blocks
         """
-        # linked1 = self.linked1[self.diff_linked == 1]
-        linked1 = self.linked1.sum(axis=(1, 2))
+        # number of linked lineages need not be the same across loci for different lineage blocks
+        linked1 = self.linked1[self.diff_linked == 1]
 
         rate = linked1[0] * self.state_space.locus_config.recombination_rate
 
@@ -831,7 +853,11 @@ class Transition:
         dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
 
         # get the number of lineages in deme i before migration
-        n_lineages_source = self.unlinked1[0, self.deme_migration_source, self.block_migration]
+        n_lineages_source = self.unlinked1[
+            self.locus_unlinked_migration,
+            self.deme_migration_source,
+            self.block_migration
+        ]
 
         # get migration rate from source to destination
         migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
@@ -850,7 +876,7 @@ class Transition:
         dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
 
         # get the number of lineages in deme i before migration
-        n_lineages_source = self.linked1[0, self.deme_migration_source, self.block_migration]
+        n_lineages_source = self.linked1[:, self.deme_migration_source, self.block_migration].min()
 
         # get migration rate from source to destination
         migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
@@ -895,3 +921,23 @@ class Transition:
             rate += self.get_rate_mixed_coalescence()
 
         return rate
+
+    def _get_color(self) -> str:
+        """
+        Get the color of the transition.
+
+        :return: The color of the transition.
+        """
+        colors = {
+            'recombination': 'orange',
+            'locus_coalescence': 'darkgreen',
+            'linked_coalescence': 'darkgreen',
+            'unlinked_coalescence': 'darkgreen',
+            'mixed_coalescence': 'darkgreen',
+            'unlinked_coalescence+mixed_coalescence': 'darkgreen',
+            'linked_migration': 'blue',
+            'unlinked_migration': 'blue',
+            'invalid': 'red'
+        }
+
+        return colors[self.type]

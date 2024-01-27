@@ -4,7 +4,6 @@ pop_sizes:
   pop_0:
     0: 1
     1: 0.001
-precision: 1.0e-8
 model: standard
 comparisons:
   tolerance:

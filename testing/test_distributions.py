@@ -299,3 +299,53 @@ class DistributionTestCase(TestCase):
             cumulants,
             cumulants_expected
         )
+
+    def test_n_4_2_loci_wrong_pop_config_raises_error(self):
+        """
+        How to solve errors when passing additional populations? Be more rigorous?
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 2},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_2', 'pop_0'): {0: 1},
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=2,
+                pop_1=2
+            )),
+            loci=pg.LocusConfig(n=2, recombination_rate=1)
+        )
+
+        _ = coal.tree_height.mean
+
+    def test_n_4_2_loci_default_state_space(self):
+        """
+        Test n=4, 2 loci, default state space.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 2},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1},
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=2,
+                pop_1=2
+            )),
+            loci=pg.LocusConfig(n=2, recombination_rate=1)
+        )
+
+        _ = coal.default_state_space.S
+
+        pass

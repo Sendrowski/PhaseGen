@@ -46,17 +46,22 @@ def benchmark(callback: Callable) -> float:
 
 c = Comparison.from_yaml(file)
 
-default = benchmark(lambda: c.ph.default_state_space.S)
+time_default = benchmark(lambda: c.ph.default_state_space.S)
+k_default = c.ph.default_state_space.k
 
 try:
-    block_counting = benchmark(lambda: c.ph.block_counting_state_space.S)
+    time_block_counting = benchmark(lambda: c.ph.block_counting_state_space.S)
+    k_block_counting = c.ph.block_counting_state_space.k
 except NotImplementedError:
-    block_counting = None
+    time_block_counting = None
+    k_block_counting = None
 
 df = pd.DataFrame({
     'scenario': [file.split('/')[-1].split('.')[0]],
-    'default': [default],
-    'block_counting': [block_counting]
+    'time.default': [time_default],
+    'time.block_counting': [time_block_counting],
+    'k.default': [k_default],
+    'k.block_counting': [k_block_counting],
 })
 
 df.to_csv(out, index=False)

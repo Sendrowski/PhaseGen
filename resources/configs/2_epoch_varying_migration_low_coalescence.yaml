@@ -2,8 +2,6 @@ n:
   pop_0: 0
   pop_1: 3
 num_replicates: 1000000
-max_epoch_size: 100
-precision: 1.0e-12
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 0

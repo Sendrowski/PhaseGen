@@ -9,12 +9,10 @@ from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable,
 import numpy as np
 import tskit
 from matplotlib import pyplot as plt
-from multiprocess import Pool
 from numpy.polynomial.hermite_e import HermiteE
 from scipy import special
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
-from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, Epoch, PopSizeChanges
@@ -24,57 +22,10 @@ from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSRewar
     CombinedReward
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
+from .utils import expm, parallelize
 from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
-
-
-def expm(m: np.ndarray) -> np.ndarray:
-    """
-    Compute the matrix exponential using TensorFlow. This is because scipy.linalg.expm sometimes produces
-    erroneous results for large matrices (see https://github.com/scipy/scipy/issues/18086).
-
-    TODO remove this function once the issue is resolved in scipy.
-
-    :param m: Matrix
-    :return: Matrix exponential
-    """
-    import tensorflow as tf
-
-    return tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy()
-
-
-def _parallelize(
-        func: Callable,
-        data: List | np.ndarray,
-        parallelize: bool = True,
-        pbar: bool = True,
-        batch_size: int = None,
-        desc: str = None,
-) -> np.ndarray:
-    """
-    Parallelize given function or execute sequentially.
-
-    :param func: Function to parallelize
-    :param data: Data to parallelize over
-    :param parallelize: Whether to parallelize
-    :param pbar: Whether to show a progress bar
-    :param batch_size: Number of units to show in the pbar per function
-    :param desc: Description for tqdm progress bar
-    :return: Array of results
-    """
-
-    if parallelize and len(data) > 1:
-        # parallelize
-        iterator = Pool().imap(func, data)
-    else:
-        # sequentialize
-        iterator = map(func, data)
-
-    if pbar:
-        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc)
-
-    return np.array(list(iterator), dtype=object)
 
 
 class ProbabilityDistribution(ABC):
@@ -139,7 +90,48 @@ class MarginalDistributions(Mapping, ABC):
     """
     Base class for marginal distributions.
     """
-    pass
+
+    @abstractmethod
+    @cached_property
+    def cov(self) -> np.ndarray:
+        """
+        Get the covariance matrix.
+
+        :return: covariance matrix
+        """
+        pass
+
+    @abstractmethod
+    @cached_property
+    def corr(self) -> np.ndarray:
+        """
+        Get the correlation matrix.
+
+        :return: correlation matrix
+        """
+        pass
+
+    @abstractmethod
+    def get_cov(self, d1, d2) -> float:
+        """
+        Get the covariance between two marginal distributions.
+
+        :param d1: The index of the first marginal distribution.
+        :param d2: The index of the second marginal distribution.
+        :return: covariance
+        """
+        pass
+
+    @abstractmethod
+    def get_corr(self, d1, d2) -> float:
+        """
+        Get the correlation coefficient between two marginal distributions.
+
+        :param d1: The index of the first marginal distribution.
+        :param d2: The index of the second marginal distribution.
+        :return: correlation coefficient
+        """
+        pass
 
 
 class MarginalLocusDistributions(MarginalDistributions):
@@ -203,7 +195,7 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         return loci
 
-    def _get_cov_loci(self, locus1: int, locus2: int) -> float:
+    def get_cov(self, locus1: int, locus2: int) -> float:
         """
         Get the covariance between two loci.
 
@@ -221,7 +213,7 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         return m2 - self.loci[locus1].mean * self.loci[locus2].mean
 
-    def _get_corr_loci(self, locus1: int, locus2: int) -> float:
+    def get_corr(self, locus1: int, locus2: int) -> float:
         """
         Get the correlation coefficient between two loci.
 
@@ -229,7 +221,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         :param locus2: The second locus.
         :return: The correlation coefficient.
         """
-        return self._get_cov_loci(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
+        return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -240,7 +232,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         n_loci = self.dist.locus_config.n
 
-        return np.array([[self._get_cov_loci(i, j) for i in range(n_loci)] for j in range(n_loci)])
+        return np.array([[self.get_cov(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -251,7 +243,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         n_loci = self.dist.locus_config.n
 
-        return np.array([[self._get_corr_loci(i, j) for i in range(n_loci)] for j in range(n_loci)])
+        return np.array([[self.get_corr(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
 
 class MarginalDemeDistributions(MarginalDistributions):
@@ -315,7 +307,7 @@ class MarginalDemeDistributions(MarginalDistributions):
 
         return demes
 
-    def _get_cov_demes(self, pop1: str, pop2: str) -> float:
+    def get_cov(self, pop1: str, pop2: str) -> float:
         """
         Get the covariance between two demes.
 
@@ -333,7 +325,7 @@ class MarginalDemeDistributions(MarginalDistributions):
 
         return m2 - self.demes[pop1].mean * self.demes[pop2].mean
 
-    def _get_corr_demes(self, pop1: str, pop2: str) -> float:
+    def get_corr(self, pop1: str, pop2: str) -> float:
         """
         Get the correlation coefficient between two demes.
 
@@ -341,7 +333,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         :param pop2: The second deme.
         :return: The correlation coefficient.
         """
-        return self._get_cov_demes(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
+        return self.get_cov(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -352,7 +344,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         """
         pops = self.dist.pop_config.pop_names
 
-        return np.array([[self._get_cov_demes(p1, p2) for p1 in pops] for p2 in pops])
+        return np.array([[self.get_cov(p1, p2) for p1 in pops] for p2 in pops])
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -363,7 +355,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         """
         pops = self.dist.pop_config.pop_names
 
-        return np.array([[self._get_corr_demes(p1, p2) for p1 in pops] for p2 in pops])
+        return np.array([[self.get_corr(p1, p2) for p1 in pops] for p2 in pops])
 
 
 class DensityAwareDistribution(MomentAwareDistribution, ABC):
@@ -603,6 +595,9 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # use default reward if not specified
         if rewards is None:
             rewards = [self.reward] * k
+        else:
+            if len(rewards) != k:
+                raise ValueError(f"Number of rewards must be {k}.")
 
         # get reward matrix
         R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
@@ -750,6 +745,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         Find the specified quantile of a CDF using an adaptive bisection method.
 
+        TODO this can be optimized
+
         :param q: The desired quantile (between 0 and 1).
         :param expansion_factor: Factor by which to expand the upper bound that does not yet contain the quantile.
         :param tol: The tolerance for convergence.
@@ -801,8 +798,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def _t_max(self) -> float:
         """
         Get a time estimate for when we have reached absorption almost surely.
+        We base this computation on the transition matrix rather than the moments, because here
+        we have a good idea about how likely absorption, and can warn the user if necessary.
+        Stopping the simulation when no more rewards are accumulated is not a good idea, as this
+        can happen before almost sure absorption (exponential runaway growth, temporary deadlock in different demes).
 
-        TODO simplify or get back to doing moments
+        TODO clean up
         """
         # initialize transition matrix
         T_curr = np.eye(self.state_space.k)
@@ -941,7 +942,7 @@ class SFSDistribution(PhaseTypeDistribution):
             return get_count(i)
 
         # calculate moments in parallel
-        moments = _parallelize(
+        moments = parallelize(
             func=get_count,
             data=np.arange(self.pop_config.n - 1),
             desc=f"Calculating moments of order {k}",
@@ -960,7 +961,7 @@ class SFSDistribution(PhaseTypeDistribution):
         indices = [(i, j) for i in range(self.pop_config.n - 1) for j in range(self.pop_config.n - 1)]
 
         # get sfs using parallelized function
-        sfs_results = _parallelize(
+        sfs_results = parallelize(
             func=lambda args: self.get_cov(*args),
             data=indices,
             desc="Calculating covariance",
@@ -1792,7 +1793,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T])
 
         # parallelize and add up results
-        res = np.hstack(_parallelize(
+        res = np.hstack(parallelize(
             func=simulate_batch,
             data=[None] * self.n_threads,
             parallelize=self.parallelize,
@@ -1848,6 +1849,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         t = self._get_cached_times()
 
         self.tree_height.touch(t)
+        self.total_tree_height.touch(t)
         self.total_branch_length.touch(t)
         self.sfs.touch(t)
 
@@ -1860,6 +1862,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.sfs_counts = None
 
         self.tree_height.drop()
+        self.total_tree_height.drop()
         self.total_branch_length.drop()
         self.sfs.drop()
 
@@ -1878,6 +1881,15 @@ class MsprimeCoalescent(AbstractCoalescent):
             pops=self.demography.pop_names,
             locus_agg=lambda x: x.max(axis=0)
         )
+
+    @cached_property
+    def total_tree_height(self) -> EmpiricalPhaseTypeDistribution:
+        """
+        Total tree height distribution.
+        """
+        self.simulate()
+
+        return EmpiricalPhaseTypeDistribution(self.heights, pops=self.demography.pop_names)
 
     @cached_property
     def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:
@@ -2121,7 +2133,7 @@ class _EdgeworthExpansion:
         """
         Compute cumulants from moments.
 
-        TODO use mnc2cum implementation which provides more accurate results
+        The mnc2cum implementation which provides more accurate results
 
         :param moments: The moments, raw or central
         :return: The cumulants

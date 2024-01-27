@@ -442,7 +442,7 @@ class TransitionTestCase(TestCase):
     def test_linked_coalescence_two_loci_n_4_different_rate_across_loci(self):
         """
         Test linked coalescence for unequal lineage blocks when the coalescence rate is different across loci.
-        TODO what to do when rates are different across loci? Select the minimum?
+        What to do when rates are different across loci? Select the minimum?
         """
         s = pg.BlockCountingStateSpace(
             pop_config=pg.LineageConfig(n=3),
@@ -612,21 +612,26 @@ class TransitionTestCase(TestCase):
 
         self.assertTrue(t.is_coalescence)
 
-    def test_linked_migration_complete_linkage_one_source_lineage_two_demes_default_state_space(self):
+    def get_default_state_space_2_demes_2_loci(self):
         """
-        Test linked migration for two demes, default state space, complete linkage, one source lineage.
+        Get default state space for two demes, two loci.
         """
-        s = pg.DefaultStateSpace(
+        return pg.DefaultStateSpace(
             pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 1},
                 migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
             )
         )
 
+    def test_linked_migration_complete_linkage_one_source_lineage_two_demes_default_state_space(self):
+        """
+        Test linked migration for two demes, default state space, complete linkage, one source lineage.
+        """
+
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[1], [1]], [[1], [1]]]),
             marginal2=np.array([[[0], [2]], [[0], [2]]]),
             linked1=np.array([[[1], [1]], [[1], [1]]]),
@@ -642,17 +647,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, complete linkage, two source lineages.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[1], [1]], [[1], [1]]]),
             linked1=np.array([[[2], [0]], [[2], [0]]]),
@@ -668,17 +664,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, partial linkage.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[1], [1]], [[1], [1]]]),
             linked1=np.array([[[1], [0]], [[1], [0]]]),
@@ -694,17 +681,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, no linkage, locus 1.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[1], [1]], [[2], [0]]]),
             linked1=np.array([[[0], [0]], [[0], [0]]]),
@@ -720,17 +698,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, no linkage, locus 2.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[2], [0]], [[1], [1]]]),
             linked1=np.array([[[0], [0]], [[0], [0]]]),
@@ -742,21 +711,29 @@ class TransitionTestCase(TestCase):
 
         self.assertEqual(t.get_rate_unlinked_migration(), 2)
 
+    def test_unlinked_migration_from_one_lineage_each_two_demes_default_state_space(self):
+        """
+        Test linked migration for two demes, default state space, no linkage, locus 2.
+        """
+        t = Transition(
+            state_space=self.get_default_state_space_2_demes_2_loci(),
+            marginal1=np.array([[[2], [0]], [[1], [1]]]),
+            marginal2=np.array([[[2], [0]], [[0], [2]]]),
+            linked1=np.array([[[0], [0]], [[0], [0]]]),
+            linked2=np.array([[[0], [0]], [[0], [0]]])
+        )
+
+        self.assertTrue(t.is_unlinked_migration)
+        self.assertFalse(t.is_linked_migration)
+
+        self.assertEqual(t.get_rate_unlinked_migration(), 1)
+
     def test_unlinked_migration_locus_1_partial_linkage_two_demes_default_state_space(self):
         """
         Test linked migration for two demes, default state space, partial linkage, locus 1.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[1], [1]], [[2], [0]]]),
             linked1=np.array([[[1], [0]], [[1], [0]]]),
@@ -772,17 +749,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, partial linkage, locus 2.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[2], [0]], [[1], [1]]]),
             linked1=np.array([[[1], [0]], [[1], [0]]]),
@@ -798,17 +766,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, not enough lineages.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[2], [0]], [[2], [0]]]),
             marginal2=np.array([[[2], [0]], [[1], [1]]]),
             linked1=np.array([[[2], [0]], [[2], [0]]]),
@@ -821,17 +780,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, invalid.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[1], [1]], [[1], [1]]]),
             marginal2=np.array([[[0], [2]], [[1], [0]]]),
             linked1=np.array([[[1], [1]], [[1], [1]]]),
@@ -845,17 +795,8 @@ class TransitionTestCase(TestCase):
         """
         Test linked migration for two demes, default state space, invalid coalescence.
         """
-        s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
-            locus_config=pg.LocusConfig(n=2),
-            epoch=pg.Epoch(
-                pop_sizes={'pop_0': 1, 'pop_1': 1},
-                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
-            )
-        )
-
         t = Transition(
-            state_space=s,
+            state_space=self.get_default_state_space_2_demes_2_loci(),
             marginal1=np.array([[[1], [1]], [[1], [1]]]),
             marginal2=np.array([[[1], [1]], [[0], [1]]]),
             linked1=np.array([[[0], [1]], [[0], [1]]]),
@@ -864,3 +805,100 @@ class TransitionTestCase(TestCase):
 
         self.assertFalse(t.is_unlinked_coalescence)
         self.assertFalse(t.is_mixed_coalescence)
+
+    def test_linked_migration_unequal_number_of_linked_lineages_two_demes_default_state_space(self):
+        """
+        Test linked migration for two demes, default state space, unequal number of linked lineages.
+        """
+        t = Transition(
+            state_space=self.get_default_state_space_2_demes_2_loci(),
+            marginal1=np.array([[[0], [2]], [[1], [1]]]),
+            marginal2=np.array([[[1], [1]], [[2], [0]]]),
+            linked1=np.array([[[0], [2]], [[1], [1]]]),
+            linked2=np.array([[[1], [1]], [[2], [0]]])
+        )
+
+        self.assertTrue(t.is_linked_migration)
+
+        self.assertEqual(t.get_rate_linked_migration(), 1)
+
+    def test_recombination_only_one_eligible_lineage_in_deme_two_demes_default_state_space(self):
+        """
+        Test recombination for two demes, default state space, only one eligible lineage in deme.
+        """
+        t = Transition(
+            state_space=self.get_default_state_space_2_demes_2_loci(),
+            marginal1=np.array([[[1], [1]], [[1], [1]]]),
+            marginal2=np.array([[[1], [1]], [[1], [1]]]),
+            linked1=np.array([[[1], [1]], [[1], [1]]]),
+            linked2=np.array([[[0], [1]], [[0], [1]]])
+        )
+
+        self.assertTrue(t.is_recombination)
+
+        self.assertEqual(t.get_rate(), 1.11)
+
+    def test_locus_coalescence_two_possible_lineages_per_deme_n_2_default_state_space(self):
+        """
+        Test locus coalescence for two possible lineages per deme, n = 2, default state space.
+        """
+
+        t = Transition(
+            state_space=self.get_default_state_space_2_demes_2_loci(),
+            marginal1=np.array([[[2], [0]], [[2], [0]]]),
+            marginal2=np.array([[[2], [0]], [[2], [0]]]),
+            linked1=np.array([[[0], [0]], [[0], [0]]]),
+            linked2=np.array([[[1], [0]], [[1], [0]]])
+        )
+
+        self.assertTrue(t.is_locus_coalescence)
+
+        self.assertEqual(t.get_rate(), 4)
+
+    def test_unlinked_back_migration_default_state_space_2_loci_n_2(self):
+        """
+        Test unlinked back migration for default state space, n = 2.
+        """
+        t = Transition(
+            state_space=self.get_default_state_space_2_demes_2_loci(),
+            marginal1=np.array([[[2], [0]], [[1], [1]]]),
+            marginal2=np.array([[[2], [0]], [[2], [0]]]),
+            linked1=np.array([[[0], [0]], [[0], [0]]]),
+            linked2=np.array([[[0], [0]], [[0], [0]]])
+        )
+
+        self.assertTrue(t.is_unlinked_migration)
+
+        self.assertEqual(t.get_rate(), 1)
+
+    def test_invalid_unlinked_coalescence_bug_default_state_space_2_loci_n_3(self):
+        """
+        Test invalid unlinked coalescence for default state space, n = 2.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 1},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1}
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=2,
+                pop_1=1
+            )),
+            loci=pg.LocusConfig(n=2, recombination_rate=0, n_unlinked=0, allow_coalescence=False)
+        )
+
+        t = Transition(
+            state_space=coal.default_state_space,
+            marginal1=np.array([[[2], [1]], [[2], [1]]]),
+            marginal2=np.array([[[1], [1]], [[1], [1]]]),
+            linked1=np.array([[[2], [1]], [[2], [1]]]),
+            linked2=np.array([[[1], [0]], [[1], [0]]])
+        )
+
+        self.assertFalse(t.is_linked_coalescence)

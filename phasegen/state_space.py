@@ -11,7 +11,8 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .transition import Transition
+from .transition import Transition, State
+from .utils import expm
 
 logger = logging.getLogger('phasegen')
 
@@ -124,7 +125,13 @@ class StateSpace(ABC):
         pops = self.pop_config.get_initial_states(self)
         loci = self.locus_config.get_initial_states(self)
 
-        return pops * loci
+        # combine initial states
+        alpha = pops * loci
+
+        # return normalized vector
+        # normalization ensures that the initial state vector is a probability distribution
+        # as we may have multiple initial states
+        return alpha / alpha.sum()
 
     def update_epoch(self, epoch: Epoch):
         """
@@ -189,6 +196,23 @@ class StateSpace(ABC):
 
         return S
 
+    def _get_sparseness(self) -> float:
+        """
+        Get the sparseness of the rate matrix.
+
+        :return: The sparseness.
+        """
+        return 1 - np.count_nonzero(self.S) / self.S.size
+
+    @cached_property
+    def T(self) -> np.ndarray:
+        """
+        The transition matrix.
+
+        :return: The transition matrix.
+        """
+        return expm(self.S)
+
     @abstractmethod
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
@@ -241,168 +265,63 @@ class StateSpace(ABC):
 
         rate = transition.get_rate()
 
-        if not kind == 'invalid':
+        if rate != 0:
             pass
 
         return transition
 
-    def _matrix_indices_to_rates_old(self, i: int, j: int) -> float:
+    def _display_state(self, i: int) -> str:
         """
-        Get the rate from the state indexed by i to the state indexed by j.
-        TODO remove
+        Display the state indexed by `i`.
 
-        :param i: Index of outgoing state.
-        :param j: Index of incoming state.
-        :return: The rate from the state indexed by i to the state indexed by j.
+        :param i: The state index.
+        :return: Textual representation of the state.
         """
-        if i == j:
-            return 0
+        return str(self.states[i]).replace('\n', '') + '\n' + str(self.linked[i]).replace('\n', '')
 
-        # get the states
-        s1 = self.states[i]
-        s2 = self.states[j]
+    def _get_color_state(self, i: int) -> str:
+        """
+        Get color of the state indexed by `i`.
+        """
+        if State.is_absorbing(self.states[i]):
+            return '#f1807e'
 
-        # get the difference between the states
-        diff = s1 - s2
+        if self.alpha[i] > 0:
+            return 'lightgreen'
 
-        # linked lineages
-        linked1 = self.linked[i]
-        linked2 = self.linked[j]
+        return 'lightblue'
 
-        # difference in linked lineages
-        diff_linked = linked1 - linked2
+    def _plot_rates(self):
+        """
+        Plot the rate matrix using graphviz.
+        """
+        import graphviz
 
-        # mask for affected demes
-        has_diff_demes = np.any((diff != 0) | (diff_linked != 0), axis=(0, 2))
+        graph = graphviz.Digraph()
 
-        # number of affected demes
-        n_demes = has_diff_demes.sum()
+        # add nodes
+        for i in range(len(self.states)):
+            graph.node(
+                name=self._display_state(i),
+                fillcolor=self._get_color_state(i),
+                style='filled'
+            )
 
-        # possible recombination event
-        if n_demes == 0:
+        # add non-zero edges
+        for i, j in zip(*self._non_zero_states):
 
-            # no recombination or back recombination from or to absorbing state
-            # TODO necessary/possible despite need to get max(mrca) for tree height distribution?
-            if np.all(s1.sum(axis=(1, 2)) == 1) or np.all(s2.sum(axis=(1, 2)) == 1):
-                return 0
+            t = self.get_transition(i=i, j=j)
 
-            # recombination onto different loci
-            if linked1 - linked2 == 1:
-                rate = self.linked[i] * self.locus_config.recombination_rate
-                return rate
-
-            # back recombination onto same locus
-            if linked1 - linked2 == -1:
-                rate = (s1[0].sum() - linked1) * (s1[1].sum() - linked1)
-                return rate
-
-            return 0
-
-        # possible coalescence event
-        if n_demes == 1:
-
-            # get the index of the affected deme
-            deme = np.where(has_diff_demes)[0][0]
-
-            deme_s1 = s1[:, deme]
-            deme_s2 = s2[:, deme]
-
-            diff_deme = deme_s1 - deme_s2
-
-            # number of loci that are affected within deme
-            has_diff_loci = np.any(diff_deme != 0, axis=1)
-
-            n_diff_loci = has_diff_loci.sum()
-
-            is_linked = n_diff_loci > 1
-
-            # linked coalescence event
-            if is_linked:
-                # if coalescence event is linked across loci but the reduction in
-                # the number of linked lineages is not equal to the reduction in
-                # the number of coalesced lineages for each locus, then the rate
-                # is zero.
-                if np.any(linked1 - linked2 != diff_deme.sum(axis=1)):
-                    return 0
-
-                # Alternatively, if the number of linked lineages is
-                # less than the number of linked coalesced lineages, then the
-                # rate is also zero.
-                if diff_deme[0].sum() + 1 > linked1:
-                    return 0
-
-                base_rate = self._get_coalescent_rate(
-                    n=self.pop_config.n,
-                    s1=np.array([linked1]),
-                    s2=np.array([linked2])
+            if not t.is_absorbing1:
+                graph.edge(
+                    self._display_state(i),
+                    self._display_state(j),
+                    label=f'{t.type}: {t.get_rate():.2g}',
+                    color=t._get_color(),
+                    fontcolor=t._get_color()
                 )
 
-            # unlinked coalescence event
-            else:
-
-                n_unlinked1 = deme_s1[has_diff_loci] - linked1[has_diff_loci, deme]
-                n_unlinked2 = deme_s2[has_diff_loci] - linked2[has_diff_loci, deme]
-
-                # number of reduced unlinked lineages has to equal numbers of coalesced
-                # lineages if coalescence event is not linked across loci
-                if n_unlinked1 - n_unlinked2 != diff_deme[has_diff_loci].sum():
-                    return 0
-
-                if n_unlinked1 - n_unlinked2 == 1:
-                    base_rate = self._get_coalescent_rate(
-                        n=self.pop_config.n,
-                        s1=np.array([n_unlinked1]),
-                        s2=np.array([n_unlinked2])
-                    ) + linked1 * n_unlinked1
-                else:
-                    return 0
-
-            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme]]
-
-            return base_rate / self.model._get_timescale(pop_size)
-
-        # eligible for migration event
-        # TODO if loci are linked, we allow lineage movement in several locus contexts simultaneously
-        if n_demes == 2:
-
-            # number of locus contexts that are affected
-            has_diff_loci = np.any(diff != 0, axis=(1, 2))
-
-            # migration only possible if one locus context is affected
-            if has_diff_loci.sum() == 1:
-                s1_locus = s1[has_diff_loci][0]
-                s2_locus = s2[has_diff_loci][0]
-
-                diff_locus = s1_locus - s2_locus
-
-                # check if one migration event
-                if (diff_locus == 1).sum(axis=1).sum() == 1 and (diff_locus == -1).sum(axis=1).sum() == 1:
-
-                    # make sure that the other demes are not changing
-                    if (diff_locus != 0).sum(axis=1).sum() == 2:
-
-                        # make sure that the number of lineages is greater than 1
-                        if s1_locus.sum() > 1:
-                            # get the indices of the source and destination demes
-                            i_source = np.where((diff_locus == 1).sum(axis=1) == 1)[0][0]
-                            i_dest = np.where((diff_locus == -1).sum(axis=1) == 1)[0][0]
-
-                            # get the deme names
-                            source = self.epoch.pop_names[i_source]
-                            dest = self.epoch.pop_names[i_dest]
-
-                            # get the number of lineages in deme i before migration
-                            n_lineages_source = s1_locus[i_source][np.where(diff_locus == 1)[1][0]]
-
-                            # get migration rate from source to destination
-                            migration_rate = self.epoch.migration_rates[(source, dest)]
-
-                            # scale migration rate by number of lineages in source deme
-                            rate = migration_rate * n_lineages_source
-
-                            return rate
-
-        return 0
+        graph.render('rate matrix', view=True)
 
     @staticmethod
     def _find_vectors(n: int, k: int) -> List[List[int]]:
@@ -492,11 +411,14 @@ class DefaultStateSpace(StateSpace):
             return states
 
         if self.locus_config.n == 2:
-
             n_pops = self.pop_config.n_pops
             linked_locus = np.array(list(itertools.product(range(self.pop_config.n + 1), repeat=n_pops)))
             linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.pop_config.n]
-            linked = np.array(list(itertools.product(linked_locus, linked_locus)))
+
+            # expand loci, each deme needs to have the same number of linked lineages
+            linked = np.repeat(linked_locus[:, np.newaxis], 2, axis=1)
+
+            # add extra dimension for lineage blocks
             linked = linked[..., np.newaxis]
 
             # take product of number of linked lineages and states
@@ -504,9 +426,6 @@ class DefaultStateSpace(StateSpace):
 
             # remove states where `linked` is larger than marginal states
             states_new = states_new[(states_new[:, 0] <= states_new[:, 1]).all(axis=(1, 2, 3))]
-
-            # remove states where number of linked lineages is not the same for both loci
-            states_new = states_new[(states_new[:, 0, 0].sum(axis=(1, 2)) == states_new[:, 0, 1].sum(axis=(1, 2)))]
 
             self.linked = states_new[:, 0, :, :]
 
@@ -561,66 +480,6 @@ class BlockCountingStateSpace(StateSpace):
             raise NotImplementedError('BlockCountingStateSpace only supports one locus.')
 
         super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
-
-    def _matrix_indices_to_rates_single_locus(self, i: int, j: int) -> float:
-        """
-        Get the rate from the state indexed by i to the state indexed by j.
-        TODO remove
-
-        :param i: Index i.
-        :param j: Index j.
-        :return: The rate from the state indexed by i to the state indexed by j.
-        """
-        # get the states
-        s1 = self.states[i].sum(axis=0)
-        s2 = self.states[j].sum(axis=0)
-
-        # get the difference between the states
-        diff = s1 - s2
-
-        # get the number of different demes
-        n_diff = (diff != 0).any(axis=1).sum()
-
-        # eligible for coalescence event
-        if n_diff == 1:
-            deme_index = np.where(diff != 0)[0][0]
-
-            rate = self._get_coalescent_rate(n=self.pop_config.n, s1=s1[deme_index], s2=s2[deme_index])
-
-            pop_size = self.epoch.pop_sizes[self.epoch.pop_names[deme_index]]
-
-            return rate / self.model._get_timescale(pop_size)
-
-        # eligible for migration event
-        if n_diff == 2:
-
-            # check if one migration event
-            if (diff == 1).sum(axis=1).sum() == 1 and (diff == -1).sum(axis=1).sum() == 1:
-
-                # make sure that the other demes are not changing
-                if (diff != 0).sum(axis=1).sum() == 2:
-
-                    # make sure that the number of lineages is greater than 1
-                    if s1.sum() > 1:
-                        # get the indices of the source and destination demes
-                        i_source = np.where((diff == 1).sum(axis=1) == 1)[0][0]
-                        i_dest = np.where((diff == -1).sum(axis=1) == 1)[0][0]
-
-                        # get the deme names
-                        source = self.epoch.pop_names[i_source]
-                        dest = self.epoch.pop_names[i_dest]
-
-                        # get the number of lineages in deme i before migration
-                        n_lineages_source = s1[i_source][np.where(diff == 1)[1][0]]
-
-                        # scale migration rate by population size
-                        migration_rate = self.epoch.migration_rates[(source, dest)]
-
-                        rate = migration_rate * n_lineages_source
-
-                        return rate
-
-        return 0
 
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """

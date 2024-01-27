@@ -190,23 +190,6 @@ class Comparison(Serializable):
         # only consider finite values
         return diff[np.isfinite(diff)]
 
-    @staticmethod
-    def rel_diff_old(a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
-        """
-        Compute the maximum relative difference between two arrays like done previously.
-
-        :param a: The first array.
-        :param b: The second array.
-        :return: The mean relative difference.
-        """
-        a, b = np.array(a), np.array(b)
-
-        # compute relative difference
-        diff = np.abs(a - b) / ((a + b) / 2)
-
-        # only consider finite values
-        return diff[np.isfinite(diff)]
-
     def compare_stat(
             self,
             ph: PhaseTypeDistribution,
@@ -254,9 +237,6 @@ class Comparison(Serializable):
             ms_stat = np.array(list(ms_stat))
             ph_stat = np.array(list(ph_stat))
             diff = self.rel_diff(ms_stat, ph_stat).max()
-
-            # TODO remove later
-            diff_old = self.rel_diff_old(ms_stat, ph_stat).max()
 
             if visualize:
                 if ph_stat.ndim == 1:
@@ -388,7 +368,7 @@ class Comparison(Serializable):
                     do_assertion=do_assertion
                 )
 
-    def compare(self, title: str = None, do_assertion: bool = True, visualize: bool = True):
+    def compare(self, title: str = '', do_assertion: bool = True, visualize: bool = True):
         """
         Compare the distributions of the given statistics.
 

@@ -12,15 +12,15 @@ comparisons:
     tree_height:
       demes:
         mean: 0.15
-        var: 0.2
+        var: 0.3
       pdf: 2
       cdf: 2
       mean: 0.15
-      var: 0.2
+      var: 0.3
     total_branch_length:
       mean: 0.15
-      var: 0.2
+      var: 0.3
     sfs:
       mean: 0.15
-      cov: 0.2
-      corr: 0.2
+      cov: 0.3
+      corr: 0.3

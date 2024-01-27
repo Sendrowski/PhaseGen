@@ -62,7 +62,7 @@ rule benchmark_state_space_creation:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/benchmark_state_space_creation.py"
+        "scripts/benchmark_scenario.py"
 
 rule merge_benchmarks:
     input:

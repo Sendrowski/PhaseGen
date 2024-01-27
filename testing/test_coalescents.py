@@ -333,3 +333,183 @@ class CoalescentTestCase(TestCase):
             )
 
             _ = coal.sfs
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_2_2_loci_default_state_space_unlinked(self):
+        """
+        Test n=2, 2 loci, default state space.
+        """
+        means = []
+        m2 = []
+
+        for n_unlinked in range(3):
+            coal = pg.Coalescent(
+                demography=pg.Demography(
+                    pop_sizes=dict(
+                        pop_0={0: 1},
+                        pop_1={0: 1}
+                    ),
+                    migration_rates={
+                        ('pop_0', 'pop_1'): {0: 1},
+                        ('pop_1', 'pop_0'): {0: 1},
+                    }
+                ),
+                n=pg.LineageConfig(dict(
+                    pop_0=1,
+                    pop_1=1
+                )),
+                loci=pg.LocusConfig(n=2, recombination_rate=0, n_unlinked=n_unlinked, allow_coalescence=False)
+            )
+
+            means += [coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))]
+            m2 += [coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)]
+
+        pass
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_2_2_loci_default_state_space_completely_unlinked(self):
+        """
+        Test n=2, 2 loci, default state space.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 1},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1},
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=1,
+                pop_1=1
+            )),
+            loci=pg.LocusConfig(n=2, recombination_rate=0, n_unlinked=2, allow_coalescence=False)
+        )
+
+        m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
+        m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
+
+        coal.default_state_space._plot_rates()
+
+        pass
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_2_1_locus_default_state_space(self):
+        """
+        Test n=2, 1 locus, default state space.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 1},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1},
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=1,
+                pop_1=1
+            ))
+        )
+
+        m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
+
+        coal.default_state_space._plot_rates()
+
+        pass
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_3_2_loci_default_state_space_unlinked(self):
+        """
+        Test n=3, 2 loci, default state space.
+        """
+        means = []
+        m2 = []
+
+        for n_unlinked in range(4):
+            coal = pg.Coalescent(
+                demography=pg.Demography(
+                    pop_sizes=dict(
+                        pop_0={0: 1},
+                        pop_1={0: 1}
+                    ),
+                    migration_rates={
+                        ('pop_0', 'pop_1'): {0: 1},
+                        ('pop_1', 'pop_0'): {0: 1}
+                    }
+                ),
+                n=pg.LineageConfig(dict(
+                    pop_0=2,
+                    pop_1=1
+                )),
+                loci=pg.LocusConfig(n=2, recombination_rate=0, n_unlinked=n_unlinked, allow_coalescence=False)
+            )
+
+            means += [coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))]
+            m2 += [coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)]
+
+        pass
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_3_2_loci_default_state_space_completely_linked(self):
+        """
+        Test n=3, 2 loci, default state space.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 1},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1}
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=2,
+                pop_1=1
+            )),
+            loci=pg.LocusConfig(n=2, recombination_rate=0, n_unlinked=0, allow_coalescence=False)
+        )
+
+        m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
+        m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
+
+        coal.default_state_space._plot_rates()
+
+        pass
+
+    @pytest.mark.skip(reason="not needed")
+    def test_n_3_1_locus_default_state_space(self):
+        """
+        Test n=3, 1 locus, default state space.
+        """
+        coal = pg.Coalescent(
+            demography=pg.Demography(
+                pop_sizes=dict(
+                    pop_0={0: 1},
+                    pop_1={0: 1}
+                ),
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1},
+                }
+            ),
+            n=pg.LineageConfig(dict(
+                pop_0=2,
+                pop_1=1
+            ))
+        )
+
+        m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
+
+        coal.default_state_space._plot_rates()
+
+        pass
