@@ -4,31 +4,9 @@ from typing import cast
 
 import numpy as np
 
+from .state import State
+
 logger = logging.getLogger('phasegen')
-
-
-class State:
-    """
-    Class representing a state.
-    """
-    #: Axis for loci.
-    LOCUS = 0
-
-    #: Axis for demes.
-    DEME = 1
-
-    #: Axis for lineage blocks.
-    BLOCK = 2
-
-    @staticmethod
-    def is_absorbing(state: np.ndarray) -> bool:
-        """
-        Whether a state is absorbing.
-
-        :param state: State array.
-        :return: Whether the state is absorbing.
-        """
-        return np.all(np.sum(state * np.arange(1, state.shape[2] + 1)[::-1], axis=(1, 2)) == 1)
 
 
 class Transition:
@@ -104,20 +82,6 @@ class Transition:
         return self.unlinked1 - self.unlinked2
 
     @cached_property
-    def diff_deme_coal_marginal(self) -> np.ndarray:
-        """
-        Difference in marginal number of lineages in deme where coalescence event occurs.
-        """
-        return self.deme_coal_marginal1 - self.deme_coal_marginal2
-
-    @cached_property
-    def diff_lineages_locus(self) -> np.ndarray:
-        """
-        Difference in lineages in locus where migration event occurs.
-        """
-        return self.lineages_locus1 - self.lineages_locus2
-
-    @cached_property
     def n_loci(self) -> int:
         """
         Number of loci.
@@ -130,13 +94,6 @@ class Transition:
         Number of lineage blocks.
         """
         return self.marginal1.shape[2]
-
-    @cached_property
-    def n_diff_loci(self) -> int:
-        """
-        Number of affected loci with respect to marginal lineages.
-        """
-        return self.is_diff_loci.sum()
 
     @cached_property
     def n_demes_marginal(self) -> int:
@@ -160,39 +117,11 @@ class Transition:
         return np.any(self.diff_marginal != 0, axis=(0, 2))
 
     @cached_property
-    def has_diff_marginal(self) -> bool:
-        """
-        Whether there are any marginal differences.
-        """
-        return cast(bool, self.is_diff_demes_marginal.any())
-
-    @cached_property
     def is_diff_demes_linked(self) -> np.ndarray:
         """
         Mask for demes with affected linked lineages.
         """
         return np.any(self.diff_linked != 0, axis=(0, 2))
-
-    @cached_property
-    def is_diff_demes_unlinked(self) -> np.ndarray:
-        """
-        Mask for demes with affected unlinked lineages.
-        """
-        return np.any(self.diff_unlinked != 0, axis=(0, 2))
-
-    @cached_property
-    def has_diff_linked(self) -> bool:
-        """
-        Whether there are any affected linked lineages.
-        """
-        return cast(bool, self.is_diff_demes_linked.any())
-
-    @cached_property
-    def has_diff_unlinked(self) -> bool:
-        """
-        Whether there are any affected unlinked lineages.
-        """
-        return cast(bool, self.is_diff_demes_unlinked.any())
 
     @cached_property
     def is_diff_loci(self) -> np.ndarray:
@@ -206,7 +135,14 @@ class Transition:
         """
         Mask for affected loci with respect to deme where coalescence event occurs.
         """
-        return np.any(self.diff_deme_coal_marginal != 0, axis=1)
+        return np.any(self.diff_marginal[:, self.deme_coal] != 0, axis=1)
+
+    @cached_property
+    def has_diff_demes_linked(self) -> bool:
+        """
+        Whether there are any affected linked lineages.
+        """
+        return cast(bool, self.is_diff_demes_linked.any())
 
     @cached_property
     def deme_coal(self) -> int:
@@ -216,143 +152,46 @@ class Transition:
         return cast(int, np.where(self.is_diff_demes_marginal)[0][0])
 
     @cached_property
-    def deme_locus_coal(self) -> int:
-        """
-        Index of deme where coalescence event occurs.
-        """
-        return cast(int, np.where(self.is_diff_demes_linked)[0][0])
-
-    @cached_property
     def locus_coal_unlinked(self) -> int:
         """
-        Index of locus where coalescence event occurs.
+        Index of locus where unlinked coalescence event occurs.
         """
         return cast(int, np.where(self.is_diff_loci)[0][0])
 
     @cached_property
-    def locus_unlinked_migration(self) -> int:
+    def locus_migration(self) -> int:
         """
-        Index of locus where migration event occurs.
+        Index of first locus where a migration event occurs.
         """
         return np.where(self.diff_marginal.any(axis=(1, 2)))[0][0]
-
-    @cached_property
-    def deme_unlinked_coal_marginal1(self) -> np.ndarray:
-        """
-        Marginal block config in deme and locus where coalescence event occurs in state 1.
-        """
-        return self.marginal1[self.locus_coal_unlinked, self.deme_coal]
-
-    @cached_property
-    def deme_unlinked_coal_marginal2(self) -> np.ndarray:
-        """
-        Marginal block config in deme and locus where coalescence event occurs in state 2.
-        """
-        return self.marginal2[self.locus_coal_unlinked, self.deme_coal]
-
-    @cached_property
-    def deme_coal_marginal1(self) -> np.ndarray:
-        """
-        Marginal block config in deme where coalescence event occurs in state 1.
-        """
-        return self.marginal1[:, self.deme_coal]
-
-    @cached_property
-    def deme_coal_marginal2(self) -> np.ndarray:
-        """
-        Marginal block config in deme where coalescence event occurs in state 2.
-        """
-        return self.marginal2[:, self.deme_coal]
-
-    @cached_property
-    def deme_coal_linked1(self) -> np.ndarray:
-        """
-        linked lineages in deme and locus where coalescence event occurs in state 1.
-        """
-        return self.linked1[self.is_diff_loci_deme_coal][0][self.deme_coal]
-
-    @cached_property
-    def deme_coal_linked2(self) -> np.ndarray:
-        """
-        linked lineages in deme and locus where coalescence event occurs in state 2.
-        """
-        return self.linked2[self.is_diff_loci_deme_coal][0][self.deme_coal]
-
-    @cached_property
-    def deme_coal_unlinked1(self) -> np.ndarray:
-        """
-        Unlinked lineages in deme and locus where coalescence event occurs in state 1.
-        """
-        marginal = self.deme_coal_marginal1[self.is_diff_loci_deme_coal][0]
-        linked = self.linked1[self.is_diff_loci_deme_coal][0][self.deme_coal]
-
-        return marginal - linked
-
-    @cached_property
-    def deme_coal_unlinked2(self) -> np.ndarray:
-        """
-        Unlinked lineages in deme where coalescence event occurs in state 2.
-        """
-        marginal = self.deme_coal_marginal2[self.is_diff_loci_deme_coal][0]
-        linked = self.linked2[self.is_diff_loci_deme_coal][0][self.deme_coal]
-
-        return marginal - linked
 
     @cached_property
     def deme_migration_source(self) -> int:
         """
         Get the source deme of the migration event.
         """
-        return int(np.where((self.diff_lineages_locus == 1).sum(axis=1) == 1)[0][0])
+        return int(np.where((self.diff_marginal[self.locus_migration] == 1).sum(axis=1) == 1)[0][0])
 
     @cached_property
     def deme_migration_dest(self) -> int:
         """
         Get the destination deme of the migration event.
         """
-        return int(np.where((self.diff_lineages_locus == -1).sum(axis=1) == 1)[0][0])
+        return int(np.where((self.diff_marginal[self.locus_migration] == -1).sum(axis=1) == 1)[0][0])
 
     @cached_property
     def block_migration(self) -> int:
         """
-        Get the block where the migration event occurs.
+        Get the indix of the lineage block where the migration event occurs.
         """
-        return int(np.where(self.diff_lineages_locus == 1)[1][0])
-
-    @cached_property
-    def lineages_locus1(self) -> np.ndarray:
-        """
-        Lineages in locus where migration event occurs in state 1.
-        """
-        return self.marginal1[self.is_diff_loci][0]
-
-    @cached_property
-    def lineages_locus2(self) -> np.ndarray:
-        """
-        Lineages in locus where migration event occurs in state 2.
-        """
-        return self.marginal2[self.is_diff_loci][0]
-
-    @cached_property
-    def is_absorbing1(self) -> bool:
-        """
-        Whether state 1 is absorbing.
-        """
-        return State.is_absorbing(self.marginal1)
-
-    @cached_property
-    def is_absorbing2(self) -> bool:
-        """
-        Whether state 2 is absorbing.
-        """
-        return State.is_absorbing(self.marginal2)
+        return int(np.where(self.diff_marginal[self.locus_migration] == 1)[1][0])
 
     @cached_property
     def is_absorbing(self) -> bool:
         """
-        Whether one of the states is absorbing.
+        Whether either the outgoing or incoming state is absorbing.
         """
-        return self.is_absorbing1 or self.is_absorbing2
+        return State.is_absorbing(self.marginal1) or State.is_absorbing(self.marginal2)
 
     @cached_property
     def is_eligible_recombination_or_locus_coalescence(self) -> bool:
@@ -360,7 +199,7 @@ class Transition:
         Whether the transition is eligible for a recombination or locus coalescence event.
         """
         # there have to be affected lineages
-        if self.has_diff_marginal:
+        if self.is_diff_demes_marginal.any():
             return False
 
         # there have to be exactly `n_loci` affected lineages
@@ -433,7 +272,7 @@ class Transition:
         if self.n_diff_loci_deme_coal != 1:
             return False
 
-        if self.has_diff_linked:
+        if self.has_diff_demes_linked:
             return False
 
         if self.unlinked1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
@@ -453,7 +292,7 @@ class Transition:
         #    return False
 
         if self.n_blocks == 1:
-            if self.has_diff_linked:
+            if self.has_diff_demes_linked:
                 return False
 
             # we need at least two marginal lineages
@@ -494,7 +333,7 @@ class Transition:
         equal to the number of linked coalesced lineages.
         """
         linked = self.linked1[:, self.deme_coal].sum(axis=1)
-        coalesced = self.diff_deme_coal_marginal.sum(axis=1) + 1
+        coalesced = self.diff_marginal[:, self.deme_coal].sum(axis=1) + 1
 
         return np.all(linked >= coalesced)
 
@@ -523,7 +362,7 @@ class Transition:
         """
         Whether the unlinked coalescence event is a binary merger.
         """
-        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
+        reduction = self.diff_unlinked[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
         return reduction.sum() == 1
 
@@ -532,7 +371,7 @@ class Transition:
         """
         Whether the mixed coalescence event is a binary merger.
         """
-        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
+        reduction = self.diff_unlinked[self.is_diff_loci_deme_coal][0][self.deme_coal]
 
         return reduction.sum() == 1
 
@@ -542,10 +381,10 @@ class Transition:
         In an unlinked coalescence event, whether the reduction in the number of unlinked lineages is equal
         to the reduction in the number of coalesced lineages.
         """
-        reduction = self.deme_coal_unlinked1 - self.deme_coal_unlinked2
-        diff = self.diff_deme_coal_marginal[self.locus_coal_unlinked]
+        unlinked = self.diff_unlinked[self.is_diff_loci_deme_coal][0][self.deme_coal]
+        diff = self.diff_marginal[self.locus_coal_unlinked, self.deme_coal]
 
-        return reduction.sum() == diff.sum()
+        return unlinked.sum() == diff.sum()
 
     @cached_property
     def is_valid_lineage_reduction_mixed_coalescence(self) -> bool:
@@ -554,7 +393,7 @@ class Transition:
         """
         # in the default state space, where we only keep track of the number of linked lineages per deme,
         # we may have a mixed coalescence event where the number of linked lineages does not change
-        if self.n_blocks == 1 and not self.has_diff_linked:
+        if self.n_blocks == 1 and not self.has_diff_demes_linked:
             return True
 
         diff_unlinked = self.diff_unlinked[self.locus_coal_unlinked, self.deme_coal]
@@ -624,7 +463,7 @@ class Transition:
         """
         Whether the migration event is only affecting one locus.
         """
-        return self.n_diff_loci == 1
+        return self.is_diff_loci.sum() == 1
 
     @cached_property
     def is_valid_linked_migration(self) -> bool:
@@ -654,11 +493,13 @@ class Transition:
         """
         Whether there is exactly one migration event.
         """
+        diff = self.diff_marginal[self.locus_migration]
+
         # make sure exactly one lineage is moved from one deme to another
         return (
-                (self.diff_lineages_locus == 1).sum() == 1 and
-                (self.diff_lineages_locus == -1).sum() == 1 and
-                (self.diff_lineages_locus == 0).sum() == self.diff_lineages_locus.size - 2
+                (diff == 1).sum() == 1 and
+                (diff == -1).sum() == 1 and
+                (diff == 0).sum() == diff.size - 2
         )
 
     @cached_property
@@ -667,7 +508,7 @@ class Transition:
         Whether there are sufficient linked lineages to allow for a migration event.
         """
         lineages = self.linked1[
-            self.locus_unlinked_migration,
+            self.locus_migration,
             self.deme_migration_source,
             self.block_migration
         ]
@@ -680,7 +521,7 @@ class Transition:
         Whether there are sufficient unlinked lineages to allow for a migration event.
         """
         lineages = self.unlinked1[
-            self.locus_unlinked_migration,
+            self.locus_migration,
             self.deme_migration_source,
             self.block_migration
         ]
@@ -693,7 +534,7 @@ class Transition:
         Whether the transition is a migration event.
         """
         return (
-                not self.has_diff_linked and
+                not self.has_diff_demes_linked and
                 self.is_eligible_migration and
                 self.is_valid_migration_one_locus_only and
                 self.is_one_migration_event and
@@ -709,14 +550,14 @@ class Transition:
                 self.is_eligible_migration and
                 self.is_one_migration_event and
                 self.has_sufficient_linked_lineages_migration and
-                self.has_diff_linked and
+                self.has_diff_demes_linked and
                 self.is_valid_linked_migration
         )
 
     @cached_property
     def type(self) -> str:
         """
-        Get the type of the transition.
+        Get the type of transition.
         """
         types = []
 
@@ -759,8 +600,11 @@ class Transition:
         # get unlined lineage counts
         unlinked1 = self.unlinked1[self.diff_linked == -1]
 
+        # index of deme where linked coalescence event occurs.
+        deme_coal = np.where(self.is_diff_demes_linked)[0][0]
+
         # get population size of deme where coalescence event occurs
-        pop_size = self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[self.deme_locus_coal]]
+        pop_size = self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[deme_coal]]
 
         # scale population size
         pop_size_scaled = self.state_space.model._get_timescale(pop_size)
@@ -782,6 +626,7 @@ class Transition:
     def get_rate_linked_coalescence(self) -> float:
         """
         Get the rate of a linked coalescence event.
+
         It seems as though the current parametrization does not allow us to compute the site-frequency spectrum for
         more than one locus. The problem is that initially if all lineages are linked, transitions with different
         coalescent pattern between loci are not allowed. However, once we have experienced a recombination event,
@@ -833,11 +678,14 @@ class Transition:
         unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
         linked1 = self.linked1[self.locus_coal_unlinked, self.deme_coal]
 
+        # lineage blocks where coalescence event occurs
         blocks = self.diff_marginal[self.locus_coal_unlinked, self.deme_coal] > 0
 
-        if blocks.sum() == 1:
+        n_blocks = blocks.sum()
+
+        if n_blocks == 1:
             rates_cross = unlinked1[blocks] * linked1[blocks]
-        elif blocks.sum() == 2:
+        elif n_blocks == 2:
             rates_cross = [unlinked1[blocks][0] * linked1[blocks][1], unlinked1[blocks][1] * linked1[blocks][0]]
         else:
             raise ValueError('Invalid number of blocks.')
@@ -846,7 +694,7 @@ class Transition:
 
     def get_rate_unlinked_migration(self) -> float:
         """
-        Get the rate of a migration event.
+        Get the rate of an unlinked migration event which happens marginally on one locus.
         """
         # get the deme names
         source = self.state_space.epoch.pop_names[self.deme_migration_source]
@@ -854,7 +702,7 @@ class Transition:
 
         # get the number of lineages in deme i before migration
         n_lineages_source = self.unlinked1[
-            self.locus_unlinked_migration,
+            self.locus_migration,
             self.deme_migration_source,
             self.block_migration
         ]
@@ -869,7 +717,7 @@ class Transition:
 
     def get_rate_linked_migration(self) -> float:
         """
-        Get the rate of a migration event.
+        Get the rate of a linked migration event where a linked lineage migrates.
         """
         # get the deme names
         source = self.state_space.epoch.pop_names[self.deme_migration_source]
@@ -889,8 +737,6 @@ class Transition:
     def get_rate(self) -> float:
         """
         Get the rate of the transition.
-
-        :return: The rate of the transition.
         """
         if not self.is_eligible:
             return 0
@@ -922,7 +768,7 @@ class Transition:
 
         return rate
 
-    def _get_color(self) -> str:
+    def get_color(self) -> str:
         """
         Get the color of the transition.
 

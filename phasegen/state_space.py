@@ -11,7 +11,8 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .transition import Transition, State
+from .transition import Transition
+from .state import State
 from .utils import expm
 
 logger = logging.getLogger('phasegen')
@@ -312,13 +313,13 @@ class StateSpace(ABC):
 
             t = self.get_transition(i=i, j=j)
 
-            if not t.is_absorbing1:
+            if not State.is_absorbing(t.marginal1):
                 graph.edge(
                     self._display_state(i),
                     self._display_state(j),
                     label=f'{t.type}: {t.get_rate():.2g}',
-                    color=t._get_color(),
-                    fontcolor=t._get_color()
+                    color=t.get_color(),
+                    fontcolor=t.get_color()
                 )
 
         graph.render('rate matrix', view=True)

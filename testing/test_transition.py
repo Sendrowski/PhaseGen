@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 import phasegen as pg
-from phasegen.transition import Transition, State
+from phasegen.transition import Transition
+from phasegen.state import State
 
 
 class TransitionTestCase(TestCase):
