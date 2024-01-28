@@ -1,6 +1,5 @@
 import numpy as np
 from fastdfe import Spectra
-import psutil
 
 import phasegen as pg
 

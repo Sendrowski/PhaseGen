@@ -582,12 +582,15 @@ class Demography:
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
 
-        # add population size and migration rate changes if specified
-        if len(pop_sizes) or len(migration_rates):
-            events.append(DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates))
-
         #: Array of demographic events.
         self.events: np.ndarray = np.array(events)
+
+        # add population size and migration rate changes if specified
+        if len(pop_sizes) or len(migration_rates):
+            self.events = np.concatenate([
+                self.events,
+                [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
+            ])
 
         #: Population names.
         self._prepare_events()
@@ -690,6 +693,9 @@ class Demography:
 
             yield epoch
             prev = epoch
+
+            if epoch.end_time == np.inf:
+                break
 
     def get_epochs(self, t: float | List[float]) -> Epoch | np.ndarray:
         """
