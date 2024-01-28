@@ -48,20 +48,25 @@ c = Comparison.from_yaml(file)
 
 time_default = benchmark(lambda: c.ph.default_state_space.S)
 k_default = c.ph.default_state_space.k
+mean_tree_height = benchmark(lambda: c.ph.tree_height.mean)
 
 try:
     time_block_counting = benchmark(lambda: c.ph.block_counting_state_space.S)
     k_block_counting = c.ph.block_counting_state_space.k
+    mean_sfs = benchmark(lambda: c.ph.sfs.mean)
 except NotImplementedError:
     time_block_counting = None
     k_block_counting = None
+    mean_sfs = None
 
 df = pd.DataFrame({
     'scenario': [file.split('/')[-1].split('.')[0]],
-    'time.default': [time_default],
-    'time.block_counting': [time_block_counting],
-    'k.default': [k_default],
-    'k.block_counting': [k_block_counting],
+    'default.time': [time_default],
+    'default.k': [k_default],
+    'default.tree_height.mean': [mean_tree_height],
+    'block_counting.k': [k_block_counting],
+    'block_counting.time': [time_block_counting],
+    'block_counting.sfs.mean': [mean_sfs]
 })
 
 df.to_csv(out, index=False)

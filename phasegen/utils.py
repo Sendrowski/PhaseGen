@@ -1,6 +1,8 @@
 from typing import Callable, List
 
 import numpy as np
+import scipy
+import tensorflow as tf
 from multiprocess.pool import Pool
 from tqdm import tqdm
 
@@ -15,9 +17,17 @@ def expm(m: np.ndarray) -> np.ndarray:
     :param m: Matrix
     :return: Matrix exponential
     """
-    import tensorflow as tf
-
     return tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy()
+
+
+def expm_dep(m: np.ndarray) -> np.ndarray:
+    """
+    Compute the matrix exponential using SciPy.
+
+    :param m: Matrix
+    :return: Matrix exponential
+    """
+    return scipy.linalg.expm(m)
 
 
 def parallelize(

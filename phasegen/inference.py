@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Tuple, Callable
 
 import numpy as np
@@ -7,6 +8,8 @@ from tqdm import tqdm
 
 from .distributions import Coalescent
 
+logger = logging.getLogger('phasegen')
+
 
 class Inference:
     """
@@ -14,6 +17,9 @@ class Inference:
     provided loss function, through coalescent simulation based on phase-type
     theory. The optimization is performed via the BFGS algorithm from scipy.
     """
+    #: Additional options passed to the optimization algorithm.
+    #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
+    opts = dict()
 
     def __init__(
             self,
@@ -39,6 +45,9 @@ class Inference:
         :param parallelize: Whether to parallelize the simulations.
         :param pbar: Whether to show a progress bar.
         """
+        #: The logger instance
+        self._logger = logger.getChild(self.__class__.__name__)
+
         #: Dictionary of initial numeric guesses for parameters to optimize.
         self.x0: Dict[str, float | int | None] = x0
 
@@ -101,14 +110,19 @@ class Inference:
             dist = self.dist(**params_dict)
 
             # return the value of the loss function
-            return self.loss(dist)
+            loss = self.loss(dist)
+
+            self._logger.debug(params_dict | {'loss': loss})
+
+            return loss
 
         # perform the optimization
         self.result: OptimizeResult = opt.minimize(
             fun=loss,
             x0=x0,
             method='L-BFGS-B',
-            bounds=bounds
+            bounds=bounds,
+            options=self.opts
         )
 
         # fetch optimized params

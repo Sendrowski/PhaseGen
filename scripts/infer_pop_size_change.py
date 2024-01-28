@@ -1,12 +1,16 @@
+import numpy as np
 from fastdfe import Spectra
+import psutil
 
 import phasegen as pg
 
-# observed SFS
+# observed (neutral) SFS
 observed = pg.SFS([177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652])
 
+pg.logger.setLevel('DEBUG')
 
-def get_dist(t: float, Ne: float) -> pg.Coalescent:
+
+def get_coal(t: float, Ne: float) -> pg.Coalescent:
     """
     Get coalescent distribution.
 
@@ -16,27 +20,22 @@ def get_dist(t: float, Ne: float) -> pg.Coalescent:
     """
     return pg.Coalescent(
         n=10,
-        demography=pg.PiecewiseConstantDemography(
-            pop_sizes={0: 1, t: Ne}
-        ),
-        pbar=False,
-        parallelize=False
+        demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, t: Ne}}
+        )
     )
 
 
-def loss(dist: pg.Coalescent) -> float:
+def loss(coal: pg.Coalescent) -> float:
     """
-    Calculate loss.
+    Calculate loss by using the Poisson likelihood.
 
-    :param dist: Coalescent distribution
+    :param coal: Coalescent distribution
     :return: Loss
     """
-    # modelled SFS
-
-    # return Poisson likelihood
     return pg.PoissonLikelihood().compute(
         observed=observed.normalize().polymorphic,
-        modelled=dist.sfs.mean.normalize().polymorphic
+        modelled=coal.sfs.mean.normalize().polymorphic
     )
 
 
@@ -44,20 +43,23 @@ def loss(dist: pg.Coalescent) -> float:
 inf = pg.Inference(
     x0=dict(t=1, Ne=1),
     bounds=dict(t=(0, 4), Ne=(0.1, 1)),
-    dist=get_dist,
-    loss=loss,
+    dist=get_coal,
+    loss=loss
 )
 
 # perform inference
 inf.run()
 
-s = Spectra.from_spectra(dict(
+spectra = Spectra.from_spectra(dict(
     modelled=inf.dist_inferred.sfs.mean.normalize() * observed.n_polymorphic,
     observed=observed
 ))
 
-s.plot()
+spectra.plot()
 
-inf.dist_inferred.demography.plot_pop_sizes(t_max=inf.dist_inferred.tree_height.quantile(0.99))
+# plot inferred demography
+inf.dist_inferred.demography.plot_pop_sizes(
+    t=np.linspace(0, inf.dist_inferred.tree_height.quantile(0.99), 100)
+)
 
 pass

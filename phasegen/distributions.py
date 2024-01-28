@@ -811,20 +811,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # take reward vector as exit vector
         e = self.reward.get(self.state_space)
 
-        # initialize t
-        t = 0
-
-        # current probability of absorption
-        p = 0
+        # current time and probability of absorption
+        t, p = 0, 0
 
         for i, epoch in enumerate(self.demography.epochs):
             # update state space
             self.state_space.update_epoch(epoch)
 
             if i > self.max_epochs:
-                self._logger.warning("Could not reliably find time of almost sure absorption. "
-                                     f"Using time {t} with probability of absorption {p}.")
-                return t
+                return self._warn_convergence(t, p)
 
             if epoch.tau < np.inf:
                 tau = epoch.tau
@@ -835,41 +830,50 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 # calculate probability of absorption
                 p = 1 - self.state_space.alpha @ T_curr @ e
 
-                if p >= self.p_absorption:
-                    return t + tau
-
                 t += tau
+
+                if p >= self.p_absorption:
+                    return t
             else:
                 break
 
         tau = 1
+        T_tau = self.state_space.T
 
         # in the last epoch, we increase tau exponentially
         for i in range(self.max_iter):
             # update transition matrix
-            T_curr = expm(self.state_space.S * tau) @ T_curr
+            T_curr = T_tau @ T_curr
 
             # calculate probability of absorption
             p_next = 1 - self.state_space.alpha @ T_curr @ e
 
             # break if p_next is not increasing anymore
             if p_next < p:
-                self._logger.warning("Could not reliably find time of almost sure absorption. "
-                                     f"Using time {t + tau / 2} with probability of absorption {p}.")
+                return self._warn_convergence(t, p)
 
-                return t + tau / 2
-
+            t += tau
+            tau *= 2
+            T_tau = T_tau @ T_tau
             p = p_next
 
             if p >= self.p_absorption:
-                return t + tau
+                return t
 
-            tau *= 2
+        return self._warn_convergence(t, p)
 
+    def _warn_convergence(self, t: float, p: float) -> float:
+        """
+        Warn the user if the probability of absorption is not close to 1.
+
+        :param t: The time.
+        :param p: The probability of absorption.
+        :return: The time.
+        """
         self._logger.warning("Could not reliably find time of almost sure absorption. "
-                             f"Using time {t + tau} with probability of absorption {p}.")
+                             f"Using time {t} with probability of absorption {p}.")
 
-        return t + tau
+        return t
 
 
 class SFSDistribution(PhaseTypeDistribution):
@@ -1501,8 +1505,8 @@ class Coalescent(AbstractCoalescent):
             demography: Demography = Demography(),
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
-            pbar: bool = True,
-            parallelize: bool = True
+            pbar: bool = False,
+            parallelize: bool = False
     ):
         """
         Create object.

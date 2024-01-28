@@ -1,6 +1,7 @@
 import itertools
 import logging
 from abc import ABC, abstractmethod
+import time
 from functools import cached_property
 from itertools import product
 from typing import List, Tuple
@@ -59,6 +60,9 @@ class StateSpace(ABC):
         # number of lineages linked across loci
         self.linked: np.ndarray | None = None
 
+        # time in seconds to compute original rate matrix
+        self.time: float | None = None
+
         # warn if state space is large
         if self.k > 2000:
             self._logger.warning(f'State space is large ({self.k} states). Note that the computation time '
@@ -80,12 +84,17 @@ class StateSpace(ABC):
             migration_rates={(p, q): 1 for p, q in product(epoch.pop_names, epoch.pop_names) if p != q}
         )
 
+        start = time.time()
+
         # get the rate matrix for the default demography
         default_rate_matrix = np.fromfunction(
             np.vectorize(self._matrix_indices_to_rates, otypes=[float]),
             (self.k, self.k),
             dtype=int
         )
+
+        # record time to compute rate matrix
+        self.time = time.time() - start
 
         # restore the epoch
         self.epoch = epoch

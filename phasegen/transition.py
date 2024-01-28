@@ -107,6 +107,9 @@ class Transition:
         """
         Number of loci where coalescence event occurs in deme where coalescence event occurs.
         """
+        if not self.has_diff_marginal:
+            return 0
+
         return self.is_diff_loci_deme_coal.sum()
 
     @cached_property
@@ -143,6 +146,13 @@ class Transition:
         Whether there are any affected linked lineages.
         """
         return cast(bool, self.is_diff_demes_linked.any())
+
+    @cached_property
+    def has_diff_marginal(self) -> bool:
+        """
+        Whether there are any affected marginal lineages.
+        """
+        return cast(bool, self.is_diff_demes_marginal.any())
 
     @cached_property
     def deme_coal(self) -> int:
@@ -199,7 +209,7 @@ class Transition:
         Whether the transition is eligible for a recombination or locus coalescence event.
         """
         # there have to be affected lineages
-        if self.is_diff_demes_marginal.any():
+        if self.has_diff_marginal:
             return False
 
         # there have to be exactly `n_loci` affected lineages
@@ -316,7 +326,16 @@ class Transition:
         Whether the transition is eligible for any event. This is supposed to rule out impossible
         transitions as quickly as possible.
         """
-        return True
+        if self.is_eligible_coalescence:
+            return self.is_coalescence
+
+        if self.is_eligible_recombination_or_locus_coalescence:
+            return self.is_recombination or self.is_locus_coalescence
+
+        if self.is_eligible_migration:
+            return self.is_migration
+
+        return False
 
     @cached_property
     def is_valid_lineage_reduction_linked_coalescence(self) -> bool:
@@ -441,13 +460,12 @@ class Transition:
     @cached_property
     def is_coalescence(self) -> bool:
         """
-        Whether the transition is a coalescence event.
+        Whether the transition is a coalescence event (except for a locus coalescence).
         """
         return (
                 self.is_linked_coalescence or
                 self.is_unlinked_coalescence or
-                self.is_mixed_coalescence or
-                self.is_locus_coalescence
+                self.is_mixed_coalescence
         )
 
     @cached_property
@@ -555,6 +573,13 @@ class Transition:
         )
 
     @cached_property
+    def is_migration(self) -> bool:
+        """
+        Whether the transition is a migration event.
+        """
+        return self.is_unlinked_migration or self.is_linked_migration
+
+    @cached_property
     def type(self) -> str:
         """
         Get the type of transition.
@@ -629,10 +654,23 @@ class Transition:
 
         It seems as though the current parametrization does not allow us to compute the site-frequency spectrum for
         more than one locus. The problem is that initially if all lineages are linked, transitions with different
-        coalescent pattern between loci are not allowed. However, once we have experienced a recombination event,
-        a mixed or unlined coalescence event, and a subsequent locus coalescence event, we can have different
+        coalescent patterns between loci are not allowed. However, once we have experienced a recombination event,
+        a mixed or unlinked coalescence event, and a subsequent locus coalescence event, we can have different
         coalescent patterns between loci. We would thus be required to keep track of the associations between
         lineages which would further expand the state space.
+
+        For example, let there be n > 2 lineages, and two loci. Assume we start with completely linked loci.
+        Now assume there is a linked coalescence event, so that we have 1 linked doubleton and n - 2 linked singletons.
+        Now conditional on the fact that no recombination even has occurred, we can cannot have linked coalescence
+        where one of the lineages is a doubleton in one locus and a singleton in the other locus. However, assume we
+        first experience n recombination events so that our loci are now completely unlinked. Now assume we have an
+        unlinked coalescence event in each locus, and subsequently n - 1 locus coalescence events. Now the state looks
+        identical to the first scenario but it should be allowed to have a linked coalescence event where one of the
+        lineages is a doubleton in one locus and a singleton in the other locus, given that an unlinked doubleton
+        coalesced with an unlinked singleton. We thus need to keep track of the associations between lineages, which
+        means they are no longer exchangeable.
+
+        TODO verify this
         """
         return self.state_space._get_coalescent_rate(
             n=self.state_space.pop_config.n,
