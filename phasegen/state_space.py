@@ -1,7 +1,7 @@
 import itertools
 import logging
-from abc import ABC, abstractmethod
 import time
+from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
 from typing import List, Tuple
@@ -12,8 +12,8 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .transition import Transition
 from .state import State
+from .transition import Transition
 from .utils import expm
 
 logger = logging.getLogger('phasegen')
@@ -248,13 +248,12 @@ class StateSpace(ABC):
     def get_transition(self, i: int, j: int) -> Transition:
         """
         Get the transition from the state indexed by i to the state indexed by j.
-        TODO remove debug code
 
         :param i: Index of outgoing state.
         :param j: Index of incoming state.
         :return: The transition from the state indexed by i to the state indexed by j.
         """
-        transition = Transition(
+        return Transition(
             marginal1=self.states[i],
             marginal2=self.states[j],
             linked1=self.linked[i],
@@ -262,23 +261,23 @@ class StateSpace(ABC):
             state_space=self
         )
 
-        data = dict(
-            marginal1=transition.marginal1,
-            marginal2=transition.marginal2,
-            linked1=transition.linked1,
-            linked2=transition.linked2,
-            # unlinked1=transition.unlinked1,
-            # unlinked2=transition.unlinked2
-        )
+        # data = dict(
+        #    marginal1=transition.marginal1,
+        #    marginal2=transition.marginal2,
+        #    linked1=transition.linked1,
+        #    linked2=transition.linked2,
+        #    # unlinked1=transition.unlinked1,
+        #    # unlinked2=transition.unlinked2
+        # )
 
-        kind = transition.type
+        # kind = transition.type
 
-        rate = transition.get_rate()
+        # rate = transition.get_rate()
 
-        if rate != 0:
-            pass
+        # if rate != 0:
+        #    pass
 
-        return transition
+        # return transition
 
     def _display_state(self, i: int) -> str:
         """

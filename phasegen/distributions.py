@@ -633,8 +633,9 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # calculate moment
         m = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
 
-        # round to avoid numerical errors
-        return np.round(m, self.n_decimals)
+        # TODO round to avoid numerical errors?
+        # return np.round(m, self.n_decimals)
+        return m
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
