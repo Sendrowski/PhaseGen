@@ -1,0 +1,20 @@
+n: 10
+num_replicates: 1000000
+pop_sizes:
+  pop_0:
+    0: 1
+model: standard
+comparisons:
+  tolerance:
+    tree_height:
+      pdf: 0.02
+      cdf: 0.1
+      mean: 0.01
+      var: 0.05
+    total_branch_length:
+      mean: 0.01
+      var: 0.05
+    sfs:
+      mean: 0.01
+      cov: 0.02
+      corr: 0.02

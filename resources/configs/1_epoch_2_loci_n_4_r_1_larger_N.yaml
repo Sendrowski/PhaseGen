@@ -1,0 +1,33 @@
+n: 4
+n_loci: 2
+recombination_rate: 1
+num_replicates: 1000000
+pop_sizes:
+  pop_0:
+    0: 3
+model: standard
+comparisons:
+  tolerance:
+    tree_height:
+      pdf: 0.02
+      cdf: 0.1
+      mean: 0.01
+      var: 0.05
+      loci:
+        mean: 0.01
+        var: 0.05
+        cov: 0.01
+        corr: 0.01
+    total_branch_length:
+      mean: 0.01
+      var: 0.05
+      loci:
+        mean: 0.01
+        var: 0.05
+        cov: 0.01
+        corr: 0.01
+    #sfs:
+    #  mean: 0.01
+    #  var: 0.05
+    #  cov: 0.05
+    #  corr: 0.05
