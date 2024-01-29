@@ -261,24 +261,6 @@ class StateSpace(ABC):
             state_space=self
         )
 
-        # data = dict(
-        #    marginal1=transition.marginal1,
-        #    marginal2=transition.marginal2,
-        #    linked1=transition.linked1,
-        #    linked2=transition.linked2,
-        #    # unlinked1=transition.unlinked1,
-        #    # unlinked2=transition.unlinked2
-        # )
-
-        # kind = transition.type
-
-        # rate = transition.get_rate()
-
-        # if rate != 0:
-        #    pass
-
-        # return transition
-
     def _display_state(self, i: int) -> str:
         """
         Display the state indexed by `i`.
