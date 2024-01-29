@@ -88,7 +88,7 @@ class StateSpace(ABC):
 
         # get the rate matrix for the default demography
         default_rate_matrix = np.fromfunction(
-            np.vectorize(self._matrix_indices_to_rates, otypes=[float]),
+            np.vectorize(self._get_rate, otypes=[float]),
             (self.k, self.k),
             dtype=int
         )
@@ -193,13 +193,13 @@ class StateSpace(ABC):
 
         :return: The rate matrix.
         """
-        matrix_indices_to_rates = np.vectorize(self._matrix_indices_to_rates, otypes=[float])
+        get_rates = np.vectorize(self._get_rate, otypes=[float])
 
         # create empty matrix
         S = np.zeros((self.k, self.k))
 
         # fill matrix with non-zero rates
-        S[self._non_zero_states] = matrix_indices_to_rates(*self._non_zero_states)
+        S[self._non_zero_states] = get_rates(*self._non_zero_states)
 
         # fill diagonal with negative sum of row
         S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
@@ -235,7 +235,7 @@ class StateSpace(ABC):
         """
         pass
 
-    def _matrix_indices_to_rates(self, i: int, j: int) -> float:
+    def _get_rate(self, i: int, j: int) -> float:
         """
         Get the rate from the state indexed by i to the state indexed by j.
 
@@ -243,9 +243,9 @@ class StateSpace(ABC):
         :param j: Index of incoming state.
         :return: The rate from the state indexed by i to the state indexed by j.
         """
-        return self.get_transition(i=i, j=j).get_rate()
+        return self._get_transition(i=i, j=j).get_rate()
 
-    def get_transition(self, i: int, j: int) -> Transition:
+    def _get_transition(self, i: int, j: int) -> Transition:
         """
         Get the transition from the state indexed by i to the state indexed by j.
 
@@ -319,7 +319,7 @@ class StateSpace(ABC):
         # add non-zero edges
         for i, j in zip(*self._non_zero_states):
 
-            t = self.get_transition(i=i, j=j)
+            t = self._get_transition(i=i, j=j)
 
             if not State.is_absorbing(t.marginal1):
                 graph.edge(

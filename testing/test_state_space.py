@@ -186,7 +186,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         )
 
-        s._matrix_indices_to_rates(223, 400)
+        s._get_rate(223, 400)
 
         _ = s.S
 

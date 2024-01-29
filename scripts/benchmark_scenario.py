@@ -18,7 +18,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "1_epoch_n_2_test_size"
+    name = "1_epoch_n_10"
     file = f"resources/configs/{name}.yaml"
     out = f"scratch/{name}.csv"
 
