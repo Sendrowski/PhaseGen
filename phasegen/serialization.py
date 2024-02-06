@@ -23,7 +23,7 @@ class Serializable:
 
         :return: JSON string
         """
-        return jsonpickle.encode(self, indent=4, warn=True, make_refs=False, keys=True)
+        return jsonpickle.encode(self, indent=4, warn=True, keys=True)
 
     @classmethod
     def from_json(cls, json: str, classes=None) -> 'Self':

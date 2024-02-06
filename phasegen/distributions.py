@@ -20,6 +20,7 @@ from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward, \
     CombinedReward
+from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .utils import expm, parallelize
@@ -839,7 +840,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 break
 
         tau = 1
-        T_tau = self.state_space.T
+        T_tau = expm(self.state_space.S)
 
         # in the last epoch, we increase tau exponentially
         for i in range(self.max_iter):
@@ -1494,7 +1495,7 @@ class AbstractCoalescent(ABC):
         pass
 
 
-class Coalescent(AbstractCoalescent):
+class Coalescent(AbstractCoalescent, Serializable):
     """
     Coalescent distribution for the piecewise time-homogeneous coalescent.
     """
@@ -1599,8 +1600,26 @@ class Coalescent(AbstractCoalescent):
         return SFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
-            demography=self.demography,
+            demography=self.demography
         )
+
+    def drop_cache(self):
+        """
+        Drop state space cache.
+        """
+        self.default_state_space.drop_cache()
+        self.block_counting_state_space.drop_cache()
+
+
+    def to_json(self) -> str:
+        """
+        Serialize to JSON.
+
+        :return: JSON string.
+        """
+        self.drop_cache()
+
+        return super().to_json()
 
 
 class MsprimeCoalescent(AbstractCoalescent):

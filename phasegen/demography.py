@@ -78,6 +78,27 @@ class Epoch:
         """
         return self.end_time - self.start_time
 
+    def __eq__(self, other):
+        """
+        Compare epochs using their hash.
+
+        :param other: The other epoch.
+        :return: Whether the epochs are equal.
+        """
+        return hash(self) == hash(other)
+
+    def __hash__(self):
+        """
+        Hash the epoch. Note that we do not hash the start and end time, since they are not relevant for the
+        state space created from the epoch.
+
+        :return: Hash of the epoch.
+        """
+        return hash((
+            tuple(self.pop_sizes.items()),
+            tuple(self.migration_rates.items())
+        ))
+
 
 class DemographicEvent(ABC):
     """

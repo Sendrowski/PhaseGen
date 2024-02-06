@@ -513,3 +513,17 @@ class CoalescentTestCase(TestCase):
         coal.default_state_space._plot_rates()
 
         pass
+
+    def test_beta_coalescent_n_2_alpha_close_to_2_default_state_space(self):
+        """
+        Test beta coalescent with default state space for n = 2.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(2),
+            model=pg.BetaCoalescent(alpha=1.999)
+        )
+
+        # coalescent time coincides with timescale in this case
+        self.assertAlmostEqual(coal.tree_height.mean, coal.model._get_timescale(1), places=15)
+
+        pass

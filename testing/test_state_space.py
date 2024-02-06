@@ -243,3 +243,48 @@ class StateSpaceTestCase(TestCase):
             pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
         ).k, 35581)
+
+    @pytest.mark.skip('Not needed anymore')
+    def test_block_counting_state_space_n_4_dirac(self):
+        """
+        Test block counting state space for n = 4, dirac.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.LineageConfig(n=4),
+            model=pg.DiracCoalescent(c=50, psi=0.5),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass
+
+    @pytest.mark.skip('Not needed anymore')
+    def test_block_counting_state_space_n_5_dirac(self):
+        """
+        Test block counting state space for n = 4, dirac.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.LineageConfig(n=5),
+            model=pg.DiracCoalescent(c=50, psi=0.5),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass
+
+    @pytest.mark.skip('Not needed anymore')
+    def test_block_counting_state_space_n_4_dirac_psi_0_7_c_50(self):
+        """
+        Test block counting state space for n = 4, dirac.
+        """
+        s = pg.BlockCountingStateSpace(
+            pop_config=pg.LineageConfig(n=4),
+            model=pg.DiracCoalescent(c=50, psi=0.7),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass

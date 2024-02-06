@@ -71,3 +71,18 @@ class LocusConfig:
 
         # sum over demes and lineage blocks, and require all loci to have `n_linked` linked lineages
         return (s.linked.sum(axis=(2, 3)) == n_linked).all(axis=1).astype(int)
+
+    def __eq__(self, other):
+        """
+        Check if two locus configurations are equal.
+
+        :param other: Other locus configuration
+        :return: Whether the two locus configurations are equal
+        """
+        return (
+            self.n == other.n
+            and self.n_unlinked == other.n_unlinked
+            and self.recombination_rate == other.recombination_rate
+            and self.allow_coalescence == other.allow_coalescence
+        )
+

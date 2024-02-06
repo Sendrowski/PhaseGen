@@ -11,9 +11,11 @@ __version__ = 'alpha'
 import logging
 import sys
 
-import jsonpickle
-import numpy as np
+import jsonpickle.ext.numpy as jsonpickle_numpy
 from tqdm import tqdm
+
+# register handlers
+jsonpickle_numpy.register_handlers()
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -83,11 +85,6 @@ formatter = ColoredFormatter('%(levelname)s:%(name)s: %(message)s')
 
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
-from .serialization import NumpyArrayHandler
-
-# register custom json handlers
-jsonpickle.handlers.registry.register(np.ndarray, NumpyArrayHandler)
 
 from .distributions import PhaseTypeDistribution
 

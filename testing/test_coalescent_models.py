@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 import numpy as np
-import pytest
+from scipy.special import betaln
 
 import phasegen as pg
 
@@ -128,21 +128,33 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(0.4, np.sum(c.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)
         self.assertAlmostEqual(0.14, np.sum(c2.sfs.cov.data > 0) / (n + 1) ** 2, delta=0.01)
 
-    @staticmethod
-    def test_beta_coalescent_get_generation_time():
+    def test_beta_coalescent_get_timescale(self):
         """
         Test beta coalescent generation time.
         """
-        pg.BetaCoalescent(alpha=1.999)._get_timescale(1)
 
-    @pytest.mark.skip(reason="Not finished")
-    def test_dirac_coalescent_n_5(self):
-        """
-        Test Dirac coalescent with block counting state space for n = 2.
-        """
-        model = pg.DiracCoalescent(psi=0.8, c=1)
+        def compute_beta_timescale(pop_size, alpha, ploidy=1):
+            """
+            Compute the generation time for the beta coalescent exactly as done in msprime.
+            """
 
-        self.assertAlmostEqual(
-            model.get_rate_block_counting(5, np.array([5, 0, 0, 0, 0]), np.array([3, 1, 0, 0, 0])), 8.33333333)
+            if ploidy > 1:
+                N = pop_size / 2
+                m = 2 + np.exp(
+                    alpha * np.log(2) + (1 - alpha) * np.log(3) - np.log(alpha - 1)
+                )
+            else:
+                N = pop_size
+                m = 1 + np.exp((1 - alpha) * np.log(2) - np.log(alpha - 1))
+            ret = np.exp(
+                alpha * np.log(m)
+                + (alpha - 1) * np.log(N)
+                - np.log(alpha)
+                - betaln(2 - alpha, alpha)
+            )
+            return ret
 
-        self.assertEqual(model.get_rate_block_counting(5, np.array([5, 0, 0, 0, 0]), np.array([0, 0, 0, 0, 1])), 5)
+        t1 = pg.BetaCoalescent(alpha=1.999999)._get_timescale(1)
+        t2 = compute_beta_timescale(1, 1.999999)
+
+        self.assertAlmostEqual(t1, t2)

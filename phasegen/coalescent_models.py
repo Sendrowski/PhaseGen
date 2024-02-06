@@ -155,6 +155,15 @@ class StandardCoalescent(CoalescentModel):
         # no other mergers possible
         return 0
 
+    def __eq__(self, other):
+        """
+        Check if two coalescent models are equal.
+
+        :param other: The other coalescent model.
+        :return: Whether the two coalescent models are equal.
+        """
+        return isinstance(other, StandardCoalescent)
+
 
 class BetaCoalescent(CoalescentModel):
     """
@@ -191,7 +200,9 @@ class BetaCoalescent(CoalescentModel):
         :param k: The number of lineages that merge.
         :return: The rate.
         """
-        return beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
+        rate = beta(k - self.alpha, b - k + self.alpha) / beta(self.alpha, 2 - self.alpha)
+
+        return rate
 
     def _get_timescale(self, N: float) -> float:
         """
@@ -205,7 +216,9 @@ class BetaCoalescent(CoalescentModel):
 
         m = 1 + 1 / 2 ** (self.alpha - 1) / (self.alpha - 1)
 
-        return m ** self.alpha * N ** (self.alpha - 1) / self.alpha / beta(2 - self.alpha, self.alpha)
+        scale = m ** self.alpha * N ** (self.alpha - 1) / self.alpha / beta(2 - self.alpha, self.alpha)
+
+        return scale
 
     def _get_rate(self, b: int, k: int) -> float:
         """
@@ -233,6 +246,19 @@ class BetaCoalescent(CoalescentModel):
         combinations = np.prod([comb(N=b_i, k=k_i, exact=True) for b_i, k_i in zip(b, k)])
 
         return combinations * self._get_base_rate(b=n, k=k.sum())
+
+    def __eq__(self, other):
+        """
+        Check if two coalescent models are equal.
+
+        :param other: The other coalescent model.
+        :return: Whether the two coalescent models are equal.
+        """
+        return (
+                isinstance(other, BetaCoalescent) and
+                self.alpha == other.alpha and
+                self.scale_time == other.scale_time
+        )
 
 
 class DiracCoalescent(CoalescentModel):
@@ -316,9 +342,27 @@ class DiracCoalescent(CoalescentModel):
         rate_binary = self._standard._get_rate_block_counting(n=n, b=b, k=k)
 
         # probability of multiple merger of k out of n lineages
-        p_psi = binom.pmf(k=k.sum(), n=n, p=self.psi)
+        # p_psi = binom.pmf(k=k.sum(), n=n, p=self.psi)
+        p_psi = np.prod([binom.pmf(k=k[i], n=b[i], p=self.psi) for i in range(len(k))])
+
+        if b.sum() < n:
+            p_psi *= binom.pmf(k=0, n=n - b.sum(), p=self.psi)
 
         # rate of multiple merger
         rate_multi = p_psi * self.c
 
         return rate_binary + rate_multi
+
+    def __eq__(self, other):
+        """
+        Check if two coalescent models are equal.
+
+        :param other: The other coalescent model.
+        :return: Whether the two coalescent models are equal.
+        """
+        return (
+                isinstance(other, DiracCoalescent) and
+                self.psi == other.psi and
+                self.c == other.c and
+                self.scale_time == other.scale_time
+        )

@@ -47,7 +47,7 @@ def parallelize(
         parallelize: bool = True,
         pbar: bool = True,
         batch_size: int = None,
-        desc: str = None,
+        desc: str = None
 ) -> np.ndarray:
     """
     Parallelize given function or execute sequentially.

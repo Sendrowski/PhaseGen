@@ -4,7 +4,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
-from typing import List, Tuple, cast
+from typing import List, Tuple, cast, Dict
 
 import numpy as np
 
@@ -12,7 +12,6 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .utils import expm
 
 logger = logging.getLogger('phasegen')
 
@@ -27,7 +26,8 @@ class StateSpace(ABC):
             pop_config: LineageConfig,
             locus_config: LocusConfig = LocusConfig(),
             model: CoalescentModel = StandardCoalescent(),
-            epoch: Epoch = Epoch()
+            epoch: Epoch = Epoch(),
+            cache: bool = True
     ):
         """
         Create a rate matrix.
@@ -36,6 +36,7 @@ class StateSpace(ABC):
         :param model: Coalescent model.
         :param epoch: Time homogeneous demography (we can only construct a state space
             for a fixed demography).
+        :param cache: Whether to cache the rate matrix for different epochs.
         """
         if not isinstance(model, StandardCoalescent) and locus_config.n > 1:
             raise NotImplementedError('Only one locus is currently supported for non-standard coalescent models.')
@@ -55,21 +56,23 @@ class StateSpace(ABC):
         #: Epoch
         self.epoch: Epoch = epoch
 
+        #: Whether to cache the rate matrix for different epochs.
+        self.cache: bool = cache
+
+        #: Cached rate matrices
+        self._cache: Dict[Epoch, np.ndarray] = {}
+
         # number of lineages linked across loci
         self.linked: np.ndarray | None = None
 
         # time in seconds to compute original rate matrix
         self.time: float | None = None
 
-        # warn if state space is large
-        if self.k > 2000:
-            self._logger.warning(f'State space is large ({self.k} states). Note that the computation time '
-                                 f'increases exponentially with the number of states.')
-
     @cached_property
     def _non_zero_states(self) -> Tuple[np.ndarray, ...]:
         """
-        Get the indices of non-zero rates. This improves performance when computing the rate matrix.
+        Get the indices of non-zero rates. This improves performance when computing the rate matrix
+        for different epochs
 
         :return: Indices of non-zero rates.
         """
@@ -145,27 +148,29 @@ class StateSpace(ABC):
         """
         Update the epoch.
 
-        TODO check for equality of epoch
-
         :param epoch: Epoch.
         :return: State space.
         """
-        # update the demography
+        # only remove cached properties if epoch has changed
+        if self.epoch != epoch:
+            self.drop_S()
+
         self.epoch = epoch
 
-        # try to delete rate matrix cache
-        try:
-            # noinspection all
-            del self.S
-        except AttributeError:
-            pass
+    def __eq__(self, other):
+        """
+        Check if two state spaces are equal. We do not for equivalence of the epochs as we can
+        update the epoch of a state space.
 
-        # try to delete transition matrix cache
-        try:
-            # noinspection all
-            del self.T
-        except AttributeError:
-            pass
+        :param other: Other state space
+        :return: Whether the two state spaces are equal
+        """
+        return (
+                self.__class__ == other.__class__ and
+                self.pop_config == other.pop_config and
+                self.locus_config == other.locus_config and
+                self.model == other.model
+        )
 
     @cached_property
     def k(self) -> int:
@@ -174,7 +179,14 @@ class StateSpace(ABC):
 
         :return: The number of states.
         """
-        return len(self.states)
+        k = len(self.states)
+
+        # warn if state space is large
+        if k > 2000:
+            self._logger.warning(f'State space is large ({k} states). Note that the computation time '
+                                 f'increases exponentially with the number of states.')
+
+        return k
 
     @cached_property
     def m(self) -> int:
@@ -185,41 +197,65 @@ class StateSpace(ABC):
         """
         return self.states.shape[2]
 
+    def drop_S(self):
+        """
+        Drop the current rate matrix.
+        """
+        try:
+            # noinspection all
+            del self.S
+        except AttributeError:
+            pass
+
+    def drop_cache(self):
+        """
+        Drop the rate matrix cache and current rate matrix.
+        """
+        self.drop_S()
+
+        self._cache = {}
+
     def _get_rate_matrix(self) -> np.ndarray:
         """
         Get the rate matrix.
 
+        TODO test caching
+
         :return: The rate matrix.
         """
-        get_rates = np.vectorize(self._get_rate, otypes=[float])
-
         # create empty matrix
         S = np.zeros((self.k, self.k))
 
-        # fill matrix with non-zero rates
-        S[self._non_zero_states] = get_rates(*self._non_zero_states)
+        # check if we can use the cached rate matrix
+        if self.cache and self.epoch in self._cache:
+            S[self._non_zero_states] = self._cache[self.epoch]
+
+        else:
+            # vectorize function to compute rates
+            get_rates = np.vectorize(self._get_rate, otypes=[float])
+
+            # get non-zero rates
+            rates = get_rates(*self._non_zero_states)
+
+            # fill matrix with non-zero rates
+            S[self._non_zero_states] = rates
+
+            # cache rate matrix if specified
+            if self.cache:
+                self._cache[self.epoch] = rates
 
         # fill diagonal with negative sum of row
         S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
 
         return S
 
-    def _get_sparseness(self) -> float:
+    def _get_sparsity(self) -> float:
         """
-        Get the sparseness of the rate matrix.
+        Get the sparsity of the rate matrix.
 
-        :return: The sparseness.
+        :return: The sparsity.
         """
         return 1 - np.count_nonzero(self.S) / self.S.size
-
-    @cached_property
-    def T(self) -> np.ndarray:
-        """
-        The transition matrix.
-
-        :return: The transition matrix.
-        """
-        return expm(self.S)
 
     @abstractmethod
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
@@ -355,17 +391,6 @@ class StateSpace(ABC):
         indices = indices[mask]
 
         return rates, indices
-
-    def _get_default(self):
-        """
-        Get the default state space.
-        """
-        return DefaultStateSpace(
-            pop_config=self.pop_config,
-            locus_config=self.locus_config,
-            model=self.model,
-            epoch=self.epoch
-        )
 
 
 class DefaultStateSpace(StateSpace):
@@ -589,8 +614,6 @@ class BlockCountingStateSpace(StateSpace):
 class Transition:
     """
     Class representing a transition between two states.
-
-    Keep together for state space for performance reasons.
     """
 
     def __init__(
@@ -771,7 +794,7 @@ class Transition:
     @cached_property
     def block_migration(self) -> int:
         """
-        Get the indix of the lineage block where the migration event occurs.
+        Get the index of the lineage block where the migration event occurs.
         """
         return int(np.where(self.diff_marginal[self.locus_migration] == 1)[1][0])
 
@@ -876,9 +899,6 @@ class Transition:
         """
         if self.n_diff_loci_deme_coal != 1:
             return False
-
-        # if not self.has_diff_linked:
-        #    return False
 
         if self.n_blocks == 1:
             if self.has_diff_demes_linked:
@@ -1122,10 +1142,10 @@ class Transition:
         """
         return (
                 not self.has_diff_demes_linked and
-                self.is_eligible_migration and
                 self.is_valid_migration_one_locus_only and
                 self.is_one_migration_event and
-                self.has_sufficient_unlinked_lineages_migration
+                self.has_sufficient_unlinked_lineages_migration and
+                self.is_eligible_migration
         )
 
     @cached_property
@@ -1134,11 +1154,11 @@ class Transition:
         Whether the migration event is a linked migration event, i.e. a linked lineage migrates.
         """
         return (
-                self.is_eligible_migration and
                 self.is_one_migration_event and
                 self.has_sufficient_linked_lineages_migration and
                 self.has_diff_demes_linked and
-                self.is_valid_linked_migration
+                self.is_valid_linked_migration and
+                self.is_eligible_migration
         )
 
     @cached_property

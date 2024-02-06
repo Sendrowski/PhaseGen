@@ -1,9 +1,26 @@
-import numpy as np
-from fastdfe import Spectra
+"""
+Create single inference bootstrap sample.
+"""
+
+__author__ = "Janek Sendrowski"
+__contact__ = "sendrowski.janek@gmail.com"
+__date__ = "2024-01-30"
+
+try:
+    import sys
+
+    # necessary to import local module
+    sys.path.append('.')
+
+    testing = False
+    out = snakemake.output[0]
+except NameError:
+    # testing
+    testing = True
+    out = f"scratch/bootstrap.json"
 
 import phasegen as pg
 
-# observed (neutral) SFS
 observed = pg.SFS([177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652])
 
 
@@ -23,16 +40,15 @@ def get_coal(t: float, Ne: float) -> pg.Coalescent:
     )
 
 
-def loss(coal: pg.Coalescent, observation: pg.SFS) -> float:
+def loss(coal: pg.Coalescent) -> float:
     """
     Calculate loss by using the Poisson likelihood.
 
     :param coal: Coalescent distribution
-    :param observation: Observed SFS
     :return: Loss
     """
     return pg.PoissonLikelihood().compute(
-        observed=observation.normalize().polymorphic,
+        observed=observed.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     )
 
@@ -41,31 +57,11 @@ def loss(coal: pg.Coalescent, observation: pg.SFS) -> float:
 inf = pg.Inference(
     x0=dict(t=1, Ne=1),
     bounds=dict(t=(0, 4), Ne=(0.1, 1)),
-    observation=observed,
-    resample=lambda sfs: sfs.resample(),
-    do_bootstrap=True,
-    parallelize=True,
-    n_bootstrap=4,
     dist=get_coal,
     loss=loss,
     cache=True
 )
 
-# perform inference
-inf.run()
-
-spectra = Spectra.from_spectra(dict(
-    modelled=inf.dist_inferred.sfs.mean.normalize() * observed.n_polymorphic,
-    observed=observed
-))
-
-spectra.plot()
-
-# plot inferred demography
-inf.dist_inferred.demography.plot_pop_sizes(
-    t=np.linspace(0, inf.dist_inferred.tree_height.quantile(0.99), 100)
-)
-
-inf.to_file('scratch/inference.json')
+inf.to_file(out)
 
 pass

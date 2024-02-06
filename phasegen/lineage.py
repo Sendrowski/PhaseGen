@@ -70,3 +70,12 @@ class LineageConfig:
         # determine the states that correspond to the population configuration
         # it is enough here to focus on the first lineage class
         return (s.states[:, :, :, 0] == self.lineages).all(axis=(1, 2)).astype(int)
+
+    def __eq__(self, other):
+        """
+        Check if two lineage configurations are equal.
+
+        :param other: Other lineage configuration
+        :return: Whether the two lineage configurations are equal
+        """
+        return self.lineage_dict == other.lineage_dict
