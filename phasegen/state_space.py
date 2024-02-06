@@ -34,13 +34,9 @@ class StateSpace(ABC):
 
         :param pop_config: Population configuration.
         :param model: Coalescent model.
-        :param epoch: Time homogeneous demography (we can only construct a state space
-            for a fixed demography).
+        :param epoch: Epoch.
         :param cache: Whether to cache the rate matrix for different epochs.
         """
-        if not isinstance(model, StandardCoalescent) and locus_config.n > 1:
-            raise NotImplementedError('Only one locus is currently supported for non-standard coalescent models.')
-
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
@@ -491,7 +487,7 @@ class BlockCountingStateSpace(StateSpace):
     ):
         # currently only one locus is supported, due to a very complex state space for multiple loci
         if locus_config.n > 1:
-            raise NotImplementedError('BlockCountingStateSpace only supports one locus.')
+            raise NotImplementedError('Block counting state space only supports one locus.')
 
         super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
 
@@ -920,6 +916,42 @@ class Transition:
         return True
 
     @cached_property
+    def is_eligible_recombination(self) -> bool:
+        """
+        Alias for `is_eligible_recombination_or_locus_coalescence`.
+        """
+        return self.is_eligible_recombination_or_locus_coalescence
+
+    @cached_property
+    def is_eligible_locus_coalescence(self) -> bool:
+        """
+        Alias for `is_eligible_recombination_or_locus_coalescence`.
+        """
+        return self.is_eligible_recombination_or_locus_coalescence
+
+    @cached_property
+    def is_eligible_migration(self) -> bool:
+        """
+        Whether the transition is eligible for a migration event.
+        """
+        # two demes must be affected
+        return self.n_demes_marginal == 2
+
+    @cached_property
+    def is_eligible_linked_migration(self) -> bool:
+        """
+        Alias for `is_eligible_migration`.
+        """
+        return self.is_eligible_migration
+
+    @cached_property
+    def is_eligible_unlinked_migration(self) -> bool:
+        """
+        Alias for `is_eligible_migration`.
+        """
+        return self.is_eligible_migration
+
+    @cached_property
     def is_eligible(self) -> bool:
         """
         Whether the transition is eligible for any event. This is supposed to rule out impossible
@@ -1058,14 +1090,6 @@ class Transition:
         )
 
     @cached_property
-    def is_eligible_migration(self) -> bool:
-        """
-        Whether the transition is eligible for a migration event.
-        """
-        # two demes must be affected
-        return self.n_demes_marginal == 2
-
-    @cached_property
     def is_valid_migration_one_locus_only(self) -> bool:
         """
         Whether the migration event is only affecting one locus.
@@ -1186,7 +1210,7 @@ class Transition:
         ]
 
         for t in opts:
-            if getattr(self, f'is_{t}'):
+            if getattr(self, f'is_eligible_{t}') and getattr(self, f'is_{t}'):
                 types.append(t)
 
         return '+'.join(types) or 'invalid'
@@ -1258,8 +1282,6 @@ class Transition:
         lineages is a doubleton in one locus and a singleton in the other locus, given that an unlinked doubleton
         coalesced with an unlinked singleton. We thus need to keep track of the associations between lineages, which
         means they are no longer exchangeable.
-
-        TODO verify this
         """
         return self.state_space._get_coalescent_rate(
             n=self.state_space.pop_config.n,

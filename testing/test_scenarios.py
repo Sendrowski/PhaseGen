@@ -8,6 +8,13 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_beta_2_loci_n_2_r_1_alpha_1_5',
+]
+
+configs_suspended = [
+    '1_epoch_beta_2_loci_n_4_r_1_alpha_1_5',
+    '1_epoch_beta_2_loci_n_3_r_1_alpha_1_5',
+    '1_epoch_dirac_n_10_psi_0_7_c_50',
     '1_epoch_dirac_n_4_psi_0_7_c_50',
     '1_epoch_dirac_n_3_psi_0_7_c_50',
     '1_epoch_dirac_n_6_psi_0_7_c_50',
@@ -69,9 +76,6 @@ configs = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
-]
-
-configs_suspended = [
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
     '1_epoch_beta_n_2_alpha_1_9',  # TODO disagrees with Msprime for large values of alpha
     '1_epoch_beta_n_2_alpha_1_8',  # TODO disagrees with Msprime for large values of alpha

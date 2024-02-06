@@ -288,3 +288,49 @@ class StateSpaceTestCase(TestCase):
         s._plot_rates()
 
         pass
+
+    @pytest.mark.skip('Not a test')
+    def test_default_state_space_beta_2_loci_n_3_alpha_1_5(self):
+        """
+        Test default state space for beta, n = 3, alpha = 1.5.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.LineageConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
+            model=pg.BetaCoalescent(alpha=1.5),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass
+
+    @pytest.mark.skip('Not a test')
+    def test_default_state_space_beta_2_loci_n_2_alpha_1_5(self):
+        """
+        Test default state space for beta, n = 2, alpha = 1.5.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.LineageConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
+            model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass
+
+    def test_default_state_space_kingman_2_loci_n_2(self):
+        """
+        Test default state space for kingman, n = 2, alpha = 1.5.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.LineageConfig(n=2),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates()
+
+        pass

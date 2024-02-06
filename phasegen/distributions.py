@@ -470,7 +470,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
 
 class PhaseTypeDistribution(MomentAwareDistribution):
     """
-    Phase-type distribution for a piecewise time-homogenous process.
+    Phase-type distribution for a piecewise time-homogeneous process.
     """
     #: Number of decimals to round moments to.
     n_decimals: int = 12
@@ -641,7 +641,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     """
-    Phase-type distribution for a piecewise time-homogenous process that allows the computation of the
+    Phase-type distribution for a piecewise time-homogeneous process that allows the computation of the
     density function. This is currently only possible with default rewards.
     """
     #: Maximum number of epochs to consider when determining time to almost sure absorption.
@@ -1497,7 +1497,7 @@ class AbstractCoalescent(ABC):
 
 class Coalescent(AbstractCoalescent, Serializable):
     """
-    Coalescent distribution for the piecewise time-homogeneous coalescent.
+    Coalescent distribution.
     """
 
     def __init__(
