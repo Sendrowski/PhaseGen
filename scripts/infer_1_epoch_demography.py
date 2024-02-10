@@ -1,4 +1,3 @@
-import numpy as np
 from fastdfe import Spectra
 
 import phasegen as pg
@@ -45,8 +44,8 @@ inf = pg.Inference(
     resample=lambda sfs: sfs.resample(),
     do_bootstrap=True,
     parallelize=True,
-    n_bootstrap=4,
-    dist=get_coal,
+    n_bootstraps=100,
+    coal=get_coal,
     loss=loss,
     cache=True
 )
@@ -61,10 +60,11 @@ spectra = Spectra.from_spectra(dict(
 
 spectra.plot()
 
-# plot inferred demography
-inf.dist_inferred.demography.plot_pop_sizes(
-    t=np.linspace(0, inf.dist_inferred.tree_height.quantile(0.99), 100)
-)
+inf.plot_demography()
+inf.plot_pop_sizes()
+inf.plot_migration()
+inf.plot_bootstraps(kind='hist')
+inf.plot_bootstraps(kind='kde')
 
 inf.to_file('scratch/inference.json')
 

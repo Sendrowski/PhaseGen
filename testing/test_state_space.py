@@ -244,6 +244,18 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
         ).k, 35581)
 
+    def test_plot_rates(self):
+        """
+        Test plot rates.
+        """
+        s = pg.DefaultStateSpace(
+            pop_config=pg.LineageConfig(n=3),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        s._plot_rates('tmp/plot_rates', view=False)
+
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
         """
@@ -255,7 +267,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/block_counting_state_space_n_4_dirac')
 
         pass
 
@@ -270,7 +282,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/block_counting_state_space_n_5_dirac')
 
         pass
 
@@ -285,7 +297,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
 
         pass
 
@@ -301,7 +313,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/default_state_space_beta_2_loci_n_3_alpha_1_5')
 
         pass
 
@@ -317,7 +329,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/default_state_space_beta_2_loci_n_2_alpha_1_5')
 
         pass
 
@@ -331,6 +343,6 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates()
+        s._plot_rates('tmp/default_state_space_kingman_2_loci_n_2')
 
         pass

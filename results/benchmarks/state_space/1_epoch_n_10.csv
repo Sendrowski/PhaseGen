@@ -1,0 +1,2 @@
+scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
+1_epoch_n_10,0.006695985794067383,10,0.06581306457519531,42,0.11301803588867188,0.15807723999023438

@@ -125,7 +125,8 @@ class Visualization:
             file: str = None,
             show: bool = None,
             clear: bool = True,
-            title: str = 'rate trajectory'
+            title: str = 'rate trajectory',
+            kwargs: dict = {}
     ) -> plt.Axes:
         """
         Plot function.
@@ -139,11 +140,12 @@ class Visualization:
         :param show: Whether to show plot
         :param clear: Whether to clear current figure
         :param title: Title for plot
+        :param kwargs: Keyword arguments passed to plot function
         :return: Axes
         """
         # plot
         for key in rates:
-            ax.plot(times, rates[key], drawstyle='steps-post', label=key)
+            ax.plot(times, rates[key], drawstyle='steps-post', label=key, **kwargs)
 
         # set axis labels
         ax.set_xlabel(xlabel)
@@ -158,4 +160,4 @@ class Visualization:
 
         plt.margins(x=0)
 
-        return plt.gca()
+        return ax

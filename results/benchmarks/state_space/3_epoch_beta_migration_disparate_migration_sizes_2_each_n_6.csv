@@ -1,0 +1,2 @@
+scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
+3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6,0.2903292179107666,83,0.7316832542419434,221,1.7837879657745361,7.193855047225952

@@ -312,9 +312,12 @@ class StateSpace(ABC):
 
         return 'lightblue'
 
-    def _plot_rates(self):
+    def _plot_rates(self, file: str = 'rate_matrix', view: bool = True):
         """
         Plot the rate matrix using graphviz.
+
+        :param file: File to save plot to.
+        :param view: Whether to view the plot.
         """
         import graphviz
 
@@ -342,7 +345,7 @@ class StateSpace(ABC):
                     fontcolor=t.get_color()
                 )
 
-        graph.render('rate matrix', view=True)
+        graph.render(filename=file, view=view)
 
     @staticmethod
     def _find_vectors(n: int, k: int) -> List[List[int]]:

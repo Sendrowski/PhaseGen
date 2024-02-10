@@ -57,7 +57,7 @@ def loss(coal: pg.Coalescent) -> float:
 inf = pg.Inference(
     x0=dict(t=1, Ne=1),
     bounds=dict(t=(0, 4), Ne=(0.1, 1)),
-    dist=get_coal,
+    coal=get_coal,
     loss=loss,
     cache=True
 )

@@ -21,4 +21,4 @@ class ComparisonTestCase(TestCase):
         # drop simulated data
         c.ms.drop()
 
-        c.compare()
+        c.compare(title="test_comparison")

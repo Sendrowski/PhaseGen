@@ -62,7 +62,7 @@ def simulate_tree_height(alpha):
 
 
 if __name__ == "__main__":
-    alphas = np.linspace(1.8, 1.99, 50)
+    alphas = np.linspace(1.99, 1.999, 50)
 
     # simulate average tree heights in parallel
     with mp.Pool() as pool:
@@ -75,12 +75,14 @@ if __name__ == "__main__":
     diff_rel = (heights_observed - heights_theoretical) / heights_theoretical
 
     # plot relative difference against alpha
-    plt.figure(figsize=(7, 2))
+    plt.figure(figsize=(7, 2.5))
     plt.plot(alphas, diff_rel)
     plt.axhline(0, color='r', linestyle='--')
     plt.xlabel('alpha')
     plt.ylabel('diff_rel')
     plt.title('1e6 replicates')
+    plt.margins(x=0)
+    plt.tight_layout()
     plt.show()
 
     pass

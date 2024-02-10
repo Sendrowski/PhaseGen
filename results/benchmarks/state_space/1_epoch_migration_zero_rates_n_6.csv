@@ -1,0 +1,2 @@
+scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
+1_epoch_migration_zero_rates_n_6,0.03803706169128418,27,0.07341599464416504,65,0.20624899864196777,0.1480100154876709

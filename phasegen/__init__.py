@@ -19,6 +19,10 @@ jsonpickle_numpy.register_handlers()
 
 
 class TqdmLoggingHandler(logging.Handler):
+    """
+    A logging handler that uses TQDM to display log messages.
+    """
+
     def __init__(self, level=logging.NOTSET):
         """
         Initialize the handler.
@@ -43,6 +47,10 @@ class TqdmLoggingHandler(logging.Handler):
 
 
 class ColoredFormatter(logging.Formatter):
+    """
+    A logging formatter that adds colors to the log messages.
+    """
+
     def __init__(self, *args, **kwargs):
         """
         Initialize the formatter.

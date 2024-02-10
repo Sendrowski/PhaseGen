@@ -1,3 +1,4 @@
+import copy
 import itertools
 import logging
 from abc import ABC, abstractmethod
@@ -1610,16 +1611,19 @@ class Coalescent(AbstractCoalescent, Serializable):
         self.default_state_space.drop_cache()
         self.block_counting_state_space.drop_cache()
 
-
     def to_json(self) -> str:
         """
-        Serialize to JSON.
+        Serialize to JSON. Drop cache before serializing.
 
         :return: JSON string.
         """
-        self.drop_cache()
+        # copy object to avoid modifying the original
+        other = copy.deepcopy(self)
 
-        return super().to_json()
+        # drop cache
+        other.drop_cache()
+
+        return super(self.__class__, other).to_json()
 
 
 class MsprimeCoalescent(AbstractCoalescent):

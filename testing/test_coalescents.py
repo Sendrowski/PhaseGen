@@ -392,7 +392,7 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space._plot_rates()
+        coal.default_state_space._plot_rates('tmp/test_n_2_2_loci_default_state_space_completely_unlinked')
 
         pass
 
@@ -420,7 +420,7 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space._plot_rates()
+        coal.default_state_space._plot_rates('tmp/test_n_2_1_locus_default_state_space')
 
         pass
 
@@ -482,7 +482,7 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space._plot_rates()
+        coal.default_state_space._plot_rates('tmp/test_n_3_2_loci_default_state_space_completely_linked')
 
         pass
 
@@ -510,7 +510,7 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space._plot_rates()
+        coal.default_state_space._plot_rates('tmp/test_n_3_1_locus_default_state_space')
 
         pass
 
@@ -527,3 +527,19 @@ class CoalescentTestCase(TestCase):
         self.assertAlmostEqual(coal.tree_height.mean, coal.model._get_timescale(1), places=15)
 
         pass
+
+    def test_serialize_coalescent(self):
+        """
+        Test serialization of coalescent.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        )
+
+        coal.to_file('tmp/test_serialize_simple_coalescent.json')
+
+        coal2 = pg.Coalescent.from_file('tmp/test_serialize_simple_coalescent.json')
+
+        self.assertEqual(coal.tree_height.mean, coal2.tree_height.mean)

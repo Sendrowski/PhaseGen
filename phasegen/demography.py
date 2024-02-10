@@ -604,14 +604,11 @@ class Demography:
         self._logger = logger.getChild(self.__class__.__name__)
 
         #: Array of demographic events.
-        self.events: np.ndarray = np.array(events)
+        self.events: List[DemographicEvent] = list(events)
 
         # add population size and migration rate changes if specified
         if len(pop_sizes) or len(migration_rates):
-            self.events = np.concatenate([
-                self.events,
-                [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
-            ])
+            self.events += [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
 
         #: Population names.
         self._prepare_events()
@@ -621,7 +618,7 @@ class Demography:
         Sort events by start time and determine population names and number of populations.
         """
         # sort events by start time
-        self.events = np.array(sorted(self.events, key=lambda e: e.start_time))
+        self.events = sorted(self.events, key=lambda e: e.start_time)
 
         # determine population names
         self.pop_names = sorted(list(set([p for e in self.events for p in e.pop_names])))
@@ -757,7 +754,7 @@ class Demography:
 
         :param events: List of demographic events.
         """
-        self.events = np.append(self.events, np.array(events))
+        self.events += events
 
         self._prepare_events()
 
@@ -777,6 +774,7 @@ class Demography:
             title: str = 'Population size trajectory',
             ylabel: str = '$N_e(t)$',
             ax: plt.Axes = None,
+            kwargs: dict = {}
     ) -> plt.Axes:
         """
         Plot the population size over time.
@@ -788,6 +786,7 @@ class Demography:
         :param title: Title of the plot.
         :param ylabel: Label of the y-axis.
         :param ax: Axes object to plot to.
+        :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
 
@@ -801,6 +800,7 @@ class Demography:
             file=file,
             title=title,
             ylabel=ylabel,
+            kwargs=kwargs,
             ax=ax
         )
 
@@ -812,6 +812,7 @@ class Demography:
             title: str = 'Migration rate trajectory',
             ylabel: str = '$m_{ij}(t)$',
             ax: plt.Axes = None,
+            kwargs: dict = {}
     ) -> plt.Axes:
         """
         Plot the migration over time.
@@ -822,6 +823,7 @@ class Demography:
         :param title: Title of the plot.
         :param ylabel: Label of the y-axis.
         :param ax: Axes object to plot to.
+        :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
         return Visualization.plot_rates(
@@ -835,6 +837,7 @@ class Demography:
             file=file,
             title=title,
             ylabel=ylabel,
+            kwargs=kwargs,
             ax=ax
         )
 
@@ -842,7 +845,9 @@ class Demography:
             self,
             t: np.ndarray = np.linspace(0, 10, 100),
             show: bool = True,
-            file: str = None
+            file: str = None,
+            kwargs: dict = {},
+            ax: List[plt.Axes] = None
     ) -> List[plt.Axes]:
         """
         Plot the demographic scenario.
@@ -850,11 +855,14 @@ class Demography:
         :param t: Times at which to plot the population sizes and migration rates.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :return: Axes objects
+        :param kwargs: Keyword arguments to pass to the plotting function.
+        :param ax: List of axes to plot to.
+        :return: List of axes.
         """
-        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        if ax is None:
+            _, ax = plt.subplots(1, 2, figsize=(10, 5))
 
-        self.plot_pop_sizes(t=t, show=False, file=file, ax=axes[0])
-        self.plot_migration(t=t, show=show, file=file, ax=axes[1])
+        self.plot_pop_sizes(t=t, show=False, ax=ax[0], kwargs=kwargs)
+        self.plot_migration(t=t, show=show, file=file, ax=ax[1], kwargs=kwargs)
 
-        return axes
+        return ax
