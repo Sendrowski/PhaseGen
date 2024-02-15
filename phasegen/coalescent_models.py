@@ -170,8 +170,6 @@ class BetaCoalescent(CoalescentModel):
     Beta coalescent model. Refer to
     `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=beta+coalescent#msprime.BetaCoalescent>`__
     for more information.
-
-    TODO disagrees with Msprime for large values of alpha
     """
 
     def __init__(self, alpha: float, scale_time: bool = True):
@@ -266,8 +264,6 @@ class DiracCoalescent(CoalescentModel):
     Dirac coalescent model. Refer to
     `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=dirac+coalescent#msprime.DiracCoalescent>`__
     for more information.
-
-    TODO shorter SFS bins than msprime
     """
 
     def __init__(self, psi: float, c: float, scale_time: bool = True):

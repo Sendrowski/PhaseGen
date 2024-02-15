@@ -25,7 +25,6 @@ class Inference(Serializable):
     provided loss function, through coalescent simulation based on phase-type
     theory. The optimization is performed via the BFGS algorithm from scipy.
 
-    TODO run main inference several times and take the best result
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
