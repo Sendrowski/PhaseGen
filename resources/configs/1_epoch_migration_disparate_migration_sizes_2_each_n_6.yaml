@@ -53,3 +53,10 @@ comparisons:
       mean: 0.01
       cov: 0.03
       corr: 0.03
+    fsfs:
+        demes:
+            mean: 0.015
+            # var: 0.02 variance not supported by MsprimeCoalescent
+        mean: 0.01
+        cov: 0.03
+        corr: 0.03

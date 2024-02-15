@@ -125,18 +125,32 @@ class TotalBranchLengthReward(NonDefaultReward):
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
-class SFSReward(NonDefaultReward):
+class SFSReward(NonDefaultReward, ABC):
     """
-    Reward based on Site Frequency Spectrum.
+    Reward based on site frequency spectrum (SFS).
     """
 
     def __init__(self, index: int = None):
         """
         Initialize the reward.
 
-        :param index: The index of the SFS bin to use.
+        :param index: The index of the SFS bin to use, starting from 1.
         """
         self.index = index
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name and the index.
+
+        :return: hash
+        """
+        return hash(self.__class__.__name__ + str(self.index))
+
+
+class UnfoldedSFSReward(SFSReward):
+    """
+    Reward based on unfolded site frequency spectrum (SFS).
+    """
 
     def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
@@ -148,17 +162,43 @@ class SFSReward(NonDefaultReward):
         """
         if isinstance(state_space, BlockCountingStateSpace):
             # sum over demes and loci, and select block
-            return state_space.states[:, :, :, self.index].sum(axis=(1, 2))
+            return state_space.states[:, :, :, self.index - 1].sum(axis=(1, 2))
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
-    def __hash__(self) -> int:
-        """
-        Calculate the hash of the class name and the index.
 
-        :return: hash
+class FoldedSFSReward(SFSReward):
+    """
+    Reward based on folded site frequency spectrum (SFS).
+    """
+
+    def _get_indices(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
-        return hash(self.__class__.__name__ + str(self.index))
+        Get the indices of the blocks that make up the folded SFS bin.
+
+        :param state_space: state space
+        :return: indices
+        """
+        if self.index == state_space.pop_config.n - self.index:
+            return np.array([self.index - 1])
+
+        return np.array([self.index - 1, state_space.pop_config.n - self.index - 1])
+
+    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, BlockCountingStateSpace):
+            blocks = self._get_indices(state_space)
+
+            # sum over demes and loci, and select block
+            return state_space.states[:, :, :, blocks].sum(axis=(1, 2, 3))
+
+        raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
 
 class DemeReward(NonDefaultReward):

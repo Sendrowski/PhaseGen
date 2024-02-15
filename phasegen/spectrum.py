@@ -52,7 +52,7 @@ def _mask(data: np.ndarray = None) -> np.ndarray:
     return data[~np.isnan(data) & ~np.isinf(data)]
 
 
-def _get_max_abs_entry(data: np.ndarray) -> float | None:
+def _get_max_abs_entry(data: np.ndarray) -> float:
     """
     Get the maximum absolute entry of the given data.
     
@@ -61,7 +61,7 @@ def _get_max_abs_entry(data: np.ndarray) -> float | None:
     """
     entries = np.abs(_mask(data))
 
-    return entries.max() if len(entries) > 0 else None
+    return entries.max() if len(entries) > 0 else 1
 
 
 class SFS(Spectrum):
@@ -76,12 +76,11 @@ class SFS2(Iterable):
     A 2-dimensional site-frequency spectrum.
     """
 
-    def __init__(self, data: np.ndarray | list, folded: bool = False):
+    def __init__(self, data: np.ndarray | list):
         """
         Construct from data matrix.
         
         :param data:
-        :param folded:
         """
         data = np.array(data).copy()
 
@@ -97,7 +96,6 @@ class SFS2(Iterable):
         self.w = self.n // 2 + 1 if self.n % 2 == 1 else self.n // 2
 
         self.data = data
-        self.folded = folded
 
     def to_file(self, file) -> None:
         """
@@ -122,6 +120,14 @@ class SFS2(Iterable):
 
         return jsonpickle.encode(obj)
 
+    def is_folded(self) -> bool:
+        """
+        Check if the 2-SFS is folded.
+
+        :return: Whether the 2-SFS is folded.
+        """
+        return np.all(self.data == self.fold().data)
+
     def __add__(self, other) -> 'SFS2':
         """
         Add two 2-SFS.
@@ -132,7 +138,7 @@ class SFS2(Iterable):
         if isinstance(other, SFS2):
             return self + other.data
 
-        return SFS2(self.data + other, folded=self.folded)
+        return SFS2(self.data + other)
 
     def __sub__(self, other) -> 'SFS2':
         """
@@ -144,7 +150,7 @@ class SFS2(Iterable):
         if isinstance(other, SFS2):
             return self - other.data
 
-        return SFS2(self.data - other, folded=self.folded)
+        return SFS2(self.data - other)
 
     def __mul__(self, other) -> 'SFS2':
         """
@@ -156,7 +162,7 @@ class SFS2(Iterable):
         if isinstance(other, SFS2):
             return self * other.data
 
-        return SFS2(self.data * other, folded=self.folded)
+        return SFS2(self.data * other)
 
     def __floordiv__(self, other) -> 'SFS2':
         """
@@ -168,7 +174,7 @@ class SFS2(Iterable):
         if isinstance(other, SFS2):
             return self // other.data
 
-        return SFS2(self.data // other, folded=self.folded)
+        return SFS2(self.data // other)
 
     def __truediv__(self, other) -> 'SFS2':
         """
@@ -180,7 +186,7 @@ class SFS2(Iterable):
         if isinstance(other, SFS2):
             return self / other.data
 
-        return SFS2(self.data / other, folded=self.folded)
+        return SFS2(self.data / other)
 
     def __iter__(self):
         """
@@ -201,43 +207,49 @@ class SFS2(Iterable):
 
     def fold(self) -> 'SFS2':
         """
-        Fold 2-SFS.
+        Fold 2-SFS by adding up `i` and `n - i` for both axes.
+        Node that this only make sense for counts or frequencies.
+
+        :return: Folded 2-SFS.
         """
-        if not self.folded:
-            data = self.data.copy()
+        data = self.data.copy()
 
-            for _ in range(2):
-                # compute left and right half and merge them
-                left = np.concatenate((data[:self.w], np.zeros((self.n - self.w, self.n))))
-                right = np.concatenate((data[self.w:][::-1], np.zeros((self.w, self.n))))
+        for _ in range(2):
+            # compute left and right half and merge them
+            left = np.concatenate((data[:self.w], np.zeros((self.n - self.w, self.n))))
+            right = np.concatenate((data[self.w:][::-1], np.zeros((self.w, self.n))))
 
-                # add parts and rotate
-                data = (left + right).T
+            # add parts and rotate
+            data = (left + right).T
 
-            return SFS2(data, folded=True)
-
-        return self
+        return SFS2(data)
 
     def copy(self) -> 'SFS2':
         """
-        Copy SFS.
+        Create deep copy.
+
+        :return: Deep copy.
         """
         return copy.deepcopy(self)
 
     def symmetrize(self) -> 'SFS2':
         """
-        Symmetric SFS.
+        Symmetric SFS so that `i, j` and `j, i` are the same.
+
+        :return: Symmetric 2-SFS.
         """
-        return SFS2((self.data + self.data.T) / 2, folded=self.folded)
+        return SFS2((self.data + self.data.T) / 2)
 
     def resample_hypergeometric(self, multiplier: int = 100000, N: int = 100) -> 'SFS2':
         """
         Resample counts under the hyper-geometric distribution.
 
+        TODO remove this
+
         :param multiplier: multiplier for counts to determine number
             of draws.
         :param N: population size
-        :return:
+        :return: Resampled 2-SFS
         """
         rng = default_rng()
 
@@ -280,7 +292,7 @@ class SFS2(Iterable):
         Remote the diagonal entries of the given array.
         
         :param fill_value:
-        :return:
+        :return: 2-SFS
         """
         other = self.copy()
 
@@ -295,7 +307,7 @@ class SFS2(Iterable):
         """
         Get maximum magnitude entry outside the diagonal.
         
-        :return:
+        :return: Maximum magnitude entry.
         """
         return _get_max_abs_entry(self.data)
 
@@ -319,8 +331,9 @@ class SFS2(Iterable):
     ) -> plt.Axes:
         """
         Plot as a heatmap.
+        TODO make work for low sample sizes (e.g. 2)
         
-        :param title:
+        :param title: Title of the plot.
         :param ax: Axes to plot on.
         :param max_abs: Maximum absolute value to plot.
         :param log_scale: Use log scale.
@@ -339,7 +352,7 @@ class SFS2(Iterable):
             data = _fill_diagonals(data)
 
         # truncate data if folded
-        if self.folded:
+        if self.is_folded():
             data = data[:self.w - 1, :self.w - 1]
 
         # determine colorbar bounds if not specified
@@ -421,7 +434,7 @@ class SFS2(Iterable):
             data = _fill_diagonals(data, fill_value)
 
         # truncate data if folded
-        if self.folded:
+        if self.is_folded():
             data = data[:self.w - 1, :self.w - 1]
 
         # determine color bar bounds if not specified

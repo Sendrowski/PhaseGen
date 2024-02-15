@@ -3,6 +3,7 @@ n:
   pop_1: 2
   pop_2: 2
 num_replicates: 1000000
+record_migration: true
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 3
@@ -38,10 +39,22 @@ comparisons:
       cdf: 0.2
       mean: 0.01
       var: 0.02
+      demes:
+        mean: 0.01
     total_branch_length:
       mean: 0.01
       var: 0.02
+      demes:
+        mean: 0.01
     sfs:
       mean: 0.01
       cov: 0.07
       corr: 0.07
+      demes:
+        mean: 0.01
+    fsfs:
+      mean: 0.01
+      cov: 0.07
+      corr: 0.07
+      demes:
+        mean: 0.01

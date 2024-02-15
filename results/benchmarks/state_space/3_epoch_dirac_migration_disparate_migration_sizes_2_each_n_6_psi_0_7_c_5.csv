@@ -1,2 +1,2 @@
 scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5,0.26234006881713867,83,0.9860968589782715,221,4.847156047821045,285.21804904937744
+3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5,0.2702901363372803,83,0.5295019149780273,221,2.0068302154541016,168.7877128124237

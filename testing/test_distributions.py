@@ -352,3 +352,40 @@ class DistributionTestCase(TestCase):
         _ = coal.default_state_space.S
 
         pass
+
+    def test_folded_mean_sfs_test_coalescent(self):
+        """
+        Test folded SFS.
+        """
+        coal = self.get_test_coalescent()
+
+        observed = coal.fsfs.mean
+        expected = coal.sfs.mean.fold()
+
+        np.testing.assert_array_almost_equal(observed.data, expected.data)
+
+    def test_folded_mean_sfs_n_10(self):
+        """
+        Test folded SFS.
+        """
+        coal = pg.Coalescent(
+            n=10
+        )
+
+        observed = coal.fsfs.mean
+        expected = coal.sfs.mean.fold()
+
+        np.testing.assert_array_almost_equal(observed.data, expected.data)
+
+    def test_folded_mean_sfs_n_11(self):
+        """
+        Test folded SFS.
+        """
+        coal = pg.Coalescent(
+            n=11
+        )
+
+        observed = coal.fsfs.mean
+        expected = coal.sfs.mean.fold()
+
+        np.testing.assert_array_almost_equal(observed.data, expected.data)

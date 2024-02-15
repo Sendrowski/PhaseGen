@@ -19,8 +19,8 @@ from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalesce
 from .demography import Demography, Epoch, PopSizeChanges
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, SFSReward, DemeReward, UnitReward, LocusReward, \
-    CombinedReward
+from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
+    LocusReward, CombinedReward, FoldedSFSReward, SFSReward
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
@@ -879,9 +879,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return t
 
 
-class SFSDistribution(PhaseTypeDistribution):
+class SFSDistribution(PhaseTypeDistribution, ABC):
     """
-    Site-frequency spectrum distribution.
+    Base class for site-frequency spectrum distributions.
     """
 
     def __init__(
@@ -916,6 +916,25 @@ class SFSDistribution(PhaseTypeDistribution):
         #: Whether to parallelize computations
         self.parallelize: bool = parallelize
 
+    @abstractmethod
+    def _get_sfs_reward(self, i: int) -> SFSReward:
+        """
+        Get the reward for the ith site-frequency count.
+
+        :param i: The ith site-frequency count.
+        :return: The reward.
+        """
+        pass
+
+    @abstractmethod
+    def _get_indices(self) -> np.ndarray:
+        """
+        Get the indices for the site-frequency spectrum.
+
+        :return: The indices.
+        """
+        pass
+
     @cache
     def moment(self, k: int, i: int = None) -> SFS | float:
         """
@@ -934,7 +953,7 @@ class SFSDistribution(PhaseTypeDistribution):
             :return: The moment
             """
             d = PhaseTypeDistribution(
-                reward=CombinedReward([self.reward, SFSReward(i)]),
+                reward=CombinedReward([self.reward, self._get_sfs_reward(i)]),
                 tree_height=self.tree_height,
                 state_space=self.state_space,
                 demography=self.demography
@@ -951,13 +970,13 @@ class SFSDistribution(PhaseTypeDistribution):
         # calculate moments in parallel
         moments = parallelize(
             func=get_count,
-            data=np.arange(self.pop_config.n - 1),
+            data=self._get_indices(),
             desc=f"Calculating moments of order {k}",
             pbar=self.pbar,
             parallelize=self.parallelize
         )
 
-        return SFS([0] + list(moments) + [0])
+        return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
 
     @cached_property
     def cov(self) -> SFS2:
@@ -965,11 +984,11 @@ class SFSDistribution(PhaseTypeDistribution):
         The 2-SFS, i.e. the covariance matrix of the site-frequencies.
         """
         # create list of arguments for each combination of i, j
-        indices = [(i, j) for i in range(self.pop_config.n - 1) for j in range(self.pop_config.n - 1)]
+        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
         # get sfs using parallelized function
         sfs_results = parallelize(
-            func=lambda args: self.get_cov(*args),
+            func=lambda x: self.get_cov(*x),
             data=indices,
             desc="Calculating covariance",
             pbar=self.pbar,
@@ -979,7 +998,7 @@ class SFSDistribution(PhaseTypeDistribution):
         # re-structure the results to a matrix form
         sfs = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
         for ((i, j), result) in zip(indices, sfs_results):
-            sfs[i + 1, j + 1] = result
+            sfs[i, j] = result
 
         # get matrix of marginal second moments
         m2 = np.outer(self.mean.data, self.mean.data)
@@ -994,8 +1013,8 @@ class SFSDistribution(PhaseTypeDistribution):
         """
         Get the covariance between the ith and jth site-frequency.
 
-        :param i: The ith site-frequency
-        :param j: The jth site-frequency
+        :param i: The ith frequency count
+        :param j: The jth frequency count
         :return: covariance
         """
         d = PhaseTypeDistribution(
@@ -1007,8 +1026,8 @@ class SFSDistribution(PhaseTypeDistribution):
         return d.moment(
             k=2,
             rewards=(
-                CombinedReward([self.reward, SFSReward(i)]),
-                CombinedReward([self.reward, SFSReward(j)])
+                CombinedReward([self.reward, self._get_sfs_reward(i)]),
+                CombinedReward([self.reward, self._get_sfs_reward(j)])
             )
         )
 
@@ -1034,14 +1053,60 @@ class SFSDistribution(PhaseTypeDistribution):
         """
         Get the correlation coefficient between the ith and jth site-frequency.
 
-        :param i: The ith site-frequency
-        :param j: The jth site-frequency
+        :param i: The ith frequency count
+        :param j: The jth frequency count
         :return: Correlation coefficient
         """
         std_i = np.sqrt(self.moment(k=2, i=i))
         std_j = np.sqrt(self.moment(k=2, i=j))
 
         return self.get_cov(i, j) / (std_i * std_j)
+
+
+class UnfoldedSFSDistribution(SFSDistribution):
+    """
+    Unfolded site-frequency spectrum distribution.
+    """
+
+    def _get_sfs_reward(self, i: int) -> UnfoldedSFSReward:
+        """
+        Get the reward for the ith site-frequency count.
+
+        :param i: The ith site-frequency count.
+        :return: The reward.
+        """
+        return UnfoldedSFSReward(i)
+
+    def _get_indices(self) -> np.ndarray:
+        """
+        Get the indices for the site-frequency spectrum.
+
+        :return: The indices.
+        """
+        return np.arange(1, self.pop_config.n)
+
+
+class FoldedSFSDistribution(SFSDistribution):
+    """
+    Folded site-frequency spectrum distribution.
+    """
+
+    def _get_sfs_reward(self, i: int) -> FoldedSFSReward:
+        """
+        Get the reward for the ith site-frequency count.
+
+        :param i: The ith site-frequency count.
+        :return: The reward.
+        """
+        return FoldedSFSReward(i)
+
+    def _get_indices(self) -> np.ndarray:
+        """
+        Get the indices for the site-frequency spectrum.
+
+        :return: The indices.
+        """
+        return np.arange(1, self.pop_config.n // 2 + 1)
 
 
 class EmpiricalDistribution(DensityAwareDistribution):
@@ -1594,11 +1659,22 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
     @cached_property
-    def sfs(self) -> SFSDistribution:
+    def sfs(self) -> UnfoldedSFSDistribution:
         """
         Site frequency spectrum distribution.
         """
-        return SFSDistribution(
+        return UnfoldedSFSDistribution(
+            state_space=self.block_counting_state_space,
+            tree_height=self.tree_height,
+            demography=self.demography
+        )
+
+    @cached_property
+    def fsfs(self) -> FoldedSFSDistribution:
+        """
+        Folded site frequency spectrum distribution.
+        """
+        return FoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
             demography=self.demography
@@ -1880,6 +1956,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_tree_height.touch(t)
         self.total_branch_length.touch(t)
         self.sfs.touch(t)
+        self.fsfs.touch(t)
 
     def drop(self):
         """
@@ -1893,6 +1970,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_tree_height.drop()
         self.total_branch_length.drop()
         self.sfs.drop()
+        self.fsfs.drop()
 
         # caused problems when serializing
         self.demography = None
@@ -1936,6 +2014,22 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.simulate()
 
         return EmpiricalPhaseTypeSFSDistribution(self.sfs_counts, pops=self.demography.pop_names)
+
+    @cached_property
+    def fsfs(self) -> EmpiricalPhaseTypeSFSDistribution:
+        """
+        Folded site frequency spectrum distribution.
+        """
+        self.simulate()
+
+        mid = (self.pop_config.n + 1) // 2
+
+        counts = self.sfs_counts.copy().T
+
+        counts[:mid] += counts[-mid:][::-1]
+        counts[-mid:] = 0
+
+        return EmpiricalPhaseTypeSFSDistribution(counts.T, pops=self.demography.pop_names)
 
 
 class _GramCharlierExpansion:

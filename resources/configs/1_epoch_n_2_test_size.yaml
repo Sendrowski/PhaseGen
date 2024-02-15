@@ -24,3 +24,7 @@ comparisons:
       mean: 0.15
       cov: 0.3
       corr: 0.3
+    fsfs:
+      mean: 0.15
+      cov: 0.3
+      corr: 0.3

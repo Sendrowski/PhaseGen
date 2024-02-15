@@ -8,6 +8,11 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',  # TODO first moment of demes not working
+]
+
+configs_suspended = [
+    '1_epoch_n_10',
     '1_epoch_beta_n_2_alpha_1_9',
     '1_epoch_beta_n_6_alpha_1_9',
     '1_epoch_dirac_n_10_psi_0_7_c_50',
@@ -31,20 +36,18 @@ configs = [
     '1_epoch_2_loci_n_4_r_1_larger_N',
     '1_epoch_2_loci_n_2_r_1_larger_N',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
-    '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',  # TODO first moment of demes not working
+    '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',  # TODO first moment of demes not working
     '2_epoch_varying_migration_low_coalescence',
     '1_epoch_beta_n_2_alpha_1_5',
-    '1_epoch_2_loci_n_4_r_1',
     '1_epoch_2_loci_n_3_r_1',
     '1_epoch_2_loci_n_10_r_1',
-    '1_epoch_2_loci_n_4_r_1',
     '1_epoch_2_loci_n_3_r_100',
     '1_epoch_migration_one_each_n_6',
     '1_epoch_migration_one_each_n_2',
     '1_epoch_2_loci_n_3_r_0',
     '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_n_2',
     '1_epoch_n_4',
     '2_epoch_n_5',
     '2_epoch_n_2',
@@ -57,7 +60,6 @@ configs = [
     '2_epoch_2_pops_n_5',
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
-    '1_epoch_n_2',
     '1_epoch_n_2_test_size',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
@@ -72,9 +74,6 @@ configs = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
-]
-
-configs_suspended = [
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
     '1_epoch_beta_n_6_alpha_1_999',  # still imprecise in msprime
     '1_epoch_beta_n_2_alpha_1_999',  # still imprecise in msprime

@@ -1,7 +1,9 @@
 import os
-import re
 from pathlib import Path
 from typing import List
+import re
+
+import pandas as pd
 
 
 def get_filenames(path) -> List[str]:
@@ -16,24 +18,6 @@ def get_filenames(path) -> List[str]:
 
 configs = get_filenames("resources/configs")
 
-
-def extract_opt(str: str, name, default_value=None):
-    """
-    Extract named option from string.
-    :param str:
-    :param name:
-    :param default_value:
-    :return:
-    """
-    # named options have the following signature
-    match = re.search(f"[_./-]{name}[_:]([^_./-]*)",str)
-
-    if match:
-        return match.groups()[0]
-
-    return default_value
-
-
 wildcard_constraints:
     opts=r'[^/]*'  # match several optional options not separated by /
 
@@ -41,7 +25,21 @@ rule all:
     input:
         (
             expand("results/comparisons/serialized/{config}.json",config=configs),
-            "results/benchmarks/state_space/all.csv"
+            "results/benchmarks/state_space/all.csv",
+            expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
+            expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),
+            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[1e-6],Ne=[1e4],n=[40],L=[1e6],r=[1e-7],folded=["folded"],d=[100],
+                model=['standard']),
+            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[3e-6],Ne=[1e4],n=[40],L=[1e6],r=[3e-7],folded=["folded"],d=[100],
+                model=['beta.1.8']),
+            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[1e-4],Ne=[1e4],n=[40],L=[1e6],r=[1e-5],folded=["folded"],d=[100],
+                model=['beta.1.5']),
+            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[3e-4],Ne=[1e4],n=[40],L=[1e6],r=[3e-5],folded=["folded"],d=[100],
+                model=['beta.1.25']),
         )
 
 rule create_comparison:
@@ -95,3 +93,145 @@ rule generate_requirements_poetry:
             mamba env update -f envs/dev.yaml
             mamba env update -f envs/base.yaml
         """
+
+# download DPGP3 VCF
+rule download_DPGP3_VCF:
+    output:
+        protected("resources/dpgp3/data/dpgp3_sequences.tar")
+    params:
+        url="http://pooldata.genetics.wisc.edu/dpgp3_sequences.tar.bz2"
+    shell:
+        "curl {params.url} -o {output} -L"
+
+# extract chromosome archive from archive
+rule extract_DPGP3_chrom_from_archive:
+    input:
+        "resources/dpgp3/data/dpgp3_sequences.tar"
+    output:
+        temp("resources/dpgp3/data/{chr}.tar")
+    shell:
+        "tar -O -zxvf {input} dpgp3_sequences/dpgp3_Chr{wildcards.chr}.tar > {output}"
+
+# extract sequence from chromosome archive
+rule extract_DPGP3_chrom:
+    input:
+        "resources/dpgp3/data/{chr_drosophila}.tar"
+    output:
+        temp("resources/dpgp3/data/{chr_drosophila}/{name}_Chr{chr_drosophila}.seq")
+    shell:
+        "tar -O -xvf {input} {wildcards.name}_Chr{wildcards.chr_drosophila}.seq > {output}"
+
+
+def sample_files_dpgp3(chr: str, n: int) -> List[str]:
+    """
+    Get files for the n first samples of the DPGP3 data.
+
+    :param n: Number of samples
+    :param chr: Chromosome
+    :return: List of file names
+    """
+    names = pd.read_csv(f"resources/rice/data/DPGP3/inversions/noninverted_Chr{chr}.txt",header=None).head(n)[0]
+
+    return expand(rules.extract_DPGP3_chrom.output,name=names,allow_missing=True)
+
+
+# merge component VCFs
+rule merge_sequences_DPGP3:
+    input:
+        lambda w: sample_files_dpgp3(w.chr_drosophila,int(w.n))
+    output:
+        "results/drosophila/data/{chr_drosophila}_{n}.csv"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/merge_seqs_dpgp3.py"
+
+# calculate 2-SFS from the data that Rice et al. prepared
+rule calculate_2sfs_data_rice:
+    input:
+        counts="resources/rice/data/DPGP3/minor_allele_counts/Chr{chr}.mac.txt.gz",
+        fourfold="resources/rice/data/dmel-4Dsites.txt.gz"
+    output:
+        data="results/drosophila/2sfs/rice/{chr}/d={d}.{folded}.txt",
+        image="results/graphs/drosophila/2sfs/rice/{chr}/d={d}.{folded}.png"
+    params:
+        n_proj=100,
+        d=lambda w: int(w.d),
+        filter_4fold=True,
+        filter_boundaries=True,
+        boundaries={
+            '2L': (1e6, 17e6),
+            '2R': (6e6, 19e6),
+            '3L': (1e6, 17e6),
+            '3R': (10e6, 26e6)
+        },
+        chrom="{chr}",
+        folded= lambda w: w.folded == 'folded',
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/calculate_2sfs_dpgp3.py"
+
+# calculate 2-SFS from the DPGP3 data
+rule calculate_2sfs_data_DPGP3:
+    input:
+        counts="results/drosophila/data/{chr}_{n}.csv",
+        fourfold="resources/rice/data/dmel-4Dsites.txt.gz"
+    output:
+        data="results/drosophila/2sfs/{chr}/n={n}.d={d}.{folded}.txt",
+        image="results/graphs/drosophila/2sfs/{chr}/n={n}.d={d}.{folded}.png"
+    params:
+        n_proj=lambda w: int(w.n),
+        d=lambda w: int(w.d),
+        filter_4fold=True,
+        filter_boundaries=True,
+        boundaries={
+            '2L': (1e6, 17e6),
+            '2R': (6e6, 19e6),
+            '3L': (1e6, 17e6),
+            '3R': (10e6, 26e6)
+        },
+        chrom="{chr}",
+        folded= lambda w: w.folded == 'folded',
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/calculate_2sfs_dpgp3.py"
+
+# simulate sequence
+rule simulate_sequence:
+    output:
+        data="results/simulations/data/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
+        info="results/simulations/info/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.yaml"
+    params:
+        mu=lambda w: float(w.mu),
+        Ne=lambda w: float(w.Ne),
+        n=lambda w: float(w.n),
+        length=lambda w: float(w.L),
+        folded=False, # fold later
+        model=lambda w: w.model.split('.')[0],
+        alpha=lambda w: float(w.model.split('.', 1)[1]) if 'beta' in w.model else None,
+        recombination_rate=lambda w: float(w.r)
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/simulate_sequence.py"
+
+# calculate 2-SFS from the simulated data
+rule calculate_2sfs_simulated:
+    input:
+        counts="results/simulations/data/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
+    output:
+        data="results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+        image="results/graphs/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.png"
+    params:
+        n_proj=lambda w: int(w.n),
+        d=lambda w: int(w.d),
+        filter_4fold=False,
+        filter_boundaries=False,
+        folded=lambda w: w.folded == 'folded',
+        chrom="simulated"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/calculate_2sfs_dpgp3.py"
