@@ -50,7 +50,7 @@ class CoalescentTestCase(TestCase):
             model=pg.StandardCoalescent()
         )
 
-        t = coal.tree_height._t_max
+        t = coal.tree_height.t_max
 
         self.assertEqual(t, 63)
 
@@ -64,7 +64,7 @@ class CoalescentTestCase(TestCase):
             demography=self.get_complex_demography()
         )
 
-        t = coal.tree_height._t_max
+        t = coal.tree_height.t_max
 
         self.assertEqual(t, 128)
 
@@ -82,7 +82,7 @@ class CoalescentTestCase(TestCase):
             )])
         )
 
-        t = coal.tree_height._t_max
+        t = coal.tree_height.t_max
 
         self.assertEqual(t, 3.6)
 

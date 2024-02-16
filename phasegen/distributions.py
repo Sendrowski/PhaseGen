@@ -408,7 +408,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         Plot cumulative distribution function.
 
         :param ax: Axes to plot on.
-        :param t: Values to evaluate the CDF at.
+        :param t: Values to evaluate the CDF at. By default, 100 evenly spaced values between 0 and the 99th percentile.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -447,6 +447,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
 
         :param ax: The axes to plot on.
         :param t: Values to evaluate the density function at.
+            By default, 100 evenly spaced values between 0 and the 99th percentile.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -622,7 +623,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             A = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
 
             # compute tau
-            tau = min(epoch.end_time, self.tree_height._t_max) - epoch.start_time
+            tau = min(epoch.end_time, self.tree_height.t_max) - epoch.start_time
 
             # compute matrix exponential
             B = expm(A * tau)
@@ -631,7 +632,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             M = M @ B
 
             # break if we have reached the maximum time
-            if epoch.end_time >= self.tree_height._t_max:
+            if epoch.end_time >= self.tree_height.t_max:
                 break
 
         # calculate moment
@@ -659,13 +660,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def __init__(
             self,
             state_space: DefaultStateSpace,
-            demography: Demography = Demography()
+            demography: Demography = Demography(),
+            end_time: float = None
     ):
         """
         Initialize the distribution.
 
         :param state_space: The state space.
         :param demography: The demography.
+        :param end_time: Time when to end computation.
         """
         super().__init__(
             state_space=state_space,
@@ -676,6 +679,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         #: State space
         self.state_space: DefaultStateSpace = state_space
+
+        #: End time
+        self.end_time: float = end_time
 
     def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
@@ -740,6 +746,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return probs
 
+    @cache
     def quantile(
             self,
             q: float,
@@ -800,7 +807,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return (self.cdf(x2) - self.cdf(x1)) / dx
 
     @cached_property
-    def _t_max(self) -> float:
+    def t_max(self) -> float:
+        """
+        Get the time until which computations are performed.
+
+        :return: The maximum time.
+        """
+        return self.end_time if self.end_time is not None else self._get_absorption_time()
+
+    def _get_absorption_time(self) -> float:
         """
         Get a time estimate for when we have reached absorption almost surely.
         We base this computation on the transition matrix rather than the moments, because here
@@ -1500,7 +1515,8 @@ class AbstractCoalescent(ABC):
             model: CoalescentModel = StandardCoalescent(),
             demography: Demography = Demography(),
             loci: int | LocusConfig = 1,
-            recombination_rate: float = None
+            recombination_rate: float = None,
+            end_time: float = None
     ):
         """
         Create object.
@@ -1510,6 +1526,10 @@ class AbstractCoalescent(ABC):
             :class:`PopulationConfig` object can be passed.
         :param model: Coalescent model.
         :param loci: Number of loci or locus configuration.
+        :param recombination_rate: Recombination rate.
+        :param demography: Demography.
+        :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
+            time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         if not isinstance(n, LineageConfig):
             #: Population configuration
@@ -1537,6 +1557,9 @@ class AbstractCoalescent(ABC):
 
         #: Demography
         self.demography: Demography = demography
+
+        #: End time
+        self.end_time: float = end_time
 
     @property
     @abstractmethod
@@ -1576,7 +1599,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             pbar: bool = False,
-            parallelize: bool = False
+            parallelize: bool = False,
+            end_time: float = None
     ):
         """
         Create object.
@@ -1588,15 +1612,18 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
-        :param pbar: Whether to show a progress bar
-        :param parallelize: Whether to parallelize computations
+        :param pbar: Whether to show a progress bar.
+        :param parallelize: Whether to parallelize computations.
+        :param end_time: Time when to end the computation of moments. If `None`, the end time is end time is taken to
+            be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(
             n=n,
             model=model,
             loci=loci,
             recombination_rate=recombination_rate,
-            demography=demography
+            demography=demography,
+            end_time=end_time
         )
 
         # population names present in the population configuration but not in the demography
@@ -1645,7 +1672,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         return TreeHeightDistribution(
             state_space=self.default_state_space,
-            demography=self.demography
+            demography=self.demography,
+            end_time=self.end_time
         )
 
     @cached_property
@@ -1718,7 +1746,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             recombination_rate: float = None,
             start_time: float = None,
             end_time: float = None,
-            exclude_unfinished: bool = True,
+            exclude_unfinished: bool = False,
             exclude_finished: bool = False,
             num_replicates: int = 10000,
             n_threads: int = 100,
@@ -1746,7 +1774,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             model=model,
             loci=loci,
             recombination_rate=recombination_rate,
-            demography=demography
+            demography=demography,
+            end_time=end_time
         )
 
         self.sfs_counts: np.ndarray | None = None
@@ -1754,7 +1783,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.heights: np.ndarray | None = None
 
         self.start_time: float = start_time
-        self.end_time: float = end_time
         self.exclude_unfinished: bool = exclude_unfinished
         self.exclude_finished: bool = exclude_finished
         self.num_replicates: int = num_replicates
@@ -1888,7 +1916,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
                     else:
 
-                        heights[j, 0, i] = tree.time(tree.root)
+                        heights[j, 0, i] = tree.time(tree.roots[0])
                         total_branch_lengths[j, 0, i] = tree.total_branch_length
 
                         for node in tree.nodes():
@@ -1908,19 +1936,21 @@ class MsprimeCoalescent(AbstractCoalescent):
             desc="Simulating trees"
         ))
 
+        # TODO not up to date?
         if self.exclude_unfinished:
-
             if self.end_time is not None:
                 res = res[:, res[0, 0] <= self.end_time]
 
+        # TODO not up to date?
         if self.exclude_finished:
-
             if self.end_time is not None:
                 res = res[:, res[0, 0] >= self.end_time]
 
+        # TODO not up to date?
         if self.start_time is not None:
             res = res[:, res[0, 0] >= self.start_time]
 
+        # TODO not up to date?
         self.p_accepted = res.shape[2] / self.num_replicates
 
         # store results

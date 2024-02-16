@@ -33,6 +33,7 @@ class Comparison(Serializable):
             recombination_rate: float = 0,
             num_replicates: int = 10000,
             record_migration: bool = False,
+            end_time: float = None,
             n_threads: int = 100,
             parallelize: bool = True,
             comparisons: dict = None,
@@ -60,6 +61,7 @@ class Comparison(Serializable):
         :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
         :param record_migration: Whether to record migrations.
+        :param end_time: End time of the simulation.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
         :param alpha: Initial distribution of the phase-type coalescent.
@@ -81,6 +83,7 @@ class Comparison(Serializable):
         self.recombination_rate = recombination_rate
         self.num_replicates = num_replicates
         self.record_migration = record_migration
+        self.end_time = end_time
         self.n_threads = n_threads
         self.parallelize = parallelize
         self.alpha = alpha
@@ -154,6 +157,7 @@ class Comparison(Serializable):
             demography=self.get_demography(),
             loci=self.get_locus_config(),
             parallelize=self.parallelize,
+            end_time=self.end_time if hasattr(self, 'end_time') else None,  # backward compatibility
             model=self.model
         )
 
@@ -168,6 +172,7 @@ class Comparison(Serializable):
             loci=self.get_locus_config(),
             num_replicates=self.num_replicates,
             record_migration=self.record_migration,
+            end_time=self.end_time,
             n_threads=self.n_threads,
             parallelize=self.parallelize,
             model=self.model
