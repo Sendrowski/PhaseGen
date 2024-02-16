@@ -173,8 +173,8 @@ class Comparison(Serializable):
             model=self.model
         )
 
-    @staticmethod
-    def rel_diff(a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
+    @classmethod
+    def rel_diff(cls, a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
         """
         Compute the maximum relative difference between two arrays.
 
@@ -182,13 +182,19 @@ class Comparison(Serializable):
         :param b: The second array.
         :return: The mean relative difference.
         """
+        # vectorize
+        if not isinstance(a, Iterable) and not isinstance(b, Iterable):
+            return cls.rel_diff([a], [b])[0]
+
         a, b = np.array(a), np.array(b)
 
         # compute relative difference
         diff = np.abs(a - b) / ((np.abs(a) + np.abs(b)) / 2)
 
-        # only consider finite values
-        return diff[np.isfinite(diff)]
+        # set relative difference to 0 if both values are 0
+        diff[(a == 0) & (b == 0)] = 0
+
+        return diff
 
     def compare_stat(
             self,

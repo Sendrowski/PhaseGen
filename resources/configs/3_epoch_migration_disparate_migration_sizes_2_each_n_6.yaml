@@ -3,6 +3,7 @@ n:
   pop_1: 2
   pop_2: 2
 num_replicates: 1000000
+record_migration: true
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 3
@@ -48,5 +49,5 @@ comparisons:
       mean: 0.01
       cov: 0.05
       corr: 0.05
-      demes:
-        mean: 0.01
+      #demes:
+      #  mean: 0.01

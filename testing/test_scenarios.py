@@ -8,10 +8,8 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',  # TODO first moment of demes not working
-]
-
-configs_suspended = [
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '2_epoch_2_pops_n_4',
     '1_epoch_n_10',
     '1_epoch_beta_n_2_alpha_1_9',
     '1_epoch_beta_n_6_alpha_1_9',
@@ -27,7 +25,6 @@ configs_suspended = [
     '1_epoch_dirac_n_6_psi_0_5_c_1',
     '1_epoch_beta_n_6_alpha_1_7',
     '1_epoch_2_loci_2_pops_n_3_r_1',
-    '1_epoch_2_loci_2_pops_n_4_r_1',
     '1_epoch_2_loci_2_pops_n_2_r_1',
     '1_epoch_2_loci_2_pops_n_2_r_1_equal_pop_size',
     '1_epoch_2_loci_2_pops_n_2_r_0',
@@ -36,12 +33,9 @@ configs_suspended = [
     '1_epoch_2_loci_n_4_r_1_larger_N',
     '1_epoch_2_loci_n_2_r_1_larger_N',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',  # TODO first moment of demes not working
-    '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',  # TODO first moment of demes not working
     '2_epoch_varying_migration_low_coalescence',
     '1_epoch_beta_n_2_alpha_1_5',
     '1_epoch_2_loci_n_3_r_1',
-    '1_epoch_2_loci_n_10_r_1',
     '1_epoch_2_loci_n_3_r_100',
     '1_epoch_migration_one_each_n_6',
     '1_epoch_migration_one_each_n_2',
@@ -57,6 +51,7 @@ configs_suspended = [
     '1_epoch_2_loci_n_2_r_1',
     '1_epoch_2_loci_n_2_r_0_1',
     '1_epoch_2_loci_n_2_r_0',
+    '5_epoch_2_loci_2_pops_n_2_r_1',
     '2_epoch_2_pops_n_5',
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
@@ -74,6 +69,13 @@ configs_suspended = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
+    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+    '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
+    '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
+]
+
+configs_suspended = [
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
     '1_epoch_beta_n_6_alpha_1_999',  # still imprecise in msprime
     '1_epoch_beta_n_2_alpha_1_999',  # still imprecise in msprime

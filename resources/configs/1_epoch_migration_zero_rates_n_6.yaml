@@ -18,6 +18,7 @@ comparisons:
   tolerance:
     tree_height:
       demes:
+        mean: 0.01
         cov: 0.01
       pdf: 1
       cdf: 1

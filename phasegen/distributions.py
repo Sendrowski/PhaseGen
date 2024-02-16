@@ -91,6 +91,8 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
 class MarginalDistributions(Mapping, ABC):
     """
     Base class for marginal distributions.
+
+    TODO remove marginal properties from sub-distributions
     """
 
     @abstractmethod
@@ -1733,7 +1735,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param start_time: Time when to start the simulation
         :param end_time: Time when to end the simulation
         :param exclude_unfinished: Whether to exclude unfinished trees when calculating the statistics
-        :param exclude_unfinished: Whether to exclude finished trees when calculating the statistics
+        :param exclude_finished: Whether to exclude finished trees when calculating the statistics
         :param num_replicates: Number of replicates
         :param n_threads: Number of threads
         :param parallelize: Whether to parallelize
@@ -1827,6 +1829,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 tree: tskit.Tree
                 for j, tree in enumerate(self._expand_trees(ts)):
 
+                    # TODO record_migration only appears to work for relatively simple scenarios
                     if self.record_migration:
 
                         lineages = np.array(list(samples.values()))

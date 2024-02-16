@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from typing import List
-import re
 
 import pandas as pd
 
@@ -28,18 +27,18 @@ rule all:
             "results/benchmarks/state_space/all.csv",
             expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
             expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),
-            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
                 mu=[1e-6],Ne=[1e4],n=[40],L=[1e6],r=[1e-7],folded=["folded"],d=[100],
-                model=['standard']),
-            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                model=['standard'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
                 mu=[3e-6],Ne=[1e4],n=[40],L=[1e6],r=[3e-7],folded=["folded"],d=[100],
-                model=['beta.1.8']),
-            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                model=['beta.1.8'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
                 mu=[1e-4],Ne=[1e4],n=[40],L=[1e6],r=[1e-5],folded=["folded"],d=[100],
-                model=['beta.1.5']),
-            expand("results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                model=['beta.1.5'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
                 mu=[3e-4],Ne=[1e4],n=[40],L=[1e6],r=[3e-5],folded=["folded"],d=[100],
-                model=['beta.1.25']),
+                model=['beta.1.25'], replicate=[1,2,3]),
         )
 
 rule create_comparison:
@@ -166,7 +165,7 @@ rule calculate_2sfs_data_rice:
             '3R': (10e6, 26e6)
         },
         chrom="{chr}",
-        folded= lambda w: w.folded == 'folded',
+        folded=lambda w: w.folded == 'folded',
     conda:
         "envs/dev.yaml"
     script:
@@ -192,7 +191,7 @@ rule calculate_2sfs_data_DPGP3:
             '3R': (10e6, 26e6)
         },
         chrom="{chr}",
-        folded= lambda w: w.folded == 'folded',
+        folded=lambda w: w.folded == 'folded',
     conda:
         "envs/dev.yaml"
     script:
@@ -201,16 +200,16 @@ rule calculate_2sfs_data_DPGP3:
 # simulate sequence
 rule simulate_sequence:
     output:
-        data="results/simulations/data/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
-        info="results/simulations/info/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.yaml"
+        data="results/simulations/data/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
+        info="results/simulations/info/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.yaml"
     params:
         mu=lambda w: float(w.mu),
         Ne=lambda w: float(w.Ne),
         n=lambda w: float(w.n),
         length=lambda w: float(w.L),
-        folded=False, # fold later
+        folded=False,# fold later
         model=lambda w: w.model.split('.')[0],
-        alpha=lambda w: float(w.model.split('.', 1)[1]) if 'beta' in w.model else None,
+        alpha=lambda w: float(w.model.split('.',1)[1]) if 'beta' in w.model else None,
         recombination_rate=lambda w: float(w.r)
     conda:
         "envs/dev.yaml"
@@ -220,10 +219,10 @@ rule simulate_sequence:
 # calculate 2-SFS from the simulated data
 rule calculate_2sfs_simulated:
     input:
-        counts="results/simulations/data/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
+        counts="results/simulations/data/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}.txt",
     output:
-        data="results/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
-        image="results/graphs/2sfs/simulations/{model}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.png"
+        data="results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+        image="results/graphs/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.png"
     params:
         n_proj=lambda w: int(w.n),
         d=lambda w: int(w.d),

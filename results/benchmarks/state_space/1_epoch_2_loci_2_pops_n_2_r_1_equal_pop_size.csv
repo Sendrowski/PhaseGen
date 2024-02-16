@@ -1,2 +1,2 @@
 scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-1_epoch_2_loci_2_pops_n_2_r_1_equal_pop_size,0.10899806022644043,46,0.10100603103637695,,,
+1_epoch_2_loci_2_pops_n_2_r_1_equal_pop_size,0.11586689949035645,46,0.011388778686523438,,,
