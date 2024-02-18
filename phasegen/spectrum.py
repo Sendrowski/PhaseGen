@@ -319,7 +319,7 @@ class SFS2(Iterable):
         """
         return _mask(self.data)
 
-    def plot_heatmap(
+    def plot(
             self,
             ax: plt.Axes = None,
             title: str = None,
@@ -398,7 +398,7 @@ class SFS2(Iterable):
 
         return ax
 
-    def plot(
+    def plot_surface(
             self,
             ax: plt.Axes = None,
             title: str = None,

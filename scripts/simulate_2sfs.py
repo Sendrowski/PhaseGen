@@ -7,6 +7,6 @@ coal = pg.Coalescent(
 
 corr = coal.fsfs.corr
 
-corr.plot_heatmap(max_abs=1)
+corr.plot(max_abs=1)
 
 pass

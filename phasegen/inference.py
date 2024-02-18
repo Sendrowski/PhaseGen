@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
+from . import Demography
 from .distributions import Coalescent
 from .serialization import Serializable
 from .state_space import BlockCountingStateSpace, DefaultStateSpace
@@ -606,9 +607,9 @@ class Inference(Serializable):
             show: bool,
             include_bootstraps: bool,
             kwargs: dict,
-            ax: List[plt.Axes] | plt.Axes | None,
+            ax: plt.Axes | None,
             kind: Literal['pop_size', 'migration', 'all']
-    ) -> List[plt.Axes] | plt.Axes:
+    ) -> plt.Axes:
         """
         Plot inferred population sizes, migration rates, or both.
 
@@ -617,8 +618,8 @@ class Inference(Serializable):
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes or single axes to plot on.
-        :return: List of axes or single axes.
+        :param ax: Axes to plot on.
+        :return: Axes.
         """
         if self.dist_inferred is None:
             raise RuntimeError('The main optimization must be run first (call the `run` method).')
@@ -635,29 +636,31 @@ class Inference(Serializable):
 
         if ax is None:
             plt.clf()
+            ax = plt.gca()
 
-            if kind == 'all':
-                _, ax = plt.subplots(1, 2, figsize=(10, 5))
-            else:
-                ax = plt.gca()
+        def plot(d: Demography, kwargs2: dict) -> plt.Axes:
+            """
+            Plot inferred demography.
 
-        # plot inferred demography
-        getattr(self.dist_inferred.demography, funcs[kind])(
-            t=t,
-            ax=ax,
-            show=False,
-            kwargs={'color': 'C0'} | kwargs
-        )
+            :param d: Demography.
+            :param kwargs2: Additional keyword arguments passed to the plot function.
+            :return: Axes.
+            """
+            getattr(d, funcs[kind])(
+                t=t,
+                ax=ax,
+                show=False,
+                kwargs=kwargs2 | kwargs
+            )
+
+            return ax
+
+        plot(self.dist_inferred.demography, {'color': 'C0'})
 
         # plot bootstrapped demography
         if include_bootstraps:
             for dist in self.bootstrap_dists:
-                getattr(dist.demography, funcs[kind])(
-                    t=t,
-                    ax=ax,
-                    show=False,
-                    kwargs={'color': 'C0', 'alpha': 0.3} | kwargs
-                )
+                plot(dist.demography, {'color': 'C0', 'alpha': 0.3})
 
         if show:
             plt.show()

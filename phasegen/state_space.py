@@ -178,7 +178,7 @@ class StateSpace(ABC):
         k = len(self.states)
 
         # warn if state space is large
-        if k > 2000:
+        if k > 400:
             self._logger.warning(f'State space is large ({k} states). Note that the computation time '
                                  f'increases exponentially with the number of states.')
 

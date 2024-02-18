@@ -165,7 +165,7 @@ assert (sites.n == n_proj).all()
 # calculate spectra
 sfs2 = compute(sites, n=n_proj, d=d)
 
-sfs2.plot_heatmap(show=False, max_abs=1)
+sfs2.plot(show=False, max_abs=1)
 
 plt.savefig(out_image, dpi=300, bbox_inches='tight')
 

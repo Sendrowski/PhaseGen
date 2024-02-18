@@ -402,7 +402,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
             file: str = None,
             clear: bool = True,
             label: str = None,
-            title: str = 'CDF'
+            title: str = 'Tree height CDF'
     ) -> plt.axes:
         """
         Plot cumulative distribution function.
@@ -440,7 +440,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
             file: str = None,
             clear: bool = True,
             label: str = None,
-            title: str = 'PDF'
+            title: str = 'Tree height PDF'
     ) -> plt.axes:
         """
         Plot density function.
@@ -555,7 +555,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         :return: The standard deviation in the absorption time.
         """
-        return np.sqrt(self.var)
+        return self.var ** 0.5
 
     @cached_property
     def m2(self) -> float | SFS:
@@ -953,47 +953,44 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         pass
 
     @cache
-    def moment(self, k: int, i: int = None) -> SFS | float:
+    def moment(self, k: int, rewards: Tuple[SFSReward] = None) -> SFS:
         """
         Get the nth moment.
 
         :param k: The order of the moment
-        :param i: The ith SFS count. Return full SFS if not specified.
-        :return: The nth moment
+        :param rewards: Tuple of k rewards
+        :return: The nth SFS moments
         """
-
-        def get_count(i: int) -> float:
-            """
-            Get the moment of ith frequency count.
-
-            :param i: The ith frequency count
-            :return: The moment
-            """
-            d = PhaseTypeDistribution(
-                reward=CombinedReward([self.reward, self._get_sfs_reward(i)]),
-                tree_height=self.tree_height,
-                state_space=self.state_space,
-                demography=self.demography
-            )
-
-            return d.moment(
-                k=k
-            )
-
-        # return ith count only if specified
-        if i is not None:
-            return get_count(i)
+        if rewards is None:
+            rewards = [self.reward] * k
 
         # calculate moments in parallel
         moments = parallelize(
-            func=get_count,
-            data=self._get_indices(),
+            func=lambda x: self.get_moment(*x),
+            data=[[k, i, rewards] for i in self._get_indices()],
             desc=f"Calculating moments of order {k}",
             pbar=self.pbar,
             parallelize=self.parallelize
         )
 
         return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
+
+    def get_moment(self, k: int, i: int, rewards: Tuple[SFSReward] = None) -> float:
+        """
+        Get the nth moment for the ith site-frequency count.
+
+        :param k: The order of the moment
+        :param i: The ith site-frequency count
+        :param rewards: Tuple of k rewards
+        :return: The nth SFS moments
+        """
+        if rewards is None:
+            rewards = [self.reward] * k
+
+        return super().moment(
+            k=k,
+            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards])
+        )
 
     @cached_property
     def cov(self) -> SFS2:
@@ -1034,13 +1031,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: covariance
         """
-        d = PhaseTypeDistribution(
-            state_space=self.state_space,
-            tree_height=self.tree_height,
-            demography=self.demography
-        )
-
-        return d.moment(
+        return super().moment(
             k=2,
             rewards=(
                 CombinedReward([self.reward, self._get_sfs_reward(i)]),
@@ -1074,8 +1065,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: Correlation coefficient
         """
-        std_i = np.sqrt(self.moment(k=2, i=i))
-        std_j = np.sqrt(self.moment(k=2, i=j))
+        std_i = np.sqrt(super().moment(k=2, rewards=(CombinedReward([self.reward, self._get_sfs_reward(i)]),) * 2))
+        std_j = np.sqrt(super().moment(k=2, rewards=(CombinedReward([self.reward, self._get_sfs_reward(j)]),) * 2))
 
         return self.get_cov(i, j) / (std_i * std_j)
 

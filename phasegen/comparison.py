@@ -4,7 +4,7 @@ from typing import Iterable, Dict, Literal, List
 
 import numpy as np
 import yaml
-from fastdfe import Spectra, Spectrum
+from fastdfe import Spectra
 from matplotlib import pyplot as plt
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
@@ -13,7 +13,7 @@ from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution,
     MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
-from .spectrum import SFS2
+from .spectrum import SFS, SFS2
 
 logger = logging.getLogger('phasegen')
 
@@ -252,7 +252,7 @@ class Comparison(Serializable):
             if visualize:
                 if ph_stat.ndim == 1:
 
-                    s = Spectra.from_spectra(dict(ms=Spectrum(ms_stat), ph=Spectrum(ph_stat)))
+                    s = Spectra.from_spectra(dict(ms=SFS(ms_stat), ph=SFS(ph_stat)))
 
                     s.plot(title=title)
 
@@ -262,8 +262,8 @@ class Comparison(Serializable):
 
                     fig.suptitle(f"{stat}: {title}")
 
-                    SFS2(ph_stat).plot(ax=axs[0], title='ph', show=False)
-                    SFS2(ms_stat).plot(ax=axs[1], title='ms')
+                    SFS2(ph_stat).plot_surface(ax=axs[0], title='ph', show=False)
+                    SFS2(ms_stat).plot_surface(ax=axs[1], title='ms')
 
         # assume we have a PDF or CDF
         elif stat in ['pdf', 'cdf']:

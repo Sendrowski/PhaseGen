@@ -1,3 +1,7 @@
+"""
+Plot an example demographic trajectory with changes in population size.
+"""
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 

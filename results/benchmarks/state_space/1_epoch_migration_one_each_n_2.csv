@@ -1,2 +1,2 @@
 scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-1_epoch_migration_one_each_n_2,0.0027379989624023438,5,0.07125210762023926,5,0.0022230148315429688,0.00671696662902832
+1_epoch_migration_one_each_n_2,0.006598949432373047,5,0.0012078285217285156,5,0.005085945129394531,0.0006139278411865234

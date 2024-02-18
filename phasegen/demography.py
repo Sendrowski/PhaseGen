@@ -324,16 +324,16 @@ class MigrationRateChange(MigrationRateChanges):
     Demographic event for a single change in migration rate.
     """
 
-    def __init__(self, pop1: str, pop2: str, time: float, rate: float):
+    def __init__(self, source: str, dest: str, time: float, rate: float):
         """
         Initialize the migration rate change.
 
-        :param pop1: Source population name.
-        :param pop2: Destination population name.
+        :param source: Source population name.
+        :param dest: Destination population name.
         :param time: Time at which the migration rate changes.
         :param rate: Migration rate.
         """
-        super().__init__({(pop1, pop2): {time: rate}})
+        super().__init__({(source, dest): {time: rate}})
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):
@@ -354,8 +354,8 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             start_time: float,
             end_time: float = np.inf,
             pop: str | None = None,
-            source_pop: str | None = None,
-            dest_pop: str | None = None,
+            source: str | None = None,
+            dest: str | None = None,
             step_size: float = 0.1
     ):
         """
@@ -365,18 +365,18 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         :param start_time: Start time of the event.
         :param end_time: End time of the event.
         :param pop: Population name or None if no population size changes.
-        :param source_pop: Source population name or None if no migration rate changes.
-        :param dest_pop: Destination population name or None if no migration rate changes.
+        :param source: Source population name or None if no migration rate changes.
+        :param dest: Destination population name or None if no migration rate changes.
         :param step_size: Step size used for the discretization.
         """
-        if pop is None and (source_pop is None or dest_pop is None):
+        if pop is None and (source is None or dest is None):
             raise ValueError('Either pop or source_pop and dest_pop must be specified.')
 
         #: Population name.
         self.pop: str | None = pop
 
         #: Population names.
-        self.pop_names: List[str] = sorted(list(p for p in {pop, source_pop, dest_pop} if p is not None))
+        self.pop_names: List[str] = sorted(list(p for p in {pop, source, dest} if p is not None))
 
         #: Start time of the event.
         self.start_time: float = start_time
@@ -391,10 +391,10 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         self.step_size: float = step_size
 
         #: Source population name.
-        self.source_pop: str | None = source_pop
+        self.source_pop: str | None = source
 
         #: Destination population name.
-        self.dest_pop: str | None = dest_pop
+        self.dest_pop: str | None = dest
 
     def _broadcast(self, epoch: Epoch):
         """
@@ -460,8 +460,8 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
                 start_time=start_time[k] if isinstance(start_time, dict) else start_time,
                 end_time=end_time[k] if isinstance(end_time, dict) else end_time,
                 pop=k if isinstance(k, str) else None,
-                source_pop=k[0] if isinstance(k, tuple) else None,
-                dest_pop=k[1] if isinstance(k, tuple) else None,
+                source=k[0] if isinstance(k, tuple) else None,
+                dest=k[1] if isinstance(k, tuple) else None,
                 step_size=step_size
             )
 
@@ -586,7 +586,8 @@ class Demography:
             self,
             events: List[DemographicEvent] = [],
             pop_sizes: Dict[str, Dict[float, float]] = {},
-            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = {}
+            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = {},
+            warn_n_epochs: int = 20
     ):
         """
         Initialize the demography.
@@ -598,10 +599,16 @@ class Demography:
             population.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
-
+        :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
         """
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
+
+        #: Threshold for the number of epochs considered after which a warning is issued.
+        self.warn_n_epochs: int = warn_n_epochs
+
+        #: Whether a warning about the number of epochs has been already issued.
+        self._issued_warning = False
 
         #: Array of demographic events.
         self.events: List[DemographicEvent] = list(events)
@@ -631,12 +638,16 @@ class Demography:
             max_epochs: int = 1000
     ) -> 'msprime.Demography':
         """
-        Convert to an msprime demography object.
+        Convert to an Msprime demography object.
 
         :param max_epochs: Maximum number of epochs to use. This is necessary when the number of epochs is infinite.
         :return: msprime demography object.
+        :raise ImportError: If Msprime is not installed.
         """
-        import msprime as ms
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
 
         self._prepare_events()
 
@@ -691,7 +702,16 @@ class Demography:
             migration_rates={k: 0 for k in itertools.product(self.pop_names, repeat=2)}
         )
 
+        i = 0
         while True:
+
+            # issue warning if number of epochs exceeds threshold
+            if i == self.warn_n_epochs and not self._issued_warning:
+                self._logger.warning(
+                    f'Number of epochs considered exceeds {self.warn_n_epochs}. '
+                    'Note that the runtime increases linearly with the number of epochs.'
+                )
+                self._issued_warning = True
 
             # potential next epoch
             epoch = Epoch(
@@ -714,6 +734,8 @@ class Demography:
 
             if epoch.end_time == np.inf:
                 break
+
+            i += 1
 
     def get_epochs(self, t: float | List[float]) -> Epoch | np.ndarray:
         """
@@ -772,7 +794,7 @@ class Demography:
             show: bool = True,
             file: str = None,
             title: str = 'Population size trajectory',
-            ylabel: str = '$N_e(t)$',
+            ylabel: str = '$N_e$',
             ax: plt.Axes = None,
             kwargs: dict = {}
     ) -> plt.Axes:
@@ -810,7 +832,7 @@ class Demography:
             show: bool = True,
             file: str = None,
             title: str = 'Migration rate trajectory',
-            ylabel: str = '$m_{ij}(t)$',
+            ylabel: str = '$m_{ij}$',
             ax: plt.Axes = None,
             kwargs: dict = {}
     ) -> plt.Axes:
@@ -826,11 +848,14 @@ class Demography:
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
+        # get all pairs of populations
+        pops = [(p, q) for p in self.pop_names for q in self.pop_names if p != q]
+
         return Visualization.plot_rates(
             times=list(t),
             rates=dict(zip(
-                [f"{k[0]}->{k[1]}" for k in itertools.product(self.pop_names, repeat=2)],
-                np.array([[e.migration_rates[k] for k in itertools.product(self.pop_names, repeat=2)]
+                [f"{p[0]}->{p[1]}" for p in pops],
+                np.array([[e.migration_rates[p] for p in pops]
                           for e in self.get_epochs(t)]).T
             )),
             show=show,
@@ -846,23 +871,27 @@ class Demography:
             t: np.ndarray = np.linspace(0, 10, 100),
             show: bool = True,
             file: str = None,
-            kwargs: dict = {},
-            ax: List[plt.Axes] = None
-    ) -> List[plt.Axes]:
+            ylabel: str = '$N_e|m_{ij}$',
+            ax: plt.Axes = None,
+            title: str = 'Demography',
+            kwargs: dict = {}
+    ) -> plt.Axes:
         """
         Plot the demographic scenario.
 
         :param t: Times at which to plot the population sizes and migration rates.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
+        :param ylabel: Label of the y-axis.
+        :param ax: Axes object to plot to.
+        :param title: Title of the plot.
         :param kwargs: Keyword arguments to pass to the plotting function.
-        :param ax: List of axes to plot to.
-        :return: List of axes.
+        :return: Axes object.
         """
         if ax is None:
-            _, ax = plt.subplots(1, 2, figsize=(10, 5))
+            _, ax = plt.subplots()
 
-        self.plot_pop_sizes(t=t, show=False, ax=ax[0], kwargs=kwargs)
-        self.plot_migration(t=t, show=show, file=file, ax=ax[1], kwargs=kwargs)
+        self.plot_pop_sizes(t=t, show=False, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
+        self.plot_migration(t=t, show=show, file=file, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
 
         return ax

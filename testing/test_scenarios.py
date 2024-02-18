@@ -8,9 +8,7 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
-]
-
-configs_suspended = [
+    '1_epoch_migration_one_each_n_2',
     '1_epoch_n_2_early_end_time',
     '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '2_epoch_2_pops_n_4',
@@ -42,7 +40,6 @@ configs_suspended = [
     '1_epoch_2_loci_n_3_r_1',
     '1_epoch_2_loci_n_3_r_100',
     '1_epoch_migration_one_each_n_6',
-    '1_epoch_migration_one_each_n_2',
     '1_epoch_2_loci_n_3_r_0',
     '1_epoch_2_loci_n_4_r_1',
     '1_epoch_n_2',
@@ -76,6 +73,9 @@ configs_suspended = [
     '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+]
+
+configs_suspended = [
     '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
     '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes

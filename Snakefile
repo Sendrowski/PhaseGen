@@ -24,23 +24,23 @@ rule all:
     input:
         (
             expand("results/comparisons/serialized/{config}.json",config=configs),
+            "results/benchmarks/state_space/all.csv",
+            expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
+            expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[1e-6],Ne=[1e4],n=[40],L=[1e6],r=[1e-7],folded=["folded"],d=[100],
+                model=['standard'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[3e-6],Ne=[1e4],n=[40],L=[1e6],r=[3e-7],folded=["folded"],d=[100],
+                model=['beta.1.8'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[1e-4],Ne=[1e4],n=[40],L=[1e6],r=[1e-5],folded=["folded"],d=[100],
+                model=['beta.1.5'], replicate=[1,2,3]),
+            expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
+                mu=[3e-4],Ne=[1e4],n=[40],L=[1e6],r=[3e-5],folded=["folded"],d=[100],
+                model=['beta.1.25'], replicate=[1,2,3]),
         )
 
-""""results/benchmarks/state_space/all.csv",
-expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
-expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),
-expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
-    mu=[1e-6],Ne=[1e4],n=[40],L=[1e6],r=[1e-7],folded=["folded"],d=[100],
-    model=['standard'], replicate=[1,2,3]),
-expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
-    mu=[3e-6],Ne=[1e4],n=[40],L=[1e6],r=[3e-7],folded=["folded"],d=[100],
-    model=['beta.1.8'], replicate=[1,2,3]),
-expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
-    mu=[1e-4],Ne=[1e4],n=[40],L=[1e6],r=[1e-5],folded=["folded"],d=[100],
-    model=['beta.1.5'], replicate=[1,2,3]),
-expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
-    mu=[3e-4],Ne=[1e4],n=[40],L=[1e6],r=[3e-5],folded=["folded"],d=[100],
-    model=['beta.1.25'], replicate=[1,2,3]),"""
 rule create_comparison:
     input:
         "resources/configs/{config}.yaml"

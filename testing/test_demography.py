@@ -288,3 +288,23 @@ class DemographyTestCase(TestCase):
         self.assertEqual(epoch.pop_sizes['c'], 7)
         self.assertEqual(epoch.pop_sizes['d'], 1)
         self.assertEqual(epoch.pop_sizes['e'], 0.1)
+
+    def test_bug_demography(self):
+        """
+        Test that population size at time 0 defaults to 1.
+        """
+        d = pg.Demography(
+            pop_sizes={
+                'pop_1': {0: 1.2, 5: 0.1, 5.1: 0.8},
+                'pop_0': {0: 1.0}
+            },
+            migration_rates={
+                ('pop_0', 'pop_1'): {0: 0.2, 5: 0.3},
+                ('pop_1', 'pop_0'): {0: 0.5}
+            },
+            warn_n_epochs=4
+        )
+
+        self.assertEqual(0.1, d.get_epochs(5).pop_sizes['pop_1'])
+
+        pass
