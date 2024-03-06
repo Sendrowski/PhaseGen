@@ -1,0 +1,19 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{import} \PYG{n+nn}{phasegen} \PYG{k}{as} \PYG{n+nn}{pg}
+
+\PYG{n}{coal} \PYG{o}{=} \PYG{n}{pg}\PYG{o}{.}\PYG{n}{Coalescent}\PYG{p}{(}
+    \PYG{n}{n}\PYG{o}{=}\PYG{n}{pg}\PYG{o}{.}\PYG{n}{LineageConfig}\PYG{p}{(\PYGZob{}}\PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}0\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{3}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}1\PYGZsq{}}\PYG{p}{:} \PYG{l+m+mi}{5}\PYG{p}{\PYGZcb{}),}
+    \PYG{n}{model}\PYG{o}{=}\PYG{n}{pg}\PYG{o}{.}\PYG{n}{BetaCoalescent}\PYG{p}{(}\PYG{n}{alpha}\PYG{o}{=}\PYG{l+m+mf}{1.7}\PYG{p}{),}
+    \PYG{n}{demography}\PYG{o}{=}\PYG{n}{pg}\PYG{o}{.}\PYG{n}{Demography}\PYG{p}{(}
+        \PYG{n}{pop\PYGZus{}sizes}\PYG{o}{=}\PYG{p}{\PYGZob{}}
+            \PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}1\PYGZsq{}}\PYG{p}{:} \PYG{p}{\PYGZob{}}\PYG{l+m+mi}{0}\PYG{p}{:} \PYG{l+m+mf}{1.2}\PYG{p}{,} \PYG{l+m+mi}{5}\PYG{p}{:} \PYG{l+m+mf}{0.1}\PYG{p}{,} \PYG{l+m+mf}{5.5}\PYG{p}{:} \PYG{l+m+mf}{0.8}\PYG{p}{\PYGZcb{},}
+            \PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}0\PYGZsq{}}\PYG{p}{:} \PYG{p}{\PYGZob{}}\PYG{l+m+mi}{0}\PYG{p}{:} \PYG{l+m+mf}{1.0}\PYG{p}{\PYGZcb{}}
+        \PYG{p}{\PYGZcb{},}
+        \PYG{n}{migration\PYGZus{}rates}\PYG{o}{=}\PYG{p}{\PYGZob{}}
+            \PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}0\PYGZsq{}}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}1\PYGZsq{}}\PYG{p}{):} \PYG{p}{\PYGZob{}}\PYG{l+m+mi}{0}\PYG{p}{:} \PYG{l+m+mf}{0.2}\PYG{p}{,} \PYG{l+m+mi}{3}\PYG{p}{:} \PYG{l+m+mf}{0.3}\PYG{p}{\PYGZcb{},}
+            \PYG{p}{(}\PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}1\PYGZsq{}}\PYG{p}{,} \PYG{l+s+s1}{\PYGZsq{}pop\PYGZus{}0\PYGZsq{}}\PYG{p}{):} \PYG{p}{\PYGZob{}}\PYG{l+m+mi}{0}\PYG{p}{:} \PYG{l+m+mf}{0.5}\PYG{p}{\PYGZcb{}}
+        \PYG{p}{\PYGZcb{}}
+    \PYG{p}{)}
+\PYG{p}{)}
+
+\end{Verbatim}
