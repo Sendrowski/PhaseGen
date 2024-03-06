@@ -169,7 +169,7 @@ rule calculate_2sfs_data_rice:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/calculate_2sfs_dpgp3.py"
+        "scripts/calculate_2sfs.py"
 
 # calculate 2-SFS from the DPGP3 data
 rule calculate_2sfs_data_DPGP3:
@@ -195,7 +195,7 @@ rule calculate_2sfs_data_DPGP3:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/calculate_2sfs_dpgp3.py"
+        "scripts/calculate_2sfs.py"
 
 # simulate sequence
 rule simulate_sequence:
@@ -233,4 +233,4 @@ rule calculate_2sfs_simulated:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/calculate_2sfs_dpgp3.py"
+        "scripts/calculate_2sfs.py"
