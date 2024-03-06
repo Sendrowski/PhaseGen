@@ -1,2 +1,0 @@
-scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-2_epoch_varying_migration_barrier,0.0026950836181640625,5,0.08199501037597656,5,0.002071857452392578,0.012723922729492188

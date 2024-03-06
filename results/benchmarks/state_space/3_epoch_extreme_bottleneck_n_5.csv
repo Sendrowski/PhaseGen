@@ -1,2 +1,0 @@
-scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-3_epoch_extreme_bottleneck_n_5,0.002447843551635742,5,0.04795217514038086,7,0.0039408206939697266,0.04926490783691406

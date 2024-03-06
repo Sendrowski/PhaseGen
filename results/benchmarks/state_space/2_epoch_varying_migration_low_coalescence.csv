@@ -1,2 +1,0 @@
-scenario,default.time,default.k,default.tree_height.mean,block_counting.k,block_counting.time,block_counting.sfs.mean
-2_epoch_varying_migration_low_coalescence,0.006027936935424805,9,0.043486833572387695,10,0.006822824478149414,0.018908977508544922
