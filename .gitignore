@@ -2,4 +2,9 @@
 /scratch/
 /reports/
 /resources/
+/results/
+/docs/_build/
 /slurm/logs/
+.DS_Store
+.idea/
+.ipynb_checkpoints/
