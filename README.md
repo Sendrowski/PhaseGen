@@ -9,6 +9,4 @@ Please see the [documentation](https://phasegen.readthedocs.io/en/latest/) for a
 
 -->
 
-PhaseGen is a package for simulating and making inference on coalescent distributions.
-
-Part of the documentation is already written, but it's not visible here as the repository is private. After cloning the repository, only can view the docs locally in a browser by opening the `index.html` file in the `docs/_build/html` directory.
+PhaseGen is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
