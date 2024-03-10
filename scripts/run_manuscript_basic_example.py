@@ -31,7 +31,7 @@ coal.sfs.mean.plot(ax=axs[1, 0], show=False, title='SFS')
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='2-SFS')
 
 plt.tight_layout()
-plt.savefig('scratch/manuscript_example.png', dpi=400)
+plt.savefig('scratch/manuscript_basic_example.png', dpi=400)
 plt.show()
 
 # joint SFS correlation matrix

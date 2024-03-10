@@ -18,6 +18,11 @@ import tensorflow as tf
 from tqdm import tqdm
 
 try:
+    import sys
+
+    # necessary to import local module
+    sys.path.append('.')
+
     testing = False
 except NameError:
     # testing
@@ -57,15 +62,15 @@ def generate_matrix(size: int, sparsity: float) -> np.ndarray:
     ).toarray()
 
 
-# Set the parameters for the normal distribution and the sparsity of the matrix
+# set the parameters for the normal distribution and the sparsity of the matrix
 mean = 10
 std_dev = 10
 sparsity = 0.995
 
 # Initialize the sizes of the matrices to be tested
-sizes = np.logspace(1, 3, 20, dtype=int)
+sizes = np.logspace(1, 3.5, 20, dtype=int)
 
-# Initialize lists to store the computation times
+# initialize lists to store the computation times
 df = pd.DataFrame({
     'size': [],
     'tf': [],
@@ -79,19 +84,21 @@ for i, size in enumerate(tqdm(sizes)):
 
     m_sparse = sp.csc_matrix(m)
 
-    # Benchmark TensorFlow
+    # benchmark TensorFlow
     ts = benchmark(lambda: tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy())
 
-    # Benchmark SciPy (dense)
-    scipy_dense = benchmark(lambda: scipy.linalg.expm(m))
+    # benchmark SciPy (dense)
+    #scipy_dense = benchmark(lambda: scipy.linalg.expm(m))
+    scipy_dense = 0
 
-    # Benchmark SciPy (sparse)
-    scipy_sparse = benchmark(lambda: sp.linalg.expm(m_sparse))
+    # benchmark SciPy (sparse)
+    #scipy_sparse = benchmark(lambda: sp.linalg.expm(m_sparse))
+    scipy_sparse = 0
 
-    # Store the results
+    # store the results
     df.loc[i] = [size, ts, scipy_dense, scipy_sparse]
 
-# Plot the results
+# plot the results
 plt.plot(df['size'], df['tf'], label='TensorFlow')
 plt.plot(df['size'], df['scipy_dense'], label='SciPy (dense)')
 plt.plot(df['size'], df['scipy_sparse'], label='SciPy (sparse)')
