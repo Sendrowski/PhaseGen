@@ -112,8 +112,8 @@ Contact:
     For this we require a state space $E=\{1, \dots, n\}$ with $n$ states, where $n$ denotes the number of initial lineages.
     The only absorbing state is $B=\{1\}$ and our transition rates are given by
     \begin{equation*}
-        s_{ij} = \begin{cases}
-                     \binom{i}{2} / N_e & \text{if } i = j - 1, \\ 0 & \text{otherwise,}
+        s^d_{ij} = \begin{cases}
+                       \binom{i}{2} / N_e & \text{if } i = j - 1, \\ 0 & \text{otherwise,}
         \end{cases}
     \end{equation*}
     where states are indexed with respect to the ordering $\phi(i) = i, i \in E$, and $N_e$ is the effective population size.
@@ -124,7 +124,7 @@ Contact:
     Our state space is given by $E=\{e: \sum_i ia_i = n\}$, and the only absorbing state is $B=\{(0, 0, ..., 1)\}$.
     The transition rates are given by~\citep{phasetype_popgen}
     \begin{align*}
-        s_{\phi(e_1),\phi(e_2)} =
+        s^b_{\phi(e_1),\phi(e_2)} =
         \begin{cases}
             \binom{a_i}{2} / N_e & \text{if }
             \begin{aligned}[t]
@@ -420,18 +420,34 @@ Contact:
     \end{equation*}
 
 
-    \section{Runtime \& precision}\label{sec:runtime-&-precision}
+    \section{Runtime}\label{sec:runtime}
 
-    This framework has the advantages of being able to handle zero rewards out-of-the-box and using matrix exponentiation instead of inversion which can avoid precision problems.
-    Is has the disadvantage of requiring to work with matrices of size $n * (k + 1)$, where $n$ is the total number of states and $k$ the moment's order.
-    But there are efficient implementations for matrix exponentiation, also in Python, where SciPy's \texttt{expm()} uses a Padé approximation.
+    Let $n$ be the number of lineages, $k$ the moment's order, and $d$ the number of demes.
+    Furthermore, let $P_0(n, k)$ be the number of partitions of $n$ into $k$ non-negative integer parts. % let $P(n)$ be the number of integer partitions of $n$ and
+
+    % TODO add number of loci here
+    The Van Loan matrix for the default state space has size
+    \begin{equation*}
+        \text{order}(V^k(S^d)) = (k + 1) \cdot \sum_{i=1}^{n} P_0(i, d),
+    \end{equation*}
+    and for the block-counting state space, we have
+    \begin{equation*}
+        \text{order}(V^k(S^d)) = (k + 1) \cdot \sum_{i=1}^{n} \prod_{j \in P_n} P_0(j, d),
+    \end{equation*}
+
+    where $P_n$ is the set of partitions of $n$ (cf.\ Figure~\ref{fig:state_space_sizes} for examples).
+
+    % mention time complexity of matrix exponentiation, state space construction, and demography discretization
+    % also mention growth rate of state space size with respect to n, k, d
+    % Talk about precision of Padé approximation
 
 
-    \section{Code example}\label{sec:code-example}
+    \section{Code examples}\label{sec:code-examples}
 
     In the code snippet below, we define a coalescent distribution with a 2-deme, 4-epoch demography and a total number of lineages of \texttt{n=8}.
     As our ancestry model we choose the beta coalescent with \texttt{alpha=1.7}.
     Upon construction the different distributions are available.
+
     \begin{minted}{python}
 import phasegen as pg
 
@@ -455,6 +471,7 @@ coal = pg.Coalescent(
     We now proceed to plotting some quantities, namely the demography, tree height distribution, expected SFS and correlation matrix of different SFS bins.
     Note that we adjust the maximum time shown to be the 99th percentile of the tree height distribution.
     The output of the snippet below is shown in Figure~\ref{fig:simple-example}
+
     \begin{minted}{python}
 import numpy as np
 import matplotlib.pyplot as plt
@@ -474,11 +491,18 @@ plt.show()
     \begin{figure}[H]
         \centering
         \includegraphics[width=\textwidth]{figures/manuscript_example}
-        \caption{Output from code snippet in Section \ref{sec:code-example}. \textbf{Top left}: population sizes and migration rates over time. \textbf{Top right}: tree height distribution. \textbf{Bottom left}: expected SFS. \textbf{Bottom right}: 2-SFS correlation matrix.}
+        \caption{
+            Output from code snippet in Section \ref{sec:code-examples}.
+            \textbf{Top left}: population sizes and migration rates over time.
+            \textbf{Top right}: tree height distribution. \textbf{Bottom left}: expected SFS.
+            \textbf{Bottom right}: 2-SFS correlation matrix.
+        }
         \label{fig:simple-example}
     \end{figure}
 
-    \subsection{Other quantities}\label{subsec:other-quantities}
+    \subsection{MLE Inference}\label{subsec:mle-inference}
+
+    \subsection{More complex moments}\label{subsec:other-quantities}
 
 
     \section{Discussion}\label{sec:discussion}
