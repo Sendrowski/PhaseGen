@@ -1,3 +1,7 @@
+"""
+Reward generation.
+"""
+
 from abc import abstractmethod, ABC
 from typing import List, Callable, Tuple, Dict
 

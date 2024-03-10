@@ -1,3 +1,7 @@
+"""
+Test different demographic scenarios.
+"""
+
 import os
 from pathlib import Path
 from typing import List

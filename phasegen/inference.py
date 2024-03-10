@@ -1,3 +1,7 @@
+"""
+Inference module.
+"""
+
 import copy
 import logging
 from functools import cached_property
@@ -393,6 +397,10 @@ class Inference(Serializable):
         # fetch optimized params
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
 
+        self._logger.info(
+            f'Optimized parameters: ({", ".join([f"{k}={v:.4f}" for k, v in self.params_inferred.items()])})'
+        )
+
         # loss of best run
         self.loss_inferred = self.result.fun
 
@@ -485,7 +493,7 @@ class Inference(Serializable):
             subplots: bool = True,
             kind: Literal['hist', 'kde'] = 'hist',
             ax: plt.Axes | None = None,
-            kwargs: dict = {}
+            kwargs: dict = None
     ) -> plt.Axes | List[plt.Axes]:
         """
         Plot bootstrapped parameters.
@@ -498,7 +506,10 @@ class Inference(Serializable):
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
         :return: Axes or list of axes.
         """
-        if len(self.bootstraps) == 0:
+        if kwargs is None:
+            kwargs = {}
+
+        if self.bootstraps is None:
             raise RuntimeError('No bootstraps available.')
 
         if kind == 'hist':
@@ -522,7 +533,7 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             include_bootstraps: bool = True,
-            kwargs: dict = {},
+            kwargs: dict = None,
             ax: List[plt.Axes] | None = None
     ) -> List[plt.Axes]:
         """
@@ -550,7 +561,7 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             include_bootstraps: bool = True,
-            kwargs: dict = {},
+            kwargs: dict = None,
             ax: plt.Axes | None = None
     ) -> plt.Axes:
         """
@@ -578,7 +589,7 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             include_bootstraps: bool = True,
-            kwargs: dict = {},
+            kwargs: dict = None,
             ax: plt.Axes | None = None
     ) -> plt.Axes:
         """
@@ -606,9 +617,9 @@ class Inference(Serializable):
             t: np.ndarray,
             show: bool,
             include_bootstraps: bool,
-            kwargs: dict,
             ax: plt.Axes | None,
-            kind: Literal['pop_size', 'migration', 'all']
+            kind: Literal['pop_size', 'migration', 'all'],
+            kwargs: dict = None
     ) -> plt.Axes:
         """
         Plot inferred population sizes, migration rates, or both.
@@ -621,6 +632,9 @@ class Inference(Serializable):
         :param ax: Axes to plot on.
         :return: Axes.
         """
+        if kwargs is None:
+            kwargs = {}
+
         if self.dist_inferred is None:
             raise RuntimeError('The main optimization must be run first (call the `run` method).')
 

@@ -1,3 +1,7 @@
+"""
+State space.
+"""
+
 import itertools
 import logging
 import time
@@ -7,6 +11,7 @@ from itertools import product
 from typing import List, Tuple, cast, Dict
 
 import numpy as np
+from scipy.special import comb
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
@@ -24,19 +29,29 @@ class StateSpace(ABC):
     def __init__(
             self,
             pop_config: LineageConfig,
-            locus_config: LocusConfig = LocusConfig(),
-            model: CoalescentModel = StandardCoalescent(),
-            epoch: Epoch = Epoch(),
+            locus_config: LocusConfig = None,
+            model: CoalescentModel = None,
+            epoch: Epoch = None,
             cache: bool = True
     ):
         """
         Create a rate matrix.
 
         :param pop_config: Population configuration.
-        :param model: Coalescent model.
+        :param locus_config: Locus configuration. One locus is used by default.
+        :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: Epoch.
         :param cache: Whether to cache the rate matrix for different epochs.
         """
+        if locus_config is None:
+            locus_config = LocusConfig()
+
+        if model is None:
+            model = StandardCoalescent()
+
+        if epoch is None:
+            epoch = Epoch()
+
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
@@ -369,6 +384,47 @@ class StateSpace(ABC):
 
         return vectors
 
+    @staticmethod
+    def p(n: int, k: int) -> int:
+        """
+        Partition function. Get number of ways to partition ``n`` into ``k`` positive integers.
+
+        :param n: Number to partition.
+        :param k: Number of parts.
+        :return: Number of ways to partition ``n`` into ``k`` positive integers.
+        """
+        return comb(n - 1, k - 1, exact=True)
+
+    @classmethod
+    def p0(cls, n: int, k: int) -> int:
+        """
+        Partition function. Get number of ways to partition ``n`` into ``k`` non-negative integers.
+
+        :param n: Number to partition.
+        :param k: Number of parts.
+        :return: Number of ways to partition ``n`` into ``k`` non-negative integers.
+        """
+        return cls.p(n + k, k)
+
+    @staticmethod
+    def P(n: int) -> int:
+        """
+        Calculate the number of partitions of a non-negative integer.
+
+        :param n: The non-negative integer to partition.
+        :type n: int
+        :return: The number of partitions of n.
+        :rtype: int
+        """
+        partitions: List[int] = [0] * (n + 1)
+        partitions[0] = 1
+
+        for i in range(1, n + 1):
+            for j in range(i, n + 1):
+                partitions[j] += partitions[j - i]
+
+        return partitions[n]
+
     def _get_outgoing_rates(self, i: int, remove_zero: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """
         Get the outgoing rates from state indexed by `i`.
@@ -425,6 +481,8 @@ class DefaultStateSpace(StateSpace):
 
         if self.locus_config.n == 2:
             n_pops = self.pop_config.n_pops
+
+            # determine number of linked lineage configurations irrespective of states
             linked_locus = np.array(list(itertools.product(range(self.pop_config.n + 1), repeat=n_pops)))
             linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.pop_config.n]
 
@@ -471,6 +529,22 @@ class DefaultStateSpace(StateSpace):
 
         return states
 
+    def get_k(self) -> int:
+        """
+        Get number of states.
+        TODO currently no support for multiple loci.
+
+        :return: The number of states.
+        """
+        n = self.pop_config.n
+        d = self.pop_config.n_pops
+
+        i = np.arange(1, n + 1)[::-1]
+
+        k = np.sum([self.p0(j, d) for j in i])
+
+        return k
+
 
 class BlockCountingStateSpace(StateSpace):
     r"""
@@ -484,12 +558,20 @@ class BlockCountingStateSpace(StateSpace):
     def __init__(
             self,
             pop_config: LineageConfig,
-            locus_config: LocusConfig = LocusConfig(),
-            model: CoalescentModel = StandardCoalescent(),
-            epoch: Epoch = Epoch()
+            locus_config: LocusConfig = None,
+            model: CoalescentModel = None,
+            epoch: Epoch = None
     ):
+        """
+        Create a rate matrix.
+
+        :param pop_config: Population configuration.
+        :param locus_config: Locus configuration. One locus is used by default.
+        :param model: Coalescent model. By default, the standard coalescent is used.
+        :param epoch: Epoch.
+        """
         # currently only one locus is supported, due to a very complex state space for multiple loci
-        if locus_config.n > 1:
+        if locus_config is not None and locus_config.n > 1:
             raise NotImplementedError('Block counting state space only supports one locus.')
 
         super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
@@ -523,6 +605,8 @@ class BlockCountingStateSpace(StateSpace):
             # add extra dimension for locus configuration
             return states
 
+        raise NotImplementedError("Only 1 locus is currently supported.")
+
         if self.locus_config.n == 2:
 
             locus = []
@@ -550,8 +634,6 @@ class BlockCountingStateSpace(StateSpace):
             self.linked = expanded[:, :, 1]
 
             return expanded[:, :, 0]
-
-        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 
     @cached_property
     def states(self) -> np.ndarray:
@@ -608,6 +690,22 @@ class BlockCountingStateSpace(StateSpace):
                 vectors.append(vector + [x])  # Reversed vectors
 
         return vectors
+
+    def get_k(self) -> int:
+        """
+        Get number of states.
+
+        :return: The number of states.
+        """
+        n = self.pop_config.n
+        d = self.pop_config.n_pops
+
+        # len(i) == self.P(n)
+        i = np.array(self._find_sample_configs(m=n, n=n))
+
+        k = np.sum([np.prod([self.p0(l, d) for l in j]) for j in i])
+
+        return k
 
 
 class Transition:

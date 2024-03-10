@@ -1,3 +1,7 @@
+"""
+Test reward classes.
+"""
+
 from unittest import TestCase
 
 import numpy as np

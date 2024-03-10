@@ -1,3 +1,7 @@
+"""
+Test comparison.
+"""
+
 from unittest import TestCase
 
 import pytest

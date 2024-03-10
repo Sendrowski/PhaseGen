@@ -1,3 +1,7 @@
+"""
+Utility functions.
+"""
+
 from typing import Callable, List
 
 import numpy as np

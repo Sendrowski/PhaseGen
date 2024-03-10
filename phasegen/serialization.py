@@ -1,3 +1,7 @@
+"""
+Serialization mixin class.
+"""
+
 import jsonpickle
 
 

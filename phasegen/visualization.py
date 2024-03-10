@@ -1,3 +1,7 @@
+"""
+Visualization module.
+"""
+
 import functools
 from typing import Callable, Dict, List
 
@@ -7,6 +11,9 @@ from matplotlib import pyplot as plt
 
 
 class Visualization:
+    """
+    Visualization class.
+    """
 
     @staticmethod
     def clear_show_save(func: Callable) -> Callable:
@@ -126,7 +133,7 @@ class Visualization:
             show: bool = None,
             clear: bool = True,
             title: str = 'rate trajectory',
-            kwargs: dict = {}
+            kwargs: dict = None
     ) -> plt.Axes:
         """
         Plot function.
@@ -143,6 +150,9 @@ class Visualization:
         :param kwargs: Keyword arguments passed to plot function
         :return: Axes
         """
+        if kwargs is None:
+            kwargs = {}
+
         # plot
         for key in rates:
             ax.plot(times, rates[key], drawstyle='steps-post', label=key, **kwargs)

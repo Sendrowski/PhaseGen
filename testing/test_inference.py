@@ -1,3 +1,7 @@
+"""
+Test Inference class.
+"""
+
 from unittest import TestCase
 
 import phasegen as pg

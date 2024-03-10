@@ -1,3 +1,7 @@
+"""
+Test norms.
+"""
+
 import unittest
 
 import numpy as np

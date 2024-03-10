@@ -1,3 +1,7 @@
+"""
+Test Transition class.
+"""
+
 from unittest import TestCase
 
 import numpy as np

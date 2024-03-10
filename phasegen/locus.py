@@ -1,3 +1,7 @@
+"""
+Locus configuration class.
+"""
+
 import logging
 
 import numpy as np
@@ -80,9 +84,8 @@ class LocusConfig:
         :return: Whether the two locus configurations are equal
         """
         return (
-            self.n == other.n
-            and self.n_unlinked == other.n_unlinked
-            and self.recombination_rate == other.recombination_rate
-            and self.allow_coalescence == other.allow_coalescence
+                self.n == other.n
+                and self.n_unlinked == other.n_unlinked
+                and self.recombination_rate == other.recombination_rate
+                and self.allow_coalescence == other.allow_coalescence
         )
-

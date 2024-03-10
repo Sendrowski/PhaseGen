@@ -1,3 +1,7 @@
+"""
+Test distributions.
+"""
+
 import itertools
 from unittest import TestCase
 

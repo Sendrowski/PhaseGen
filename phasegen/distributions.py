@@ -1,3 +1,7 @@
+"""
+Probability distributions.
+"""
+
 import copy
 import itertools
 import logging
@@ -483,8 +487,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             self,
             state_space: StateSpace,
             tree_height: 'TreeHeightDistribution',
-            demography: Demography = Demography(),
-            reward: Reward = TreeHeightReward(),
+            demography: Demography = None,
+            reward: Reward = None
     ):
         """
         Initialize the distribution.
@@ -492,8 +496,14 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param state_space: The state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
-        :param reward: The reward.
+        :param reward: The reward. By default, the tree height reward.
         """
+        if demography is None:
+            demography = Demography()
+
+        if reward is None:
+            reward = TreeHeightReward()
+
         super().__init__()
 
         #: Population configuration
@@ -591,7 +601,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             rewards: Tuple[Reward] = None
     ) -> float:
         """
-        Get the nth (non-central) moment.
+        Get the kth (non-central) moment.
 
         :param k: The kth moment
         :param rewards: Tuple of k rewards
@@ -660,7 +670,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def __init__(
             self,
             state_space: DefaultStateSpace,
-            demography: Demography = Demography(),
+            demography: Demography = None,
             end_time: float = None
     ):
         """
@@ -787,7 +797,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         # warn if maximum number of iterations reached
         if max_iter == 0:
-            raise RuntimeError("Maximum number of iterations reached.")
+            raise RuntimeError("Maximum number of iterations reached when determining quantile.")
 
         return (a + b) / 2
 
@@ -890,8 +900,13 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param p: The probability of absorption.
         :return: The time.
         """
-        self._logger.warning("Could not reliably find time of almost sure absorption. "
-                             f"Using time {t} with probability of absorption {p}.")
+        self._logger.warning(
+            "Could not reliably find time of almost sure absorption. "
+            f"Using time {t:.1f} with probability of absorption {p:.1e}. "
+            "If p is close to 1, this is likely due to numerical imprecision. "
+            "If p is not close to 1, this could be due to unreachable states or very large or small absorption times. "
+            "You can also set the end time manually (see :attr:`Coalescent.end_time`)."
+        )
 
         return t
 
@@ -908,7 +923,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             demography: Demography,
             pbar: bool = False,
             parallelize: bool = False,
-            reward: Reward = UnitReward()
+            reward: Reward = None
     ):
         """
         Initialize the distribution.
@@ -918,8 +933,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Use parallelization.
-        :param reward: The reward to multiply the SFS reward with.
+        :param reward: The reward to multiply the SFS reward with. By default, the unit reward is used, which
+            has no effect.
         """
+        if reward is None:
+            reward = UnitReward()
+
         super().__init__(
             state_space=state_space,
             tree_height=tree_height,
@@ -955,11 +974,11 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     @cache
     def moment(self, k: int, rewards: Tuple[SFSReward] = None) -> SFS:
         """
-        Get the nth moment.
+        Get the kth moment of the site-frequency spectrum.
 
         :param k: The order of the moment
         :param rewards: Tuple of k rewards
-        :return: The nth SFS moments
+        :return: The kth SFS moments
         """
         if rewards is None:
             rewards = [self.reward] * k
@@ -1201,10 +1220,10 @@ class EmpiricalDistribution(DensityAwareDistribution):
 
     def moment(self, k: int) -> float | np.ndarray:
         """
-        Get the nth moment.
+        Get the kth moment.
 
         :param k: The order of the moment
-        :return: The nth moment
+        :return: The kth moment
         """
         return np.mean(self.samples ** k, axis=0)
 
@@ -1331,6 +1350,9 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
 
 
 class DictContainer(dict):
+    """
+    Dictionary container.
+    """
     pass
 
 
@@ -1503,8 +1525,8 @@ class AbstractCoalescent(ABC):
     def __init__(
             self,
             n: int | Dict[str, int] | List[int] | LineageConfig,
-            model: CoalescentModel = StandardCoalescent(),
-            demography: Demography = Demography(),
+            model: CoalescentModel = None,
+            demography: Demography = None,
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             end_time: float = None
@@ -1515,13 +1537,19 @@ class AbstractCoalescent(ABC):
         :param n: n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
             :class:`PopulationConfig` object can be passed.
-        :param model: Coalescent model.
+        :param model: Coalescent model. By default, the standard coalescent is used.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param demography: Demography.
         :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
+        if model is None:
+            model = StandardCoalescent()
+
+        if demography is None:
+            demography = Demography()
+
         if not isinstance(n, LineageConfig):
             #: Population configuration
             self.pop_config: LineageConfig = LineageConfig(n)
@@ -1585,8 +1613,8 @@ class Coalescent(AbstractCoalescent, Serializable):
     def __init__(
             self,
             n: int | Dict[str, int] | List[int] | LineageConfig,
-            model: CoalescentModel = StandardCoalescent(),
-            demography: Demography = Demography(),
+            model: CoalescentModel = None,
+            demography: Demography = None,
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             pbar: bool = False,
@@ -1599,13 +1627,13 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param :param n: n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
             :class:`PopulationConfig` object can be passed.
-        :param model: Coalescent model.
+        :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Whether to parallelize computations.
-        :param end_time: Time when to end the computation of moments. If `None`, the end time is end time is taken to
+        :param end_time: Time when to end the computation of moments. If `None`, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(
@@ -1700,6 +1728,30 @@ class Coalescent(AbstractCoalescent, Serializable):
             tree_height=self.tree_height,
             demography=self.demography
         )
+
+    def moment(
+            self,
+            k: int = 1,
+            rewards: Tuple[SFSReward] = None,
+            state_space: StateSpace = None
+    ) -> float:
+        """
+        Get the kth (non-central) moment using the specified rewards and state space.
+        TODO infer state space type from rewards
+
+        :param k: The order of the moment
+        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
+        :param state_space: State space to use. By default, the default state space is used.
+        :return: The kth moment
+        """
+        dist = PhaseTypeDistribution(
+            reward=(TreeHeightReward(),) * k if rewards is None else rewards,
+            tree_height=self.tree_height,
+            state_space=self.default_state_space if state_space is None else state_space,
+            demography=self.demography
+        )
+
+        return dist.moment(k)
 
     def drop_cache(self):
         """

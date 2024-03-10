@@ -1,3 +1,7 @@
+"""
+Lineage configuration
+"""
+
 import logging
 from typing import Dict, List, Iterable
 

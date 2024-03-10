@@ -1,3 +1,7 @@
+"""
+Norms and likelihoods for comparing two values.
+"""
+
 from abc import ABC
 from typing import Any, Iterable
 

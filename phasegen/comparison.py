@@ -1,3 +1,7 @@
+"""
+Module for simulating population genetic scenarios using both phasegen and msprime, for comparison.
+"""
+
 import logging
 from functools import cached_property
 from typing import Iterable, Dict, Literal, List
@@ -28,7 +32,7 @@ class Comparison(Serializable):
             self,
             n: int | Dict[str, int] | List[int],
             pop_sizes: Dict[str, Dict[float, float]],
-            migration_rates: Dict[tuple[str, str], Dict[float, float]] = {},
+            migration_rates: Dict[tuple[str, str], Dict[float, float]] = None,
             n_loci: int = 1,
             recombination_rate: float = 0,
             num_replicates: int = 10000,
@@ -73,6 +77,9 @@ class Comparison(Serializable):
         :param max_epochs: Maximum number of epochs.
         :param precision: Precision of the phase-type coalescent.
         """
+        if migration_rates is None:
+            migration_rates = {}
+
         self.logger = logging.getLogger('phasegen').getChild(self.__class__.__name__)
 
         self.comparisons = comparisons

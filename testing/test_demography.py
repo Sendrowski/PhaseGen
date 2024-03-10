@@ -1,3 +1,7 @@
+"""
+Test Demography class.
+"""
+
 from itertools import islice
 from unittest import TestCase
 

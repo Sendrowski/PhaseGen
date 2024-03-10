@@ -119,6 +119,7 @@ from .coalescent_models import (
 )
 
 from .state_space import (
+    StateSpace,
     DefaultStateSpace,
     BlockCountingStateSpace
 )
@@ -192,6 +193,8 @@ __all__ = [
     'DemeReward',
     'DefaultReward',
     'NonDefaultReward',
+    'CombinedReward',
+    'StateSpace',
     'DefaultStateSpace',
     'BlockCountingStateSpace',
     'CoalescentModel',

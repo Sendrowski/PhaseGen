@@ -1,3 +1,7 @@
+"""
+SFS and 2-SFS classes.
+"""
+
 import copy
 from typing import Dict, cast, Iterable
 
@@ -325,7 +329,7 @@ class SFS2(Iterable):
             title: str = None,
             max_abs: float = None,
             log_scale: bool = False,
-            cbar_kws: Dict = dict(pad=-0.05),
+            cbar_kws: Dict = None,
             fill_diagonal_entries: bool = False,
             show: bool = True,
     ) -> plt.Axes:
@@ -342,6 +346,9 @@ class SFS2(Iterable):
         :param show: Whether to show the plot.
         :return: Axes.
         """
+        if cbar_kws is None:
+            cbar_kws = dict(pad=-0.05)
+
         data = self.data.copy()
 
         # remove monomorphic entries
