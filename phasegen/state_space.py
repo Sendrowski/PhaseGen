@@ -8,7 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
-from typing import List, Tuple, cast, Dict
+from typing import List, Tuple, cast, Dict, Callable
 
 import numpy as np
 from scipy.special import comb
@@ -129,7 +129,7 @@ class StateSpace(ABC):
         """
         Vector with ones of size ``n``.
         """
-        return np.ones(self.S.shape[0])
+        return np.ones(self.k)
 
     @cached_property
     def S(self) -> np.ndarray:
@@ -306,15 +306,6 @@ class StateSpace(ABC):
             state_space=self
         )
 
-    def _display_state(self, i: int) -> str:
-        """
-        Display the state indexed by `i`.
-
-        :param i: The state index.
-        :return: Textual representation of the state.
-        """
-        return str(self.states[i]).replace('\n', '') + '\n' + str(self.linked[i]).replace('\n', '')
-
     def _get_color_state(self, i: int) -> str:
         """
         Get color of the state indexed by `i`.
@@ -327,13 +318,49 @@ class StateSpace(ABC):
 
         return 'lightblue'
 
-    def _plot_rates(self, file: str = 'rate_matrix', view: bool = True):
+    def _plot_rates(
+            self,
+            file: str,
+            view: bool = True,
+            cleanup: bool = False,
+            dpi: int = 400,
+            ratio: float = 0.6,
+            extension: str = 'png',
+            format_state: Callable[[np.array], str] = None,
+            format_transition: Callable[['Transition'], str] = None
+    ):
         """
         Plot the rate matrix using graphviz.
 
         :param file: File to save plot to.
         :param view: Whether to view the plot.
+        :param cleanup: Whether to remove the source file.
+        :param dpi: Dots per inch.
+        :param ratio: Aspect ratio.
+        :param extension: File format.
+        :param format_state: Function to format state with state array as argument.
+        :param format_transition: Function to format transition with transition as argument.
         """
+        if format_state is None:
+            def format_state(s: np.ndarray) -> str:
+                """
+                Format state.
+
+                :param s: State.
+                :return: Formatted state.
+                """
+                return str(s[0]).replace('\n', '') + '\n' + str(s[1]).replace('\n', '')
+
+        if format_transition is None:
+            def format_transition(t: 'Transition') -> str:
+                """
+                Format transition.
+
+                :param t: Transition.
+                :return: Formatted transition.
+                """
+                return f' {t.type}: {t.get_rate():.2g}'
+
         import graphviz
 
         graph = graphviz.Digraph()
@@ -341,7 +368,7 @@ class StateSpace(ABC):
         # add nodes
         for i in range(len(self.states)):
             graph.node(
-                name=self._display_state(i),
+                name=format_state(np.array([self.states[i], self.linked[i]])),
                 fillcolor=self._get_color_state(i),
                 style='filled'
             )
@@ -353,14 +380,22 @@ class StateSpace(ABC):
 
             if not State.is_absorbing(t.marginal1):
                 graph.edge(
-                    self._display_state(i),
-                    self._display_state(j),
-                    label=f'{t.type}: {t.get_rate():.2g}',
-                    color=t.get_color(),
-                    fontcolor=t.get_color()
+                    tail_name=format_state(np.array([self.states[i], self.linked[i]])),
+                    head_name=format_state(np.array([self.states[j], self.linked[j]])),
+                    label=format_transition(t),
+                    color=t._get_color(),
+                    fontcolor=t._get_color()
                 )
 
-        graph.render(filename=file, view=view)
+        graph.graph_attr['dpi'] = str(dpi)
+        graph.graph_attr['ratio'] = str(ratio)
+
+        graph.render(
+            filename=file,
+            view=view,
+            cleanup=cleanup,
+            format=extension
+        )
 
     @staticmethod
     def _find_vectors(n: int, k: int) -> List[List[int]]:
@@ -712,6 +747,29 @@ class Transition:
     """
     Class representing a transition between two states.
     """
+    #: Colors for different types of transitions
+    _colors: Dict[str, str] = {
+        'recombination': 'orange',
+        'locus_coalescence': 'darkgreen',
+        'linked_coalescence': 'darkgreen',
+        'unlinked_coalescence': 'darkgreen',
+        'mixed_coalescence': 'darkgreen',
+        'unlinked_coalescence+mixed_coalescence': 'darkgreen',
+        'linked_migration': 'blue',
+        'unlinked_migration': 'blue',
+        'invalid': 'red'
+    }
+
+    #: Event types
+    _event_types: List[str] = [
+        'recombination',
+        'locus_coalescence',
+        'linked_coalescence',
+        'unlinked_coalescence',
+        'mixed_coalescence',
+        'linked_migration',
+        'unlinked_migration'
+    ]
 
     def __init__(
             self,
@@ -1300,17 +1358,7 @@ class Transition:
         """
         types = []
 
-        opts = [
-            'recombination',
-            'locus_coalescence',
-            'linked_coalescence',
-            'unlinked_coalescence',
-            'mixed_coalescence',
-            'linked_migration',
-            'unlinked_migration'
-        ]
-
-        for t in opts:
+        for t in self._event_types:
             if getattr(self, f'is_eligible_{t}') and getattr(self, f'is_{t}'):
                 types.append(t)
 
@@ -1518,25 +1566,13 @@ class Transition:
 
         return rate
 
-    def get_color(self) -> str:
+    def _get_color(self) -> str:
         """
-        Get the color of the transition.
+        Get the color of the transition indicating the type of event.
 
         :return: The color of the transition.
         """
-        colors = {
-            'recombination': 'orange',
-            'locus_coalescence': 'darkgreen',
-            'linked_coalescence': 'darkgreen',
-            'unlinked_coalescence': 'darkgreen',
-            'mixed_coalescence': 'darkgreen',
-            'unlinked_coalescence+mixed_coalescence': 'darkgreen',
-            'linked_migration': 'blue',
-            'unlinked_migration': 'blue',
-            'invalid': 'red'
-        }
-
-        return colors[self.type]
+        return self._colors[self.type]
 
 
 class State:
