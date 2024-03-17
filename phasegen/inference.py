@@ -398,7 +398,7 @@ class Inference(Serializable):
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
 
         self._logger.info(
-            f'Optimized parameters: ({", ".join([f"{k}={v:.4f}" for k, v in self.params_inferred.items()])})'
+            f'Inferred parameters: ({", ".join([f"{k}={v:.4f}" for k, v in self.params_inferred.items()])})'
         )
 
         # loss of best run
