@@ -1,3 +1,7 @@
+"""
+Infer 1-epoch demography using Poisson likelihood.
+"""
+
 from fastdfe import Spectra
 
 import phasegen as pg

@@ -2,6 +2,7 @@
 Run the code example from the manuscript.
 """
 
+import numpy as np
 import phasegen as pg
 
 coal = pg.Coalescent(
@@ -16,8 +17,24 @@ coal = pg.Coalescent(
             ('pop_0', 'pop_1'): {0: 0.2, 8: 0.3},
             ('pop_1', 'pop_0'): {0: 0.5}
         }
-    )
+    ),
+    parallelize=False
 )
+
+mean = coal.tree_height.mean
+var = coal.total_branch_length.var
+
+q = coal.tree_height.quantile(0.99)
+pdf = coal.tree_height.pdf(np.linspace(0, q, 100))
+cdf = coal.tree_height.cdf(np.linspace(0, q, 100))
+
+sfs = coal.sfs.mean
+sfs2 = coal.sfs.cov
+
+sfs_pop0 = coal.sfs.demes['pop_0'].mean
+
+# TODO test higher moments
+m3 = coal.moment(3, (pg.TotalBranchLengthReward(),) * 3)
 
 import numpy as np
 import matplotlib.pyplot as plt
