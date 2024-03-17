@@ -23,8 +23,18 @@ wildcard_constraints:
 rule all:
     input:
         (
-            "results/graphs/executions_times.png",
-            "results/graphs/state_space_sizes.png",
+            expand("results/graphs/transitions/{name}.png",name=[
+                'coalescent_5_lineages_default',
+                'coalescent_5_lineages_block_counting',
+                'migration_2_lineages_default',
+                'migration_3_lineages_block_counting',
+                'recombination_2_lineages',
+                'recombination_2_loci_2_pops_3_lineages_default',
+                'beta_coalescent_5_lineages_default',
+                'beta_coalescent_5_lineages_block_counting',
+            ])
+            #"results/graphs/executions_times.png",
+            #"results/graphs/state_space_sizes.png",
             #expand("results/comparisons/serialized/{config}.json",config=configs),
             #"results/benchmarks/state_space/all.csv",
             #expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
@@ -254,3 +264,14 @@ rule plot_state_space_sizes:
         "envs/dev.yaml"
     script:
         "scripts/plot_state_space_sizes.py"
+
+# plot state space transitions
+rule plot_transitions:
+    output:
+        "results/graphs/transitions/{name}.png"
+    params:
+        name="{name}"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/plot_transitions.py"
