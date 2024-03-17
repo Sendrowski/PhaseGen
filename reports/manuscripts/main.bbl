@@ -1,4 +1,4 @@
-\begin{thebibliography}{7}
+\begin{thebibliography}{9}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -58,6 +58,13 @@ Asger Hobolth, Arno Siri-Jégousse, and Mogens Bladt.
 \newblock URL
   \url{https://www.sciencedirect.com/science/article/pii/S0040580919300140}.
 
+\bibitem[Hobolth et~al.(2021)Hobolth, Bladt, and Andersen]{phasetype_sfs}
+Asger Hobolth, Mogens Bladt, and Lars~N{\o}rvang Andersen.
+\newblock Multivariate phase-type theory for the site frequency spectrum.
+\newblock \emph{Journal of Mathematical Biology}, 83\penalty0 (6-7):\penalty0
+  63, 2021.
+\newblock \doi{10.1007/s00285-021-01689-w}.
+
 \bibitem[Jouganous et~al.(2017)Jouganous, Long, Ragsdale, and Gravel]{moments}
 Julien Jouganous, Will Long, Aaron~P Ragsdale, and Simon Gravel.
 \newblock {Inferring the Joint Demographic History of Multiple Populations:
@@ -66,6 +73,17 @@ Julien Jouganous, Will Long, Aaron~P Ragsdale, and Simon Gravel.
 \newblock ISSN 1943-2631.
 \newblock \doi{10.1534/genetics.117.200493}.
 \newblock URL \url{https://doi.org/10.1534/genetics.117.200493}.
+
+\bibitem[Schweinsberg(2003)]{beta_coalescent}
+Jason Schweinsberg.
+\newblock Coalescent processes obtained from supercritical galton–watson
+  processes.
+\newblock \emph{Stochastic Processes and their Applications}, 106\penalty0
+  (1):\penalty0 107--139, 2003.
+\newblock ISSN 0304-4149.
+\newblock \doi{https://doi.org/10.1016/S0304-4149(03)00028-0}.
+\newblock URL
+  \url{https://www.sciencedirect.com/science/article/pii/S0304414903000280}.
 
 \bibitem[Van~Loan(1978)]{van_loan}
 C.~F. Van~Loan.

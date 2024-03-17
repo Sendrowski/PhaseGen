@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2024.2.20)  10 MAR 2024 09:55
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2024.2.20)  13 MAR 2024 10:21
 entering extended mode
  \write18 enabled.
  file:line:error style messages enabled.
@@ -125,6 +125,16 @@ LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
 )
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/amssymb.sty
 Package: amssymb 2013/01/14 v3.01 AMS font symbols
+)
+(/usr/local/texlive/2023/texmf-dist/tex/latex/tools/bm.sty
+Package: bm 2022/01/05 v1.2f Bold Symbol Support (DPC/FMi)
+\symboldoperators=\mathgroup6
+\symboldletters=\mathgroup7
+\symboldsymbols=\mathgroup8
+Package bm Info: No bold for \OMX/cmex/m/n, using \pmb.
+Package bm Info: No bold for \U/msa/m/n, using \pmb.
+Package bm Info: No bold for \U/msb/m/n, using \pmb.
+LaTeX Font Info:    Redeclaring math alphabet \mathbf on input line 149.
 )
 (/usr/local/texlive/2023/texmf-dist/tex/latex/graphics/graphicx.sty
 Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
@@ -592,24 +602,24 @@ File: l3backend-pdftex.def 2023-01-16 L3 backend support: PDF output (pdfTeX)
 (/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.aux)
 \openout1 = `main.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 55.
-LaTeX Font Info:    ... okay on input line 55.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 56.
+LaTeX Font Info:    ... okay on input line 56.
 
 (/usr/local/texlive/2023/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
@@ -650,21 +660,21 @@ File: translations-basic-dictionary-english.trsl (english translation file `tra
 nslations-basic-dictionary')
 )
 Package translations Info: loading dictionary `translations-basic-dictionary' f
-or `english'. on input line 55.
-Package hyperref Info: Link coloring OFF on input line 55.
+or `english'. on input line 56.
+Package hyperref Info: Link coloring OFF on input line 56.
 
 (/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.out)
 (/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.out)
 \@outlinefile=\write6
 \openout6 = `main.out'.
 
-LaTeX Font Info:    Trying to load font information for U+msa on input line 58.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 59.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 58.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 59.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -673,24 +683,24 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 
 {/usr/local/texlive/2023/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{/usr/loc
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2]
-Overfull \hbox (22.49744pt too wide) detected at line 143
+Overfull \hbox (24.26198pt too wide) detected at line 140
 []
  []
 
 [3]
 LaTeX Font Info:    Trying to load font information for U+dsrom on input line 1
-54.
+49.
  (/usr/local/texlive/2023/texmf-dist/tex/latex/doublestroke/Udsrom.fd
 File: Udsrom.fd 1995/08/01 v0.1 Double stroke roman font definitions
 )
 [4] [5] [6]
-Overfull \hbox (68.35683pt too wide) detected at line 339
-\OML/cmm/m/it/10.95 M[] \OT1/cmr/m/n/10.95 = [](\OML/cmm/m/it/10.95 V[] \OMS/cm
-sy/m/n/10.95 ^^A \OML/cmm/m/it/10.95 ^^N[]\OT1/cmr/m/n/10.95 ) \OMS/cmsy/m/n/10
-.95 ^^Y [] \OML/cmm/m/it/10.95 ;
+Overfull \hbox (69.77867pt too wide) detected at line 321
+\OT1/cmr/bx/n/10.95 M[] \OT1/cmr/m/n/10.95 = [](\OML/cmm/m/it/10.95 ^^N[]\OT1/c
+mr/bx/n/10.95 V[]\OT1/cmr/m/n/10.95 ) \OMS/cmsy/m/n/10.95 ^^Y [] \OML/cmm/m/it/
+10.95 ;
  []
 
-[7] [8]
+[7] [8] [9]
 \openout4 = `main.pyg'.
 
 
@@ -700,76 +710,124 @@ ult.pygstyle)
 45CFE05C1BF674DC1656ABC58292541C68F80C6A6F06151AFD63BAE50EBC.pygtex
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
 (Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 2.
-) [9]
+)
 \openout4 = `main.pyg'.
 
 
 (/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/_minted-main/36A3
-83AD967C4C21EB9CDF62A4A9989D541C68F80C6A6F06151AFD63BAE50EBC.pygtex)
-<figures/manuscript_example.png, id=152, 650.43pt x 505.89pt>
+83AD967C4C21EB9CDF62A4A9989D541C68F80C6A6F06151AFD63BAE50EBC.pygtex [10])
+<figures/manuscript_example.png, id=215, 650.43pt x 505.89pt>
 File: figures/manuscript_example.png Graphic file (type png)
 <use figures/manuscript_example.png>
-Package pdftex.def Info: figures/manuscript_example.png  used on input line 493
+Package pdftex.def Info: figures/manuscript_example.png  used on input line 486
 .
 (pdftex.def)             Requested size: 360.0pt x 280.00806pt.
- [10]
+
 [11 </Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/figures/manus
 cript_example.png>]
-(/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.bbl)
-[12] (./appendix.tex
-<figures/state_space_size.png, id=179, 794.97pt x 252.945pt>
+(/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.bbl
+Underfull \hbox (badness 1303) in paragraph at lines 78--87
+\OT1/cmr/m/n/10.95 106(1):107--139, 2003.  ISSN 0304-4149.  doi: $https : / / d
+oi . org / 10 .
+ []
+
+[12]) [13] (./appendix.tex
+
+./appendix.tex:57: LaTeX Error: File `figures/migration_two_lineages_default' n
+ot found.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.57 ...h]{figures/migration_two_lineages_default}
+                                                  
+I could not locate the file with any of these extensions:
+.pdf,.png,.jpg,.mps,.jpeg,.jbig2,.jb2,.PDF,.PNG,.JPG,.JPEG,.JBIG2,.JB2,.eps
+Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+[14]
+
+./appendix.tex:114: LaTeX Error: File `figures/recombination_two_lineages' not 
+found.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.114 ...idth]{figures/recombination_two_lineages}
+                                                  
+I could not locate the file with any of these extensions:
+.pdf,.png,.jpg,.mps,.jpeg,.jbig2,.jb2,.PDF,.PNG,.JPG,.JPEG,.JBIG2,.JB2,.eps
+Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+<figures/state_space_size.png, id=249, 794.97pt x 252.945pt>
 File: figures/state_space_size.png Graphic file (type png)
 <use figures/state_space_size.png>
-Package pdftex.def Info: figures/state_space_size.png  used on input line 14.
+Package pdftex.def Info: figures/state_space_size.png  used on input line 130.
 (pdftex.def)             Requested size: 360.0pt x 114.5498pt.
-<figures/executions_times.png, id=180, 578.16pt x 289.08pt>
+[15]
+<figures/executions_times.png, id=257, 578.16pt x 289.08pt>
 File: figures/executions_times.png Graphic file (type png)
 <use figures/executions_times.png>
-Package pdftex.def Info: figures/executions_times.png  used on input line 24.
+Package pdftex.def Info: figures/executions_times.png  used on input line 143.
 (pdftex.def)             Requested size: 360.0pt x 179.99966pt.
-) [13 </Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/figures/sta
+) [16 </Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/figures/sta
 te_space_size.png> </Users/au732936/PycharmProjects/PhaseGen/reports/manuscript
 s/figures/executions_times.png>]
 (/Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/main.aux)
-Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 6EC3CFC6D747C572A1BD64EEA25A886B;1387.
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+
+Package rerunfilecheck Warning: File `main.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+Package rerunfilecheck Info: Checksums for `main.out':
+(rerunfilecheck)             Before: 6A5AB6BF2A3A6AF8B353A30D9CEFEA26;3265
+(rerunfilecheck)             After:  21646EA70682E4C1FAE7AB08065244C6;3762.
 runsystem(rm main.pyg)...executed.
 
  ) 
 Here is how much of TeX's memory you used:
- 21769 strings out of 476025
- 422575 string characters out of 5790017
- 1888388 words of memory out of 5000000
- 41877 multiletter control sequences out of 15000+600000
- 525988 words of font info for 87 fonts, out of 8000000 for 9000
+ 22020 strings out of 476025
+ 428178 string characters out of 5790017
+ 1887388 words of memory out of 5000000
+ 42074 multiletter control sequences out of 15000+600000
+ 531812 words of font info for 106 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 73i,20n,77p,550b,941s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 73i,26n,77p,554b,1258s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 ></usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb>
-</usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb><
-/usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></
-usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></us
-r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/
-local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/lo
-cal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/loca
-l/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/
-texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/tex
-live/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texliv
-e/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/local/texlive/2
-023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/20
-23/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/local/texlive/2023
-/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2023/
-texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2023/t
-exmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb></usr/local/texlive/2023/te
-xmf-dist/fonts/type1/public/doublestroke/dsrom10.pfb></usr/local/texlive/2023/t
-exmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/20
-23/texmf-dist/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023
-/texmf-dist/fonts/type1/public/cm-super/sfrm0800.pfb>
+</usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></
+usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></u
+sr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></us
+r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/
+local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/lo
+cal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/lo
+cal/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/loca
+l/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/
+texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/te
+xlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/texli
+ve/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texlive/
+2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/local/texlive/202
+3/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2023
+/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/local/texlive/2023/t
+exmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2023/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2023/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb></usr/local/texlive/2023/texm
+f-dist/fonts/type1/public/doublestroke/dsrom10.pfb></usr/local/texlive/2023/tex
+mf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texlive/2023
+/texmf-dist/fonts/type1/public/cm-super/sfrm0600.pfb></usr/local/texlive/2023/t
+exmf-dist/fonts/type1/public/cm-super/sfrm0800.pfb>
 Output written on /Users/au732936/PycharmProjects/PhaseGen/reports/manuscripts/
-main.pdf (13 pages, 595246 bytes).
+main.pdf (16 pages, 623682 bytes).
 PDF statistics:
- 290 PDF objects out of 1000 (max. 8388607)
- 223 compressed objects within 3 object streams
- 42 named destinations out of 1000 (max. 500000)
- 112 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 381 PDF objects out of 1000 (max. 8388607)
+ 306 compressed objects within 4 object streams
+ 64 named destinations out of 1000 (max. 500000)
+ 208 words of extra memory for PDF output out of 10000 (max. 10000000)
 
