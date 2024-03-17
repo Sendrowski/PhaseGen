@@ -23,6 +23,7 @@ wildcard_constraints:
 rule all:
     input:
         (
+            expand("results/comparisons/serialized/{config}.json",config=configs),
             expand("results/graphs/transitions/{name}.png",name=[
                 'coalescent_5_lineages_default',
                 'coalescent_5_lineages_block_counting',
@@ -32,10 +33,9 @@ rule all:
                 'recombination_2_loci_2_pops_3_lineages_default',
                 'beta_coalescent_5_lineages_default',
                 'beta_coalescent_5_lineages_block_counting',
-            ])
+            ]),
             #"results/graphs/executions_times.png",
             #"results/graphs/state_space_sizes.png",
-            #expand("results/comparisons/serialized/{config}.json",config=configs),
             #"results/benchmarks/state_space/all.csv",
             #expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
             #expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),

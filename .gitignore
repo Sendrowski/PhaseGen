@@ -1,7 +1,8 @@
 /.snakemake/
 /scratch/
 /reports/
-/resources/
+/resources/dpgp3/
+/resources/rice/
 /results/
 /docs/_build/
 /slurm/logs/

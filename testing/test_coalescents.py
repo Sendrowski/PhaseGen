@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import phasegen as pg
+from phasegen import SFS
 from phasegen.distributions import MsprimeCoalescent
 
 
@@ -16,20 +17,15 @@ class CoalescentTestCase(TestCase):
     Test coalescents.
     """
 
-    def test_simple_coalescent(self):
+    def get_simple_coalescent(self):
         """
-        Test simple coalescent.
+        Get simple coalescent.
         """
-        coal = pg.Coalescent(
+        return pg.Coalescent(
             n=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             demography=pg.Demography([pg.PopSizeChange(pop='pop_0', time=0, size=1)])
         )
-
-        m = coal.tree_height.mean
-        coal.tree_height.plot_pdf()
-
-        self.assertAlmostEqual(m, 1)
 
     def get_complex_demography(self):
         """
@@ -44,6 +40,27 @@ class CoalescentTestCase(TestCase):
                 ('pop_2', 'pop_1'): {0: 0, 0.5: 0.5, 1: 1}
             })
         ])
+
+    def get_complex_coalescent(self):
+        """
+        Get complex coalescent.
+        """
+        return pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        )
+
+    def test_simple_coalescent(self):
+        """
+        Test simple coalescent.
+        """
+        coal = self.get_simple_coalescent()
+
+        m = coal.tree_height.mean
+        coal.tree_height.plot_pdf()
+
+        self.assertAlmostEqual(m, 1)
 
     def test_t_max_standard_coalescent(self):
         """
@@ -62,11 +79,7 @@ class CoalescentTestCase(TestCase):
         """
         Test time until almost sure absorption for complex coalescent.
         """
-        coal = pg.Coalescent(
-            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
-            model=pg.BetaCoalescent(alpha=1.7),
-            demography=self.get_complex_demography()
-        )
+        coal = self.get_complex_coalescent()
 
         t = coal.tree_height.t_max
 
@@ -94,11 +107,7 @@ class CoalescentTestCase(TestCase):
         """
         Test complex coalescent.
         """
-        coal = pg.Coalescent(
-            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
-            model=pg.BetaCoalescent(alpha=1.7),
-            demography=self.get_complex_demography()
-        )
+        coal = self.get_complex_coalescent()
 
         m = coal.tree_height.mean
         coal.tree_height.plot_pdf()
@@ -536,14 +545,127 @@ class CoalescentTestCase(TestCase):
         """
         Test serialization of coalescent.
         """
-        coal = pg.Coalescent(
-            n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
-            model=pg.BetaCoalescent(alpha=1.7),
-            demography=self.get_complex_demography()
-        )
+        coal = self.get_complex_coalescent()
 
         coal.to_file('tmp/test_serialize_simple_coalescent.json')
 
         coal2 = pg.Coalescent.from_file('tmp/test_serialize_simple_coalescent.json')
 
         self.assertEqual(coal.tree_height.mean, coal2.tree_height.mean)
+
+    def test_coalescent_negative_end_time_raises_value_error(self):
+        """
+        Test negative end time raises ValueError.
+        """
+        with self.assertRaises(ValueError) as context:
+            _ = pg.Coalescent(
+                n=2,
+                end_time=-1
+            ).tree_height
+
+        self.assertTrue('End time' in str(context.exception))
+
+    def test_coalescent_negative_start_time_raises_value_error(self):
+        """
+        Test negative start time raises ValueError.
+        """
+        with self.assertRaises(ValueError) as context:
+            _ = pg.Coalescent(
+                n=2,
+                start_time=-1
+            ).tree_height
+
+        self.assertTrue('Start time' in str(context.exception))
+
+    def test_end_time_before_start_time_raises_value_error(self):
+        """
+        Test end time before start time raises ValueError.
+        """
+        with self.assertRaises(ValueError) as context:
+            _ = pg.Coalescent(
+                n=2,
+                start_time=1,
+                end_time=0
+            ).tree_height
+
+        self.assertTrue('End time' in str(context.exception))
+
+    def test_start_greater_than_t_abs_raises_value_error(self):
+        """
+        Test start time greater than t_abs raises ValueError.
+        """
+        with self.assertRaises(ValueError) as context:
+            _ = pg.Coalescent(
+                n=2,
+                start_time=100000
+            ).tree_height.mean
+
+        self.assertTrue('start time' in str(context.exception))
+
+    def test_start_time_equal_end_time_zero_moments(self):
+        """
+        Test start time equal to end time gives zero moments.
+        """
+        coal = pg.Coalescent(
+            n=2,
+            start_time=1,
+            end_time=1
+        )
+
+        self.assertEqual(coal.tree_height.mean, 0)
+        self.assertEqual(coal.tree_height.var, 0)
+
+    def test_simple_coalescent_start_time(self):
+        """
+        Test simple coalescent start time moment.
+        """
+        coal = pg.Coalescent(
+            n=2,
+            start_time=1
+        )
+
+        _ = coal.tree_height.mean
+        _ = coal.tree_height.var
+        _ = coal.total_branch_length.mean
+        _ = coal.total_branch_length.var
+        _ = coal.sfs.mean
+        _ = coal.sfs.corr
+        _ = coal.tree_height.pdf(1)
+        _ = coal.tree_height.cdf(1)
+
+    def test_plot_accumulation(self):
+        """
+        Test moments.
+        """
+        coal = self.get_complex_coalescent()
+
+        values = np.linspace(0, coal.tree_height.quantile(0.99), 10)
+
+        coal.tree_height.plot_accumulation(1, values)
+        coal.tree_height.plot_accumulation(2, values)
+        coal.sfs.plot_accumulation(1, values)
+        coal.sfs.plot_accumulation(2, values)
+
+    def test_large_accumulation_equal_moments(self):
+        """
+        Test large accumulation equals moments.
+        """
+        coal = self.get_complex_coalescent()
+
+        self.assertEqual(
+            coal.tree_height.accumulation(1, coal.tree_height.t_max),
+            coal.tree_height.moment(1)
+
+        )
+
+        self.assertEqual(
+            coal.tree_height.accumulation(2, coal.tree_height.t_max),
+            coal.tree_height.moment(2)
+        )
+
+        np.testing.assert_array_equal(
+            coal.sfs.accumulation(1, coal.tree_height.t_max),
+            coal.sfs.moment(1).data
+        )
+
+

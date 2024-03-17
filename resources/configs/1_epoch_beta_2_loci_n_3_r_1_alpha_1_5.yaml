@@ -1,11 +1,12 @@
-n: 4
+n: 3
 n_loci: 2
 recombination_rate: 1
 num_replicates: 1000000
 pop_sizes:
   pop_0:
-    0: 3
-model: standard
+    0: 1
+model: beta
+alpha: 1.5
 comparisons:
   tolerance:
     tree_height:
@@ -16,16 +17,16 @@ comparisons:
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.02
-        corr: 0.02
+        cov: 0.01
+        corr: 0.01
     total_branch_length:
       mean: 0.01
       var: 0.05
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.02
-        corr: 0.02
+        cov: 0.01
+        corr: 0.01
     #sfs:
     #  mean: 0.01
     #  var: 0.05

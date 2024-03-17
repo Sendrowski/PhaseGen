@@ -531,7 +531,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         :param R: List of length k of reward matrices
         :param S: Intensity matrix
-        :param k: The kth moment to evaluate
+        :param k: The order of the moment.
         :return: Van Loan matrix which is a block matrix of size (k + 1) * (k + 1)
         """
         # matrix of zeros
@@ -595,24 +595,38 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         return MarginalLocusDistributions(self)
 
     @cache
-    def moment(
+    def moment_deprecated(
             self,
             k: int,
-            rewards: Tuple[Reward, ...] = None
+            rewards: Tuple[Reward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
     ) -> float:
         """
         Get the kth (non-central) moment.
 
-        :param k: The kth moment
+        TODO remove later
+
+        :param k: The order of the moment.
         :param rewards: Tuple of k rewards
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
         :return: The kth moment
         """
         # use default reward if not specified
         if rewards is None:
-            rewards = [self.reward] * k
+            rewards = (self.reward,) * k
         else:
             if len(rewards) != k:
                 raise ValueError(f"Number of rewards must be {k}.")
+
+        if start_time is None:
+            start_time = self.tree_height.start_time
+
+        if end_time is None:
+            end_time = self.tree_height.t_max
 
         # get reward matrix
         R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
@@ -621,7 +635,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         n_states = self.state_space.k
 
         # initialize Van Loan matrix holding (rewarded) moments
-        M = np.eye(n_states * (k + 1))
+        Q = np.eye(n_states * (k + 1))
 
         # iterate through epochs and compute initial values
         for i, epoch in enumerate(self.demography.epochs):
@@ -633,24 +647,200 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
 
             # compute tau
-            tau = min(epoch.end_time, self.tree_height.t_max) - epoch.start_time
+            tau = min(epoch.end_time, end_time) - epoch.start_time
 
             # compute matrix exponential
-            B = expm(V * tau)
+            Q_curr = expm(V * tau)
 
-            # update reward matrix
-            M = M @ B
+            # update by accumulated reward
+            Q = Q @ Q_curr
 
-            # break if we have reached the maximum time
-            if epoch.end_time >= self.tree_height.t_max:
+            # break if we have reached the end time
+            if epoch.end_time >= end_time:
                 break
 
         # calculate moment
-        m = factorial(k) * self.state_space.alpha @ M[:n_states, -n_states:] @ self.state_space.e
+        m = factorial(k) * self.state_space.alpha @ Q[:n_states, -n_states:] @ self.state_space.e
+
+        # subtract accumulated moment up to start time if greater than 0
+        if start_time > 0:
+            # call on PhaseTypeDistribution to make possible SFS moment calculation
+            m -= PhaseTypeDistribution.moment(
+                self,
+                k=k,
+                rewards=rewards,
+                start_time=0,
+                end_time=self.tree_height.start_time
+            )
 
         # TODO round to avoid numerical errors?
         # return np.round(m, self.n_decimals)
         return m
+
+    @cache
+    def moment(
+            self,
+            k: int,
+            rewards: Tuple[Reward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
+    ) -> float:
+        """
+        Get the kth (non-central) moment.
+
+        :param k: The order of the moment.
+        :param rewards: Tuple of k rewards
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :return: The kth moment
+        """
+        if start_time is None:
+            start_time = self.tree_height.start_time
+
+        if end_time is None:
+            end_time = self.tree_height.t_max
+
+        if start_time > 0:
+            m_start, m_end = PhaseTypeDistribution.accumulation(self, k, [start_time, end_time], rewards)
+            return float(m_end - m_start)
+
+        return float(PhaseTypeDistribution.accumulation(self, k, [end_time], rewards)[0])
+
+    def accumulation(
+            self,
+            k: int,
+            end_times: Iterable[float] | float,
+            rewards: Tuple[Reward, ...] = None
+    ) -> np.ndarray | float:
+        """
+        Evaluate the kth (non-central) moment at different end times.
+
+        :param k: The order of the moment.
+        :param end_times: List of ends times or end time when to evaluate the moment.
+        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :return: The moment accumulated at the specified times or time.
+        """
+        # handle scalar input
+        if not isinstance(end_times, Iterable):
+            return self.accumulation(k, [end_times], rewards)[0]
+
+        end_times = np.array(list(end_times))
+
+        # check for negative values
+        if np.any(end_times < 0):
+            raise ValueError("Negative end times are not allowed.")
+
+        # use default reward if not specified
+        if rewards is None:
+            rewards = (self.reward,) * k
+        else:
+            if len(rewards) != k:
+                raise ValueError(f"Number of rewards must be {k}.")
+
+        # sort array in ascending order but keep track of original indices
+        t_sorted: Collection[float] = np.sort(end_times)
+
+        epochs = self.demography.epochs
+        epoch: Epoch = next(epochs)
+
+        # get the transition matrix for the first epoch
+        self.state_space.update_epoch(epoch)
+
+        # number of states
+        n_states = self.state_space.k
+
+        # initialize block matrix holding (rewarded) moments
+        Q = np.eye(n_states * (k + 1))
+        u_prev = 0
+
+        # initialize probabilities
+        moments = np.zeros_like(t_sorted, dtype=float)
+
+        # get reward matrix
+        R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
+
+        # get Van Loan matrix
+        V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
+
+        # iterate through sorted values
+        for i, u in enumerate(t_sorted):
+
+            # iterate over epochs between u_prev and u
+            while u > epoch.end_time:
+                # update transition matrix with remaining time in current epoch
+                Q @= expm(V * (epoch.end_time - u_prev))
+
+                # fetch and update for next epoch
+                u_prev = epoch.end_time
+                epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
+                V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
+
+            # update with remaining time in current epoch
+            Q @= expm(V * (u - u_prev))
+
+            moments[i] = factorial(k) * self.state_space.alpha @ Q[:n_states, -n_states:] @ self.state_space.e
+
+            u_prev = u
+
+        # sort probabilities back to original order
+        moments = moments[np.argsort(end_times)]
+
+        return moments
+
+    def plot_accumulation(
+            self,
+            k: int,
+            end_times: Iterable[float] = None,
+            rewards: Tuple[Reward, ...] = None,
+            ax: plt.Axes = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None
+    ) -> plt.axes:
+        """
+        Plot accumulation of (non-central) moments at different times.
+
+        .. note:: This is different from a CDF, as it shows the accumulation of moments rather than the probability
+            of having reached absorption at a certain time.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and the
+            99th percentile.
+        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param ax: The axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        if end_times is None:
+            end_times = np.linspace(0, self.tree_height.quantile(0.99), 100)
+
+        if rewards is None:
+            rewards = (self.reward,) * k
+
+        if title is None:
+            title = f"Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
+
+        Visualization.plot(
+            ax=ax,
+            x=end_times,
+            y=self.accumulation(k, end_times, rewards),
+            xlabel='t',
+            ylabel='moment',
+            label=label,
+            file=file,
+            show=show,
+            clear=clear,
+            title=title
+        )
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
@@ -671,6 +861,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             self,
             state_space: DefaultStateSpace,
             demography: Demography = None,
+            start_time: float = 0,
             end_time: float = None
     ):
         """
@@ -678,8 +869,18 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         :param state_space: The state space.
         :param demography: The demography.
-        :param end_time: Time when to end computation.
+        :param start_time: Time when to start accumulating moments.
+        :param end_time: Time when to end accumulation of moments. By default, the time until almost sure absorption.
         """
+        if start_time < 0:
+            raise ValueError("Start time must be greater than or equal to 0.")
+
+        if end_time is not None and end_time < 0:
+            raise ValueError("End time must be greater than or equal to 0.")
+
+        if end_time is not None and end_time < start_time:
+            raise ValueError("End time must be greater than equal start time.")
+
         super().__init__(
             state_space=state_space,
             tree_height=self,
@@ -690,8 +891,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         #: State space
         self.state_space: DefaultStateSpace = state_space
 
+        #: Start time
+        self.start_time: float = start_time
+
         #: End time
-        self.end_time: float = end_time
+        self.end_time: float | None = end_time
 
     def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
         """
@@ -723,7 +927,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.state_space.update_epoch(epoch)
 
         # initialize transition matrix
-        T_curr = np.eye(self.state_space.k)
+        T = np.eye(self.state_space.k)
         u_prev = 0
 
         # initialize probabilities
@@ -735,19 +939,20 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # iterate through sorted values
         for i, u in enumerate(t_sorted):
 
+            # iterate over epochs between u_prev and u
             while u > epoch.end_time:
                 # update transition matrix with remaining time in current epoch
-                T_curr @= expm(self.state_space.S * (epoch.end_time - u_prev))
+                T @= expm(self.state_space.S * (epoch.end_time - u_prev))
 
-                # fetch and update next epoch
+                # fetch and update for next epoch
                 u_prev = epoch.end_time
                 epoch = next(epochs)
                 self.state_space.update_epoch(epoch)
 
             # update transition matrix with remaining time in current epoch
-            T_curr @= expm(self.state_space.S * (u - u_prev))
+            T @= expm(self.state_space.S * (u - u_prev))
 
-            probs[i] = 1 - self.state_space.alpha @ T_curr @ e
+            probs[i] = 1 - self.state_space.alpha @ T @ e
 
             u_prev = u
 
@@ -819,11 +1024,24 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     @cached_property
     def t_max(self) -> float:
         """
-        Get the time until which computations are performed.
+        Get the time until which computations are performed. This is either the end time specified when initializing
+        the distribution or the time until almost sure absorption.
 
         :return: The maximum time.
         """
-        return self.end_time if self.end_time is not None else self._get_absorption_time()
+        if self.end_time is not None:
+            return self.end_time
+
+        t_abs = self._get_absorption_time()
+
+        if t_abs < self.start_time:
+            raise ValueError(
+                f"Determined time of almost sure absorption ({t_abs:.1f}) "
+                f"is smaller than start time ({self.start_time:.1f}). "
+                "The start time may be too large or the demography not well-defined."
+            )
+
+        return t_abs
 
     def _get_absorption_time(self) -> float:
         """
@@ -972,21 +1190,31 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         pass
 
     @cache
-    def moment(self, k: int, rewards: Tuple[SFSReward, ...] = None) -> SFS:
+    def moment(
+            self,
+            k: int,
+            rewards: Tuple[SFSReward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
+    ) -> SFS:
         """
         Get the kth moment of the site-frequency spectrum.
 
         :param k: The order of the moment
         :param rewards: Tuple of k rewards
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
         :return: The kth SFS moments
         """
         if rewards is None:
-            rewards = [self.reward] * k
+            rewards = (self.reward,) * k
 
-        # calculate moments in parallel
+        # optionally parallelize the moment computation of the SFS bins
         moments = parallelize(
             func=lambda x: self.get_moment(*x),
-            data=[[k, i, rewards] for i in self._get_indices()],
+            data=[[k, i, rewards, start_time, end_time] for i in self._get_indices()],
             desc=f"Calculating moments of order {k}",
             pbar=self.pbar,
             parallelize=self.parallelize
@@ -994,20 +1222,154 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
 
-    def get_moment(self, k: int, i: int, rewards: Tuple[SFSReward, ...] = None) -> float:
+    def accumulation(
+            self,
+            k: int,
+            end_times: Iterable[float] | float,
+            rewards: Tuple[Reward, ...] = None
+    ) -> np.ndarray:
+        """
+        Evaluate the kth (non-central) moments at different end times.
+
+        :param k: The order of the moment.
+        :param end_times: Times or time when to evaluate the moment.
+        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :return: Array of moments accumulated at the specified times, one for each site-frequency count.
+        """
+        if not isinstance(end_times, Iterable):
+            return self.accumulation(k, [end_times], rewards)[:, 0]
+
+        indices = self._get_indices()
+        end_times = np.array(list(end_times))
+
+        accumulation = parallelize(
+            func=lambda x: self.get_accumulation(*x),
+            data=[[k, i, end_times, rewards] for i in indices],
+            desc=f"Calculating accumulation of moments of order {k}",
+            pbar=self.pbar,
+            parallelize=self.parallelize
+        )
+
+        # pad with zeros
+        return np.concatenate([
+            np.zeros((1, len(end_times))),
+            accumulation,
+            np.zeros((self.pop_config.n - len(indices), len(end_times)))
+        ])
+
+    def plot_accumulation(
+            self,
+            k: int,
+            end_times: Iterable[float] = None,
+            rewards: Tuple[Reward, ...] = None,
+            ax: plt.Axes = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None
+    ) -> plt.axes:
+        """
+        Plot accumulation of (non-central) SFS moments at different times.
+
+        .. note:: This is different from a CDF, as it shows the accumulation of moments rather than the probability
+            of having reached absorption at a certain time.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and
+            the 99th percentile.
+        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param ax: The axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        if ax is None:
+            ax = plt.gca()
+
+        if end_times is None:
+            end_times = np.linspace(0, self.tree_height.quantile(0.99), 100)
+
+        if rewards is None:
+            rewards = (self.reward,) * k
+
+        if title is None:
+            title = f"SFS Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
+
+        # get accumulation of moments
+        accumulation = self.accumulation(k, end_times, rewards)
+
+        for i, acc in zip(self._get_indices(), accumulation[1: -1]):
+            Visualization.plot(
+                ax=ax,
+                x=end_times,
+                y=acc,
+                xlabel='t',
+                ylabel='moment',
+                label=f'{i}',
+                file=file,
+                show=i == self._get_indices()[-1] and show,
+                clear=clear,
+                title=title
+            )
+
+        return ax
+
+    def get_moment(
+            self,
+            k: int,
+            i: int,
+            rewards: Tuple[SFSReward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
+    ) -> float:
         """
         Get the nth moment for the ith site-frequency count.
 
         :param k: The order of the moment
         :param i: The ith site-frequency count
         :param rewards: Tuple of k rewards
-        :return: The nth SFS moments
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :return: The kth SFS (cross)-moment at the ith site-frequency count
+        """
+        if rewards is None:
+            rewards = (self.reward,) * k
+
+        return super().moment(
+            k=k,
+            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
+            start_time=start_time,
+            end_time=end_time
+        )
+
+    def get_accumulation(
+            self,
+            k: int,
+            i: int,
+            end_times: Iterable[float] | float,
+            rewards: Tuple[SFSReward, ...] = None
+    ) -> np.ndarray | float:
+        """
+        Get accumulation of moments for the ith site-frequency count.
+
+        :param k: The order of the moment
+        :param i: The ith site-frequency count.
+        :param end_times: Times or time when to evaluate the moment.
+        :param rewards: Tuple of k rewards.
+        :return: The kth SFS (cross)-moment accumulations at the ith site-frequency count
         """
         if rewards is None:
             rewards = [self.reward] * k
 
-        return super().moment(
+        return super().accumulation(
             k=k,
+            end_times=end_times,
             rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards])
         )
 
@@ -1461,7 +1823,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):
 
     def __init__(
             self,
-            samples: np.ndarray | list, pops: List[str],
+            samples: np.ndarray | list, 
+            pops: List[str],
             locus_agg: Callable = lambda x: x.sum(axis=0)
     ):
         """
@@ -1544,6 +1907,8 @@ class AbstractCoalescent(ABC):
         :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
+        self._logger = logger.getChild(self.__class__.__name__)
+
         if model is None:
             model = StandardCoalescent()
 
@@ -1619,6 +1984,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             recombination_rate: float = None,
             pbar: bool = False,
             parallelize: bool = False,
+            start_time: float = 0,
             end_time: float = None
     ):
         """
@@ -1633,7 +1999,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param recombination_rate: Recombination rate.
         :param pbar: Whether to show a progress bar.
         :param parallelize: Whether to parallelize computations.
-        :param end_time: Time when to end the computation of moments. If `None`, the end time is taken to
+        :param start_time: Time when to start accumulating moments. By default, this is 0.
+        :param end_time: Time when to end the accumulating moments. If `None`, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(
@@ -1653,6 +2020,9 @@ class Coalescent(AbstractCoalescent, Serializable):
             self.demography.add_event(
                 PopSizeChanges(initial_sizes)
             )
+
+        #: Time when to start accumulating moments
+        self.start_time: float = start_time
 
         #: Whether to show a progress bar
         self.pbar: bool = pbar
@@ -1692,6 +2062,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         return TreeHeightDistribution(
             state_space=self.default_state_space,
             demography=self.demography,
+            start_time=self.start_time,
             end_time=self.end_time
         )
 
@@ -1774,6 +2145,38 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         return super(self.__class__, other).to_json()
 
+    def _to_msprime(
+            self,
+            num_replicates: int = 10000,
+            n_threads: int = 10,
+            parallelize: bool = True,
+            record_migration: bool = False
+    ) -> 'MsprimeCoalescent':
+        """
+        Convert to msprime coalescent.
+
+        :param num_replicates: Number of replicates.
+        :param n_threads: Number of threads.
+        :param parallelize: Whether to parallelize.
+        :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
+        :return: msprime coalescent.
+        """
+        if self.start_time != 0:
+            self._logger.warning("Non-zero start times are not supported by MsprimeCoalescent.")
+
+        return MsprimeCoalescent(
+            n=self.pop_config,
+            demography=self.demography,
+            model=self.model,
+            loci=self.locus_config,
+            recombination_rate=self.locus_config.recombination_rate,
+            end_time=self.end_time,
+            num_replicates=num_replicates,
+            n_threads=n_threads,
+            parallelize=parallelize,
+            record_migration=record_migration
+        )
+
 
 class MsprimeCoalescent(AbstractCoalescent):
     """
@@ -1787,10 +2190,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             model: CoalescentModel = StandardCoalescent(),
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
-            start_time: float = None,
             end_time: float = None,
-            exclude_unfinished: bool = False,
-            exclude_finished: bool = False,
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
@@ -1800,17 +2200,14 @@ class MsprimeCoalescent(AbstractCoalescent):
         Simulate data using msprime.
 
         :param n: Number of Lineages.
-        :param demography: Demography
-        :param model: Coalescent model
+        :param demography: Demography.
+        :param model: Coalescent model.
         :param loci: Number of loci or locus configuration.
-        :param start_time: Time when to start the simulation
-        :param end_time: Time when to end the simulation
-        :param exclude_unfinished: Whether to exclude unfinished trees when calculating the statistics
-        :param exclude_finished: Whether to exclude finished trees when calculating the statistics
-        :param num_replicates: Number of replicates
-        :param n_threads: Number of threads
-        :param parallelize: Whether to parallelize
-        :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme
+        :param end_time: Time when to end the simulation.
+        :param num_replicates: Number of replicates.
+        :param n_threads: Number of threads.
+        :param parallelize: Whether to parallelize.
+        :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         """
         super().__init__(
             n=n,
@@ -1825,9 +2222,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_branch_lengths: np.ndarray | None = None
         self.heights: np.ndarray | None = None
 
-        self.start_time: float = start_time
-        self.exclude_unfinished: bool = exclude_unfinished
-        self.exclude_finished: bool = exclude_finished
         self.num_replicates: int = num_replicates
         self.n_threads: int = n_threads
         self.parallelize: bool = parallelize
@@ -1979,23 +2373,6 @@ class MsprimeCoalescent(AbstractCoalescent):
             desc="Simulating trees"
         ))
 
-        # TODO not up to date?
-        if self.exclude_unfinished:
-            if self.end_time is not None:
-                res = res[:, res[0, 0] <= self.end_time]
-
-        # TODO not up to date?
-        if self.exclude_finished:
-            if self.end_time is not None:
-                res = res[:, res[0, 0] >= self.end_time]
-
-        # TODO not up to date?
-        if self.start_time is not None:
-            res = res[:, res[0, 0] >= self.start_time]
-
-        # TODO not up to date?
-        self.p_accepted = res.shape[2] / self.num_replicates
-
         # store results
         self.heights, self.total_branch_lengths, self.sfs_counts = res[0].T, res[1].T, res[2:].T
 
@@ -2106,6 +2483,21 @@ class MsprimeCoalescent(AbstractCoalescent):
         counts[-mid:] = 0
 
         return EmpiricalPhaseTypeSFSDistribution(counts.T, pops=self.demography.pop_names)
+
+    def to_phasegen(self) -> Coalescent:
+        """
+        Convert to native phasegen coalescent.
+
+        :return: phasegen coalescent.
+        """
+        return Coalescent(
+            n=self.pop_config,
+            model=self.model,
+            demography=self.demography,
+            loci=self.locus_config,
+            recombination_rate=self.locus_config.recombination_rate,
+            end_time=self.end_time
+        )
 
 
 class _GramCharlierExpansion:

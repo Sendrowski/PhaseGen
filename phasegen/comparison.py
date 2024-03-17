@@ -164,7 +164,7 @@ class Comparison(Serializable):
             demography=self.get_demography(),
             loci=self.get_locus_config(),
             parallelize=self.parallelize,
-            end_time=self.end_time if hasattr(self, 'end_time') else None,  # backward compatibility
+            end_time=self.end_time,
             model=self.model
         )
 

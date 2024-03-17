@@ -119,7 +119,7 @@ class Visualization:
         # remove margins
         plt.margins(x=0)
 
-        return plt.gca()
+        return ax
 
     @staticmethod
     @clear_show_save

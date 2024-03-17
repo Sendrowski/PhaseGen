@@ -51,7 +51,8 @@ def parallelize(
         parallelize: bool = True,
         pbar: bool = True,
         batch_size: int = None,
-        desc: str = None
+        desc: str = None,
+        dtype: type = float
 ) -> np.ndarray:
     """
     Parallelize given function or execute sequentially.
@@ -62,6 +63,7 @@ def parallelize(
     :param pbar: Whether to show a progress bar
     :param batch_size: Number of units to show in the pbar per function
     :param desc: Description for tqdm progress bar
+    :param dtype: Data type of the results
     :return: Array of results
     """
 
@@ -73,6 +75,6 @@ def parallelize(
         iterator = map(func, data)
 
     if pbar:
-        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc)
+        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc, delay=2)
 
-    return np.array(list(iterator), dtype=object)
+    return np.array(list(iterator), dtype=dtype)

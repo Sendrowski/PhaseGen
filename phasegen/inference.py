@@ -381,7 +381,8 @@ class Inference(Serializable):
             data=[self.x0] + [self._sample() for _ in range(self.n_runs - 1)],
             parallelize=self.parallelize,
             pbar=self.pbar,
-            desc='Optimizing'
+            desc='Optimizing',
+            dtype=object
         )
 
         n_success = sum([result.success for result in results])
@@ -466,7 +467,8 @@ class Inference(Serializable):
             data=[self.resample(self.observation, self._rng) for _ in range(self.n_bootstraps)],
             parallelize=self.parallelize,
             pbar=self.pbar,
-            desc='Bootstrapping'
+            desc='Bootstrapping',
+            dtype=object
         )
 
         # count successful optimizations
