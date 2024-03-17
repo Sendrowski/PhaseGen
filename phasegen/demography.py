@@ -62,13 +62,15 @@ class Epoch:
         self.end_time: float = end_time
 
         #: Population sizes.
-        self.pop_sizes: Dict[str, float] = pop_sizes
+        self.pop_sizes: Dict[str, float] = pop_sizes.copy()
 
         #: Population names.
         self.pop_names: List[str] = sorted(list(self.pop_sizes.keys()))
 
         #: Number of populations.
         self.n_pops: int = len(self.pop_names)
+
+        migration_rates = migration_rates.copy()
 
         # fill non-existing migration rates with zero
         for p in self.pop_sizes:
