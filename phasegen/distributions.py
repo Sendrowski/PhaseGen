@@ -598,7 +598,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     def moment(
             self,
             k: int,
-            rewards: Tuple[Reward] = None
+            rewards: Tuple[Reward, ...] = None
     ) -> float:
         """
         Get the kth (non-central) moment.
@@ -630,13 +630,13 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             self.state_space.update_epoch(epoch)
 
             # get Van Loan matrix
-            A = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
+            V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
 
             # compute tau
             tau = min(epoch.end_time, self.tree_height.t_max) - epoch.start_time
 
             # compute matrix exponential
-            B = expm(A * tau)
+            B = expm(V * tau)
 
             # update reward matrix
             M = M @ B
@@ -972,7 +972,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         pass
 
     @cache
-    def moment(self, k: int, rewards: Tuple[SFSReward] = None) -> SFS:
+    def moment(self, k: int, rewards: Tuple[SFSReward, ...] = None) -> SFS:
         """
         Get the kth moment of the site-frequency spectrum.
 
@@ -994,7 +994,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
 
-    def get_moment(self, k: int, i: int, rewards: Tuple[SFSReward] = None) -> float:
+    def get_moment(self, k: int, i: int, rewards: Tuple[SFSReward, ...] = None) -> float:
         """
         Get the nth moment for the ith site-frequency count.
 
@@ -1732,7 +1732,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     def moment(
             self,
             k: int = 1,
-            rewards: Tuple[SFSReward] = None,
+            rewards: Tuple[Reward, ...] = None,
             state_space: StateSpace = None
     ) -> float:
         """
@@ -1745,13 +1745,13 @@ class Coalescent(AbstractCoalescent, Serializable):
         :return: The kth moment
         """
         dist = PhaseTypeDistribution(
-            reward=(TreeHeightReward(),) * k if rewards is None else rewards,
+            reward=TreeHeightReward() if rewards is None else UnitReward(),
             tree_height=self.tree_height,
             state_space=self.default_state_space if state_space is None else state_space,
             demography=self.demography
         )
 
-        return dist.moment(k)
+        return dist.moment(k, rewards)
 
     def drop_cache(self):
         """
