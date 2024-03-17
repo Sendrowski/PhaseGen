@@ -6,8 +6,8 @@ dependencies:
   - msprime
   - tensorflow
   - statsmodels
+  - graphviz
   - python-graphviz
-  - pydot
   - jupyterlab
   - jupyter
   - pip
