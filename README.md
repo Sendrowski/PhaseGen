@@ -1,3 +1,4 @@
+# PhaseGen  <img align="right" width="100" src="https://raw.githubusercontent.com/Sendrowski/PhaseGen/master/docs/logo.png">
 <!--
 
 [![tests](https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml/badge.svg?branch=master)](https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml)
@@ -9,4 +10,4 @@ Please see the [documentation](https://phasegen.readthedocs.io/en/latest/) for a
 
 -->
 
-PhaseGen is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
+``PhaseGen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
