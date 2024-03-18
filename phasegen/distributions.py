@@ -20,7 +20,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
-from .demography import Demography, Epoch, PopSizeChanges
+from .demography import Demography, PopSizeChanges
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
@@ -703,12 +703,53 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             end_time = self.tree_height.t_max
 
         if start_time > 0:
-            m_start, m_end = PhaseTypeDistribution.accumulation(self, k, [start_time, end_time], rewards)
-            return float(m_end - m_start)
+            m_start, m_end = PhaseTypeDistribution.accumulate(self, k, [start_time, end_time], rewards)
+            m = float(m_end - m_start)
+        else:
+            m = float(PhaseTypeDistribution.accumulate(self, k, [end_time], rewards)[0])
 
-        return float(PhaseTypeDistribution.accumulation(self, k, [end_time], rewards)[0])
+        if np.isnan(m):
+            raise ValueError(
+                "NaN value encountered when computing moment. "
+                "This is likely due to an ill-conditioned rate matrix."
+            )
 
-    def accumulation(
+        return m
+
+    @staticmethod
+    def _get_regularization_factor(S: np.ndarray) -> float:
+        """
+        Get the regularization factor for the given intensity matrix. We
+        multiply the intensity matrix by this factor to improve numerical
+        stability when computing the matrix exponential of the Van Loan matrix.
+
+        :param S: Intensity matrix.
+        :return: Regularization factor.
+        """
+        # obtain positive rates
+        rates = S[S > 0]
+
+        # rewards in the Van Loan matrix are of order 1
+        return 10 ** - np.log10(rates).mean()
+
+    def _check_numerical_stability(self, S: np.ndarray, epoch: int):
+        """
+        Warn about potential numerical instability with very small or very large rates.
+        TODO this is a good approach but often there are not precision problem so this might confuse the user
+
+        :param S: (Regularized) intensity matrix.
+        :param epoch: Epoch number.
+        """
+        rates = S[S > 0]
+
+        if rates.min() / rates.max() < 1e-6:
+            self._logger.warning(
+                f"Intensity matrix in epoch {epoch} contains rates that differ by more than 6 orders of magnitude: "
+                f"min: {rates.min()}, max: {rates.max()}. "
+                f"This may potentially lead to numerical instability, despite matrix regularization."
+            )
+
+    def accumulate(
             self,
             k: int,
             end_times: Iterable[float] | float,
@@ -724,7 +765,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         # handle scalar input
         if not isinstance(end_times, Iterable):
-            return self.accumulation(k, [end_times], rewards)[0]
+            return self.accumulate(k, [end_times], rewards)[0]
 
         end_times = np.array(list(end_times))
 
@@ -742,8 +783,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # sort array in ascending order but keep track of original indices
         t_sorted: Collection[float] = np.sort(end_times)
 
-        epochs = self.demography.epochs
-        epoch: Epoch = next(epochs)
+        epochs = enumerate(self.demography.epochs)
+        i_epoch, epoch = next(epochs)
 
         # get the transition matrix for the first epoch
         self.state_space.update_epoch(epoch)
@@ -758,11 +799,20 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # initialize probabilities
         moments = np.zeros_like(t_sorted, dtype=float)
 
+        # regularization parameter
+        lamb = self._get_regularization_factor(self.state_space.S)
+
+        # regularized intensity matrix
+        S = self.state_space.S * lamb
+
+        # check numerical stability
+        self._check_numerical_stability(S, 0)
+
         # get reward matrix
         R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
 
         # get Van Loan matrix
-        V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
+        V = self._get_van_loan_matrix(S=S, R=R, k=k)
 
         # iterate through sorted values
         for i, u in enumerate(t_sorted):
@@ -770,29 +820,42 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             # iterate over epochs between u_prev and u
             while u > epoch.end_time:
                 # update transition matrix with remaining time in current epoch
-                Q @= expm(V * (epoch.end_time - u_prev))
+                Q @= expm(V * (epoch.end_time - u_prev) / lamb)
 
                 # fetch and update for next epoch
                 u_prev = epoch.end_time
-                epoch = next(epochs)
+                i_epoch, epoch = next(epochs)
                 self.state_space.update_epoch(epoch)
-                V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
+
+                # compute Van Loan matrix for next epoch using regularized intensity matrix
+                S = self.state_space.S * lamb
+                self._check_numerical_stability(S, 0)
+                V = self._get_van_loan_matrix(S=S, R=R, k=k)
 
             # update with remaining time in current epoch
-            Q @= expm(V * (u - u_prev))
+            Q @= expm(V * (u - u_prev) / lamb)
 
-            moments[i] = factorial(k) * self.state_space.alpha @ Q[:n_states, -n_states:] @ self.state_space.e
+            alpha = self.state_space.alpha
+            e = self.state_space.e
+            moments[i] = factorial(k) * lamb ** k * alpha @ Q[:n_states, -n_states:] @ e
 
             u_prev = u
 
         # sort probabilities back to original order
         moments = moments[np.argsort(end_times)]
 
+        if np.isnan(moments).any():
+            self._logger.warning(
+                "NaN values encountered when computing moments. "
+                f"Epoch: {i_epoch} at time: {epoch.start_time}. "
+                "This is likely due to an ill-conditioned rate matrix."
+            )
+
         return moments
 
     def plot_accumulation(
             self,
-            k: int,
+            k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
             ax: plt.Axes = None,
@@ -832,7 +895,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         Visualization.plot(
             ax=ax,
             x=end_times,
-            y=self.accumulation(k, end_times, rewards),
+            y=self.accumulate(k, end_times, rewards),
             xlabel='t',
             ylabel='moment',
             label=label,
@@ -851,8 +914,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     #: Maximum number of epochs to consider when determining time to almost sure absorption.
     max_epochs: int = 10000
 
-    #: Maximum number of iterations when determining time to almost sure absorption in the last epoch.
-    max_iter: int = 30
+    #: Maximum number of time we double the end time when determining time to almost sure absorption.
+    max_iter: int = 10
 
     #: Probability of almost sure absorption.
     p_absorption: float = 1 - 1e-15
@@ -920,8 +983,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # sort array in ascending order but keep track of original indices
         t_sorted: Collection[float] = np.sort(t)
 
-        epochs = self.demography.epochs
-        epoch: Epoch = next(epochs)
+        epochs = enumerate(self.demography.epochs)
+        i_epoch, epoch = next(epochs)
 
         # get the transition matrix for the first epoch
         self.state_space.update_epoch(epoch)
@@ -941,13 +1004,17 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
             # iterate over epochs between u_prev and u
             while u > epoch.end_time:
+                self._check_numerical_stability(self.state_space.S, i_epoch)
+
                 # update transition matrix with remaining time in current epoch
                 T @= expm(self.state_space.S * (epoch.end_time - u_prev))
 
                 # fetch and update for next epoch
                 u_prev = epoch.end_time
-                epoch = next(epochs)
+                i_epoch, epoch = next(epochs)
                 self.state_space.update_epoch(epoch)
+
+            self._check_numerical_stability(self.state_space.S, i_epoch)
 
             # update transition matrix with remaining time in current epoch
             T @= expm(self.state_space.S * (u - u_prev))
@@ -958,6 +1025,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         # sort probabilities back to original order
         probs = probs[np.argsort(t)]
+
+        if np.isnan(probs).any():
+            self._logger.critical(
+                "NaN values in CDF. This is likely due to an ill-conditioned rate matrix."
+            )
 
         return probs
 
@@ -1049,9 +1121,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         We base this computation on the transition matrix rather than the moments, because here
         we have a good idea about how likely absorption, and can warn the user if necessary.
         Stopping the simulation when no more rewards are accumulated is not a good idea, as this
-        can happen before almost sure absorption (exponential runaway growth, temporary deadlock in different demes).
+        can happen before almost sure absorption (exponential runaway growth, temporary isolation in different demes).
 
-        TODO clean up
+        TODO clean up further?
         """
         # initialize transition matrix
         T_curr = np.eye(self.state_space.k)
@@ -1059,34 +1131,47 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # take reward vector as exit vector
         e = self.reward.get(self.state_space)
 
-        # current time and probability of absorption
+        # time and probability of absorption
         t, p = 0, 0
 
+        epoch = None
+
+        # iterate over epochs and stop when almost sure absorption is reached
         for i, epoch in enumerate(self.demography.epochs):
             # update state space
             self.state_space.update_epoch(epoch)
 
             if i > self.max_epochs:
-                return self._warn_convergence(t, p)
+                self._logger.warning(
+                    f"Reached maximum number of epochs ({self.max_epochs}) when determining "
+                    "time of almost sure absorption. This may be due to an ill-defined demography. "
+                    "You can also increase the maximum number of epochs (`TreeHeightDistribution.max_epochs`) or "
+                    "set the end time manually (`Coalescent.end_time`)."
+                )
+                return t
 
+            # make sure we are not in last epoch
             if epoch.tau < np.inf:
-                tau = epoch.tau
-
                 # update transition matrix
-                T_curr = expm(self.state_space.S * tau) @ T_curr
+                T_curr = expm(self.state_space.S * epoch.tau) @ T_curr
 
                 # calculate probability of absorption
                 p = 1 - self.state_space.alpha @ T_curr @ e
 
-                t += tau
+                if np.isnan(p):
+                    return self._warn_p_is_nan(t)
+
+                t += epoch.tau
 
                 if p >= self.p_absorption:
                     return t
             else:
+                # handle last epoch separately
                 break
 
-        tau = 1
-        T_tau = expm(self.state_space.S)
+        # in the last epoch choose step size to be log-average population size
+        tau = 10 ** np.mean(np.log10(np.array(list(epoch.pop_sizes.values()))))
+        T_tau = expm(self.state_space.S * tau)
 
         # in the last epoch, we increase tau exponentially
         for i in range(self.max_iter):
@@ -1096,34 +1181,52 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             # calculate probability of absorption
             p_next = 1 - self.state_space.alpha @ T_curr @ e
 
+            if np.isnan(p_next):
+                return self._warn_p_is_nan(t)
+
             # break if p_next is not increasing anymore
             if p_next < p:
-                return self._warn_convergence(t, p)
+                self._logger.warning(
+                    "Could not reliably find time of almost sure absorption as it decreased for increasing time. "
+                    f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
+                    "This could be due to numerical imprecision, unreachable states or very large or small "
+                    "absorption times. You can also set the end time manually (see `Coalescent.end_time`)."
+                )
+                return t
 
+            # update time and probability
             t += tau
-            tau *= 2
-            T_tau = T_tau @ T_tau
             p = p_next
+
+            # double tau, and update transition matrix accordingly
+            tau *= 2
+            T_tau @= T_tau
 
             if p >= self.p_absorption:
                 return t
 
-        return self._warn_convergence(t, p)
+        self._logger.warning(
+            "Could not reliably find time of almost sure absorption after maximum number of iterations. "
+            f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
+            "This could be due to numerical imprecision, unreachable states or very large or small absorption times. "
+            "You can set the end time manually (see `Coalescent.end_time`) or increase the maximum "
+            "number of iterations (`TreeHeightDistribution.max_iter`)."
+        )
 
-    def _warn_convergence(self, t: float, p: float) -> float:
+        return t
+
+    def _warn_p_is_nan(self, t: float) -> float:
         """
-        Warn the user if the probability of absorption is not close to 1.
+        Warn if the probability of absorption is nan.
 
-        :param t: The time.
         :param p: The probability of absorption.
         :return: The time.
         """
-        self._logger.warning(
-            "Could not reliably find time of almost sure absorption. "
-            f"Using time {t:.1f} with probability of absorption {p:.1e}. "
-            "If p is close to 1, this is likely due to numerical imprecision. "
-            "If p is not close to 1, this could be due to unreachable states or very large or small absorption times. "
-            "You can also set the end time manually (see :attr:`Coalescent.end_time`)."
+        self._logger.critical(
+            "Could not reliably find time of almost sure absorption "
+            "as probability of absorption is NaN. "
+            "This is likely due to an ill-conditioned rate matrix. "
+            f"Using time {t:.1f}. "
         )
 
         return t
@@ -1215,14 +1318,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         moments = parallelize(
             func=lambda x: self.get_moment(*x),
             data=[[k, i, rewards, start_time, end_time] for i in self._get_indices()],
-            desc=f"Calculating moments of order {k}",
+            desc=f"Calculating {k}-moments",
             pbar=self.pbar,
             parallelize=self.parallelize
         )
 
         return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
 
-    def accumulation(
+    def accumulate(
             self,
             k: int,
             end_times: Iterable[float] | float,
@@ -1237,7 +1340,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
         if not isinstance(end_times, Iterable):
-            return self.accumulation(k, [end_times], rewards)[:, 0]
+            return self.accumulate(k, [end_times], rewards)[:, 0]
 
         indices = self._get_indices()
         end_times = np.array(list(end_times))
@@ -1245,7 +1348,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         accumulation = parallelize(
             func=lambda x: self.get_accumulation(*x),
             data=[[k, i, end_times, rewards] for i in indices],
-            desc=f"Calculating accumulation of moments of order {k}",
+            desc=f"Calculating accumulation of {k}-moments",
             pbar=self.pbar,
             parallelize=self.parallelize
         )
@@ -1259,7 +1362,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
     def plot_accumulation(
             self,
-            k: int,
+            k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
             ax: plt.Axes = None,
@@ -1300,7 +1403,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             title = f"SFS Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
 
         # get accumulation of moments
-        accumulation = self.accumulation(k, end_times, rewards)
+        accumulation = self.accumulate(k, end_times, rewards)
 
         for i, acc in zip(self._get_indices(), accumulation[1: -1]):
             Visualization.plot(
@@ -1367,7 +1470,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if rewards is None:
             rewards = [self.reward] * k
 
-        return super().accumulation(
+        return super().accumulate(
             k=k,
             end_times=end_times,
             rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards])
@@ -1561,6 +1664,24 @@ class EmpiricalDistribution(DensityAwareDistribution):
         :return: Second moment.
         """
         return np.mean(self.samples ** 2, axis=0)
+
+    @cached_property
+    def m3(self) -> float | np.ndarray:
+        """
+        Get the third moment.
+
+        :return: Third moment.
+        """
+        return np.mean(self.samples ** 3, axis=0)
+
+    @cached_property
+    def m4(self) -> float | np.ndarray:
+        """
+        Get the fourth moment.
+
+        :return: Fourth moment.
+        """
+        return np.mean(self.samples ** 4, axis=0)
 
     @cached_property
     def cov(self) -> float | np.ndarray:
@@ -1823,7 +1944,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):
 
     def __init__(
             self,
-            samples: np.ndarray | list, 
+            samples: np.ndarray | list,
             pops: List[str],
             locus_agg: Callable = lambda x: x.sum(axis=0)
     ):

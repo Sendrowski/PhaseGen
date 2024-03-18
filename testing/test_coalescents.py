@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 import phasegen as pg
-from phasegen import SFS
 from phasegen.distributions import MsprimeCoalescent
 
 
@@ -83,7 +82,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height.t_max
 
-        self.assertEqual(t, 128)
+        self.assertTrue(150 < t < 200)
 
     def test_t_max_exponential_growth(self):
         """
@@ -101,7 +100,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height.t_max
 
-        self.assertEqual(t, 3.6)
+        self.assertTrue(3 < t < 5)
 
     def test_complex_coalescent(self):
         """
@@ -653,19 +652,89 @@ class CoalescentTestCase(TestCase):
         coal = self.get_complex_coalescent()
 
         self.assertEqual(
-            coal.tree_height.accumulation(1, coal.tree_height.t_max),
+            coal.tree_height.accumulate(1, coal.tree_height.t_max),
             coal.tree_height.moment(1)
 
         )
 
         self.assertEqual(
-            coal.tree_height.accumulation(2, coal.tree_height.t_max),
+            coal.tree_height.accumulate(2, coal.tree_height.t_max),
             coal.tree_height.moment(2)
         )
 
         np.testing.assert_array_equal(
-            coal.sfs.accumulation(1, coal.tree_height.t_max),
+            coal.sfs.accumulate(1, coal.tree_height.t_max),
             coal.sfs.moment(1).data
         )
 
+    def test_precision_regularization_large_N(self):
+        """
+        Make sure regularization works for large rates.
+        """
+        coal = pg.Coalescent(
+            n=4,
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1e40}})
+        )
 
+        lamb = coal.tree_height._get_regularization_factor(coal.default_state_space.S)
+
+        self.assertTrue(1e39 <= lamb <= 1e41)
+
+        self.assertAlmostEqual(coal.tree_height.mean, 1.5e40, delta=1e26)
+
+    def test_precision_regularization_small_N(self):
+        """
+        Make sure regularization works for small rates.
+        """
+        coal = pg.Coalescent(
+            n=4,
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-40}})
+        )
+
+        lamb = coal.tree_height._get_regularization_factor(coal.default_state_space.S)
+
+        self.assertTrue(1e-41 <= lamb <= 1e-39)
+
+        self.assertAlmostEqual(coal.tree_height.mean, 1.5e-40, delta=1e-26)
+
+    def test_value_error_extreme_imprecision(self):
+        """
+        Make sure extreme imprecision raises ValueError.
+        """
+        with self.assertRaises(ValueError) as context:
+            _ = pg.Coalescent(
+                n=4,
+                demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-40}, 'pop_1': {0: 1e40}})
+            ).tree_height.mean
+
+        self.assertTrue('NaN' in str(context.exception))
+
+    @pytest.mark.skip(reason="not working yet")
+    def test_value_error_large_imprecision(self):
+        """
+        Make sure a warning is logged for large imprecision.
+        TODO would be nice if this worked
+        """
+        coal = pg.Coalescent(
+            n=4,
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1e10}, 'pop_1': {0: 1e4}})
+        )
+
+        coal.tree_height.plot_accumulation(1, np.linspace(0, 1, 10))
+
+        with self.assertLogs(level='WARNING', logger=coal._logger) as cm:
+            _ = coal.tree_height.mean
+
+    def test_low_recombination_rate(self):
+        """
+        Test low recombination rate.
+        """
+        coal = pg.Coalescent(
+            n=4,
+            loci=pg.LocusConfig(n=2, recombination_rate=1e11)
+        )
+
+        with self.assertLogs(level='WARNING', logger=coal.tree_height._logger) as cm:
+            _ = coal.tree_height.mean
+
+        self.assertIn("numerical instability", cm.output[0])

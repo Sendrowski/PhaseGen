@@ -12,12 +12,16 @@ from phasegen.comparison import Comparison
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_n_4_large_N',
+    '2_epoch_n_5_small_N',
     '1_epoch_migration_one_each_n_2',
     '1_epoch_n_2_early_end_time',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '2_epoch_2_pops_n_4',
     '1_epoch_n_10',
     '1_epoch_beta_n_2_alpha_1_9',
+    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '2_epoch_n_5_large_N',
+    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
     '1_epoch_beta_n_6_alpha_1_9',
     '1_epoch_dirac_n_10_psi_0_7_c_50',
     '1_epoch_dirac_n_4_psi_0_7_c_50',

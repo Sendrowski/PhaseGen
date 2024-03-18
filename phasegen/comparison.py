@@ -6,6 +6,7 @@ import logging
 from functools import cached_property
 from typing import Iterable, Dict, Literal, List
 
+import matplotlib as mpl
 import numpy as np
 import yaml
 from fastdfe import Spectra
@@ -212,7 +213,7 @@ class Comparison(Serializable):
             self,
             ph: PhaseTypeDistribution,
             ms: PhaseTypeDistribution,
-            stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'cov_demes'],
+            stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
             tol: float,
             visualize: bool = True,
             title: str = 'stat',
@@ -231,75 +232,71 @@ class Comparison(Serializable):
         """
         title = f"{title}: {stat}"
 
-        if stat in ['cov_demes', 'corr_demes']:
-            pops = self.get_demography().pop_names
-            ph_stat = np.array([[getattr(ph, 'get_' + stat)(p1, p2) for p1 in pops] for p2 in pops])
-            ms_stat = np.array([[getattr(ms, 'get_' + stat)(p1, p2) for p1 in pops] for p2 in pops])
+        with mpl.rc_context({'axes.titlesize': 7}):
 
-        elif stat in ['cov_loci', 'corr_loci']:
-            loci = range(self.n_loci)
-            ph_stat = np.array([[getattr(ph, 'get_' + stat)(l1, l2) for l1 in loci] for l2 in loci])
-            ms_stat = np.array([[getattr(ms, 'get_' + stat)(l1, l2) for l1 in loci] for l2 in loci])
+            if stat in ['m3', 'm4']:
+                ph_stat = ph.moment(int(stat[1]))
+                ms_stat = getattr(ms, stat)
 
-        else:
-            ph_stat = getattr(ph, stat)
-            ms_stat = getattr(ms, stat)
-
-        if isinstance(ph_stat, float):
-
-            diff = self.rel_diff(ms_stat, ph_stat).max()
-
-        # assume we have an SFS
-        elif isinstance(ph_stat, Iterable):
-
-            ms_stat = np.array(list(ms_stat))
-            ph_stat = np.array(list(ph_stat))
-            diff = self.rel_diff(ms_stat, ph_stat).max()
-
-            if visualize:
-                if ph_stat.ndim == 1:
-
-                    s = Spectra.from_spectra(dict(ms=SFS(ms_stat), ph=SFS(ph_stat)))
-
-                    s.plot(title=title)
-
-                # assume we have a 2-dimensional statistic
-                elif len(ph_stat) > 3:
-                    fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
-
-                    fig.suptitle(f"{stat}: {title}")
-
-                    SFS2(ph_stat).plot_surface(ax=axs[0], title='ph', show=False)
-                    SFS2(ms_stat).plot_surface(ax=axs[1], title='ms')
-
-        # assume we have a PDF or CDF
-        elif stat in ['pdf', 'cdf']:
-
-            # use cached values if available
-            if hasattr(ms, '_cache') and stat in ms._cache:
-                t = ms._cache['t']
-                y_ms = ms._cache[stat]
             else:
-                t = np.linspace(0, self.ph.tree_height.quantile(0.99), 100)
-                y_ms = ms_stat(t)
+                ph_stat = getattr(ph, stat)
+                ms_stat = getattr(ms, stat)
 
-            y_ph = ph_stat(t)
+            if isinstance(ph_stat, float):
 
-            if visualize:
-                plt.plot(t, y_ph, label='phasegen')
-                plt.plot(t, y_ms, label='msprime')
+                diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                plt.legend()
-                plt.title(title)
+            # assume we have an SFS
+            elif isinstance(ph_stat, Iterable):
 
-                plt.tight_layout()
+                ms_stat = np.array(list(ms_stat))
+                ph_stat = np.array(list(ph_stat))
+                diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                plt.show()
+                if visualize:
+                    if ph_stat.ndim == 1:
 
-            diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[2:].max()
+                        s = Spectra.from_spectra(dict(ms=SFS(ms_stat), ph=SFS(ph_stat)))
 
-        else:
-            raise ValueError(f"Unknown type {type(ph_stat)}.")
+                        s.plot(title=title)
+
+                    # assume we have a 2-dimensional statistic
+                    elif len(ph_stat) > 3:
+                        fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
+
+                        fig.suptitle(f"{stat}: {title}")
+
+                        SFS2(ph_stat).plot_surface(ax=axs[0], title='ph', show=False)
+                        SFS2(ms_stat).plot_surface(ax=axs[1], title='ms')
+
+            # assume we have a PDF or CDF
+            elif stat in ['pdf', 'cdf']:
+
+                # use cached values if available
+                if hasattr(ms, '_cache') and stat in ms._cache:
+                    t = ms._cache['t']
+                    y_ms = ms._cache[stat]
+                else:
+                    t = np.linspace(0, self.ph.tree_height.quantile(0.99), 100)
+                    y_ms = ms_stat(t)
+
+                y_ph = ph_stat(t)
+
+                if visualize:
+                    plt.plot(t, y_ph, label='phasegen')
+                    plt.plot(t, y_ms, label='msprime')
+
+                    plt.legend()
+                    plt.title(title)
+
+                    plt.tight_layout()
+
+                    plt.show()
+
+                diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[2:].max()
+
+            else:
+                raise ValueError(f"Unknown type {type(ph_stat)}.")
 
         if not diff <= tol:
             self.logger.critical(f"{title}: {diff} > {tol}")
@@ -335,7 +332,7 @@ class Comparison(Serializable):
         """
 
         # statistic, distribution or nested demes dictionary
-        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes']
+        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4']
 
         # tolerance or dictionary of statistics
         sub: float | dict

@@ -143,8 +143,8 @@ class InferenceTestCase(TestCase):
         inf2 = self.get_basic_inference(dict(seed=None, n_runs=1, x0=None))
         inf2.run()
 
-        # check that we needed different number of iterations
-        self.assertNotEqual(inf.result.nit, inf2.result.nit)
+        # check that we get different results
+        self.assertNotEqual(inf.result.x[0], inf2.result.x[0])
 
     def test_automatic_boostrap_no_resample_raises_error(self):
         """
@@ -226,5 +226,3 @@ class InferenceTestCase(TestCase):
         inf.plot_demography()
         inf.plot_bootstraps(kind='hist')
         inf.plot_bootstraps(kind='kde')
-
-
