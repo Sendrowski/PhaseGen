@@ -38,7 +38,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test n = 2, 2 demes.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.state_space_old.DefaultStateSpace(
             pop_config=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(
@@ -57,7 +57,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 2.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.state_space_old.DefaultStateSpace(
             pop_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -81,7 +81,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 3.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.state_space_old.DefaultStateSpace(
             pop_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -250,9 +250,8 @@ class StateSpaceTestCase(TestCase):
         self.assertEqual(pg.BlockCountingStateSpace(
             pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
-        ).k, 35581)
+        )._get_old().k, 35581)
 
-    @pytest.mark.skip('Getting permission denied error since I fiddled with the permissions')
     def test_plot_rates(self):
         """
         Test plot rates.
@@ -372,31 +371,11 @@ class StateSpaceTestCase(TestCase):
                 size['default.observed'][(n, d)] = coal.default_state_space.k
                 size['block_counting.observed'][(n, d)] = coal.block_counting_state_space.k
 
-                size['default.theoretical'][(n, d)] = coal.default_state_space.get_k()
-                size['block_counting.theoretical'][(n, d)] = coal.block_counting_state_space.get_k()
+                size['default.theoretical'][(n, d)] = coal.default_state_space._get_old().get_k()
+                size['block_counting.theoretical'][(n, d)] = coal.block_counting_state_space._get_old().get_k()
 
                 self.assertEqual(size['default.observed'][(n, d)], size['default.theoretical'][(n, d)])
                 self.assertEqual(size['block_counting.observed'][(n, d)], size['block_counting.theoretical'][(n, d)])
-
-        pass
-
-    def test_state_space_size_sequence_2_loci(self):
-        """
-        Test state space size sequence for 2 loci.
-        """
-        size = defaultdict(dict)
-
-        # for one deme: a = lambda n: n*(2*n**2 + 9*n + 1)/6
-        # https://oeis.org/search?q=9%2C+23%2C+46%2C+80%2C+127%2C+189%2C+268%2C+366&go=Search
-
-        for n in range(2, 10):
-            for d in range(1, 4):
-                coal = pg.Coalescent(
-                    n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
-                    loci=2
-                )
-
-                size['default.observed'][(n, d)] = coal.default_state_space.k
 
         pass
 
@@ -408,7 +387,7 @@ class StateSpaceTestCase(TestCase):
             for d in np.arange(1, 4):
                 x = np.array(list(itertools.product(np.arange(n + 1), repeat=d)))
                 y = x[x.sum(axis=1) <= n]
-                p = [1] + [pg.state_space.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
+                p = [1] + [pg.state_space_old.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
 
                 n1 = len(y)
                 n2 = sum(p)
@@ -425,8 +404,8 @@ class StateSpaceTestCase(TestCase):
         k = np.zeros((len(n), 2))
 
         for i in n:
-            n1 = np.array(pg.state_space.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
-            n2 = pg.state_space.StateSpace.P(i)
+            n1 = np.array(pg.state_space_old.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
+            n2 = pg.state_space_old.StateSpace.P(i)
 
             k[i - 1, 0] = len(n1)
             k[i - 1, 1] = n2
@@ -434,3 +413,178 @@ class StateSpaceTestCase(TestCase):
             self.assertEqual(len(n1), n2)
 
         pass
+
+    def compare_state_spaces(
+            self,
+            state_space_old: pg.state_space_old.StateSpace,
+            state_space: pg.state_space.StateSpace,
+            plot: bool = False
+    ):
+        """
+        Compare state spaces.
+        """
+        if plot:
+            state_space_old._plot_rates('scratch/state_space_old')
+            state_space._plot_rates('scratch/state_space')
+
+        self.assertEqual(state_space.k, state_space_old.k)
+
+        # reorder the states of s2 to match s1
+        ordering = [
+            np.where(
+                ((state_space_old.states == state_space.states[i]) & (state_space_old.linked == state_space.linked[i])).all(
+                    axis=(1, 2, 3)))[0][0] for i in range(state_space.k)
+        ]
+
+        testing.assert_array_equal(state_space.states.astype(int), state_space_old.states[ordering])
+        testing.assert_array_equal(state_space.linked.astype(int), state_space_old.linked[ordering])
+
+        testing.assert_array_almost_equal(state_space.S, state_space_old.S[ordering][:, ordering], decimal=14)
+        print(f"graph: {state_space.time}, matrix: {state_space_old.time}")
+
+    def test_equivalence_default_state_space_standard_coalescent(self):
+        """
+        Test equivalence of default state space and graph space for standard coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=10),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+
+    def test_equivalence_block_counting_state_space_standard_coalescent(self):
+        """
+        Test equivalence of block counting state space and graph space for standard coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=10),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
+                                  pg.BlockCountingStateSpace(**kwargs))
+
+    def test_equivalence_default_state_space_beta_coalescent(self):
+        """
+        Test equivalence of default state space and graph space for beta coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=10),
+            model=pg.BetaCoalescent(alpha=1.5),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+
+    def test_equivalence_block_counting_state_space_beta_coalescent(self):
+        """
+        Test equivalence of block counting state space and graph space for beta coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=10),
+            model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
+                                  pg.BlockCountingStateSpace(**kwargs))
+
+    def test_equivalence_default_state_space_dirac_coalescent(self):
+        """
+        Test equivalence of default state space and graph space for dirac coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=10),
+            model=pg.DiracCoalescent(c=50, psi=0.5),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+
+    def test_equivalence_block_counting_state_space_dirac_coalescent(self):
+        """
+        Test equivalence of block counting state space and graph space for dirac coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=4),
+            model=pg.DiracCoalescent(c=50, psi=0.5),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
+                                  pg.BlockCountingStateSpace(**kwargs))
+
+    def test_equivalence_default_state_space_migration(self):
+        """
+        Test equivalence of default state space and graph space for migration coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
+            epoch=pg.Epoch(
+                pop_sizes={'pop_0': 1, 'pop_1': 1},
+                migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.2}
+            )
+        )
+
+        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+
+    def test_equivalence_block_counting_state_space_migration(self):
+        """
+        Test equivalence of block counting state space and graph space for migration coalescent.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
+            epoch=pg.Epoch(
+                pop_sizes={'pop_0': 1, 'pop_1': 3, 'pop_2': 2},
+                migration_rates={
+                    ('pop_0', 'pop_1'): 0.1,
+                    ('pop_1', 'pop_0'): 0.2,
+                    ('pop_1', 'pop_2'): 0.3,
+                    ('pop_2', 'pop_1'): 0.4,
+                    ('pop_2', 'pop_0'): 0.5,
+                    ('pop_0', 'pop_2'): 0.6
+                }
+            )
+        )
+
+        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
+                                  pg.BlockCountingStateSpace(**kwargs))
+
+    def test_equivalence_default_state_space_recombination(self):
+        """
+        Test equivalence of default state space and graph space for recombination.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig(n=6),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs),
+        )
+
+    def test_equivalence_default_state_space_recombination_demes(self):
+        """
+        Test equivalence of default state space and graph space for recombination and multiple demes.
+        """
+        kwargs = dict(
+            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
+            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch(
+                pop_sizes={'pop_0': 3, 'pop_1': 1},
+                migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.2}
+            )
+        )
+
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs)
+        )

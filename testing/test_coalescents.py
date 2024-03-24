@@ -697,33 +697,49 @@ class CoalescentTestCase(TestCase):
 
         self.assertAlmostEqual(coal.tree_height.mean, 1.5e-40, delta=1e-26)
 
+    def test_warning_disconnected_demes(self):
+        """
+        Make sure disconnected demes raise warning.
+        """
+        with self.assertLogs(level='WARNING', logger=pg.logger) as cm:
+            pg.Demography(
+                pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1}}
+            )
+
+        self.assertTrue('zero migration rates' in cm.output[0])
+
     def test_value_error_extreme_imprecision(self):
         """
         Make sure extreme imprecision raises ValueError.
         """
-        with self.assertRaises(ValueError) as context:
-            _ = pg.Coalescent(
-                n=4,
-                demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-40}, 'pop_1': {0: 1e40}})
-            ).tree_height.mean
+        coal = pg.Coalescent(
+            n=4,
+            demography=pg.Demography(
+                pop_sizes={'pop_0': {0: 1e-40}, 'pop_1': {0: 1e40}},
+                migration_rates={('pop_0', 'pop_1'): {0: 1}}
+            )
+        )
 
-        self.assertTrue('NaN' in str(context.exception))
+        _ = coal.tree_height.mean
 
-    @pytest.mark.skip(reason="not working yet")
+        self.assertNoLogs(level='CRITICAL', logger=coal._logger)
+
     def test_value_error_large_imprecision(self):
         """
-        Make sure a warning is logged for large imprecision.
-        TODO would be nice if this worked
+        Make sure no warning is raised for large imprecision.
         """
         coal = pg.Coalescent(
             n=4,
-            demography=pg.Demography(pop_sizes={'pop_0': {0: 1e10}, 'pop_1': {0: 1e4}})
+            demography=pg.Demography(
+                pop_sizes={'pop_0': {0: 1e10}, 'pop_1': {0: 1e4}},
+                migration_rates={('pop_0', 'pop_1'): {0: 1e4}}
+            ),
         )
 
-        coal.tree_height.plot_accumulation(1, np.linspace(0, 1, 10))
+        coal.tree_height.plot_cdf()
+        coal.tree_height.plot_accumulation(1)
 
-        with self.assertLogs(level='WARNING', logger=coal._logger) as cm:
-            _ = coal.tree_height.mean
+        self.assertNoLogs(level='WARNING', logger=coal._logger)
 
     def test_low_recombination_rate(self):
         """

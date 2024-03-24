@@ -158,6 +158,8 @@ from .norms import (
     PoissonLikelihood
 )
 
+from .state_space_old import StateSpace as OldStateSpace
+
 __all__ = [
     'PhaseTypeDistribution',
     'Coalescent',

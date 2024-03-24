@@ -645,6 +645,14 @@ class Demography:
         #: Population names.
         self._prepare_events()
 
+        # issue warning if multiple populations are specified but no migration rates are given
+        if self.n_pops > 1 and migration_rates == {}:
+            self._logger.warning(
+                'Multiple populations are specified, but no migration rates were specified so far. '
+                'Initializing with zero migration rates between all populations. '
+                'Note that this may lead to infinite coalescence times if not changed later.'
+            )
+
     def _prepare_events(self):
         """
         Sort events by start time and determine population names and number of populations.

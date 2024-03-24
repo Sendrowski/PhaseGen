@@ -42,7 +42,7 @@ class RewardsTestCase(TestCase):
 
         r = pg.TreeHeightReward().get(s)
 
-        testing.assert_array_equal(r, [1, 1, 1, 1, 0])
+        testing.assert_array_equal(r[s._get_old_ordering()], [1, 1, 1, 1, 0])
 
     @staticmethod
     def test_total_branch_length_reward_default_state_space():
@@ -57,7 +57,7 @@ class RewardsTestCase(TestCase):
 
         r = pg.TotalBranchLengthReward().get(s)
 
-        testing.assert_array_equal(r, [4, 3, 2, 0])
+        testing.assert_array_equal(r[s._get_old_ordering()], [4, 3, 2, 0])
 
     def test_total_branch_length_reward_block_counting_state_space(self):
         """
@@ -71,7 +71,7 @@ class RewardsTestCase(TestCase):
 
         r = pg.TotalBranchLengthReward().get(s)
 
-        testing.assert_array_equal(r, [4, 3, 2, 2, 0])
+        testing.assert_array_equal(r[s._get_old_ordering()], [4, 3, 2, 2, 0])
 
     @staticmethod
     def test_product_reward():

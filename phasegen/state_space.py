@@ -2,21 +2,21 @@
 State space.
 """
 
-import itertools
 import logging
 import time
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
-from typing import List, Tuple, cast, Dict, Callable
+from typing import List, Tuple, Dict, Callable, Iterable, cast
 
 import numpy as np
-from scipy.special import comb
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
+from .state_space_old import StateSpace as OldStateSpace, DefaultStateSpace as OldDefaultStateSpace, \
+    BlockCountingStateSpace as OldBlockCountingStateSpace
 
 logger = logging.getLogger('phasegen')
 
@@ -71,7 +71,13 @@ class StateSpace(ABC):
         self.cache: bool = cache
 
         #: Cached rate matrices
-        self._cache: Dict[Epoch, np.ndarray] = {}
+        self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
+
+        #: Ordered list of states
+        self.__states: List['State'] = []
+
+        #: State counter
+        self._i_state: int = 0
 
         # number of lineages linked across loci
         self.linked: np.ndarray | None = None
@@ -80,54 +86,74 @@ class StateSpace(ABC):
         self.time: float | None = None
 
     @cached_property
-    def _non_zero_states(self) -> Tuple[np.ndarray, ...]:
-        """
-        Get the indices of non-zero rates. This improves performance when computing the rate matrix
-        for different epochs
-
-        :return: Indices of non-zero rates.
-        """
-        # cache the current epoch
-        epoch = self.epoch
-
-        # we first determine the non-zero states by using default values for the demography
-        self.epoch = Epoch(
-            pop_sizes={p: 1 for p in epoch.pop_names},
-            migration_rates={(p, q): 1 for p, q in product(epoch.pop_names, epoch.pop_names) if p != q}
-        )
-
-        start = time.time()
-
-        # get the rate matrix for the default demography
-        default_rate_matrix = np.fromfunction(
-            np.vectorize(self._get_rate, otypes=[float]),
-            (self.k, self.k),
-            dtype=int
-        )
-
-        # record time to compute rate matrix
-        self.time = time.time() - start
-
-        # restore the epoch
-        self.epoch = epoch
-
-        # indices of non-zero rates
-        # this improves performance when recomputing the rate matrix for different epochs
-        return np.where(default_rate_matrix != 0)
-
-    @cached_property
-    @abstractmethod
     def states(self) -> np.ndarray:
         """
         Get the states. Each state describes the lineage configuration per deme and locus, i.e.
         one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
         """
+        start = time.time()
+
+        # get all possible transitions
+        transitions, states = self.get_transitions()
+
+        # record time to compute rate matrix
+        self.time = time.time() - start
+
+        # save linked lineages
+        self.linked = np.array([s.linked for s in states])
+        self.__states = states
+
+        # cache rate matrix if specified
+        if self.cache:
+            self._cache[self.epoch] = (transitions, states)
+
+        # indices of non-zero rates
+        return np.array([s.lineages for s in states])
+
+    @cached_property
+    def _states(self) -> List['State']:
+        """
+        Get the (ordered) list of states.
+        """
+        _ = self.states
+        return self.__states
+
+    @abstractmethod
+    def _get_old(self) -> OldStateSpace:
+        """
+        Get the old state space.
+        """
         pass
+
+    def _get_old_ordering(self) -> List[int]:
+        """
+        Get the ordering of the states in the old state space relative to the new state space.
+
+        :return: Ordering of the states in the old state space.
+        """
+        old = self._get_old()
+
+        # reorder the states of s2 to match s1
+        return cast(List[int], [
+            np.where(((old.states == self.states[i]) & (old.linked == self.linked[i])).all(axis=(1, 2, 3)))[0][0]
+            for i in range(self.k)
+        ])
+
+    def get_transitions(self) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
+        """
+        Get all possible transitions from the given state.
+
+        :return: All possible transitions from the given state.
+        """
+        # reset state counter
+        self._i_state = 0
+
+        return self._get_transitions([self._get_initial()], {}, [])
 
     @cached_property
     def e(self) -> np.ndarray:
         """
-        Vector with ones of size ``n``.
+        Vector with ones of size ``k``.
         """
         return np.ones(self.k)
 
@@ -136,7 +162,6 @@ class StateSpace(ABC):
         """
         Get full intensity matrix.
         """
-        # obtain intensity matrix
         return self._get_rate_matrix()
 
     @cached_property
@@ -155,34 +180,6 @@ class StateSpace(ABC):
         # as we may have multiple initial states
         return alpha / alpha.sum()
 
-    def update_epoch(self, epoch: Epoch):
-        """
-        Update the epoch.
-
-        :param epoch: Epoch.
-        :return: State space.
-        """
-        # only remove cached properties if epoch has changed
-        if self.epoch != epoch:
-            self.drop_S()
-
-        self.epoch = epoch
-
-    def __eq__(self, other):
-        """
-        Check if two state spaces are equal. We do not for equivalence of the epochs as we can
-        update the epoch of a state space.
-
-        :param other: Other state space
-        :return: Whether the two state spaces are equal
-        """
-        return (
-                self.__class__ == other.__class__ and
-                self.pop_config == other.pop_config and
-                self.locus_config == other.locus_config and
-                self.model == other.model
-        )
-
     @cached_property
     def k(self) -> int:
         """
@@ -200,13 +197,39 @@ class StateSpace(ABC):
         return k
 
     @cached_property
-    def m(self) -> int:
+    def transition(self) -> 'Transition':
         """
-        Length of the state vector for a single deme.
+        Get Transition.
+        """
+        return Transition(self)
 
-        :return: The length
+    def update_epoch(self, epoch: Epoch):
         """
-        return self.states.shape[2]
+        Update the epoch.
+
+        :param epoch: Epoch.
+        :return: State space.
+        """
+        # only remove cached properties if epoch has changed
+        if self.epoch != epoch:
+            self.drop_S()
+
+        self.epoch = epoch
+
+    def __eq__(self, other):
+        """
+        Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
+        update the epoch of a state space.
+
+        :param other: Other state space
+        :return: Whether the two state spaces are equal
+        """
+        return (
+                self.__class__ == other.__class__ and
+                self.pop_config == other.pop_config and
+                self.locus_config == other.locus_config and
+                self.model == other.model
+        )
 
     def drop_S(self):
         """
@@ -226,6 +249,13 @@ class StateSpace(ABC):
 
         self._cache = {}
 
+    @abstractmethod
+    def _get_initial(self):
+        """
+        Get the initial state.
+        """
+        pass
+
     def _get_rate_matrix(self) -> np.ndarray:
         """
         Get the rate matrix.
@@ -234,31 +264,88 @@ class StateSpace(ABC):
 
         :return: The rate matrix.
         """
-        # create empty matrix
-        S = np.zeros((self.k, self.k))
-
-        # check if we can use the cached rate matrix
+        # check if epoch is in cache
         if self.cache and self.epoch in self._cache:
-            S[self._non_zero_states] = self._cache[self.epoch]
+            transitions, states = self._cache[self.epoch]
 
         else:
-            # vectorize function to compute rates
-            get_rates = np.vectorize(self._get_rate, otypes=[float])
-
-            # get non-zero rates
-            rates = get_rates(*self._non_zero_states)
-
-            # fill matrix with non-zero rates
-            S[self._non_zero_states] = rates
+            # get all possible transitions
+            transitions, states = self.get_transitions()
 
             # cache rate matrix if specified
             if self.cache:
-                self._cache[self.epoch] = rates
+                self._cache[self.epoch] = (transitions, states)
+
+        return self._graph_to_matrix(transitions)
+
+    def _graph_to_matrix(
+            self,
+            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]]
+    ) -> np.ndarray:
+        """
+        Convert graph to matrix.
+
+        :param transitions: Transitions.
+        :return: Rate matrix.
+        """
+        S = np.zeros((self.k, self.k))
+
+        # order of original states
+        ordering = {s: i for i, s in enumerate(self._states)}
+
+        # fill rate matrix
+        for (source, target), transition in transitions.items():
+            S[ordering[source], ordering[target]] = transition[0]
 
         # fill diagonal with negative sum of row
         S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
 
         return S
+
+    def _get_transitions(
+            self,
+            states: Iterable['State'],
+            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]],
+            visited: List['State']
+    ) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
+        """
+        Get all possible transitions from the given states.
+
+        :param states: States.
+        :param transitions: Transitions.
+        :return: All possible transitions from the given state.
+        """
+        for source in states:
+
+            # skip if source has been visited
+            if source in visited:
+                continue
+
+            # get all possible transitions from source
+            targets = self.transition.transit(source)
+
+            # add visited source state
+            visited += [source]
+
+            # increment state counter
+            self._i_state += 1
+
+            if self._i_state in [1000, 10000, 100000]:
+
+                levels = {1000: 'slow', 10000: 'very slow', 100000: 'extremely slow'}
+
+                self._logger.warning(
+                    f'State space size exceeds {self._i_state} states. Computation may be {levels[self._i_state]}.'
+                )
+
+            # add transitions to dictionary
+            for target, transition in targets.items():
+                transitions[(source, target)] = transition
+
+            # get transitions from target states
+            self._get_transitions(targets.keys(), transitions, visited)
+
+        return transitions, visited
 
     def _get_sparsity(self) -> float:
         """
@@ -268,49 +355,11 @@ class StateSpace(ABC):
         """
         return 1 - np.count_nonzero(self.S) / self.S.size
 
-    @abstractmethod
-    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
-        """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
-
-        :param n: Number of lineages.
-        :param s1: State 1.
-        :param s2: State 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
-        """
-        pass
-
-    def _get_rate(self, i: int, j: int) -> float:
-        """
-        Get the rate from the state indexed by i to the state indexed by j.
-
-        :param i: Index of outgoing state.
-        :param j: Index of incoming state.
-        :return: The rate from the state indexed by i to the state indexed by j.
-        """
-        return self._get_transition(i=i, j=j).get_rate()
-
-    def _get_transition(self, i: int, j: int) -> 'Transition':
-        """
-        Get the transition from the state indexed by i to the state indexed by j.
-
-        :param i: Index of outgoing state.
-        :param j: Index of incoming state.
-        :return: The transition from the state indexed by i to the state indexed by j.
-        """
-        return Transition(
-            marginal1=self.states[i],
-            marginal2=self.states[j],
-            linked1=self.linked[i],
-            linked2=self.linked[j],
-            state_space=self
-        )
-
     def _get_color_state(self, i: int) -> str:
         """
         Get color of the state indexed by `i`.
         """
-        if State.is_absorbing(self.states[i]):
+        if self._states[i].is_absorbing():
             return '#f1807e'
 
         if self.alpha[i] > 0:
@@ -341,8 +390,10 @@ class StateSpace(ABC):
         :param format_state: Function to format state with state array as argument.
         :param format_transition: Function to format transition with transition as argument.
         """
+        import graphviz
+
         if format_state is None:
-            def format_state(s: np.ndarray) -> str:
+            def format_state(s: Tuple[np.ndarray, np.ndarray]) -> str:
                 """
                 Format state.
 
@@ -352,39 +403,37 @@ class StateSpace(ABC):
                 return str(s[0]).replace('\n', '') + '\n' + str(s[1]).replace('\n', '')
 
         if format_transition is None:
-            def format_transition(t: 'Transition') -> str:
+            def format_transition(rate: float, kind: str) -> str:
                 """
                 Format transition.
 
-                :param t: Transition.
+                :param rate: Rate.
+                :param kind: Kind.
                 :return: Formatted transition.
                 """
-                return f' {t.type}: {t.get_rate():.2g}'
-
-        import graphviz
+                return f' {kind}: {rate:.2g}'
 
         graph = graphviz.Digraph()
 
         # add nodes
-        for i in range(len(self.states)):
+        for i, state in enumerate(self._states):
             graph.node(
-                name=format_state(np.array([self.states[i], self.linked[i]])),
+                name=format_state(state.data),
                 fillcolor=self._get_color_state(i),
                 style='filled'
             )
 
+        transitions, _ = self.get_transitions()
+
         # add non-zero edges
-        for i, j in zip(*self._non_zero_states):
-
-            t = self._get_transition(i=i, j=j)
-
-            if not State.is_absorbing(t.marginal1):
+        for (source, target), transition in transitions.items():
+            if not source.is_absorbing():
                 graph.edge(
-                    tail_name=format_state(np.array([self.states[i], self.linked[i]])),
-                    head_name=format_state(np.array([self.states[j], self.linked[j]])),
-                    label=format_transition(t),
-                    color=t._get_color(),
-                    fontcolor=t._get_color()
+                    tail_name=format_state(source.data),
+                    head_name=format_state(target.data),
+                    label=format_transition(*transition),
+                    color=Transition._colors[transition[1]],
+                    fontcolor=Transition._colors[transition[1]]
                 )
 
         graph.graph_attr['dpi'] = str(dpi)
@@ -397,188 +446,31 @@ class StateSpace(ABC):
             format=extension
         )
 
-    @staticmethod
-    def _find_vectors(n: int, k: int) -> List[List[int]]:
-        """
-        Find all vectors of length ``k`` with non-negative integers that sum to ``n``.
-
-        :param n: The sum.
-        :param k: The length of the vectors.
-        :return: All vectors of length ``k`` with non-negative integers that sum to ``n``.
-        """
-        if k == 0:
-            return [[]]
-
-        if k == 1:
-            return [[n]]
-
-        vectors = []
-        for i in range(n + 1):
-            for vector in StateSpace._find_vectors(n - i, k - 1):
-                vectors.append(vector + [i])
-
-        return vectors
-
-    @staticmethod
-    def p(n: int, k: int) -> int:
-        """
-        Partition function. Get number of ways to partition ``n`` into ``k`` positive integers.
-
-        :param n: Number to partition.
-        :param k: Number of parts.
-        :return: Number of ways to partition ``n`` into ``k`` positive integers.
-        """
-        return comb(n - 1, k - 1, exact=True)
-
-    @classmethod
-    def p0(cls, n: int, k: int) -> int:
-        """
-        Partition function. Get number of ways to partition ``n`` into ``k`` non-negative integers.
-
-        :param n: Number to partition.
-        :param k: Number of parts.
-        :return: Number of ways to partition ``n`` into ``k`` non-negative integers.
-        """
-        return cls.p(n + k, k)
-
-    @staticmethod
-    def P(n: int) -> int:
-        """
-        Calculate the number of partitions of a non-negative integer.
-
-        :param n: The non-negative integer to partition.
-        :type n: int
-        :return: The number of partitions of n.
-        :rtype: int
-        """
-        partitions: List[int] = [0] * (n + 1)
-        partitions[0] = 1
-
-        for i in range(1, n + 1):
-            for j in range(i, n + 1):
-                partitions[j] += partitions[j - i]
-
-        return partitions[n]
-
-    def _get_outgoing_rates(self, i: int, remove_zero: bool = True) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Get the outgoing rates from state indexed by `i`.
-
-        :param i: Index of outgoing state.
-        :param remove_zero: Whether to remove zero rates.
-        :return: The outgoing rates and the indices of the states to which the rates correspond.
-        """
-        rates = self.S[i, :]
-        indices = np.arange(self.k)
-
-        # mask diagonal
-        mask = np.arange(self.k) != i
-
-        if remove_zero:
-            mask &= rates != 0
-
-        rates = rates[mask]
-        indices = indices[mask]
-
-        return rates, indices
-
 
 class DefaultStateSpace(StateSpace):
     """
     Default rate matrix where there is one state per number of lineages for each deme and locus.
     """
 
-    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def _get_initial(self):
         """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
-
-        :param n: Number of lineages.
-        :param s1: State 1.
-        :param s2: State 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        Get the initial state.
         """
-        return self.model.get_rate(s1=s1[0], s2=s2[0])
+        data = tuple(np.zeros((self.locus_config.n, self.pop_config.n_pops, 1), dtype=int) for _ in range(2))
+        data[0][:, 0, 0] = self.pop_config.n
 
-    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
+        return State(data)
+
+    def _get_old(self) -> OldDefaultStateSpace:
         """
-        Expand the given states to include all possible combinations of locus configurations.
-
-        :param states: States.
+        Get the old state space.
         """
-        if self.locus_config.n == 1:
-            # add extra dimension for locus configuration
-            states = states[:, np.newaxis]
-
-            # no lineages are linked
-            self.linked = np.zeros_like(states, dtype=int)
-
-            return states
-
-        if self.locus_config.n == 2:
-            n_pops = self.pop_config.n_pops
-
-            # determine number of linked lineage configurations irrespective of states
-            linked_locus = np.array(list(itertools.product(range(self.pop_config.n + 1), repeat=n_pops)))
-            linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.pop_config.n]
-
-            # expand loci, each deme needs to have the same number of linked lineages
-            linked = np.repeat(linked_locus[:, np.newaxis], 2, axis=1)
-
-            # add extra dimension for lineage blocks
-            linked = linked[..., np.newaxis]
-
-            # take product of number of linked lineages and states
-            states_new = np.array(list(itertools.product(linked, itertools.product(states, states))))
-
-            # remove states where `linked` is larger than marginal states
-            states_new = states_new[(states_new[:, 0] <= states_new[:, 1]).all(axis=(1, 2, 3))]
-
-            self.linked = states_new[:, 0, :, :]
-
-            return states_new[:, 1, :, :]
-
-        raise NotImplementedError("Only 1 or 2 loci are currently supported.")
-
-    @cached_property
-    def states(self) -> np.ndarray:
-        """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
-        """
-        # the number of lineages
-        lineages = np.arange(1, self.pop_config.n + 1)[::-1]
-
-        # iterate lineage configurations and find all possible deme configurations
-        states = []
-        for i in lineages:
-            states += self._find_vectors(n=i, k=self.epoch.n_pops)
-
-        # convert to numpy array
-        states = np.array(states)
-
-        # add extra dimension for lineage configuration
-        states = states.reshape(states.shape + (1,))
-
-        # expand the states to include all possible combinations of locus configurations
-        states = self._expand_loci(states)
-
-        return states
-
-    def get_k(self) -> int:
-        """
-        Get number of states.
-        TODO currently no support for multiple loci.
-
-        :return: The number of states.
-        """
-        n = self.pop_config.n
-        d = self.pop_config.n_pops
-
-        i = np.arange(1, n + 1)[::-1]
-
-        k = np.sum([self.p0(j, d) for j in i])
-
-        return k
+        return OldDefaultStateSpace(
+            pop_config=self.pop_config,
+            locus_config=self.locus_config,
+            model=self.model,
+            epoch=self.epoch
+        )
 
 
 class BlockCountingStateSpace(StateSpace):
@@ -611,989 +503,422 @@ class BlockCountingStateSpace(StateSpace):
 
         super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
 
-    def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
+    def _get_initial(self):
         """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
-
-        :param n: Number of lineages.
-        :param s1: State 1.
-        :param s2: State 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        Get the initial state.
         """
-        return self.model.get_rate_block_counting(n=n, s1=s1, s2=s2)
+        data = tuple(
+            np.zeros((self.locus_config.n, self.pop_config.n_pops, self.pop_config.n), dtype=int) for _ in range(2)
+        )
 
-    def _expand_loci(self, states: np.ndarray) -> np.ndarray:
+        data[0][:, 0, 0] = self.pop_config.n
+
+        return State(data)
+
+    def _get_old(self) -> OldBlockCountingStateSpace:
         """
-        Expand the given states to include all possible combinations of locus configurations.
-        TODO two-locus state space not sufficient for computing SFS as lineages are not longer
-          exchangeable in this case.
-
-        :param states: States.
+        Get the old state space.
         """
-        if self.locus_config.n == 1:
-            # add extra dimension for locus configuration
-            states = states[:, np.newaxis]
-
-            # all lineages are linked
-            self.linked = np.zeros_like(states, dtype=int)
-
-            # add extra dimension for locus configuration
-            return states
-
-        raise NotImplementedError("Only 1 locus is currently supported.")
-
-        if self.locus_config.n == 2:
-
-            locus = []
-
-            for state in states.reshape(states.shape[0], -1):
-
-                linked = []
-                for block in state:
-                    linked += [range(block + 1)]
-
-                locus += itertools.product([state], itertools.product(*linked))
-
-            # combine loci
-            expanded = np.array(list(itertools.product(locus, repeat=2)))
-
-            # reshape two last dimensions to get the correct shape
-            expanded = expanded.reshape(*expanded.shape[:3], *states.shape[1:])
-
-            # states for which the number of linked lineages is the same across loci
-            same_linked = expanded[:, 0, 1].sum(axis=(1, 2)) == expanded[:, 1, 1].sum(axis=(1, 2))
-
-            # remove states where the number of linked lineages is not the same across loci
-            expanded = expanded[same_linked]
-
-            self.linked = expanded[:, :, 1]
-
-            return expanded[:, :, 0]
-
-    @cached_property
-    def states(self) -> np.ndarray:
-        """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
-
-        :return: The states.
-        """
-        # the possible allele configurations
-        lineage_configs = np.array(self._find_sample_configs(m=self.pop_config.n, n=self.pop_config.n))
-
-        # iterate over possible allele configurations and find all possible deme configurations
-        states = []
-        for config in lineage_configs:
-
-            # iterate over possible number of lineages with multiplicity k and
-            # find all possible deme configurations
-            vectors = []
-            for i in config:
-                vectors += [self._find_vectors(n=i, k=self.epoch.n_pops)]
-
-            # find all possible combinations of deme configurations for each multiplicity
-            states += list(product(*vectors))
-
-        # transpose the array to have the deme configurations as columns
-        states = np.transpose(np.array(states), (0, 2, 1))
-
-        # expand the states to include all possible combinations of locus configurations
-        states = self._expand_loci(states)
-
-        return states
-
-    @classmethod
-    def _find_sample_configs(cls, m: int, n: int) -> List[List[int]]:
-        """
-        Function to find all vectors of length m such that sum_{i=0}^{m} i*x_{m-i} equals n.
-
-        :param m: Length of the vectors.
-        :param n: Target sum.
-        :returns: list of vectors satisfying the condition
-        """
-        # base case, when the length of vector is 0
-        # if n is also 0, return an empty vector, otherwise no solutions
-        if m == 0:
-            return [[]] if n == 0 else []
-
-        vectors = []
-        # iterate over possible values for the first component
-        for x in range(n // m + 1):  # Adjusted for 1-based index
-            # recursively find vectors with one less component and a smaller target sum
-            for vector in cls._find_sample_configs(m - 1, n - x * m):  # Adjusted for 1-based index
-                # prepend the current component to the recursively found vectors
-                vectors.append(vector + [x])  # Reversed vectors
-
-        return vectors
-
-    def get_k(self) -> int:
-        """
-        Get number of states.
-
-        :return: The number of states.
-        """
-        n = self.pop_config.n
-        d = self.pop_config.n_pops
-
-        # len(i) == self.P(n)
-        i = np.array(self._find_sample_configs(m=n, n=n))
-
-        k = np.sum([np.prod([self.p0(l, d) for l in j]) for j in i])
-
-        return k
+        return OldBlockCountingStateSpace(
+            pop_config=self.pop_config,
+            locus_config=self.locus_config,
+            model=self.model,
+            epoch=self.epoch
+        )
 
 
 class Transition:
     """
     Class representing a transition between two states.
     """
+
     #: Colors for different types of transitions
     _colors: Dict[str, str] = {
         'recombination': 'orange',
+        'coalescence': 'darkgreen',
         'locus_coalescence': 'darkgreen',
         'linked_coalescence': 'darkgreen',
         'unlinked_coalescence': 'darkgreen',
         'mixed_coalescence': 'darkgreen',
         'unlinked_coalescence+mixed_coalescence': 'darkgreen',
+        'mixed_coalescence+unlinked_coalescence': 'darkgreen',
         'linked_migration': 'blue',
         'unlinked_migration': 'blue',
         'invalid': 'red'
     }
 
-    #: Event types
-    _event_types: List[str] = [
-        'recombination',
-        'locus_coalescence',
-        'linked_coalescence',
-        'unlinked_coalescence',
-        'mixed_coalescence',
-        'linked_migration',
-        'unlinked_migration'
-    ]
-
     def __init__(
             self,
-            state_space: StateSpace,
-            marginal1: np.ndarray,
-            marginal2: np.ndarray,
-            linked1: np.ndarray,
-            linked2: np.ndarray
+            state_space: StateSpace
     ):
         """
         Initialize a transition.
 
         :param state_space: State space.
-        :param marginal1: Marginal lineages in outgoing state.
-        :param marginal2: Marginal lineages in incoming state.
-        :param linked1: Numbers of linked lineages in outgoing state.
-        :param linked2: Numbers of linked lineages in incoming state.
         """
         #: State space.
         self.state_space: StateSpace = state_space
 
-        #: Marginal lineages in outgoing state.
-        self.marginal1: np.ndarray = marginal1
-
-        #: Marginal lineages in incoming state.
-        self.marginal2: np.ndarray = marginal2
-
-        #: linked lineages in outgoing state.
-        self.linked1: np.ndarray = linked1
-
-        #: linked lineages in incoming state.
-        self.linked2: np.ndarray = linked2
-
-    @cached_property
-    def unlinked1(self) -> np.ndarray:
-        """
-        Unlinked lineages in outgoing state.
-        """
-        return self.marginal1 - self.linked1
-
-    @cached_property
-    def unlinked2(self) -> np.ndarray:
-        """
-        Unlinked lineages in incoming state.
-        """
-        return self.marginal2 - self.linked2
-
-    @cached_property
-    def diff_marginal(self) -> np.ndarray:
-        """
-        Difference between marginal lineages.
-        """
-        return self.marginal1 - self.marginal2
-
-    @cached_property
-    def diff_linked(self) -> np.ndarray:
-        """
-        Difference in linked lineages.
-        """
-        return self.linked1 - self.linked2
-
-    @cached_property
-    def diff_unlinked(self) -> np.ndarray:
-        """
-        Difference in unlinked lineages.
-        """
-        return self.unlinked1 - self.unlinked2
-
-    @cached_property
-    def n_loci(self) -> int:
-        """
-        Number of loci.
-        """
-        return self.state_space.locus_config.n
-
-    @cached_property
-    def n_blocks(self) -> int:
-        """
-        Number of lineage blocks.
-        """
-        return self.marginal1.shape[2]
-
-    @cached_property
-    def n_demes_marginal(self) -> int:
-        """
-        Number of affected demes with respect to marginal lineages.
-        """
-        return self.is_diff_demes_marginal.sum()
-
-    @cached_property
-    def n_diff_loci_deme_coal(self) -> int:
-        """
-        Number of loci where coalescence event occurs in deme where coalescence event occurs.
-        """
-        if not self.has_diff_marginal:
-            return 0
-
-        return self.is_diff_loci_deme_coal.sum()
-
-    @cached_property
-    def is_diff_demes_marginal(self) -> np.ndarray:
-        """
-        Mask for demes with affected lineages.
-        """
-        return np.any(self.diff_marginal != 0, axis=(0, 2))
-
-    @cached_property
-    def is_diff_demes_linked(self) -> np.ndarray:
-        """
-        Mask for demes with affected linked lineages.
-        """
-        return np.any(self.diff_linked != 0, axis=(0, 2))
-
-    @cached_property
-    def is_diff_loci(self) -> np.ndarray:
-        """
-        Mask for affected loci with respect to marginal lineages.
-        """
-        return np.any(self.diff_marginal != 0, axis=(1, 2))
-
-    @cached_property
-    def is_diff_loci_deme_coal(self) -> np.ndarray:
-        """
-        Mask for affected loci with respect to deme where coalescence event occurs.
-        """
-        return np.any(self.diff_marginal[:, self.deme_coal] != 0, axis=1)
-
-    @cached_property
-    def has_diff_demes_linked(self) -> bool:
-        """
-        Whether there are any affected linked lineages.
-        """
-        return cast(bool, self.is_diff_demes_linked.any())
-
-    @cached_property
-    def has_diff_marginal(self) -> bool:
-        """
-        Whether there are any affected marginal lineages.
-        """
-        return cast(bool, self.is_diff_demes_marginal.any())
-
-    @cached_property
-    def deme_coal(self) -> int:
-        """
-        Index of deme where coalescence event occurs.
-        """
-        return cast(int, np.where(self.is_diff_demes_marginal)[0][0])
-
-    @cached_property
-    def locus_coal_unlinked(self) -> int:
-        """
-        Index of locus where unlinked coalescence event occurs.
-        """
-        return cast(int, np.where(self.is_diff_loci)[0][0])
-
-    @cached_property
-    def locus_migration(self) -> int:
-        """
-        Index of first locus where a migration event occurs.
-        """
-        return cast(int, np.where(self.diff_marginal.any(axis=(1, 2)))[0][0])
-
-    @cached_property
-    def deme_migration_source(self) -> int:
-        """
-        Get the source deme of the migration event.
-        """
-        return int(np.where((self.diff_marginal[self.locus_migration] == 1).sum(axis=1) == 1)[0][0])
-
-    @cached_property
-    def deme_migration_dest(self) -> int:
-        """
-        Get the destination deme of the migration event.
-        """
-        return int(np.where((self.diff_marginal[self.locus_migration] == -1).sum(axis=1) == 1)[0][0])
-
-    @cached_property
-    def block_migration(self) -> int:
-        """
-        Get the index of the lineage block where the migration event occurs.
-        """
-        return int(np.where(self.diff_marginal[self.locus_migration] == 1)[1][0])
-
-    @cached_property
-    def is_absorbing(self) -> bool:
-        """
-        Whether either the outgoing or incoming state is absorbing.
-        """
-        return State.is_absorbing(self.marginal1) or State.is_absorbing(self.marginal2)
-
-    @cached_property
-    def is_eligible_recombination_or_locus_coalescence(self) -> bool:
-        """
-        Whether the transition is eligible for a recombination or locus coalescence event.
-        """
-        # there have to be affected lineages
-        if self.has_diff_marginal:
-            return False
-
-        # there have to be exactly `n_loci` affected lineages
-        if not np.all((self.diff_linked == 0).sum() == self.linked1.size - self.n_loci):
-            return False
-
-        # make sure change in linked lineages is in the same deme for each locus
-        demes = np.where(self.diff_linked != 0)[1]
-        if not np.all(demes == demes[0]):
-            return False
-
-        # not possible from or to absorbing state
-        if self.is_absorbing:
-            return False
-
-        return True
-
-    @cached_property
-    def is_recombination(self) -> bool:
-        """
-        Whether transition is a recombination event.
-        """
-        # if not eligible for recombination, it can't be a recombination event
-        if not self.is_eligible_recombination_or_locus_coalescence:
-            return False
-
-        # if there is not exactly one more linked lineage in state 1 than in state 2 for each locus,
-        # it can't be a recombination event
-        if not np.all((self.diff_linked == 1).sum(axis=(1, 2)) == 1):
-            return False
-
-        return True
-
-    @cached_property
-    def is_locus_coalescence(self) -> bool:
-        """
-        Whether the transition is a locus coalescence event.
-        """
-        # if not eligible for recombination, it can't be a locus coalescence
-        if not self.is_eligible_recombination_or_locus_coalescence:
-            return False
-
-        # if there is not exactly one more lineage in state 2 than in state 1 for each locus,
-        # it can't be a recombination event
-        if not np.all((self.diff_linked == -1).sum(axis=(1, 2)) == 1):
-            return False
-
-        return True
-
-    @cached_property
-    def is_eligible_coalescence(self) -> bool:
-        """
-        Whether the transition is eligible for a coalescence event.
-        """
-        # if not exactly one deme is affected, it can't be a coalescence event
-        return self.n_demes_marginal == 1
-
-    @cached_property
-    def is_eligible_linked_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is eligible for linked coalescence.
-        """
-        return self.n_diff_loci_deme_coal > 1
-
-    @cached_property
-    def is_eligible_unlinked_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is eligible for unlinked coalescence.
-        """
-        if self.n_diff_loci_deme_coal != 1:
-            return False
-
-        if self.has_diff_demes_linked:
-            return False
-
-        if self.unlinked1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
-            return False
-
-        return True
-
-    @cached_property
-    def is_eligible_mixed_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is eligible for mixed coalescence.
-        """
-        if self.n_diff_loci_deme_coal != 1:
-            return False
-
-        if self.n_blocks == 1:
-            if self.has_diff_demes_linked:
-                return False
-
-            # we need at least two marginal lineages
-            if self.marginal1[self.locus_coal_unlinked, self.deme_coal].sum() < 2:
-                return False
-
-            # we need at least one linked lineage
-            if self.linked1[self.locus_coal_unlinked, self.deme_coal].sum() < 1:
-                return False
-
-            return True
-
-        if np.sum(np.any(self.diff_linked != 0, axis=(1, 2))) != 1:
-            return False
-
-        return True
-
-    @cached_property
-    def is_eligible_recombination(self) -> bool:
-        """
-        Alias for `is_eligible_recombination_or_locus_coalescence`.
-        """
-        return self.is_eligible_recombination_or_locus_coalescence
-
-    @cached_property
-    def is_eligible_locus_coalescence(self) -> bool:
-        """
-        Alias for `is_eligible_recombination_or_locus_coalescence`.
-        """
-        return self.is_eligible_recombination_or_locus_coalescence
-
-    @cached_property
-    def is_eligible_migration(self) -> bool:
-        """
-        Whether the transition is eligible for a migration event.
-        """
-        # two demes must be affected
-        return self.n_demes_marginal == 2
-
-    @cached_property
-    def is_eligible_linked_migration(self) -> bool:
-        """
-        Alias for `is_eligible_migration`.
-        """
-        return self.is_eligible_migration
-
-    @cached_property
-    def is_eligible_unlinked_migration(self) -> bool:
-        """
-        Alias for `is_eligible_migration`.
-        """
-        return self.is_eligible_migration
-
-    @cached_property
-    def is_eligible(self) -> bool:
-        """
-        Whether the transition is eligible for any event. This is supposed to rule out impossible
-        transitions as quickly as possible.
-        """
-        if self.is_eligible_coalescence:
-            return self.is_coalescence
-
-        if self.is_eligible_recombination_or_locus_coalescence:
-            return self.is_recombination or self.is_locus_coalescence
-
-        if self.is_eligible_migration:
-            return self.is_migration
-
-        return False
-
-    @cached_property
-    def is_valid_lineage_reduction_linked_coalescence(self) -> bool:
-        """
-        In case of a linked coalescence event, whether the reduction in the number of linked lineages is equal
-        to the reduction of marginal lineages.
-        """
-        return np.all(self.diff_linked == self.diff_marginal)
-
-    @cached_property
-    def has_sufficient_linked_lineages_linked_coalescence(self) -> bool:
-        """
-        In case of a linked coalescence event, whether the number of linked lineages is greater than
-        equal to the number of linked coalesced lineages.
-        """
-        linked = self.linked1[:, self.deme_coal].sum(axis=1)
-        coalesced = self.diff_marginal[:, self.deme_coal].sum(axis=1) + 1
-
-        return np.all(linked >= coalesced)
-
-    @cached_property
-    def is_lineage_reduction(self) -> bool:
-        """
-        Whether we have a lineage reduction.
-        """
-        return self.diff_marginal.sum() > 0
-
-    @cached_property
-    def is_binary_lineage_reduction_mixed_coalescence(self) -> bool:
-        """
-        Whether the mixed coalescence event is a binary merger.
-        """
-        reduction = self.diff_unlinked[self.is_diff_loci_deme_coal][0][self.deme_coal]
-
-        return reduction.sum() == 1
-
-    @cached_property
-    def is_valid_lineage_reduction_unlinked_coalescence(self) -> bool:
-        """
-        In an unlinked coalescence event, whether the reduction in the number of unlinked lineages is equal
-        to the reduction in the number of coalesced lineages.
-        """
-        unlinked = self.diff_unlinked[self.is_diff_loci_deme_coal][0][self.deme_coal]
-        diff = self.diff_marginal[self.locus_coal_unlinked, self.deme_coal]
-
-        return unlinked.sum() == diff.sum()
-
-    @cached_property
-    def is_valid_lineage_reduction_mixed_coalescence(self) -> bool:
-        """
-        In a mixed coalescence event there has to be reduction in the number of linked lineages.
-        """
-        # in the default state space, where we only keep track of the number of linked lineages per deme,
-        # we may have a mixed coalescence event where the number of linked lineages does not change
-        if self.n_blocks == 1 and not self.has_diff_demes_linked:
-            return True
-
-        diff_unlinked = self.diff_unlinked[self.locus_coal_unlinked, self.deme_coal]
-
-        # make sure number of unlinked lineages is reduced by one in one lineage block
-        if np.abs(diff_unlinked).sum() != 1:
-            return False
-
-        diff_linked = self.diff_linked[self.locus_coal_unlinked, self.deme_coal]
-
-        # exactly one linked lineage must be lost in one block and one
-        # linked lineage must be gained in another block
-        if not (1 in diff_linked and -1 in diff_linked and np.abs(diff_linked).sum() == 2):
-            return False
-
-        return True
-
-    @cached_property
-    def is_linked_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is a linked coalescence event, i.e. only linked lineages coalesce.
-        """
-        return (
-                self.is_lineage_reduction and
-                self.is_eligible_linked_coalescence and
-                self.is_valid_lineage_reduction_linked_coalescence and
-                self.has_sufficient_linked_lineages_linked_coalescence and
-                self.is_eligible_coalescence
-        )
-
-    @cached_property
-    def is_unlinked_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is an unlinked coalescence event, i.e. only unlinked lineages coalesce.
-        """
-        return (
-                self.is_lineage_reduction and
-                self.is_eligible_unlinked_coalescence and
-                self.is_valid_lineage_reduction_unlinked_coalescence and
-                self.is_eligible_coalescence
-        )
-
-    @cached_property
-    def is_mixed_coalescence(self) -> bool:
-        """
-        Whether the coalescence event is a mixed coalescence event, i.e. both linked and unlinked lineages coalesce.
-        """
-        return (
-                self.n_loci > 1 and
-                self.is_lineage_reduction and
-                self.is_eligible_mixed_coalescence and
-                self.is_binary_lineage_reduction_mixed_coalescence and
-                self.is_valid_lineage_reduction_mixed_coalescence and
-                self.is_eligible_coalescence
-        )
-
-    @cached_property
-    def is_coalescence(self) -> bool:
-        """
-        Whether the transition is a coalescence event (except for a locus coalescence).
-        """
-        return (
-                self.is_linked_coalescence or
-                self.is_unlinked_coalescence or
-                self.is_mixed_coalescence
-        )
-
-    @cached_property
-    def is_valid_migration_one_locus_only(self) -> bool:
-        """
-        Whether the migration event is only affecting one locus.
-        """
-        return self.is_diff_loci.sum() == 1
-
-    @cached_property
-    def is_valid_linked_migration(self) -> bool:
+    def transit(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """
-        Whether the migration event is a valid linked migration event.
-        """
-        # number of affected demes must be 2 for linked lineages
-        if np.any(self.diff_linked != 0, axis=(0, 2)).sum() != self.n_loci:
-            return False
-
-        # difference in linked lineages and marginal lineages must be the same
-        if not np.all(self.diff_marginal == self.diff_linked):
-            return False
-
-        # difference across marginal lineages must be some for all loci
-        if not np.all(self.diff_marginal == self.diff_marginal[0]):
-            return False
-
-        # difference across linked lineages must be some for all loci
-        if not np.all(self.diff_linked == self.diff_linked[0]):
-            return False
-
-        return True
-
-    @cached_property
-    def is_one_migration_event(self) -> bool:
-        """
-        Whether there is exactly one migration event.
-        """
-        diff = self.diff_marginal[self.locus_migration]
-
-        # make sure exactly one lineage is moved from one deme to another
-        return (
-                (diff == 1).sum() == 1 and
-                (diff == -1).sum() == 1 and
-                (diff == 0).sum() == diff.size - 2
-        )
-
-    @cached_property
-    def has_sufficient_linked_lineages_migration(self) -> bool:
-        """
-        Whether there are sufficient linked lineages to allow for a migration event.
-        """
-        lineages = self.linked1[
-            self.locus_migration,
-            self.deme_migration_source,
-            self.block_migration
-        ]
-
-        return cast(bool, lineages > 0)
-
-    @cached_property
-    def has_sufficient_unlinked_lineages_migration(self) -> bool:
-        """
-        Whether there are sufficient unlinked lineages to allow for a migration event.
-        """
-        lineages = self.unlinked1[
-            self.locus_migration,
-            self.deme_migration_source,
-            self.block_migration
-        ]
-
-        return cast(bool, lineages > 0)
-
-    @cached_property
-    def is_unlinked_migration(self) -> bool:
-        """
-        Whether the transition is a migration event.
-        """
-        return (
-                not self.has_diff_demes_linked and
-                self.is_valid_migration_one_locus_only and
-                self.is_one_migration_event and
-                self.has_sufficient_unlinked_lineages_migration and
-                self.is_eligible_migration
-        )
-
-    @cached_property
-    def is_linked_migration(self) -> bool:
-        """
-        Whether the migration event is a linked migration event, i.e. a linked lineage migrates.
-        """
-        return (
-                self.is_one_migration_event and
-                self.has_sufficient_linked_lineages_migration and
-                self.has_diff_demes_linked and
-                self.is_valid_linked_migration and
-                self.is_eligible_migration
-        )
-
-    @cached_property
-    def is_migration(self) -> bool:
-        """
-        Whether the transition is a migration event.
-        """
-        return self.is_unlinked_migration or self.is_linked_migration
-
-    @cached_property
-    def type(self) -> str:
-        """
-        Get the type of transition.
-        """
-        types = []
+        Get all possible target states from the given source state.
 
-        for t in self._event_types:
-            if getattr(self, f'is_eligible_{t}') and getattr(self, f'is_{t}'):
-                types.append(t)
-
-        return '+'.join(types) or 'invalid'
-
-    def get_rate_recombination(self) -> float:
-        """
-        Get the rate of a recombination event.
-        Here we assume the number of linked lineages is the same across loci which should be the case.
-        """
-        # number of linked lineages need not be the same across loci for different lineage blocks
-        linked1 = self.linked1[self.diff_linked == 1]
-
-        rate = linked1[0] * self.state_space.locus_config.recombination_rate
-
-        return cast(float, rate)
-
-    def get_rate_locus_coalescence(self) -> float:
-        """
-        Get the rate of a locus coalescence event.
-        """
-        # return 0 if locus coalescence is not allowed
-        if not self.state_space.locus_config.allow_coalescence:
-            return 0
-
-        # get unlined lineage counts
-        unlinked1 = self.unlinked1[self.diff_linked == -1]
-
-        # index of deme where linked coalescence event occurs.
-        deme_coal = np.where(self.is_diff_demes_linked)[0][0]
-
-        # get population size of deme where coalescence event occurs
-        pop_size = self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[deme_coal]]
-
-        # scale population size
-        pop_size_scaled = self.state_space.model._get_timescale(pop_size)
-
-        return unlinked1.prod() / pop_size_scaled
-
-    def get_pop_size_coalescence(self) -> float:
-        """
-        Get the population size of the deme where the coalescence event occurs.
-        """
-        return self.state_space.epoch.pop_sizes[self.state_space.epoch.pop_names[self.deme_coal]]
-
-    def get_scaled_pop_size_coalescence(self) -> float:
-        """
-        Get the scaled population size of the deme where the coalescence event occurs.
-        """
-        return self.state_space.model._get_timescale(self.get_pop_size_coalescence())
-
-    def get_rate_linked_coalescence(self) -> float:
+        :param source: Source state.
+        :return: All possible target states.
         """
-        Get the rate of a linked coalescence event.
+        targets: Dict['State', Tuple[float, str]] = {}
 
-        It seems as though the current parametrization does not allow us to compute the site-frequency spectrum for
-        more than one locus. The problem is that initially if all lineages are linked, transitions with different
-        coalescent patterns between loci are not allowed. However, once we have experienced a recombination event,
-        a mixed or unlinked coalescence event, and a subsequent locus coalescence event, we can have different
-        coalescent patterns between loci. We would thus be required to keep track of the associations between
-        lineages which would further expand the state space.
+        # TODO why do we allow migration from absorbing states?
+        targets |= self.migrate(source)
 
-        For example, let there be n > 2 lineages, and two loci. Assume we start with completely linked loci.
-        Now assume there is a linked coalescence event, so that we have 1 linked doubleton and n - 2 linked singletons.
-        Now conditional on the fact that no recombination even has occurred, we can cannot have linked coalescence
-        where one of the lineages is a doubleton in one locus and a singleton in the other locus. However, assume we
-        first experience n recombination events so that our loci are now completely unlinked. Now assume we have an
-        unlinked coalescence event in each locus, and subsequently n - 1 locus coalescence events. Now the state looks
-        identical to the first scenario but it should be allowed to have a linked coalescence event where one of the
-        lineages is a doubleton in one locus and a singleton in the other locus, given that an unlinked doubleton
-        coalesced with an unlinked singleton. We thus need to keep track of the associations between lineages, which
-        means they are no longer exchangeable.
-        """
-        return self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
-            s1=self.linked1[0, self.deme_coal],
-            s2=self.linked2[0, self.deme_coal]
-        ) / self.get_scaled_pop_size_coalescence()
+        if source.is_absorbing():
+            return targets
 
-        # if (
-        #        np.all(self.linked1[:, self.deme_coal] == self.linked1[0, self.deme_coal]) and
-        #        np.any(self.linked2[:, self.deme_coal] != self.linked2[0, self.deme_coal])
-        # ):
-        #    return 0
+        targets |= self.coalesce(source)
 
-        # rates = np.zeros(self.n_loci)
-        # for i in range(self.n_loci):
-        #    rates[i] = self.state_space._get_coalescent_rate(
-        #        n=self.state_space.pop_config.n,
-        #        s1=self.linked1[i, self.deme_coal],
-        #        s2=self.linked2[i, self.deme_coal]
-        #    )
+        targets |= self.recombine(source)
 
-        # return rates.min() / self.get_scaled_pop_size_coalescence()
+        return targets
 
-    def get_rate_unlinked_coalescence(self) -> float:
-        """
-        Get the rate of an unlinked coalescence event.
+    @staticmethod
+    def add_target(targets: Dict['State', Tuple[float, str]], target: 'State', rate: float, kind: str):
         """
-        unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
-        unlinked2 = self.unlinked2[self.locus_coal_unlinked, self.deme_coal]
-
-        rate = self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
-            s1=unlinked1,
-            s2=unlinked2
-        )
-
-        return rate / self.get_scaled_pop_size_coalescence()
+        Add a target state to the list of targets.
 
-    def get_rate_mixed_coalescence(self) -> float:
+        :param targets: Dictionary of target states.
+        :param target: New target state.
+        :param rate: Rate of the transition.
+        :param kind: Kind of the transition.
         """
-        Get the rate of a mixed coalescence event.
-        """
-        unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
-        linked1 = self.linked1[self.locus_coal_unlinked, self.deme_coal]
-
-        # lineage blocks where coalescence event occurs
-        blocks = self.diff_marginal[self.locus_coal_unlinked, self.deme_coal] > 0
-
-        n_blocks = blocks.sum()
-
-        if n_blocks == 1:
-            rates_cross = unlinked1[blocks] * linked1[blocks]
-        elif n_blocks == 2:
-            rates_cross = [unlinked1[blocks][0] * linked1[blocks][1], unlinked1[blocks][1] * linked1[blocks][0]]
+        if target in targets:
+            targets[target] = (targets[target][0] + rate, targets[target][1] + '+' + kind)
         else:
-            raise ValueError('Invalid number of blocks.')
+            targets[target] = (rate, kind)
 
-        return np.sum(rates_cross) / self.get_scaled_pop_size_coalescence()
-
-    def get_rate_unlinked_migration(self) -> float:
+    def coalesce(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """
-        Get the rate of an unlinked migration event which happens marginally on one locus.
+        Get all possible coalescent transitions from the given state.
+
+        :param source: Source state.
+        :return: All possible coalescent transitions from the given state.
         """
-        # get the deme names
-        source = self.state_space.epoch.pop_names[self.deme_migration_source]
-        dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
+        targets: Dict['State', Tuple[float, str]] = {}
+        pop_sizes = [self.state_space.epoch.pop_sizes[pop] for pop in self.state_space.pop_config.pop_names]
 
-        # get the number of lineages in deme i before migration
-        n_lineages_source = self.unlinked1[
-            self.locus_migration,
-            self.deme_migration_source,
-            self.block_migration
-        ]
+        if source.n_loci == 1:
+            locus = 0
+            for deme in range(source.n_demes):
 
-        # get migration rate from source to destination
-        migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
+                blocks = self.state_space.model.coalesce(
+                    self.state_space.pop_config.n,
+                    source.lineages[locus, deme]
+                )
 
-        # scale migration rate by number of lineages in source deme
-        rate = migration_rate * n_lineages_source
+                for block, rate in blocks:
+                    target = source.copy()
+                    target.lineages[locus, deme] = block
 
-        return cast(float, rate)
+                    time_scale = self.state_space.model._get_timescale(pop_sizes[deme])
+                    self.add_target(targets, target, rate / time_scale, 'coalescence')
 
-    def get_rate_linked_migration(self) -> float:
+            return targets
+
+        if source.n_loci == 2:
+
+            if not isinstance(self.state_space, DefaultStateSpace):
+                raise NotImplementedError('Coalescence with recombination is only implemented for DefaultGraphSpace.')
+
+            if not isinstance(self.state_space.model, StandardCoalescent):
+                raise NotImplementedError('Coalescence with recombination is only implemented for StandardCoalescent.')
+
+            bins = dict(
+                linked=source.linked[0],
+                unlinked1=source.unlinked[0],
+                unlinked2=source.unlinked[1]
+            )
+
+            for deme in range(source.n_demes):
+
+                time_scale = self.state_space.model._get_timescale(pop_sizes[deme])
+
+                for ((class1, counts1), (class2, counts2)) in product(bins.items(), repeat=2):
+
+                    target = source.copy()
+
+                    # linked or unlinked coalescence
+                    if class1 == class2:
+                        # we need at least 2 lineages to coalesce
+                        if np.any(counts1[deme] < 2):
+                            continue
+
+                        rate = self.state_space.model._get_rate(b=counts1[deme, 0], k=2)
+
+                        # unlinked coalescence in locus 1
+                        if 'unlinked1' in class1:
+
+                            target.lineages[0, deme] -= 1
+                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
+
+                        # unlinked coalescence in locus 2
+                        elif 'unlinked2' in class1:
+
+                            target.lineages[1, deme] -= 1
+                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
+
+                        # linked coalescence in both loci
+                        elif np.all(source.linked[:, deme] > 0):
+
+                            target.lineages[:, deme] -= 1
+                            target.linked[:, deme] -= 1
+                            self.add_target(targets, target, rate / time_scale, 'linked_coalescence')
+
+                    # mixed or locus coalescence
+                    elif class1 < class2:
+                        if counts1[deme] < 1 or counts2[deme] < 1:
+                            continue
+
+                        rate = counts1[deme, 0] * counts2[deme, 0]
+
+                        # mixed coalescence of linked and unlinked lineages
+                        if 'linked' in (class1, class2) and ('unlinked' in class1 or 'unlinked' in class2):
+                            locus = 0 if '1' in class1 or '1' in class2 else 1
+                            if target.lineages[locus, deme, 0] > 1:
+                                target.lineages[locus, deme, 0] -= 1
+
+                                self.add_target(targets, target, rate / time_scale, 'mixed_coalescence')
+
+                        # locus coalescence of unlinked lineages
+                        else:
+                            if np.all(source.linked[:, deme, 0] < source.lineages[:, deme, 0]):
+                                target.linked[:, deme, 0] += 1
+
+                                self.add_target(targets, target, rate / time_scale, 'locus_coalescence')
+
+            return targets
+
+        raise NotImplementedError('Coalescence is not implemented for more than 2 loci.')
+
+    def migrate(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """
-        Get the rate of a linked migration event where a linked lineage migrates.
+        Get all possible migration transitions from the given state.
+
+        :param source: Source state.
+        :return: All possible migration transitions from the given state.
         """
-        # get the deme names
-        source = self.state_space.epoch.pop_names[self.deme_migration_source]
-        dest = self.state_space.epoch.pop_names[self.deme_migration_dest]
+        return self.migrate_linked(source) | self.migrate_unlinked(source)
 
-        # get the number of lineages in deme i before migration
-        n_lineages_source = self.linked1[:, self.deme_migration_source, self.block_migration].min()
-
-        # get migration rate from source to destination
-        migration_rate = self.state_space.epoch.migration_rates[(source, dest)]
-
-        # scale migration rate by number of lineages in source deme
-        rate = migration_rate * n_lineages_source
-
-        return rate
-
-    def get_rate(self) -> float:
+    def migrate_unlinked(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """
-        Get the rate of the transition.
+        Get all possible unlinked migration transitions from the given state.
+        Note that we also consider migration to unlinked when there is only one locus.
+
+        :param d1: Source state.
+        :return: All possible migration transitions from the given state.
         """
-        if not self.is_eligible:
-            return 0
+        targets: Dict['State', Tuple[float, str]] = {}
+        pop_names = self.state_space.pop_config.pop_names
+        kind = 'migration' if source.n_loci == 1 else 'unlinked_migration'
 
-        if self.is_recombination:
-            return self.get_rate_recombination()
+        for locus in range(source.n_loci):
+            for d1, d2 in filter(lambda x: x[0] != x[1], product(range(source.n_demes), repeat=2)):
 
-        if self.is_locus_coalescence:
-            return self.get_rate_locus_coalescence()
+                for block in range(source.n_blocks):
 
-        if self.is_linked_coalescence:
-            return self.get_rate_linked_coalescence()
+                    # skip if no lineages to migrate
+                    if source.lineages[locus, d1, block] > 0 and source.unlinked[locus, d1, block] > 0:
+                        target = source.copy()
 
-        if self.is_linked_migration:
-            return self.get_rate_linked_migration()
+                        target.lineages[locus, d1, block] -= 1
+                        target.lineages[locus, d2, block] += 1
 
-        if self.is_unlinked_migration:
-            return self.get_rate_unlinked_migration()
+                        base_rate = self.state_space.epoch.migration_rates[(pop_names[d1], pop_names[d2])]
 
-        # From here on we may have both unlinked and mixed coalescence simultaneously,
-        # if using the default state space.
-        rate = 0
+                        # scale migration rate by number of lineages in source deme
+                        rate = base_rate * cast(int, source.unlinked[locus, d1, block])
 
-        if self.is_unlinked_coalescence:
-            rate += self.get_rate_unlinked_coalescence()
+                        self.add_target(targets, target, rate, kind)
 
-        if self.is_mixed_coalescence:
-            rate += self.get_rate_mixed_coalescence()
+        return targets
 
-        return rate
-
-    def _get_color(self) -> str:
+    def migrate_linked(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """
-        Get the color of the transition indicating the type of event.
+        Get all possible linked migration transitions from the given state.
 
-        :return: The color of the transition.
+        :param source: Source state.
+        :return: All possible migration transitions from the given state.
         """
-        return self._colors[self.type]
+        targets: Dict['State', Tuple[float, str]] = {}
+
+        # no linked migration if there is only one locus
+        if source.n_loci == 1:
+            return targets
+
+        pop_names = self.state_space.pop_config.pop_names
+
+        for d1, d2 in filter(lambda x: x[0] != x[1], product(range(source.n_demes), repeat=2)):
+
+            for block in range(source.n_blocks):
+
+                # skip if no lineages to migrate
+                if np.all(source.lineages[:, d1, block]) > 0 and np.all(source.linked[:, d1, block] > 0):
+                    target = source.copy()
+
+                    target.lineages[:, d1, block] -= 1
+                    target.lineages[:, d2, block] += 1
+
+                    target.linked[:, d1, block] -= 1
+                    target.linked[:, d2, block] += 1
+
+                    base_rate = self.state_space.epoch.migration_rates[(pop_names[d1], pop_names[d2])]
+
+                    # scale migration rate by number of lineages in source deme
+                    # both loci are assumed to have the same number of linked lineages here
+                    rate = base_rate * cast(int, source.linked[0, d1, block])
+
+                    self.add_target(targets, target, rate, 'linked_migration')
+
+        return targets
+
+    def recombine(self, state: 'State') -> Dict['State', Tuple[float, str]]:
+        """
+        Get all possible recombination transitions from the given state.
+
+        :param state: State.
+        :return: All possible recombination transitions from the given state.
+        """
+        targets: Dict['State', Tuple[float, str]] = {}
+        r = self.state_space.locus_config.recombination_rate
+
+        # only recombine if there is more than one locus
+        if self.state_space.locus_config.n == 1:
+            return targets
+
+        if isinstance(self.state_space, DefaultStateSpace):
+
+            # iterate over demes
+            for deme in range(state.n_demes):
+
+                # make sure we have linked lineages that can recombine
+                if np.all(state.linked[:, deme] > 0):
+                    target = state.copy()
+                    target.linked[:, deme] -= 1
+                    rate = r * state.linked[0, deme, 0]
+
+                    self.add_target(targets, target, cast(float, rate), 'recombination')
+
+            return targets
+
+        raise NotImplementedError(f'Recombination is not yet implemented for {self.state_space.__class__.__name__}.')
 
 
 class State:
     """
     State utility class.
     """
+    #: Axis for linkage.
+    LINKAGE = 0
+
     #: Axis for loci.
-    LOCUS = 0
+    LOCUS = 1
 
     #: Axis for demes.
-    DEME = 1
+    DEME = 2
 
     #: Axis for lineage blocks.
-    BLOCK = 2
+    BLOCK = 3
 
-    @staticmethod
-    def is_absorbing(state: np.ndarray) -> bool:
+    def __init__(self, data: (np.ndarray, np.ndarray)):
+        """
+        Initialize a state.
+
+        :param data: State data.
+        """
+        #: State data
+        self.data: Tuple[np.ndarray, np.ndarray] = data
+
+    def __hash__(self) -> int:
+        """
+        Hash function.
+
+        :return: Hash of the state.
+        """
+        return hash((self.data[0].tobytes(), self.data[1].tobytes()))
+
+    def __eq__(self, other: 'State') -> bool:
+        """
+        Check if two states are equal.
+
+        :param other: Other state.
+        :return: Whether the two states are equal.
+        """
+        return hash(self) == hash(other)
+
+    def copy(self) -> 'State':
+        """
+        Copy the state.
+
+        :return: Copy of the state.
+        """
+        return State((self.data[0].copy(), self.data[1].copy()))
+
+    def is_absorbing(self) -> bool:
         """
         Whether a state is absorbing.
 
-        :param state: State array.
         :return: Whether the state is absorbing.
         """
-        return np.all(np.sum(state * np.arange(1, state.shape[2] + 1)[::-1], axis=(1, 2)) == 1)
+        return np.all(np.sum(self.lineages * np.arange(1, self.n_blocks + 1)[::-1], axis=(1, 2)) == 1)
+
+    @property
+    def n_demes(self) -> int:
+        """
+        Get the number of demes.
+
+        :return: The number of demes.
+        """
+        return self.lineages.shape[1]
+
+    @property
+    def n_loci(self) -> int:
+        """
+        Get the number of loci.
+
+        :return: The number of loci.
+        """
+        return self.lineages.shape[0]
+
+    @property
+    def n_blocks(self) -> int:
+        """
+        Get the number of lineage blocks.
+
+        :return: The number of lineage blocks.
+        """
+        return self.lineages.shape[2]
+
+    @property
+    def lineages(self) -> np.ndarray:
+        """
+        Get the number of lineages.
+
+        :return: The number of lineages.
+        """
+        return self.data[0]
+
+    @property
+    def linked(self) -> np.ndarray:
+        """
+        Get the number of linked lineages.
+
+        :return: The number of linked lineages.
+        """
+        return self.data[1]
+
+    @property
+    def unlinked(self) -> np.ndarray:
+        """
+        Get the number of unlinked lineages.
+
+        :return: The number of unlinked lineages.
+        """
+        return self.lineages - self.linked
