@@ -10,4 +10,4 @@ Please see the [documentation](https://phasegen.readthedocs.io/en/latest/) for a
 
 -->
 
-``PhaseGen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
+``phasegen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
