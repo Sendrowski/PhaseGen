@@ -1,5 +1,6 @@
 /.snakemake/
 /scratch/
+/presentations/
 /reports/
 /resources/dpgp3/
 /resources/rice/
@@ -11,3 +12,4 @@
 .ipynb_checkpoints/
 /testing/tmp/
 __pycache__/
+/testing/scratch/
