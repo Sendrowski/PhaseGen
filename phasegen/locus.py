@@ -18,18 +18,15 @@ class LocusConfig:
             self,
             n: int = 1,
             n_unlinked: int = 0,
-            recombination_rate: float = 0,
-            allow_coalescence: bool = True
+            recombination_rate: float = 0
     ):
         """
         Initialize the locus configuration.
 
-        :param n: Number of loci
+        :param n: Number of loci. Either 1 or 2.
         :param n_unlinked: Number of lineages that are initially unlinked between loci. Defaults to 0 meaning that all
             lineages are initially linked between loci so that the loci are completely linked.
         :param recombination_rate: Recombination rate between loci.
-        :param allow_coalescence: Whether to allow coalescence between loci. Defaults to True. If False, then their
-            will be no common ancestor between loci once they recombine.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
@@ -46,19 +43,19 @@ class LocusConfig:
         if recombination_rate < 0:
             raise ValueError("Recombination rate must be non-negative.")
 
-        #: Number of loci
-        self.n = n
+        #: Number of loci.
+        self.n: int = n
 
-        #: Number of loci to start with
-        self.n_unlinked = n_unlinked
+        #: Number of loci to start with.
+        self.n_unlinked: int = n_unlinked
 
-        #: Recombination rate
-        self.recombination_rate = recombination_rate
+        #: Recombination rate.
+        self.recombination_rate: float = recombination_rate
 
-        #: Whether to allow coalescence between loci
-        self.allow_coalescence = allow_coalescence
+        #: Whether to allow coalescence between loci, deprecated
+        self._allow_coalescence: float = True
 
-    def get_initial_states(self, s: 'StateSpace') -> np.ndarray:
+    def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         """
         Get initial state vector for the locus configuration.
         TODO test this
@@ -87,5 +84,5 @@ class LocusConfig:
                 self.n == other.n
                 and self.n_unlinked == other.n_unlinked
                 and self.recombination_rate == other.recombination_rate
-                and self.allow_coalescence == other.allow_coalescence
+                and self._allow_coalescence == other._allow_coalescence
         )

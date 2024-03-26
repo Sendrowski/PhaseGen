@@ -7,7 +7,7 @@ import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from functools import cached_property
-from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Collection
+from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence, Union
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -15,6 +15,377 @@ from matplotlib import pyplot as plt
 from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
+
+
+class Demography:
+    """
+    Class storing full demographic information.
+    """
+    #: Population names.
+    pop_names: List[str]
+
+    #: Number of populations.
+    n_pops: int
+
+    def __init__(
+            self,
+            events: List['DemographicEvent'] = None,
+            pop_sizes: Dict[str, Dict[float, float]] | Dict[str, float] | float = None,
+            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = None,
+            warn_n_epochs: int = 20
+    ):
+        """
+        Initialize the demography.
+
+        :param events: List of demographic events.
+        :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
+            indexed by population name and time at which the population size changes, or a dictionary of the form
+            ``{pop_i: size}`` if the population size is constant, or a single float if there is only one population
+            and the population size is constant.
+        :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
+            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
+        :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
+        """
+        if events is None:
+            events = []
+
+        if pop_sizes is None:
+            pop_sizes = {}
+
+        # wrap population size in dictionary if it is a single float
+        elif isinstance(pop_sizes, (float, int)):
+            pop_sizes = {'pop_0': {0: pop_sizes}}
+
+        # wrap population size in dictionary for each population if it is a single float
+        elif isinstance(pop_sizes, dict) and list(pop_sizes.values())[0] in (float, int):
+            pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
+
+        if migration_rates is None:
+            migration_rates = {}
+
+        #: The logger instance
+        self._logger = logger.getChild(self.__class__.__name__)
+
+        #: Threshold for the number of epochs considered after which a warning is issued.
+        self.warn_n_epochs: int = warn_n_epochs
+
+        #: Whether a warning about the number of epochs has been already issued.
+        self._issued_warning = False
+
+        #: Array of demographic events.
+        self.events: List[DemographicEvent] = list(events)
+
+        # add population size and migration rate changes if specified
+        if len(pop_sizes) or len(migration_rates):
+            self.events += [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
+
+        #: Population names.
+        self._prepare_events()
+
+        # issue warning if multiple populations are specified but no migration rates are given
+        if self.n_pops > 1 and migration_rates == {}:
+            self._logger.warning(
+                'Multiple populations are specified, but no migration rates were specified so far. '
+                'Initializing with zero migration rates between all populations. '
+                'Note that this may lead to infinite coalescence times if not changed later.'
+            )
+
+    def _prepare_events(self):
+        """
+        Sort events by start time and determine population names and number of populations.
+        """
+        # sort events by start time
+        self.events = sorted(self.events, key=lambda e: e.start_time)
+
+        # determine population names
+        self.pop_names = sorted(list(set([p for e in self.events for p in e.pop_names])))
+
+        # determine number of populations
+        self.n_pops = len(self.pop_names)
+
+    def to_msprime(
+            self,
+            max_epochs: int = 1000
+    ) -> 'msprime.Demography':
+        """
+        Convert to an Msprime demography object.
+
+        :param max_epochs: Maximum number of epochs to use. This is necessary when the number of epochs is infinite.
+        :return: msprime demography object.
+        :raise ImportError: If Msprime is not installed.
+        """
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
+
+        self._prepare_events()
+
+        first_epoch = next(self.epochs)
+
+        # create demography object
+        d: ms.Demography = ms.Demography(
+            populations=[ms.Population(name=pop, initial_size=first_epoch.pop_sizes[pop]) for pop in self.pop_names],
+            migration_matrix=np.array([[first_epoch.migration_rates[(p, q)] for q in self.pop_names]
+                                       for p in self.pop_names])
+        )
+
+        for epoch in itertools.islice(self.epochs, 1, max_epochs + 1):
+            # iterate over populations
+            for pop in self.pop_names:
+                # add population size changes
+                # noinspection PyTypeChecker
+                d.add_population_parameters_change(
+                    time=epoch.start_time,
+                    initial_size=epoch.pop_sizes[pop],
+                    population=pop
+                )
+
+            # iterate over migration rates
+            for (p, q) in itertools.product(self.pop_names, repeat=2):
+
+                if p != q:
+                    # noinspection all
+                    d.add_migration_rate_change(
+                        time=epoch.start_time,
+                        rate=epoch.migration_rates[(p, q)],
+                        source=p,
+                        dest=q
+                    )
+
+        # sort events by time
+        d.sort_events()
+
+        return d
+
+    @property
+    def epochs(self) -> Iterator['Epoch']:
+        """
+        Get a generator for the epochs.
+        """
+        self._prepare_events()
+
+        prev = Epoch(
+            start_time=0,
+            end_time=0,
+            pop_sizes={p: 1 for p in self.pop_names},
+            migration_rates={k: 0 for k in itertools.product(self.pop_names, repeat=2)}
+        )
+
+        i = 0
+        while True:
+
+            # issue warning if number of epochs exceeds threshold
+            if i == self.warn_n_epochs and not self._issued_warning:
+                self._logger.warning(
+                    f'Number of epochs considered exceeds {self.warn_n_epochs}. '
+                    'Note that the runtime increases linearly with the number of epochs.'
+                )
+                self._issued_warning = True
+
+            # potential next epoch
+            epoch = Epoch(
+                start_time=prev.end_time,
+                end_time=np.inf,
+                pop_sizes=prev.pop_sizes,
+                migration_rates=prev.migration_rates
+            )
+
+            # iterate over continuous events that occur before or at start time
+            for e in self.events:
+                # adjust end time
+                e._broadcast(epoch)
+
+            # apply the events to the epoch
+            [e._apply(epoch) for e in self.events]
+
+            yield epoch
+            prev = epoch
+
+            if epoch.end_time == np.inf:
+                break
+
+            i += 1
+
+    def get_epochs(self, t: float | Iterable[float]) -> Union['Epoch', Sequence['Epoch']]:
+        """
+        Get the epoch at the given times.
+
+        :param t: Time or times.
+        :return: Epoch or array of epochs.
+        """
+        if not isinstance(t, Iterable):
+            return self.get_epochs([t])[0]
+
+        t = list(t)
+
+        # sort times in ascending order
+        t_sorted: Sequence[float] = np.sort(t)
+
+        # get epoch iterator
+        iterator: Iterator[Epoch] = self.epochs
+
+        # get first epoch
+        epoch = next(iterator)
+
+        # initialize array of epochs
+        epochs = np.zeros_like(t_sorted, dtype=Epoch)
+
+        for i, time in enumerate(t_sorted):
+            # wind forward until we reach the epoch enclosing the current time
+            while not epoch.start_time <= time < epoch.end_time:
+                epoch = next(iterator)
+
+            # add epoch to array
+            epochs[i] = epoch
+
+        # sort back to original order
+        return np.array(epochs[np.argsort(t)])
+
+    def add_events(self, events: List['DemographicEvent']):
+        """
+        Add demographic events.
+
+        :param events: List of demographic events.
+        """
+        self.events += events
+
+        self._prepare_events()
+
+    def add_event(self, event: 'DemographicEvent'):
+        """
+        Add a demographic event.
+
+        :param event: Demographic event.
+        """
+        self.add_events([event])
+
+    def plot_pop_sizes(
+            self,
+            t: np.ndarray = None,
+            show: bool = True,
+            file: str = None,
+            title: str = 'Population size trajectory',
+            ylabel: str = '$N_e$',
+            ax: plt.Axes = None,
+            kwargs: dict = None
+    ) -> plt.Axes:
+        """
+        Plot the population size over time.
+
+        :param t: Times at which to plot the population sizes. By default, we use 1000 time points between
+            time 0 and 10.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Title of the plot.
+        :param title: Title of the plot.
+        :param ylabel: Label of the y-axis.
+        :param ax: Axes object to plot to.
+        :param kwargs: Keyword arguments to pass to the plotting function.
+        :return: Axes object.
+        """
+        if t is None:
+            t = np.linspace(0, 10, 1000)
+
+        if kwargs is None:
+            kwargs = {}
+
+        return Visualization.plot_rates(
+            times=list(t),
+            rates=dict(zip(
+                self.pop_names,
+                np.array([[e.pop_sizes[p] for p in self.pop_names] for e in self.get_epochs(t)]).T
+            )),
+            show=show,
+            file=file,
+            title=title,
+            ylabel=ylabel,
+            kwargs=kwargs,
+            ax=ax
+        )
+
+    def plot_migration(
+            self,
+            t: np.ndarray = None,
+            show: bool = True,
+            file: str = None,
+            title: str = 'Migration rate trajectory',
+            ylabel: str = '$m_{ij}$',
+            ax: plt.Axes = None,
+            kwargs: dict = None
+    ) -> plt.Axes:
+        """
+        Plot the migration over time.
+
+        :param t: Times at which to plot the migration rates. By default, we use 1000 time points between time 0 and 10.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Title of the plot.
+        :param ylabel: Label of the y-axis.
+        :param ax: Axes object to plot to.
+        :param kwargs: Keyword arguments to pass to the plotting function.
+        :return: Axes object.
+        """
+        if t is None:
+            t = np.linspace(0, 10, 1000)
+
+        if kwargs is None:
+            kwargs = {}
+
+        # get all pairs of populations
+        pops = [(p, q) for p in self.pop_names for q in self.pop_names if p != q]
+
+        return Visualization.plot_rates(
+            times=list(t),
+            rates=dict(zip(
+                [f"{p[0]}->{p[1]}" for p in pops],
+                np.array([[e.migration_rates[p] for p in pops]
+                          for e in self.get_epochs(t)]).T
+            )),
+            show=show,
+            file=file,
+            title=title,
+            ylabel=ylabel,
+            kwargs=kwargs,
+            ax=ax
+        )
+
+    def plot(
+            self,
+            t: np.ndarray = None,
+            show: bool = True,
+            file: str = None,
+            ylabel: str = '$N_e|m_{ij}$',
+            ax: plt.Axes = None,
+            title: str = 'Demography',
+            kwargs: dict = None
+    ) -> plt.Axes:
+        """
+        Plot the demographic scenario.
+
+        :param t: Times at which to plot the population sizes and migration rates. By default, we use 1000 time points
+            between time 0 and 10.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param ylabel: Label of the y-axis.
+        :param ax: Axes object to plot to.
+        :param title: Title of the plot.
+        :param kwargs: Keyword arguments to pass to the plotting function.
+        :return: Axes object.
+        """
+        if t is None:
+            t = np.linspace(0, 10, 1000)
+
+        if kwargs is None:
+            kwargs = {}
+
+        if ax is None:
+            _, ax = plt.subplots()
+
+        self.plot_pop_sizes(t=t, show=False, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
+        self.plot_migration(t=t, show=show, file=file, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
+
+        return ax
 
 
 class Epoch:
@@ -586,353 +957,3 @@ class ExponentialPopSizeChanges(ExponentialRateChanges):
             end_time=end_time,
             step_size=step_size
         )
-
-
-class Demography:
-    """
-    Class storing full demographic information.
-    """
-    #: Population names.
-    pop_names: List[str]
-
-    #: Number of populations.
-    n_pops: int
-
-    def __init__(
-            self,
-            events: List[DemographicEvent] = None,
-            pop_sizes: Dict[str, Dict[float, float]] = None,
-            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = None,
-            warn_n_epochs: int = 20
-    ):
-        """
-        Initialize the demography.
-
-        :param events: List of demographic events.
-        :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
-            indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
-            by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
-            population.
-        :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
-            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
-        :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
-        """
-        if events is None:
-            events = []
-
-        if pop_sizes is None:
-            pop_sizes = {}
-
-        if migration_rates is None:
-            migration_rates = {}
-
-        #: The logger instance
-        self._logger = logger.getChild(self.__class__.__name__)
-
-        #: Threshold for the number of epochs considered after which a warning is issued.
-        self.warn_n_epochs: int = warn_n_epochs
-
-        #: Whether a warning about the number of epochs has been already issued.
-        self._issued_warning = False
-
-        #: Array of demographic events.
-        self.events: List[DemographicEvent] = list(events)
-
-        # add population size and migration rate changes if specified
-        if len(pop_sizes) or len(migration_rates):
-            self.events += [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
-
-        #: Population names.
-        self._prepare_events()
-
-        # issue warning if multiple populations are specified but no migration rates are given
-        if self.n_pops > 1 and migration_rates == {}:
-            self._logger.warning(
-                'Multiple populations are specified, but no migration rates were specified so far. '
-                'Initializing with zero migration rates between all populations. '
-                'Note that this may lead to infinite coalescence times if not changed later.'
-            )
-
-    def _prepare_events(self):
-        """
-        Sort events by start time and determine population names and number of populations.
-        """
-        # sort events by start time
-        self.events = sorted(self.events, key=lambda e: e.start_time)
-
-        # determine population names
-        self.pop_names = sorted(list(set([p for e in self.events for p in e.pop_names])))
-
-        # determine number of populations
-        self.n_pops = len(self.pop_names)
-
-    def to_msprime(
-            self,
-            max_epochs: int = 1000
-    ) -> 'msprime.Demography':
-        """
-        Convert to an Msprime demography object.
-
-        :param max_epochs: Maximum number of epochs to use. This is necessary when the number of epochs is infinite.
-        :return: msprime demography object.
-        :raise ImportError: If Msprime is not installed.
-        """
-        try:
-            import msprime as ms
-        except ImportError:
-            raise ImportError('Msprime must be installed to use this method.')
-
-        self._prepare_events()
-
-        first_epoch = next(self.epochs)
-
-        # create demography object
-        d: ms.Demography = ms.Demography(
-            populations=[ms.Population(name=pop, initial_size=first_epoch.pop_sizes[pop]) for pop in self.pop_names],
-            migration_matrix=np.array([[first_epoch.migration_rates[(p, q)] for q in self.pop_names]
-                                       for p in self.pop_names])
-        )
-
-        for epoch in itertools.islice(self.epochs, 1, max_epochs + 1):
-            # iterate over populations
-            for pop in self.pop_names:
-                # add population size changes
-                # noinspection PyTypeChecker
-                d.add_population_parameters_change(
-                    time=epoch.start_time,
-                    initial_size=epoch.pop_sizes[pop],
-                    population=pop
-                )
-
-            # iterate over migration rates
-            for (p, q) in itertools.product(self.pop_names, repeat=2):
-
-                if p != q:
-                    # noinspection all
-                    d.add_migration_rate_change(
-                        time=epoch.start_time,
-                        rate=epoch.migration_rates[(p, q)],
-                        source=p,
-                        dest=q
-                    )
-
-        # sort events by time
-        d.sort_events()
-
-        return d
-
-    @property
-    def epochs(self) -> Iterator[Epoch]:
-        """
-        Get a generator for the epochs.
-        """
-        self._prepare_events()
-
-        prev = Epoch(
-            start_time=0,
-            end_time=0,
-            pop_sizes={p: 1 for p in self.pop_names},
-            migration_rates={k: 0 for k in itertools.product(self.pop_names, repeat=2)}
-        )
-
-        i = 0
-        while True:
-
-            # issue warning if number of epochs exceeds threshold
-            if i == self.warn_n_epochs and not self._issued_warning:
-                self._logger.warning(
-                    f'Number of epochs considered exceeds {self.warn_n_epochs}. '
-                    'Note that the runtime increases linearly with the number of epochs.'
-                )
-                self._issued_warning = True
-
-            # potential next epoch
-            epoch = Epoch(
-                start_time=prev.end_time,
-                end_time=np.inf,
-                pop_sizes=prev.pop_sizes,
-                migration_rates=prev.migration_rates
-            )
-
-            # iterate over continuous events that occur before or at start time
-            for e in self.events:
-                # adjust end time
-                e._broadcast(epoch)
-
-            # apply the events to the epoch
-            [e._apply(epoch) for e in self.events]
-
-            yield epoch
-            prev = epoch
-
-            if epoch.end_time == np.inf:
-                break
-
-            i += 1
-
-    def get_epochs(self, t: float | List[float]) -> Epoch | np.ndarray:
-        """
-        Get the epoch at the given times.
-
-        :param t: Time or times.
-        :return: Epoch or array of epochs.
-        """
-        if not isinstance(t, Iterable):
-            return self.get_epochs([t])[0]
-
-        # sort times in ascending order
-        t_sorted: Collection[float] = np.sort(t)
-
-        # get epoch iterator
-        iterator: Iterator[Epoch] = self.epochs
-
-        # get first epoch
-        epoch = next(iterator)
-
-        # initialize array of epochs
-        epochs = np.zeros_like(t_sorted, dtype=Epoch)
-
-        for i, time in enumerate(t_sorted):
-            # wind forward until we reach the epoch enclosing the current time
-            while not epoch.start_time <= time < epoch.end_time:
-                epoch = next(iterator)
-
-            # add epoch to array
-            epochs[i] = epoch
-
-        # sort back to original order
-        return np.array(epochs[np.argsort(t)])
-
-    def add_events(self, events: List[DemographicEvent]):
-        """
-        Add demographic events.
-
-        :param events: List of demographic events.
-        """
-        self.events += events
-
-        self._prepare_events()
-
-    def add_event(self, event: DemographicEvent):
-        """
-        Add a demographic event.
-
-        :param event: Demographic event.
-        """
-        self.add_events([event])
-
-    def plot_pop_sizes(
-            self,
-            t: np.ndarray = np.linspace(0, 10, 1000),
-            show: bool = True,
-            file: str = None,
-            title: str = 'Population size trajectory',
-            ylabel: str = '$N_e$',
-            ax: plt.Axes = None,
-            kwargs: dict = None
-    ) -> plt.Axes:
-        """
-        Plot the population size over time.
-
-        :param t: Times at which to plot the population sizes.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param title: Title of the plot.
-        :param title: Title of the plot.
-        :param ylabel: Label of the y-axis.
-        :param ax: Axes object to plot to.
-        :param kwargs: Keyword arguments to pass to the plotting function.
-        :return: Axes object.
-        """
-        if kwargs is None:
-            kwargs = {}
-
-        return Visualization.plot_rates(
-            times=list(t),
-            rates=dict(zip(
-                self.pop_names,
-                np.array([[e.pop_sizes[p] for p in self.pop_names] for e in self.get_epochs(t)]).T
-            )),
-            show=show,
-            file=file,
-            title=title,
-            ylabel=ylabel,
-            kwargs=kwargs,
-            ax=ax
-        )
-
-    def plot_migration(
-            self,
-            t: np.ndarray = np.linspace(0, 10, 100),
-            show: bool = True,
-            file: str = None,
-            title: str = 'Migration rate trajectory',
-            ylabel: str = '$m_{ij}$',
-            ax: plt.Axes = None,
-            kwargs: dict = None
-    ) -> plt.Axes:
-        """
-        Plot the migration over time.
-
-        :param t: Times at which to plot the migration rates.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param title: Title of the plot.
-        :param ylabel: Label of the y-axis.
-        :param ax: Axes object to plot to.
-        :param kwargs: Keyword arguments to pass to the plotting function.
-        :return: Axes object.
-        """
-        if kwargs is None:
-            kwargs = {}
-
-        # get all pairs of populations
-        pops = [(p, q) for p in self.pop_names for q in self.pop_names if p != q]
-
-        return Visualization.plot_rates(
-            times=list(t),
-            rates=dict(zip(
-                [f"{p[0]}->{p[1]}" for p in pops],
-                np.array([[e.migration_rates[p] for p in pops]
-                          for e in self.get_epochs(t)]).T
-            )),
-            show=show,
-            file=file,
-            title=title,
-            ylabel=ylabel,
-            kwargs=kwargs,
-            ax=ax
-        )
-
-    def plot(
-            self,
-            t: np.ndarray = np.linspace(0, 10, 100),
-            show: bool = True,
-            file: str = None,
-            ylabel: str = '$N_e|m_{ij}$',
-            ax: plt.Axes = None,
-            title: str = 'Demography',
-            kwargs: dict = None
-    ) -> plt.Axes:
-        """
-        Plot the demographic scenario.
-
-        :param t: Times at which to plot the population sizes and migration rates.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param ylabel: Label of the y-axis.
-        :param ax: Axes object to plot to.
-        :param title: Title of the plot.
-        :param kwargs: Keyword arguments to pass to the plotting function.
-        :return: Axes object.
-        """
-        if kwargs is None:
-            kwargs = {}
-
-        if ax is None:
-            _, ax = plt.subplots()
-
-        self.plot_pop_sizes(t=t, show=False, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
-        self.plot_migration(t=t, show=show, file=file, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
-
-        return ax

@@ -629,7 +629,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             end_time = self.tree_height.t_max
 
         # get reward matrix
-        R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
+        R = [np.diag(r._get(state_space=self.state_space)) for r in rewards]
 
         # number of states
         n_states = self.state_space.k
@@ -809,7 +809,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         self._check_numerical_stability(S, 0)
 
         # get reward matrix
-        R = [np.diag(r.get(state_space=self.state_space)) for r in rewards]
+        R = [np.diag(r._get(state_space=self.state_space)) for r in rewards]
 
         # get Van Loan matrix
         V = self._get_van_loan_matrix(S=S, R=R, k=k)
@@ -997,7 +997,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         probs = np.zeros_like(t_sorted)
 
         # take reward vector as exit vector
-        e = self.reward.get(self.state_space)
+        e = self.reward._get(self.state_space)
 
         # iterate through sorted values
         for i, u in enumerate(t_sorted):
@@ -1129,7 +1129,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         T_curr = np.eye(self.state_space.k)
 
         # take reward vector as exit vector
-        e = self.reward.get(self.state_space)
+        e = self.reward._get(self.state_space)
 
         # time and probability of absorption
         t, p = 0, 0
@@ -2025,7 +2025,7 @@ class AbstractCoalescent(ABC):
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
+        :param end_time: Time when to end the computation. If ``None``, the end time is end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         self._logger = logger.getChild(self.__class__.__name__)
@@ -2121,7 +2121,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param pbar: Whether to show a progress bar.
         :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
-        :param end_time: Time when to end the accumulating moments. If `None`, the end time is taken to
+        :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(

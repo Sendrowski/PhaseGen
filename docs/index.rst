@@ -18,22 +18,13 @@ PhaseGen is a package for simulating and making inference on coalescent distribu
    reference/introduction
 
 .. toctree::
-   :caption: Getting Started (Python)
+   :caption: Reference
 
-   reference/installation_python
-   reference/quickstart_python
-
-.. toctree::
-   :caption: Getting Started (R)
-
-   reference/installation_r
-   reference/quickstart_r
-
-.. toctree::
-   :caption: Python Examples
-
-   reference/simulate_stats
-   reference/infer_pop_size_change
+   reference/installation
+   reference/quickstart
+   reference/rewards
+   reference/demography
+   reference/inference
 
 .. toctree::
    :caption: API Reference
@@ -41,7 +32,10 @@ PhaseGen is a package for simulating and making inference on coalescent distribu
    modules/distributions
    modules/coalescent_models
    modules/demography
+   modules/rewards
    modules/inference
+   modules/config
+   modules/state_space
    modules/norms
    modules/spectrum
 

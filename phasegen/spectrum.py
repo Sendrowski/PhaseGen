@@ -3,7 +3,8 @@ SFS and 2-SFS classes.
 """
 
 import copy
-from typing import Dict, cast, Iterable
+import logging
+from typing import Dict, Iterable, Iterator
 
 import jsonpickle
 import matplotlib.pyplot as plt
@@ -11,61 +12,8 @@ import numpy as np
 import seaborn as sns
 from fastdfe import Spectrum
 from matplotlib.colors import SymLogNorm
-from numpy.random import default_rng
 
-
-def _remove_monomorphic(data):
-    """
-    Remove monomorphic sites from given 2-SFS matrix.
-    
-    :return:
-    """
-    return data[1:-1, 1:-1]
-
-
-def _fill_diagonals(data: np.ndarray, fill_value=np.nan):
-    """
-    Remote the diagonal entries of the given array.
-    
-    :param data:
-    :param fill_value:
-    :return:
-    """
-    np.fill_diagonal(data, fill_value)
-    data = np.fliplr(data)
-
-    np.fill_diagonal(data, fill_value)
-    data = np.fliplr(data)
-
-    return data
-
-
-def _mask(data: np.ndarray = None) -> np.ndarray:
-    """
-    Remove diagonal and monomorphic entries.
-
-    :param data: The data to mask.
-    :return: The masked data.
-    """
-    data = data.copy()
-
-    data = _fill_diagonals(data)
-
-    data = _remove_monomorphic(data)
-
-    return data[~np.isnan(data) & ~np.isinf(data)]
-
-
-def _get_max_abs_entry(data: np.ndarray) -> float:
-    """
-    Get the maximum absolute entry of the given data.
-    
-    :param data: The data.
-    :return: The maximum absolute entry.
-    """
-    entries = np.abs(_mask(data))
-
-    return entries.max() if len(entries) > 0 else 1
+logger = logging.getLogger('phasegen').getChild('spectrum')
 
 
 class SFS(Spectrum):
@@ -101,12 +49,11 @@ class SFS2(Iterable):
 
         self.data = data
 
-    def to_file(self, file) -> None:
+    def to_file(self, file):
         """
         Save to file.
         
-        :param file:
-        :return:
+        :param file: File path.
         """
         with open(file, 'w') as f:
             f.write(self.to_json())
@@ -192,7 +139,7 @@ class SFS2(Iterable):
 
         return SFS2(self.data / other)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator:
         """
         Iterate over entries.
 
@@ -244,58 +191,11 @@ class SFS2(Iterable):
         """
         return SFS2((self.data + self.data.T) / 2)
 
-    def resample_hypergeometric(self, multiplier: int = 100000, N: int = 100) -> 'SFS2':
-        """
-        Resample counts under the hyper-geometric distribution.
-
-        TODO remove this
-
-        :param multiplier: multiplier for counts to determine number
-            of draws.
-        :param N: population size
-        :return: Resampled 2-SFS
-        """
-        rng = default_rng()
-
-        counts = (self.data * multiplier).astype(int)
-        sfs2_corr = SFS2(np.zeros_like(counts))
-        n = self.n - 1
-
-        # iterate over frequency counts
-        for i in range(n + 1):
-            for j in range(n + 1):
-                count = counts[i, j]
-
-                # select n out N samples assuming p = i / N
-                f1 = rng.hypergeometric(i * N / n, (n - i) * N / n, n, count)
-                f2 = rng.hypergeometric(j * N / n, (n - j) * N / n, n, count)
-
-                # add resampled counts
-                for k, l in zip(f1, f2):
-                    sfs2_corr.data[k, l] += 1
-
-        sfs2_corr.data = (sfs2_corr.data.astype(float) / multiplier)
-
-        return cast(SFS2, sfs2_corr).symmetrize()
-
-    def fill_diagonals(self, fill_value=np.nan) -> 'SFS2':
-        """
-        Remote the diagonal entries of the given array.
-        
-        :param fill_value:
-        :return:
-        """
-        other = self.copy()
-
-        other.data = _fill_diagonals(other.data, fill_value)
-
-        return other
-
     def fill_monomorphic(self, fill_value=np.nan) -> 'SFS2':
         """
         Remote the diagonal entries of the given array.
         
-        :param fill_value:
+        :param fill_value: Value to fill diagonal entries with.
         :return: 2-SFS
         """
         other = self.copy()
@@ -306,22 +206,6 @@ class SFS2(Iterable):
         other.data[:, -1] = fill_value
 
         return other
-
-    def get_max_abs_entry(self) -> float:
-        """
-        Get maximum magnitude entry outside the diagonal.
-        
-        :return: Maximum magnitude entry.
-        """
-        return _get_max_abs_entry(self.data)
-
-    def mask(self) -> np.ndarray:
-        """
-        Return data without monomorphic or diagonal sites.
-        
-        :return: Masked data.
-        """
-        return _mask(self.data)
 
     def plot(
             self,
@@ -335,8 +219,7 @@ class SFS2(Iterable):
     ) -> plt.Axes:
         """
         Plot as a heatmap.
-        TODO make work for low sample sizes (e.g. 2)
-        
+
         :param title: Title of the plot.
         :param ax: Axes to plot on.
         :param max_abs: Maximum absolute value to plot.
@@ -346,17 +229,21 @@ class SFS2(Iterable):
         :param show: Whether to show the plot.
         :return: Axes.
         """
+        if self.n < 3:
+            logger.warning('Nothing to plot.')
+            return plt.gca()
+
         if cbar_kws is None:
             cbar_kws = dict(pad=-0.05)
 
         data = self.data.copy()
 
         # remove monomorphic entries
-        data = _remove_monomorphic(data)
+        data = self._remove_monomorphic(data)
 
         # mask diagonal entries
         if fill_diagonal_entries:
-            data = _fill_diagonals(data)
+            data = self._fill_diagonals(data)
 
         # truncate data if folded
         if self.is_folded():
@@ -364,7 +251,7 @@ class SFS2(Iterable):
 
         # determine colorbar bounds if not specified
         if max_abs is None:
-            max_abs = _get_max_abs_entry(data)
+            max_abs = self._get_max_abs_entry(data)
 
         # plot heatmap using a symmetric log norm
         ax = sns.heatmap(
@@ -431,14 +318,18 @@ class SFS2(Iterable):
         :param show: Whether to show the plot.
         :return: Axes.
         """
+        if self.n < 3:
+            logger.warning('Nothing to plot.')
+            return plt.gca()
+
         data = self.data.copy()
 
         # remove monomorphic entries
-        data = _remove_monomorphic(data)
+        data = self._remove_monomorphic(data)
 
         # mask diagonal entries
         if fill_diagonal_entries:
-            data = _fill_diagonals(data, fill_value)
+            data = self._fill_diagonals(data, fill_value)
 
         # truncate data if folded
         if self.is_folded():
@@ -446,7 +337,7 @@ class SFS2(Iterable):
 
         # determine color bar bounds if not specified
         if max_abs is None:
-            max_abs = _get_max_abs_entry(data) or 1
+            max_abs = self._get_max_abs_entry(data) or 1
 
         x = np.arange(1, data.shape[0] + 1)
         y = np.arange(1, data.shape[0] + 1)
@@ -483,3 +374,63 @@ class SFS2(Iterable):
             plt.show()
 
         return ax
+
+    @staticmethod
+    def _remove_monomorphic(data: np.ndarray) -> np.ndarray:
+        """
+        Remove monomorphic sites from given 2-SFS matrix.
+
+        :return: The data without monomorphic sites.
+        """
+        return data[1:-1, 1:-1]
+
+    @staticmethod
+    def _fill_diagonals(data: np.ndarray, fill_value=np.nan) -> np.ndarray:
+        """
+        Remote the diagonal entries of the given array.
+
+        :param data: The data to fill.
+        :param fill_value: The value to fill the diagonal with.
+        :return: The filled data.
+        """
+        if len(data) == 0:
+            return data
+
+        if len(data) == 1:
+            return np.array([[fill_value]])
+
+        np.fill_diagonal(data, fill_value)
+        data = np.fliplr(data)
+
+        np.fill_diagonal(data, fill_value)
+        data = np.fliplr(data)
+
+        return data
+
+    @classmethod
+    def _mask(cls, data: np.ndarray = None) -> np.ndarray:
+        """
+        Remove diagonal and monomorphic entries.
+
+        :param data: The data to mask.
+        :return: The masked data.
+        """
+        data = data.copy()
+
+        data = cls._fill_diagonals(data)
+
+        data = cls._remove_monomorphic(data)
+
+        return data[~np.isnan(data) & ~np.isinf(data)]
+
+    @classmethod
+    def _get_max_abs_entry(cls, data: np.ndarray) -> float:
+        """
+        Get the maximum absolute entry of the given data.
+
+        :param data: The data.
+        :return: The maximum absolute entry.
+        """
+        entries = np.abs(cls._mask(data))
+
+        return entries.max() if len(entries) > 0 else 1

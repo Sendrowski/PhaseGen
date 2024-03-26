@@ -26,7 +26,7 @@ class RewardsTestCase(TestCase):
             model=pg.StandardCoalescent()
         )
 
-        r = pg.TreeHeightReward().get(s)
+        r = pg.TreeHeightReward()._get(s)
 
         testing.assert_array_equal(r, [1, 1, 1, 0])
 
@@ -40,7 +40,7 @@ class RewardsTestCase(TestCase):
             model=pg.StandardCoalescent()
         )
 
-        r = pg.TreeHeightReward().get(s)
+        r = pg.TreeHeightReward()._get(s)
 
         testing.assert_array_equal(r[s._get_old_ordering()], [1, 1, 1, 1, 0])
 
@@ -55,7 +55,7 @@ class RewardsTestCase(TestCase):
             model=pg.StandardCoalescent()
         )
 
-        r = pg.TotalBranchLengthReward().get(s)
+        r = pg.TotalBranchLengthReward()._get(s)
 
         testing.assert_array_equal(r[s._get_old_ordering()], [4, 3, 2, 0])
 
@@ -69,7 +69,7 @@ class RewardsTestCase(TestCase):
             model=pg.StandardCoalescent()
         )
 
-        r = pg.TotalBranchLengthReward().get(s)
+        r = pg.TotalBranchLengthReward()._get(s)
 
         testing.assert_array_equal(r[s._get_old_ordering()], [4, 3, 2, 2, 0])
 
@@ -84,7 +84,7 @@ class RewardsTestCase(TestCase):
 
         r = pg.ProductReward([r1, r2, r3])
 
-        testing.assert_array_equal(r.get(None), np.array([
+        testing.assert_array_equal(r._get(None), np.array([
             [1., 0., 0., 0.],
             [0., 0, 0., 0.],
             [0., 0., 0, 0.],

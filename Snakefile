@@ -23,17 +23,18 @@ wildcard_constraints:
 rule all:
     input:
         (
-            expand("results/comparisons/serialized/{config}.json",config=configs),
-            expand("results/graphs/transitions/{name}.png",name=[
-                'coalescent_5_lineages_default',
-                'coalescent_5_lineages_block_counting',
-                'migration_2_lineages_default',
-                'migration_3_lineages_block_counting',
-                'recombination_2_lineages',
-                'recombination_2_loci_2_pops_3_lineages_default',
-                'beta_coalescent_5_lineages_default',
-                'beta_coalescent_5_lineages_block_counting',
-            ]),
+            "docs/_build"
+            #expand("results/comparisons/serialized/{config}.json",config=configs),
+            #expand("results/graphs/transitions/{name}.png",name=[
+            #    'coalescent_5_lineages_default',
+            #    'coalescent_5_lineages_block_counting',
+            #    'migration_2_lineages_default',
+            #    'migration_3_lineages_block_counting',
+            #    'recombination_2_lineages',
+            #    'recombination_2_loci_2_pops_3_lineages_default',
+            #    'beta_coalescent_5_lineages_default',
+            #    'beta_coalescent_5_lineages_block_counting',
+            #]),
             #"results/graphs/executions_times.png",
             #"results/graphs/state_space_sizes.png",
             #"results/benchmarks/state_space/all.csv",
@@ -275,3 +276,12 @@ rule plot_transitions:
         "envs/dev.yaml"
     script:
         "scripts/plot_transitions.py"
+
+# update the documentation
+rule update_docs:
+    output:
+        directory("docs/_build")
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "make html -C docs"

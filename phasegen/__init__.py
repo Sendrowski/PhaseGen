@@ -48,7 +48,7 @@ class TqdmLoggingHandler(logging.Handler):
 
 class ColoredFormatter(logging.Formatter):
     """
-    A logging formatter that adds colors to the log messages.
+    Colored formatter.
     """
 
     def __init__(self, *args, **kwargs):
@@ -56,6 +56,7 @@ class ColoredFormatter(logging.Formatter):
         Initialize the formatter.
         """
         super().__init__(*args, **kwargs)
+
         self.colors = {
             "DEBUG": "\033[36m",  # Cyan
             "INFO": "\033[32m",  # Green
@@ -63,17 +64,21 @@ class ColoredFormatter(logging.Formatter):
             "ERROR": "\033[31m",  # Red
             "CRITICAL": "\033[31m",  # Red
         }
+
         self.reset = "\033[0m"
 
     def format(self, record):
         """
         Format the record.
         """
-        log_color = self.colors.get(record.levelname, self.reset)
+        color = self.colors.get(record.levelname, self.reset)
 
-        formatted_record = super().format(record)
+        formatted = super().format(record)
 
-        return f"{log_color}{formatted_record}{self.reset}"
+        # remove package name
+        formatted = formatted.replace(record.name, record.name.split('.')[-1])
+
+        return f"{color}{formatted}{self.reset}"
 
 
 # configure logger
@@ -135,6 +140,7 @@ from .rewards import (
     FoldedSFSReward,
     CustomReward,
     ProductReward,
+    SumReward,
     CombinedReward,
     DemeReward
 )
@@ -192,6 +198,7 @@ __all__ = [
     'FoldedSFSReward',
     'CustomReward',
     'ProductReward',
+    'SumReward',
     'DemeReward',
     'DefaultReward',
     'NonDefaultReward',

@@ -16,7 +16,7 @@ class Reward(ABC):
     """
 
     @abstractmethod
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
         
@@ -27,25 +27,37 @@ class Reward(ABC):
 
     def __hash__(self) -> int:
         """
-        Hash the class name as this class is stateless.
+        Get the hash for the reward.
         
-        :return: hash 
+        :return: hash
         """
+        # hash the class name as this class is stateless.
         return hash(self.__class__.__name__)
 
-    def prod(self, *rewards: 'Reward') -> 'Reward':
+    def prod(self, *rewards: 'Reward') -> 'ProductReward':
         """
-        Union of two rewards.
+        Product of this reward with other rewards.
 
-        :param rewards: Rewards to union
-        :return: Union of the rewards
+        :param rewards: Rewards to take the product with.
+        :return: Product of the rewards.
         """
         return ProductReward([self] + list(rewards))
+
+    def sum(self, *rewards: 'Reward') -> 'SumReward':
+        """
+        Sum of this reward with other rewards.
+
+        :param rewards: Rewards to take the sum with.
+        :return: Sum of the rewards.
+        """
+        return SumReward([self] + list(rewards))
 
 
 class DefaultReward(Reward, ABC):
     """
     Default reward where all non-absorbing states have a reward of 1.
+
+    :meta private:
     """
     pass
 
@@ -53,6 +65,8 @@ class DefaultReward(Reward, ABC):
 class NonDefaultReward(Reward, ABC):
     """
     Non-default reward where not all non-absorbing states have a reward of 1.
+
+    :meta private:
     """
     pass
 
@@ -63,7 +77,7 @@ class TreeHeightReward(DefaultReward):
     height of the locus with the highest tree.
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -84,7 +98,7 @@ class TotalTreeHeightReward(NonDefaultReward):
     heights of all loci, regardless of whether they are linked or not.
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -93,7 +107,7 @@ class TotalTreeHeightReward(NonDefaultReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
-            return np.sum([LocusReward(i).get(state_space) for i in range(state_space.locus_config.n)], axis=0)
+            return np.sum([LocusReward(i)._get(state_space) for i in range(state_space.locus_config.n)], axis=0)
 
         raise NotImplementedError(f'Unsupported state space type: {type(state_space)}')
 
@@ -106,7 +120,7 @@ class TotalBranchLengthReward(NonDefaultReward):
     the largest total branch length as done in :class:`TreeHeightReward`.
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -132,6 +146,8 @@ class TotalBranchLengthReward(NonDefaultReward):
 class SFSReward(NonDefaultReward, ABC):
     """
     Reward based on site frequency spectrum (SFS).
+
+    :meta private:
     """
 
     def __init__(self, index: int = None):
@@ -156,7 +172,7 @@ class UnfoldedSFSReward(SFSReward):
     Reward based on unfolded site frequency spectrum (SFS).
     """
 
-    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -188,7 +204,7 @@ class FoldedSFSReward(SFSReward):
 
         return np.array([self.index - 1, state_space.pop_config.n - self.index - 1])
 
-    def get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -219,7 +235,7 @@ class DemeReward(NonDefaultReward):
         """
         self.pop: str = pop
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -261,7 +277,7 @@ class LocusReward(NonDefaultReward):
         """
         self.locus: int = locus
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -288,7 +304,7 @@ class UnitReward(NonDefaultReward):
     Rewards all states with 1 (including absorbing states).
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -303,7 +319,7 @@ class TotalBranchLengthLocusReward(LocusReward):
     Reward based on total branch length per locus.
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -326,6 +342,8 @@ class TotalBranchLengthLocusReward(LocusReward):
 class CompositeReward(Reward, ABC):
     """
     Base class for composite rewards.
+
+    :meta private:
     """
 
     def __init__(self, rewards: List[Reward]):
@@ -350,19 +368,34 @@ class ProductReward(CompositeReward):
     The product of multiple rewards.
     """
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
         :param state_space: state space
         :return: reward vector
         """
-        return np.prod([r.get(state_space) for r in self.rewards], axis=0)
+        return np.prod([r._get(state_space) for r in self.rewards], axis=0)
+
+
+class SumReward(CompositeReward):
+    """
+    The sum of multiple rewards.
+    """
+
+    def _get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        """
+        return np.sum([r._get(state_space) for r in self.rewards], axis=0)
 
 
 class CombinedReward(ProductReward):
     """
-    Class extending ProductReward to allow for meaningful combination of rewards.
+    Class extending ProductReward to allow for more intuitive combination of rewards.
 
     TODO test this class
     """
@@ -408,7 +441,7 @@ class CustomReward(Reward):
         """
         self.func: Callable[[StateSpace], np.ndarray] = func
 
-    def get(self, state_space: StateSpace) -> np.ndarray:
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 

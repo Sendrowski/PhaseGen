@@ -169,8 +169,8 @@ class StateSpace(ABC):
         """
         Initial state vector.
         """
-        pops = self.pop_config.get_initial_states(self)
-        loci = self.locus_config.get_initial_states(self)
+        pops = self.pop_config._get_initial_states(self)
+        loci = self.locus_config._get_initial_states(self)
 
         # combine initial states
         alpha = pops * loci

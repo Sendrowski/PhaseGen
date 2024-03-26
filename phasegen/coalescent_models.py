@@ -224,6 +224,8 @@ class StandardCoalescent(CoalescentModel):
 class MultipleMergerCoalescent(CoalescentModel, ABC):
     """
     Base class for multiple merger coalescent models.
+
+    :meta private:
     """
 
     def coalesce(self, n: int, blocks: np.ndarray[int]) -> List[Tuple[np.ndarray, float]]:

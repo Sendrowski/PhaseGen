@@ -37,17 +37,17 @@ class LineageConfig:
             # assume we have a scalar
             n_lineages = dict(pop_0=n)
 
-        #: Number of lineages per deme
+        #: Number of lineages per deme.
         self.lineages: np.array = np.array(list(n_lineages.values()))
 
-        #: Total number of lineages
+        #: Total number of lineages.
         self.n: int = sum(list(n_lineages.values()))
 
-        #: Number of populations
-        self.n_pops = len(n_lineages)
+        #: Number of populations.
+        self.n_pops: int = len(n_lineages)
 
-        #: Names of populations
-        self.pop_names = list(n_lineages.keys())
+        #: Names of populations.
+        self.pop_names: List[str] = list(n_lineages.keys())
 
     @property
     def lineage_dict(self) -> Dict[str, int]:
@@ -58,7 +58,7 @@ class LineageConfig:
         """
         return dict(zip(self.pop_names, self.lineages))
 
-    def get_initial_states(self, s: 'StateSpace') -> np.ndarray:
+    def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         """
         Get initial state vector for the population configuration.
 
