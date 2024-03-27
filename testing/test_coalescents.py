@@ -404,7 +404,7 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space._plot_rates('tmp/test_n_2_2_loci_default_state_space_completely_unlinked')
+        coal.default_state_space._plot_rates('scratch/test_n_2_2_loci_default_state_space_completely_unlinked')
 
         pass
 
@@ -432,7 +432,7 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space._plot_rates('tmp/test_n_2_1_locus_default_state_space')
+        coal.default_state_space._plot_rates('scratch/test_n_2_1_locus_default_state_space')
 
         pass
 
@@ -494,7 +494,7 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space._plot_rates('tmp/test_n_3_2_loci_default_state_space_completely_linked')
+        coal.default_state_space._plot_rates('scratch/test_n_3_2_loci_default_state_space_completely_linked')
 
         pass
 
@@ -522,7 +522,7 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space._plot_rates('tmp/test_n_3_1_locus_default_state_space')
+        coal.default_state_space._plot_rates('scratch/test_n_3_1_locus_default_state_space')
 
         pass
 
@@ -546,9 +546,9 @@ class CoalescentTestCase(TestCase):
         """
         coal = self.get_complex_coalescent()
 
-        coal.to_file('tmp/test_serialize_simple_coalescent.json')
+        coal.to_file('scratch/test_serialize_simple_coalescent.json')
 
-        coal2 = pg.Coalescent.from_file('tmp/test_serialize_simple_coalescent.json')
+        coal2 = pg.Coalescent.from_file('scratch/test_serialize_simple_coalescent.json')
 
         self.assertEqual(coal.tree_height.mean, coal2.tree_height.mean)
 

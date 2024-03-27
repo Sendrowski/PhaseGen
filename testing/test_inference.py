@@ -85,9 +85,9 @@ class InferenceTestCase(TestCase):
         # create inference object
         inf = self.get_basic_inference()
 
-        inf.to_file('tmp/test_serialize_basic_inference.json')
+        inf.to_file('scratch/test_serialize_basic_inference.json')
 
-        inf2 = pg.Inference.from_file('tmp/test_serialize_basic_inference.json')
+        inf2 = pg.Inference.from_file('scratch/test_serialize_basic_inference.json')
 
         inf.run()
         inf2.run()
@@ -105,9 +105,9 @@ class InferenceTestCase(TestCase):
 
         inf.run()
 
-        inf.to_file('tmp/test_serialize_run_basic_inference.json')
+        inf.to_file('scratch/test_serialize_run_basic_inference.json')
 
-        inf2 = pg.Inference.from_file('tmp/test_serialize_run_basic_inference.json')
+        inf2 = pg.Inference.from_file('scratch/test_serialize_run_basic_inference.json')
 
         self.assertAlmostEqual(inf.params_inferred['t'], inf2.params_inferred['t'])
         self.assertAlmostEqual(inf.params_inferred['Ne'], inf2.params_inferred['Ne'])

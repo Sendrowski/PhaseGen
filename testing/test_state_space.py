@@ -262,7 +262,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/plot_rates', view=False)
+        s._plot_rates('scratch/plot_rates', view=False)
 
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
@@ -275,7 +275,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/block_counting_state_space_n_4_dirac')
+        s._plot_rates('scratch/block_counting_state_space_n_4_dirac')
 
         pass
 
@@ -290,7 +290,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/block_counting_state_space_n_5_dirac')
+        s._plot_rates('scratch/block_counting_state_space_n_5_dirac')
 
         pass
 
@@ -305,7 +305,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
+        s._plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
 
         pass
 
@@ -321,7 +321,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/default_state_space_beta_2_loci_n_3_alpha_1_5')
+        s._plot_rates('scratch/default_state_space_beta_2_loci_n_3_alpha_1_5')
 
         pass
 
@@ -337,7 +337,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/default_state_space_beta_2_loci_n_2_alpha_1_5')
+        s._plot_rates('scratch/default_state_space_beta_2_loci_n_2_alpha_1_5')
 
         pass
 
@@ -352,7 +352,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('tmp/default_state_space_kingman_2_loci_n_2')
+        s._plot_rates('scratch/default_state_space_kingman_2_loci_n_2')
 
         pass
 
