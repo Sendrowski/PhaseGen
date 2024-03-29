@@ -213,18 +213,21 @@ class Inference(Serializable):
         :param kwargs: Keyword arguments passed to the callback specified as ``dist``.
         :return: Coalescent distribution.
         """
-        dist = self.coal(**kwargs)
+        coal = self.coal(**kwargs)
+
+        # disable parallelization to avoid problematic double parallelization
+        coal.parallelize = False
 
         # if state space caching is enabled, replace by cached state space if possible
         if self.cache:
 
-            if dist.default_state_space == self.default_state_space:
-                dist.__dict__['default_state_space'] = self.default_state_space
+            if coal.default_state_space == self.default_state_space:
+                coal.__dict__['default_state_space'] = self.default_state_space
 
-            if dist.block_counting_state_space == self.block_counting_state_space:
-                dist.__dict__['block_counting_state_space'] = self.block_counting_state_space
+            if coal.block_counting_state_space == self.block_counting_state_space:
+                coal.__dict__['block_counting_state_space'] = self.block_counting_state_space
 
-        return dist
+        return coal
 
     @cached_property
     def default_state_space(self) -> DefaultStateSpace:

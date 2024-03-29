@@ -1479,11 +1479,33 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         The 2-SFS, i.e. the (central) covariance matrix of the site-frequencies.
         """
-        cov = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
+        # create list of arguments for each combination of i, j
+        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
-        for i in self._get_indices():
-            for j in self._get_indices():
-                cov[i, j] = self.get_cov(i, j)
+        # get sfs using parallelized function
+        sfs_results = parallelize(
+            func=lambda x: (
+                PhaseTypeDistribution.moment(self, k=2, rewards=(
+                    CombinedReward([self.reward, self._get_sfs_reward(x[0])]),
+                    CombinedReward([self.reward, self._get_sfs_reward(x[1])])
+                ))
+            ),
+            data=indices,
+            desc="Calculating covariance",
+            pbar=self.pbar,
+            parallelize=self.parallelize
+        )
+
+        # re-structure the results to a matrix form
+        sfs = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
+        for ((i, j), result) in zip(indices, sfs_results):
+            sfs[i, j] = result
+
+        # get matrix of marginal moments
+        m2 = np.outer(self.mean.data, self.mean.data)
+
+        # calculate covariances
+        cov = (sfs + sfs.T) / 2 - m2
 
         return SFS2(cov)
 
@@ -1517,13 +1539,15 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :return: The correlation coefficient matrix
         """
-        corr = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
+        # get standard deviations
+        std = np.sqrt(self.var.data)
 
-        for i in self._get_indices():
-            for j in self._get_indices():
-                corr[i, j] = self.get_corr(i, j)
+        sfs = SFS2(self.cov.data / np.outer(std, std))
 
-        return SFS2(corr)
+        # replace NaNs with zeros
+        sfs.data[np.isnan(sfs.data)] = 0
+
+        return sfs
 
     def get_corr(self, i: int, j: int) -> float:
         """
@@ -2101,7 +2125,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             pbar: bool = False,
-            parallelize: bool = False,
+            parallelize: bool = True,
             start_time: float = 0,
             end_time: float = None
     ):
