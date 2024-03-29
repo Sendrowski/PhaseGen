@@ -264,7 +264,7 @@ class Comparison(Serializable):
                     elif len(ph_stat) > 3:
                         fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
 
-                        fig.suptitle(f"{stat}: {title}")
+                        fig.suptitle(title)
 
                         SFS2(ph_stat).plot_surface(ax=axs[0], title='ph', show=False)
                         SFS2(ms_stat).plot_surface(ax=axs[1], title='ms')

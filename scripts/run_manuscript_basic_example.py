@@ -33,7 +33,6 @@ sfs2 = coal.sfs.cov
 
 sfs_pop0 = coal.sfs.demes['pop_0'].mean
 
-# TODO test higher moments
 m3 = coal.moment(3, (pg.TotalBranchLengthReward(),) * 3)
 
 import numpy as np
@@ -52,7 +51,7 @@ plt.savefig('scratch/manuscript_basic_example.png', dpi=400)
 plt.show()
 
 # joint SFS correlation matrix
-# TODO test if corr makes sense for SFS
+# TODO check if corr makes sense for SFS
 coal.sfs.demes.corr
 
 pass
