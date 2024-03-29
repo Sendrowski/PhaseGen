@@ -393,3 +393,18 @@ class DistributionTestCase(TestCase):
         expected = coal.sfs.mean.fold()
 
         np.testing.assert_array_almost_equal(observed.data, expected.data)
+
+    def test_expm_ts_scipy(self):
+        """
+        Test matrix exponential.
+        """
+        from phasegen.utils import expm_ts, expm_scipy
+
+        coal = pg.Coalescent(
+            n=10
+        )
+
+        A = expm_scipy(coal.block_counting_state_space.S)
+        B = expm_ts(coal.block_counting_state_space.S)
+
+        np.testing.assert_array_almost_equal(A, B)

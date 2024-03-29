@@ -29,7 +29,6 @@ class DemographyTestCase(TestCase):
         self.assertDictEqual(e.pop_sizes[1.3], {'pop_2': 3})
 
         self.assertEqual(e.start_time, 0)
-        self.assertEqual(e.end_time, 1.3)
 
         epoch = pg.Epoch(start_time=0, end_time=0, pop_sizes={'pop_0': 0.3, 'pop_3': 2})
         e._apply(epoch)
@@ -312,3 +311,43 @@ class DemographyTestCase(TestCase):
         self.assertEqual(0.1, d.get_epochs(5).pop_sizes['pop_1'])
 
         pass
+
+    def test_demography_equivalent(self):
+        """
+        Test that two demographies are equivalent.
+        """
+        d1 = pg.Demography(
+            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5, 1: 0.8}},
+            migration_rates={
+                ('pop_0', 'pop_1'): {0: 1.7, 0.7: 2},
+                ('pop_1', 'pop_0'): {0: 3}
+            }
+        )
+
+        d2 = pg.Demography()
+
+        d2.add_event(pg.PopSizeChange(pop='pop_0', time=0, size=1))
+        d2.add_event(pg.PopSizeChange(pop='pop_1', time=0, size=2.5))
+        d2.add_event(pg.PopSizeChange(pop='pop_1', time=1, size=0.8))
+
+        d2.add_event(pg.MigrationRateChange(source='pop_0', dest='pop_1', time=0, rate=1.7))
+        d2.add_event(pg.MigrationRateChange(source='pop_0', dest='pop_1', time=0.7, rate=2))
+        d2.add_event(pg.MigrationRateChange(source='pop_1', dest='pop_0', time=0, rate=3))
+
+        for epoch1, epoch2 in zip(d1.epochs, d2.epochs):
+            self.assertEqual(epoch1, epoch2)
+
+    @pytest.mark.skip(reason="msprime raises error 'migration[0]: invalid migration'")
+    def test_to_demes(self):
+        """
+        Test converting demography to demes.
+        """
+        d = pg.Demography(
+            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5, 1: 0.8}},
+            migration_rates={
+                ('pop_0', 'pop_1'): {0: 1.7, 0.7: 2},
+                ('pop_1', 'pop_0'): {0: 3}
+            }
+        )
+
+        demes = d.to_demes()

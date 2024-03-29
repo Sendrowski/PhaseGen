@@ -111,7 +111,9 @@ from .demography import (
     PopSizeChange,
     MigrationRateChanges,
     MigrationRateChange,
+    SymmetricMigrationRateChanges,
     DiscretizedRateChanges,
+    DiscretizedRateChange,
     ExponentialPopSizeChanges,
     ExponentialRateChanges
 )
@@ -147,6 +149,7 @@ from .rewards import (
 
 from .spectrum import (
     SFS,
+    Spectra,
     SFS2
 )
 
@@ -175,15 +178,18 @@ __all__ = [
     'PopSizeChange',
     'MigrationRateChanges',
     'MigrationRateChange',
+    'SymmetricMigrationRateChanges',
     'ExponentialPopSizeChanges',
     'ExponentialRateChanges',
     'DiscreteRateChanges',
+    'DiscretizedRateChange',
     'DiscretizedRateChanges',
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',
     'SFS2',
     'SFS',
+    'Spectra',
     'Inference',
     'LNorm',
     'L1Norm',

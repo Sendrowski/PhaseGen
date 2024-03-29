@@ -90,3 +90,31 @@ class RewardsTestCase(TestCase):
             [0., 0., 0, 0.],
             [0., 0., 0., 12.]]
         ))
+
+    def test_use_rewards_for_wrong_state_space_raises_error(self):
+        """
+        Test that using rewards for the wrong state space raises an error.
+        """
+        coal = pg.Coalescent(n=5)
+
+        with self.assertRaises(NotImplementedError) as context:
+            _ = coal.tree_height.moment(1, (pg.UnfoldedSFSReward(2),))
+
+    def test_supports_state_space(self):
+        """
+        Test that rewards support state space.
+        """
+        self.assertTrue(pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward()]))
+        self.assertTrue(pg.Reward.support(pg.BlockCountingStateSpace, [pg.TreeHeightReward()]))
+        self.assertTrue(
+            pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward(), pg.TotalBranchLengthReward()])
+        )
+        self.assertFalse(pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)]))
+
+        self.assertTrue(
+            pg.Reward.support(pg.BlockCountingStateSpace, [pg.ProductReward([pg.TreeHeightReward()])])
+        )
+        self.assertTrue(pg.Reward.support(pg.DefaultStateSpace, [pg.ProductReward([pg.TreeHeightReward()])]))
+        self.assertFalse(pg.Reward.support(
+            pg.DefaultStateSpace, [pg.ProductReward([pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)])]
+        ))

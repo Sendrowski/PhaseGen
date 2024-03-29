@@ -20,6 +20,7 @@ release = 'alpha'
 
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.viewcode',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
     'myst_nb'

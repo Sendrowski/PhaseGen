@@ -10,7 +10,8 @@ import jsonpickle
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from fastdfe import Spectrum
+# noinspection PyUnresolvedReferences
+from fastdfe import Spectrum, Spectra
 from matplotlib.colors import SymLogNorm
 
 logger = logging.getLogger('phasegen').getChild('spectrum')

@@ -31,7 +31,7 @@ class Demography:
             self,
             events: List['DemographicEvent'] = None,
             pop_sizes: Dict[str, Dict[float, float]] | Dict[str, float] | float = None,
-            migration_rates: Dict[Tuple[str, str], Dict[float, float]] = None,
+            migration_rates: Dict[Tuple[str, str], Dict[float, float]] | Dict[Tuple[str, str], float] = None,
             warn_n_epochs: int = 20
     ):
         """
@@ -43,7 +43,9 @@ class Demography:
             ``{pop_i: size}`` if the population size is constant, or a single float if there is only one population
             and the population size is constant.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
-            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
+            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc. or
+            alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration rate is constant over
+            time.
         :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
         """
         if events is None:
@@ -56,12 +58,16 @@ class Demography:
         elif isinstance(pop_sizes, (float, int)):
             pop_sizes = {'pop_0': {0: pop_sizes}}
 
-        # wrap population size in dictionary for each population if it is a single float
-        elif isinstance(pop_sizes, dict) and list(pop_sizes.values())[0] in (float, int):
+        # wrap population size in dictionary if only one time per population is given
+        elif isinstance(pop_sizes, dict) and isinstance(list(pop_sizes.values())[0], (float, int)):
             pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
 
         if migration_rates is None:
             migration_rates = {}
+
+        # wrap migration rate in dictionary if only one time per migration pair is given
+        elif isinstance(migration_rates, dict) and isinstance(list(migration_rates.values())[0], (float, int)):
+            migration_rates = {(p, q): {0: r} for (p, q), r in migration_rates.items()}
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -83,7 +89,7 @@ class Demography:
         self._prepare_events()
 
         # issue warning if multiple populations are specified but no migration rates are given
-        if self.n_pops > 1 and migration_rates == {}:
+        if self.n_pops > 1 and migration_rates == {} and len(events) == 0:
             self._logger.warning(
                 'Multiple populations are specified, but no migration rates were specified so far. '
                 'Initializing with zero migration rates between all populations. '
@@ -110,7 +116,7 @@ class Demography:
         """
         Convert to an Msprime demography object.
 
-        :param max_epochs: Maximum number of epochs to use. This is necessary when the number of epochs is infinite.
+        :param max_epochs: Maximum number of epochs to use. Note that the number of epochs may be infinite.
         :return: msprime demography object.
         :raise ImportError: If Msprime is not installed.
         """
@@ -158,6 +164,16 @@ class Demography:
 
         return d
 
+    def _to_demes(self) -> 'demes.Graph':
+        """
+        Convert to demes object (see https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography.to_demes).
+        TODO: msprime raises an error when converting to demes (migration[0]: invalid migration)
+
+        :return: Demes object.
+        :raise ImportError: If msprime is not installed.
+        """
+        self.to_msprime().to_demes()
+
     @property
     def epochs(self) -> Iterator['Epoch']:
         """
@@ -191,7 +207,7 @@ class Demography:
                 migration_rates=prev.migration_rates
             )
 
-            # iterate over continuous events that occur before or at start time
+            # broadcast events
             for e in self.events:
                 # adjust end time
                 e._broadcast(epoch)
@@ -483,13 +499,10 @@ class Epoch:
 
 class DemographicEvent(ABC):
     """
-    Base class for demographic events.
+    Base class for (discrete) demographic events.
     """
     #: Start time of the event.
     start_time: float
-
-    #: End time of the event.
-    end_time: float
 
     #: Population names.
     pop_names: List[str]
@@ -498,6 +511,15 @@ class DemographicEvent(ABC):
     def _apply(self, epoch: Epoch):
         """
         Apply the demographic event to the given epoch if applicable.
+
+        :param epoch: Epoch.
+        """
+        pass
+
+    @abstractmethod
+    def _broadcast(self, epoch: Epoch):
+        """
+        Adjust the end time of the epoch to the next time at which the rate changes due to this event.
 
         :param epoch: Epoch.
         """
@@ -593,7 +615,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         # initialize zero migration rates if None is given
         if migration_rates is None:
-            migration_rates = {(p, q): {0: 0} for p in pop_sizes for q in pop_sizes}
+            migration_rates = {}
         elif not isinstance(migration_rates, dict):
             raise ValueError('Migration rates must be a dictionary.')
 
@@ -603,14 +625,6 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         #: Number of populations / demes.
         self.n_pops: int = len(self.pop_names)
-
-        migration_rates = migration_rates.copy()
-
-        # fill non-existing and diagonal migration rates with zero
-        for p in self.pop_names:
-            for q in self.pop_names:
-                if p == q or (p != q and (p, q) not in migration_rates):
-                    migration_rates[(p, q)] = {0: 0}
 
         # flatten the population sizes and migration rates
         times: np.ndarray[float]
@@ -645,9 +659,6 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         #: Start time of the event.
         self.start_time: float = self.times[0]
-
-        #: End time of the event.
-        self.end_time: float = self.times[-1]
 
     def _apply(self, epoch: Epoch):
         """
@@ -721,6 +732,28 @@ class MigrationRateChange(MigrationRateChanges):
         :param rate: Migration rate.
         """
         super().__init__({(source, dest): {time: rate}})
+
+
+class SymmetricMigrationRateChanges(MigrationRateChanges):
+    """
+    Demographic event for changes in symmetric migration rates.
+    """
+
+    def __init__(self, pops: Iterable[str], migration_rates: Dict[float, float] | float):
+        """
+        Initialize the migration rate change.
+
+        :param pops: Population names across which the migration rates change uniformly.
+        :param migration_rates: Migration rates. A dictionary of the form ``{time1: rate1, time2: rate2}`` of migration
+            from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc. or alternatively a single float
+            if the migration rate is constant over time.
+        """
+        if isinstance(migration_rates, (float, int)):
+            migration_rates = {0: migration_rates}
+
+        migration_rates = {(p, q): migration_rates for p in pops for q in pops if p != q}
+
+        super().__init__(migration_rates=migration_rates)
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

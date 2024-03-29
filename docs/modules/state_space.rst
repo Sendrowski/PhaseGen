@@ -1,4 +1,4 @@
-.. _modules.config:
+.. _modules.state_space:
 
 State Space
 -----------

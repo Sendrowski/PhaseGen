@@ -214,22 +214,12 @@ class MarginalLocusDistributions(MarginalDistributions):
         if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
-        m2 = self.dist.moment(k=2, rewards=(
+        xy = self.dist.moment(k=2, rewards=(
             CombinedReward([self.dist.reward, LocusReward(locus1)]),
             CombinedReward([self.dist.reward, LocusReward(locus2)])
         ))
 
-        return m2 - self.loci[locus1].mean * self.loci[locus2].mean
-
-    def get_corr(self, locus1: int, locus2: int) -> float:
-        """
-        Get the correlation coefficient between two loci.
-
-        :param locus1: The first locus.
-        :param locus2: The second locus.
-        :return: The correlation coefficient.
-        """
-        return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
+        return xy - self.loci[locus1].mean * self.loci[locus2].mean
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -241,6 +231,16 @@ class MarginalLocusDistributions(MarginalDistributions):
         n_loci = self.dist.locus_config.n
 
         return np.array([[self.get_cov(i, j) for i in range(n_loci)] for j in range(n_loci)])
+
+    def get_corr(self, locus1: int, locus2: int) -> float:
+        """
+        Get the correlation coefficient between two loci.
+
+        :param locus1: The first locus.
+        :param locus2: The second locus.
+        :return: The correlation coefficient.
+        """
+        return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -326,22 +326,12 @@ class MarginalDemeDistributions(MarginalDistributions):
         if pop1 not in self.dist.pop_config.pop_names or pop2 not in self.dist.pop_config.pop_names:
             raise ValueError(f"Population {pop1} or {pop2} does not exist.")
 
-        m2 = self.dist.moment(k=2, rewards=(
+        xy = self.dist.moment(k=2, rewards=(
             CombinedReward([self.dist.reward, DemeReward(pop1)]),
             CombinedReward([self.dist.reward, DemeReward(pop2)])
         ))
 
-        return m2 - self.demes[pop1].mean * self.demes[pop2].mean
-
-    def get_corr(self, pop1: str, pop2: str) -> float:
-        """
-        Get the correlation coefficient between two demes.
-
-        :param pop1: The first deme.
-        :param pop2: The second deme.
-        :return: The correlation coefficient.
-        """
-        return self.get_cov(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
+        return xy - self.demes[pop1].mean * self.demes[pop2].mean
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -353,6 +343,16 @@ class MarginalDemeDistributions(MarginalDistributions):
         pops = self.dist.pop_config.pop_names
 
         return np.array([[self.get_cov(p1, p2) for p1 in pops] for p2 in pops])
+
+    def get_corr(self, pop1: str, pop2: str) -> float:
+        """
+        Get the correlation coefficient between two demes.
+
+        :param pop1: The first deme.
+        :param pop2: The second deme.
+        :return: The correlation coefficient.
+        """
+        return self.get_cov(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -760,7 +760,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         :param k: The order of the moment.
         :param end_times: List of ends times or end time when to evaluate the moment.
-        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         """
         # handle scalar input
@@ -874,7 +874,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and the
             99th percentile.
-        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -1301,7 +1301,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             end_time: float = None
     ) -> SFS:
         """
-        Get the kth moment of the site-frequency spectrum.
+        Get the kth moments of the site-frequency spectrum.
 
         :param k: The order of the moment
         :param rewards: Tuple of k rewards
@@ -1309,14 +1309,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
-        :return: The kth SFS moments
+        :return: A site-frequency spectrum of kth order moments.
         """
         if rewards is None:
             rewards = (self.reward,) * k
 
         # optionally parallelize the moment computation of the SFS bins
         moments = parallelize(
-            func=lambda x: self.get_moment(*x),
+            func=lambda x: self._moment(*x),
             data=[[k, i, rewards, start_time, end_time] for i in self._get_indices()],
             desc=f"Calculating {k}-moments",
             pbar=self.pbar,
@@ -1324,6 +1324,33 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         )
 
         return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
+
+    def _moment(
+            self,
+            k: int,
+            i: int,
+            rewards: Tuple[SFSReward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
+    ) -> float:
+        """
+        Get the kth moment for the ith site-frequency count.
+
+        :param k: The order of the moment
+        :param i: The ith site-frequency count
+        :param rewards: Tuple of k rewards
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :return: The kth SFS (cross)-moment at the ith site-frequency count
+        """
+        return super().moment(
+            k=k,
+            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
+            start_time=start_time,
+            end_time=end_time
+        )
 
     def accumulate(
             self,
@@ -1336,7 +1363,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param k: The order of the moment.
         :param end_times: Times or time when to evaluate the moment.
-        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
         if not isinstance(end_times, Iterable):
@@ -1381,7 +1408,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and
             the 99th percentile.
-        :param rewards: Tuple of k rewards. By default, the default reward of the underlying distribution.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -1400,7 +1427,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             rewards = (self.reward,) * k
 
         if title is None:
-            title = f"SFS Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
+            title = (f"SFS Moment accumulation "
+                     f"({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})")
 
         # get accumulation of moments
         accumulation = self.accumulate(k, end_times, rewards)
@@ -1420,36 +1448,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             )
 
         return ax
-
-    def get_moment(
-            self,
-            k: int,
-            i: int,
-            rewards: Tuple[SFSReward, ...] = None,
-            start_time: float = None,
-            end_time: float = None
-    ) -> float:
-        """
-        Get the nth moment for the ith site-frequency count.
-
-        :param k: The order of the moment
-        :param i: The ith site-frequency count
-        :param rewards: Tuple of k rewards
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :return: The kth SFS (cross)-moment at the ith site-frequency count
-        """
-        if rewards is None:
-            rewards = (self.reward,) * k
-
-        return super().moment(
-            k=k,
-            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
-            start_time=start_time,
-            end_time=end_time
-        )
 
     def get_accumulation(
             self,
@@ -1479,34 +1477,16 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     @cached_property
     def cov(self) -> SFS2:
         """
-        The 2-SFS, i.e. the covariance matrix of the site-frequencies.
+        The 2-SFS, i.e. the (central) covariance matrix of the site-frequencies.
         """
-        # create list of arguments for each combination of i, j
-        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
+        cov = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
 
-        # get sfs using parallelized function
-        sfs_results = parallelize(
-            func=lambda x: self.get_cov(*x),
-            data=indices,
-            desc="Calculating covariance",
-            pbar=self.pbar,
-            parallelize=self.parallelize
-        )
-
-        # re-structure the results to a matrix form
-        sfs = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
-        for ((i, j), result) in zip(indices, sfs_results):
-            sfs[i, j] = result
-
-        # get matrix of marginal second moments
-        m2 = np.outer(self.mean.data, self.mean.data)
-
-        # calculate covariances
-        cov = (sfs + sfs.T) / 2 - m2
+        for i in self._get_indices():
+            for j in self._get_indices():
+                cov[i, j] = self.get_cov(i, j)
 
         return SFS2(cov)
 
-    @cache
     def get_cov(self, i: int, j: int) -> float:
         """
         Get the covariance between the ith and jth site-frequency.
@@ -1515,13 +1495,20 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: covariance
         """
-        return super().moment(
-            k=2,
-            rewards=(
-                CombinedReward([self.reward, self._get_sfs_reward(i)]),
-                CombinedReward([self.reward, self._get_sfs_reward(j)])
-            )
-        )
+        if i in (0, self.pop_config.n) or j in (0, self.pop_config.n):
+            return 0
+
+        reward_i = CombinedReward([self.reward, self._get_sfs_reward(i)])
+        reward_j = CombinedReward([self.reward, self._get_sfs_reward(j)])
+
+        xy = super().moment(k=2, rewards=(reward_i, reward_j))
+        yx = super().moment(k=2, rewards=(reward_j, reward_i))
+
+        x = super().moment(k=1, rewards=(reward_i,))
+        y = super().moment(k=1, rewards=(reward_j,))
+
+        # TODO check why covariance is not symmetric
+        return (xy + yx) / 2 - x * y
 
     @cached_property
     def corr(self) -> SFS2:
@@ -1530,17 +1517,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :return: The correlation coefficient matrix
         """
-        # get standard deviations
-        std = np.sqrt(self.var.data)
+        corr = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
 
-        sfs = SFS2(self.cov.data / np.outer(std, std))
+        for i in self._get_indices():
+            for j in self._get_indices():
+                corr[i, j] = self.get_corr(i, j)
 
-        # replace NaNs with zeros
-        sfs.data[np.isnan(sfs.data)] = 0
+        return SFS2(corr)
 
-        return sfs
-
-    @cache
     def get_corr(self, i: int, j: int) -> float:
         """
         Get the correlation coefficient between the ith and jth site-frequency.
@@ -1549,10 +1533,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: Correlation coefficient
         """
-        std_i = np.sqrt(super().moment(k=2, rewards=(CombinedReward([self.reward, self._get_sfs_reward(i)]),) * 2))
-        std_j = np.sqrt(super().moment(k=2, rewards=(CombinedReward([self.reward, self._get_sfs_reward(j)]),) * 2))
+        if i in (0, self.pop_config.n) or j in (0, self.pop_config.n):
+            return 0
 
-        return self.get_cov(i, j) / (std_i * std_j)
+        return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
 
 class UnfoldedSFSDistribution(SFSDistribution):
@@ -2057,6 +2041,19 @@ class AbstractCoalescent(ABC):
             if recombination_rate is not None:
                 self.locus_config.recombination_rate = recombination_rate
 
+        # population names present in the population configuration but not in the demography
+        initial_sizes = {p: {0: 1} for p in self.pop_config.pop_names if p not in demography.pop_names}
+
+        # add missing population sizes to demography
+        if len(initial_sizes) > 0:
+            demography.add_event(
+                PopSizeChanges(initial_sizes)
+            )
+
+        # add zero lineage counts to lineage configuration for populations only present in the demography
+        unspecified_lineages = set(demography.pop_names) - set(self.pop_config.pop_names)
+        self.pop_config = LineageConfig(self.pop_config.lineage_dict | {p: 0 for p in unspecified_lineages})
+
         #: Coalescent model
         self.model: CoalescentModel = model
 
@@ -2132,15 +2129,6 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=demography,
             end_time=end_time
         )
-
-        # population names present in the population configuration but not in the demography
-        initial_sizes = {p: {0: 1} for p in self.pop_config.pop_names if p not in self.demography.pop_names}
-
-        # add missing population sizes to demography
-        if len(initial_sizes) > 0:
-            self.demography.add_event(
-                PopSizeChanges(initial_sizes)
-            )
 
         #: Time when to start accumulating moments
         self.start_time: float = start_time
@@ -2221,29 +2209,38 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    @cache
     def moment(
             self,
             k: int = 1,
             rewards: Tuple[Reward, ...] = None,
-            state_space: StateSpace = None
+            start_time: float = None,
+            end_time: float = None
     ) -> float:
         """
         Get the kth (non-central) moment using the specified rewards and state space.
-        TODO infer state space type from rewards
 
         :param k: The order of the moment
         :param rewards: Tuple of k rewards. By default, tree height rewards are used.
-        :param state_space: State space to use. By default, the default state space is used.
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
         :return: The kth moment
         """
+        if Reward.support(DefaultStateSpace, rewards):
+            state_space = self.default_state_space
+        else:
+            state_space = self.block_counting_state_space
+
         dist = PhaseTypeDistribution(
             reward=TreeHeightReward() if rewards is None else UnitReward(),
             tree_height=self.tree_height,
-            state_space=self.default_state_space if state_space is None else state_space,
+            state_space=state_space,
             demography=self.demography
         )
 
-        return dist.moment(k, rewards)
+        return dist.moment(k=k, rewards=rewards, start_time=start_time, end_time=end_time)
 
     def drop_cache(self):
         """

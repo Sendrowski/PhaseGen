@@ -712,7 +712,7 @@ class Transition:
         Get all possible unlinked migration transitions from the given state.
         Note that we also consider migration to unlinked when there is only one locus.
 
-        :param d1: Source state.
+        :param source: Source state.
         :return: All possible migration transitions from the given state.
         """
         targets: Dict['State', Tuple[float, str]] = {}
