@@ -18,16 +18,18 @@ try:
 except NameError:
     # testing
     testing = True
-    file = f"scratch/bootstrap.json"
-    out = f"scratch/bootstrap.run.json"
+    file = f"scratch/inference.json"
+    out = f"scratch/bootstrap.json"
 
 import phasegen as pg
 
 inf = pg.Inference.from_file(file)
 
-inf.run()
+bootstrap = inf.create_bootstrap()
 
-inf.to_file(out)
+bootstrap.run()
+
+bootstrap.to_file(out)
 
 pass
 

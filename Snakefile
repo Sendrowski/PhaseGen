@@ -23,7 +23,8 @@ wildcard_constraints:
 rule all:
     input:
         (
-            "docs/_build"
+            "results/graphs/inference/demography.png",
+            #"docs/_build"
             #expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
             #    'coalescent_5_lineages_default',
@@ -285,3 +286,49 @@ rule update_docs:
         "envs/dev.yaml"
     shell:
         "make html -C docs"
+
+# setup inference
+rule setup_inference:
+    output:
+        "results/inference/inference.json"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/setup_inference.py"
+
+# run bootstrap
+rule run_bootstrap:
+    input:
+        "results/inference/inference.json"
+    output:
+        "results/inference/bootstraps/{i}/inference.json"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/run_bootstrap.py"
+
+# merge bootstraps
+rule merge_bootstraps:
+    input:
+        inference="results/inference/inference.json",
+        bootstraps=expand("results/inference/bootstraps/{i}/inference.json",i=range(100))
+    output:
+        inference="results/inference/inference.bootstrapped.json",
+        demography="results/graphs/inference/demography.png",
+        pop_sizes="results/graphs/inference/pop_sizes.png",
+        migration="results/graphs/inference/migration.png",
+        bootstraps_hist="results/graphs/inference/bootstraps_hist.png",
+        bootstraps_kde="results/graphs/inference/bootstraps_kde.png",
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/merge_bootstraps.py"
+
+# get import times
+rule get_import_times:
+    output:
+        "results/import_times.txt"
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "python -X importtime -c 'import phasegen' 2> {output} || true"

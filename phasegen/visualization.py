@@ -26,7 +26,7 @@ class Visualization:
         """
 
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> plt.Axes:
+        def wrapper(*args, **kwargs) -> 'plt.Axes':
             """
             Wrapper function.
 
@@ -58,7 +58,7 @@ class Visualization:
         return wrapper
 
     @staticmethod
-    def show_and_save(file: str = None, show: bool = True) -> plt.Axes:
+    def show_and_save(file: str = None, show: bool = True) -> 'plt.Axes':
         """
         Show and save plot.
 
@@ -81,7 +81,7 @@ class Visualization:
     @staticmethod
     @clear_show_save
     def plot(
-            ax: plt.Axes,
+            ax: 'plt.Axes',
             x: np.ndarray,
             y: np.ndarray,
             xlabel: str = 'x',
@@ -91,7 +91,7 @@ class Visualization:
             clear: bool = True,
             label: str = None,
             title: str = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot function.
 
@@ -124,7 +124,7 @@ class Visualization:
     @staticmethod
     @clear_show_save
     def plot_rates(
-            ax: plt.Axes,
+            ax: 'plt.Axes',
             times: List[float],
             rates: Dict[str, np.ndarray],
             xlabel: str = 't',
@@ -134,7 +134,7 @@ class Visualization:
             clear: bool = True,
             title: str = 'rate trajectory',
             kwargs: dict = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot function.
 

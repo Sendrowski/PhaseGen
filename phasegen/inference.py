@@ -5,13 +5,12 @@ Inference module.
 import copy
 import logging
 from functools import cached_property
-from typing import Dict, Tuple, Callable, Any, List, Literal
+from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional
 
 import dill
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
-from matplotlib import pyplot as plt
 from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
@@ -184,7 +183,7 @@ class Inference(Serializable):
 
         :return: State of the object.
         """
-        state = self.__dict__.copy()
+        state = copy.deepcopy(self.__dict__)
 
         for key in ['coal', 'loss', 'resample']:
             state[f'{key}_pickled'] = dill.dumps(state[key])
@@ -192,9 +191,9 @@ class Inference(Serializable):
 
         return state
 
-    def __setstate__(self, state: dict) -> None:
+    def __setstate__(self, state: dict):
         """
-        Set the state of the object from deserialization.
+        Restore the state of the object from a serialized state.
 
         :param state: State of the object.
         """
@@ -202,7 +201,7 @@ class Inference(Serializable):
 
         for key in ['coal', 'loss', 'resample']:
             setattr(self, key, dill.loads(state[f'{key}_pickled']))
-            del self.__dict__[f'{key}_pickled']
+            self.__dict__.pop(f'{key}_pickled')
 
     def get_coal(self, **kwargs) -> Coalescent:
         """
@@ -495,22 +494,26 @@ class Inference(Serializable):
             self,
             title: str = 'Bootstrapped parameters',
             show: bool = True,
+            file: str = None,
             subplots: bool = True,
             kind: Literal['hist', 'kde'] = 'hist',
-            ax: plt.Axes | None = None,
+            ax: Optional['plt.Axes'] = None,
             kwargs: dict = None
-    ) -> plt.Axes | List[plt.Axes]:
+    ) -> 'plt.Axes' | List['plt.Axes']:
         """
         Plot bootstrapped parameters.
 
         :param title: Title of the plot.
         :param show: Whether to show the plot.
+        :param file: File to save the plot.
         :param subplots: Whether to plot subplots.
         :param kind: Kind of plot. Either 'hist' or 'kde'.
         :param ax: Axes to plot on.
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
         :return: Axes or list of axes.
         """
+        from .visualization import Visualization
+
         if kwargs is None:
             kwargs = {}
 
@@ -528,26 +531,27 @@ class Inference(Serializable):
             **kwargs
         )
 
-        if show:
-            plt.show()
+        Visualization.show_and_save(show=show, file=file)
 
         return ax
 
     def plot_demography(
             self,
             t: np.ndarray = None,
-            show: bool = True,
             include_bootstraps: bool = True,
+            show: bool = True,
+            file: str = None,
             kwargs: dict = None,
-            ax: List[plt.Axes] | None = None
-    ) -> List[plt.Axes]:
+            ax: List['plt.Axes'] | None = None
+    ) -> List['plt.Axes']:
         """
         Plot inferred demography.
 
         :param t: Time points. By default, 100 time points are used that extend
             from 0 to the 99th percentile of the tree height distribution.
-        :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: List of axes to plot on.
         :return: List of axes.
@@ -556,6 +560,7 @@ class Inference(Serializable):
             t=t,
             show=show,
             include_bootstraps=include_bootstraps,
+            file=file,
             kwargs=kwargs,
             ax=ax,
             kind='all'
@@ -566,9 +571,10 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             include_bootstraps: bool = True,
+            file: str = None,
             kwargs: dict = None,
-            ax: plt.Axes | None = None
-    ) -> plt.Axes:
+            ax: Optional['plt.Axes'] = None
+    ) -> 'plt.Axes':
         """
         Plot inferred population sizes.
 
@@ -576,6 +582,7 @@ class Inference(Serializable):
             from 0 to the 99th percentile of the tree height distribution.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
+        :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: List of axes to plot on.
         :return: Axes.
@@ -584,6 +591,7 @@ class Inference(Serializable):
             t=t,
             show=show,
             include_bootstraps=include_bootstraps,
+            file=file,
             kwargs=kwargs,
             ax=ax,
             kind='pop_size'
@@ -593,16 +601,18 @@ class Inference(Serializable):
             self,
             t: np.ndarray = None,
             show: bool = True,
+            file: str = None,
             include_bootstraps: bool = True,
             kwargs: dict = None,
-            ax: plt.Axes | None = None
-    ) -> plt.Axes:
+            ax: Optional['plt.Axes'] = None
+    ) -> 'plt.Axes':
         """
         Plot inferred migration rates.
 
         :param t: Time points. By default, 100 time points are used that extend
             from 0 to the 99th percentile of the tree height distribution.
         :param show: Whether to show the plot.
+        :param file: File to save the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: List of axes to plot on.
@@ -612,6 +622,7 @@ class Inference(Serializable):
             t=t,
             show=show,
             include_bootstraps=include_bootstraps,
+            file=file,
             kwargs=kwargs,
             ax=ax,
             kind='migration'
@@ -622,10 +633,11 @@ class Inference(Serializable):
             t: np.ndarray,
             show: bool,
             include_bootstraps: bool,
-            ax: plt.Axes | None,
+            ax: Optional['plt.Axes'],
             kind: Literal['pop_size', 'migration', 'all'],
+            file: str = None,
             kwargs: dict = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot inferred population sizes, migration rates, or both.
 
@@ -633,10 +645,14 @@ class Inference(Serializable):
             from 0 to the 99th percentile of the tree height distribution.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
-        :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
+        :param file: File to save the plot.
+        :param kwargs: Additional keyword arguments passed to the plot function.
         :return: Axes.
         """
+        import matplotlib.pyplot as plt
+        from .visualization import Visualization
+
         if kwargs is None:
             kwargs = {}
 
@@ -657,7 +673,7 @@ class Inference(Serializable):
             plt.clf()
             ax = plt.gca()
 
-        def plot(d: Demography, kwargs2: dict) -> plt.Axes:
+        def plot(d: Demography, kwargs2: dict) -> 'plt.Axes':
             """
             Plot inferred demography.
 
@@ -681,12 +697,11 @@ class Inference(Serializable):
             for dist in self.bootstrap_dists:
                 plot(dist.demography, {'color': 'C0', 'alpha': 0.3})
 
-        if show:
-            plt.show()
+        Visualization.show_and_save(show=show, file=file)
 
         return ax
 
-    def create_bootstrap(self) -> 'Inference':
+    def create_bootstrap(self, n_runs: int = 1) -> 'Inference':
         """
         Resample the observation and return a new Inference object with the resampled observation.
         This is useful when parallelizing bootstraps on a cluster. You can add performed bootstraps
@@ -697,6 +712,7 @@ class Inference(Serializable):
         other = copy.deepcopy(self)
 
         other.observation = self.resample(other.observation, self._rng)
+        other.n_runs = n_runs
 
         return other
 
@@ -713,3 +729,12 @@ class Inference(Serializable):
         self.bootstrap_results.append(inference.result.x)
         self.bootstrap_dists.append(inference.dist_inferred)
         self.bootstraps = pd.DataFrame(self.bootstrap_results, columns=list(self.x0.keys()))
+
+    def add_bootstraps(self, inferences: Iterable['Inference']):
+        """
+        Add bootstraps from an iterable of Inference objects.
+
+        :param inferences: Iterable of Inference objects.
+        """
+        for inference in inferences:
+            self.add_bootstrap(inference)

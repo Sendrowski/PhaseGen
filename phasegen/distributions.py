@@ -13,7 +13,6 @@ from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable,
 
 import numpy as np
 import tskit
-from matplotlib import pyplot as plt
 from numpy.polynomial.hermite_e import HermiteE
 from scipy import special
 from scipy.ndimage import gaussian_filter1d
@@ -29,7 +28,6 @@ from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .utils import expm, parallelize
-from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
 
@@ -400,14 +398,14 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
 
     def plot_cdf(
             self,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
             clear: bool = True,
             label: str = None,
             title: str = 'Tree height CDF'
-    ) -> plt.axes:
+    ) -> 'plt.Axes':
         """
         Plot cumulative distribution function.
 
@@ -420,6 +418,8 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         :param title: Title of the plot.
         :return: Axes.
         """
+        from .visualization import Visualization
+
         if t is None:
             t = np.linspace(0, self.quantile(0.99), 100)
 
@@ -438,14 +438,14 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
 
     def plot_pdf(
             self,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
             clear: bool = True,
             label: str = None,
             title: str = 'Tree height PDF'
-    ) -> plt.axes:
+    ) -> 'plt.Axes':
         """
         Plot density function.
 
@@ -459,6 +459,8 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         :param title: Title of the plot.
         :return: Axes.
         """
+        from .visualization import Visualization
+
         if t is None:
             t = np.linspace(0, self.quantile(0.99), 100)
 
@@ -858,13 +860,13 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
             clear: bool = True,
             label: str = None,
             title: str = None
-    ) -> plt.axes:
+    ) -> 'plt.Axes':
         """
         Plot accumulation of (non-central) moments at different times.
 
@@ -883,6 +885,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param title: Title of the plot.
         :return: Axes.
         """
+        from .visualization import Visualization
+
         if end_times is None:
             end_times = np.linspace(0, self.tree_height.quantile(0.99), 100)
 
@@ -1392,13 +1396,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
             clear: bool = True,
             label: str = None,
             title: str = None
-    ) -> plt.axes:
+    ) -> 'plt.Axes':
         """
         Plot accumulation of (non-central) SFS moments at different times.
 
@@ -1417,6 +1421,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param title: Title of the plot.
         :return: Axes.
         """
+        import matplotlib.pyplot as plt
+        from .visualization import Visualization
+
         if ax is None:
             ax = plt.gca()
 
@@ -2272,6 +2279,31 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         self.default_state_space.drop_cache()
         self.block_counting_state_space.drop_cache()
+
+    def __setstate__(self, state: dict):
+        """
+        Restore the state of the object from a serialized state.
+
+        :param state: State.
+        """
+        self.__dict__.update(state)
+
+    def __getstate__(self) -> dict:
+        """
+        Get the state of the object for serialization.
+
+        :return: State.
+        """
+        # create deep copy of object without causing infinite recursion
+        other = copy.deepcopy(self.__dict__)
+
+        if 'default_state_space' in other:
+            other['default_state_space'].drop_cache()
+
+        if 'block_counting_state_space' in other:
+            other['block_counting_state_space'].drop_cache()
+
+        return other
 
     def to_json(self) -> str:
         """

@@ -4,6 +4,8 @@ Test Inference class.
 
 from unittest import TestCase
 
+import pytest
+
 import phasegen as pg
 
 
@@ -212,6 +214,20 @@ class InferenceTestCase(TestCase):
         self.assertGreater(inf.bootstraps.var().t, 0)
 
         inf.plot_bootstraps()
+
+    @pytest.mark.skip("Not working yet.")
+    def test_manual_bootstrap_serialize_twice(self):
+        """
+        Test manual bootstrap serialization.
+        """
+        inf = self.get_basic_inference(dict(do_bootstrap=False))
+        inf.run()
+
+        inf.to_file('scratch/test_manual_bootstrap_serialization.json')
+        inf = pg.Inference.from_file('scratch/test_manual_bootstrap_serialization.json')
+
+        inf.to_file('scratch/test_manual_bootstrap_serialization2.json')
+        pg.Inference.from_file('scratch/test_manual_bootstrap_serialization2.json')
 
     def test_plot_inference(self):
         """

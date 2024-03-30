@@ -3,6 +3,7 @@ Test coalescents.
 """
 
 from unittest import TestCase
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -551,6 +552,20 @@ class CoalescentTestCase(TestCase):
         coal2 = pg.Coalescent.from_file('scratch/test_serialize_simple_coalescent.json')
 
         self.assertEqual(coal.tree_height.mean, coal2.tree_height.mean)
+
+    def test_serialize_assert_getstate_method_called(self):
+        """
+        Test serialization of coalescent.
+        """
+        coal = self.get_complex_coalescent()
+
+        with patch.object(coal, '__getstate__', return_value=None) as mock_getstate:
+            try:
+                coal.to_file('scratch/test_serialize_simple_coalescent.json')
+            except Exception:
+                pass
+
+            mock_getstate.assert_called_once()
 
     def test_coalescent_negative_end_time_raises_value_error(self):
         """

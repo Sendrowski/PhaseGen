@@ -1,0 +1,9 @@
+# phasegen env as in docs
+name: phasegen
+channels:
+  - defaults
+dependencies:
+  - python>=3.10,<3.13
+  - pip
+  - pip:
+      - phasegen

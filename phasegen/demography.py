@@ -10,9 +10,6 @@ from functools import cached_property
 from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence, Union
 
 import numpy as np
-from matplotlib import pyplot as plt
-
-from .visualization import Visualization
 
 logger = logging.getLogger('phasegen')
 
@@ -283,9 +280,9 @@ class Demography:
             file: str = None,
             title: str = 'Population size trajectory',
             ylabel: str = '$N_e$',
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             kwargs: dict = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot the population size over time.
 
@@ -300,6 +297,8 @@ class Demography:
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
+        from .visualization import Visualization
+
         if t is None:
             t = np.linspace(0, 10, 1000)
 
@@ -327,9 +326,9 @@ class Demography:
             file: str = None,
             title: str = 'Migration rate trajectory',
             ylabel: str = '$m_{ij}$',
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             kwargs: dict = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot the migration over time.
 
@@ -342,6 +341,8 @@ class Demography:
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
+        from .visualization import Visualization
+
         if t is None:
             t = np.linspace(0, 10, 1000)
 
@@ -372,10 +373,10 @@ class Demography:
             show: bool = True,
             file: str = None,
             ylabel: str = '$N_e|m_{ij}$',
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             title: str = 'Demography',
             kwargs: dict = None
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot the demographic scenario.
 
@@ -389,6 +390,8 @@ class Demography:
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
+        from matplotlib import pyplot as plt
+
         if t is None:
             t = np.linspace(0, 10, 1000)
 

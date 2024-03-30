@@ -7,12 +7,9 @@ import logging
 from typing import Dict, Iterable, Iterator
 
 import jsonpickle
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 # noinspection PyUnresolvedReferences
 from fastdfe import Spectrum, Spectra
-from matplotlib.colors import SymLogNorm
 
 logger = logging.getLogger('phasegen').getChild('spectrum')
 
@@ -210,14 +207,14 @@ class SFS2(Iterable):
 
     def plot(
             self,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             title: str = None,
             max_abs: float = None,
             log_scale: bool = False,
             cbar_kws: Dict = None,
             fill_diagonal_entries: bool = False,
             show: bool = True,
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot as a heatmap.
 
@@ -230,6 +227,10 @@ class SFS2(Iterable):
         :param show: Whether to show the plot.
         :return: Axes.
         """
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import SymLogNorm
+        import seaborn as sns
+
         if self.n < 3:
             logger.warning('Nothing to plot.')
             return plt.gca()
@@ -295,7 +296,7 @@ class SFS2(Iterable):
 
     def plot_surface(
             self,
-            ax: plt.Axes = None,
+            ax: 'plt.Axes' = None,
             title: str = None,
             max_abs: float = None,
             vmin: float = None,
@@ -304,7 +305,7 @@ class SFS2(Iterable):
             fill_value: float = np.nan,
             log_scale: bool = False,
             show: bool = True,
-    ) -> plt.Axes:
+    ) -> 'plt.Axes':
         """
         Plot as a surface.
         
@@ -319,6 +320,9 @@ class SFS2(Iterable):
         :param show: Whether to show the plot.
         :return: Axes.
         """
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import SymLogNorm
+
         if self.n < 3:
             logger.warning('Nothing to plot.')
             return plt.gca()

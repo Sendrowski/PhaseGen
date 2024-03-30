@@ -1,0 +1,37 @@
+rule all:
+    input:
+        "results/graphs/inference/demography.png",
+
+# setup inference and perform initial run
+rule setup_inference:
+    output:
+        "results/inference/inference.json"
+    conda:
+        "...yaml"
+    script:
+        "setup_inference.py"
+
+# create and run bootstrap
+rule run_bootstrap:
+    input:
+        "results/inference/inference.json"
+    output:
+        "results/inference/bootstraps/{i}/inference.json"
+    conda:
+        "phasegen.yaml"
+    script:
+        "run_bootstrap.py"
+
+# merge bootstraps and visualize
+rule merge_bootstraps:
+    input:
+        inference="results/inference/inference.json",
+        bootstraps=expand("results/inference/bootstraps/{i}/inference.json",i=range(100))
+    output:
+        inference="results/inference/inference.bootstrapped.json",
+        demography="results/graphs/inference/demography.png",
+        bootstraps="results/graphs/inference/bootstraps.png",
+    conda:
+        "phasegen.yaml"
+    script:
+        "merge_bootstraps.py"
