@@ -7,7 +7,7 @@ rule setup_inference:
     output:
         "results/inference/inference.json"
     conda:
-        "...yaml"
+        "phasegen.yaml"
     script:
         "setup_inference.py"
 

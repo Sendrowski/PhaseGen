@@ -22,6 +22,7 @@ PhaseGen is a package for simulating and making inference on coalescent distribu
 
    reference/installation
    reference/quickstart
+   reference/coalescent
    reference/rewards
    reference/demography
    reference/inference

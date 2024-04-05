@@ -351,3 +351,33 @@ class DemographyTestCase(TestCase):
         )
 
         demes = d.to_demes()
+
+    def test_population_split(self):
+        """
+        Test population split.
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 4, 'pop_1': 4},
+            demography=pg.Demography(
+                pop_sizes={'pop_0': 1, 'pop_1': 3},
+                events=[
+                    pg.PopulationSplit(
+                        derived='pop_0',
+                        ancestral='pop_1',
+                        time=2
+                    )
+                ]
+            )
+        )
+
+        self.assertEqual(coal.demography.get_epochs(1).pop_sizes['pop_0'], 1)
+        self.assertEqual(coal.demography.get_epochs(1).pop_sizes['pop_1'], 3)
+
+        self.assertEqual(coal.demography.get_epochs(2).pop_sizes['pop_0'], 1)
+        self.assertEqual(coal.demography.get_epochs(2).pop_sizes['pop_1'], 3)
+
+        self.assertEqual(coal.demography.get_epochs(1).migration_rates[('pop_1', 'pop_0')], 0)
+        self.assertEqual(coal.demography.get_epochs(1).migration_rates[('pop_0', 'pop_1')], 0)
+
+        self.assertEqual(coal.demography.get_epochs(2).migration_rates[('pop_1', 'pop_0')], 100)
+        self.assertEqual(coal.demography.get_epochs(2).migration_rates[('pop_0', 'pop_1')], 0)

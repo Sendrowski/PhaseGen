@@ -9,10 +9,15 @@ __date__ = "2023-04-09"
 __version__ = 'alpha'
 
 import logging
+import os
 import sys
 
 import jsonpickle.ext.numpy as jsonpickle_numpy
 from tqdm import tqdm
+
+# lower the verbosity of TensorFlow
+if 'TF_CPP_MIN_LOG_LEVEL' not in os.environ:
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # register handlers
 jsonpickle_numpy.register_handlers()
@@ -112,6 +117,7 @@ from .demography import (
     MigrationRateChanges,
     MigrationRateChange,
     SymmetricMigrationRateChanges,
+    PopulationSplit,
     DiscretizedRateChanges,
     DiscretizedRateChange,
     ExponentialPopSizeChanges,
@@ -179,6 +185,7 @@ __all__ = [
     'MigrationRateChanges',
     'MigrationRateChange',
     'SymmetricMigrationRateChanges',
+    'PopulationSplit',
     'ExponentialPopSizeChanges',
     'ExponentialRateChanges',
     'DiscreteRateChanges',

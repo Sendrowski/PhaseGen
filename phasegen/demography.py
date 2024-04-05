@@ -531,7 +531,7 @@ class DemographicEvent(ABC):
     @staticmethod
     def _flatten(
             rates: Dict[Any, Dict[float, float]]
-    ) -> (np.ndarray[float], Dict[float, Dict[Any, float]]):
+    ) -> (np.ndarray, Dict[float, Dict[Any, float]]):
         """
         Flatten rates into a list of times and a list of rates.
 
@@ -563,7 +563,7 @@ class DiscreteDemographicEvent(DemographicEvent, ABC):
     Base class for discrete demographic events.
     """
     #: Time at which the events occur in ascending order.
-    times: np.ndarray[float]
+    times: np.ndarray
 
     def _broadcast(self, epoch: Epoch):
         """
@@ -572,12 +572,14 @@ class DiscreteDemographicEvent(DemographicEvent, ABC):
         :param epoch: Epoch.
         """
         # times which are within the time interval
-        times: np.ndarray[float] = self.times[(
+        times: np.ndarray = self.times[(
                 (epoch.start_time < self.times) &
                 (self.times <= epoch.end_time) &
                 (self.times > 0)
         )]
 
+        # if there are times within the interval
+        # set the end time to the most recent time
         if len(times):
             epoch.end_time = times[0]
 
@@ -630,7 +632,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         self.n_pops: int = len(self.pop_names)
 
         # flatten the population sizes and migration rates
-        times: np.ndarray[float]
+        times: np.ndarray
         rates: Dict[float, Dict[Any, float]]
         times, rates = self._flatten(pop_sizes | migration_rates)
 
@@ -647,7 +649,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
             raise ValueError('Population sizes must be positive at all times.')
 
         #: Times at which the population size changes occur.
-        self.times: np.ndarray[float] = times
+        self.times: np.ndarray = times
 
         #: Population sizes.
         self.pop_sizes: Dict[float, Dict[str, float]] = {
@@ -709,15 +711,15 @@ class MigrationRateChanges(DiscreteRateChanges):
     Demographic event for changes in migration rates.
     """
 
-    def __init__(self, migration_rates: Dict[Tuple[str, str], Dict[float, float]]):
+    def __init__(self, rates: Dict[Tuple[str, str], Dict[float, float]]):
         """
-        Initialize the migration rate change.
+        Initialize the (backwards-time) migration rate change.
 
-        :param migration_rates: Migration rates. A dictionary of the form
+        :param rates: Migration rates. A dictionary of the form
             ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` of migration from population ``pop_i`` to population
             ``pop_j`` at time ``time1`` etc.
         """
-        super().__init__(migration_rates=migration_rates)
+        super().__init__(migration_rates=rates)
 
 
 class MigrationRateChange(MigrationRateChanges):
@@ -727,7 +729,7 @@ class MigrationRateChange(MigrationRateChanges):
 
     def __init__(self, source: str, dest: str, time: float, rate: float):
         """
-        Initialize the migration rate change.
+        Initialize the (backwards-time) migration rate change.
 
         :param source: Source population name.
         :param dest: Destination population name.
@@ -742,21 +744,90 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
     Demographic event for changes in symmetric migration rates.
     """
 
-    def __init__(self, pops: Iterable[str], migration_rates: Dict[float, float] | float):
+    def __init__(self, pops: Iterable[str], rate: Dict[float, float] | float):
         """
-        Initialize the migration rate change.
+        Initialize the (backwards-time) migration rate change.
 
         :param pops: Population names across which the migration rates change uniformly.
-        :param migration_rates: Migration rates. A dictionary of the form ``{time1: rate1, time2: rate2}`` of migration
+        :param rate: Migration rates. A dictionary of the form ``{time1: rate1, time2: rate2}`` of migration
             from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc. or alternatively a single float
             if the migration rate is constant over time.
         """
-        if isinstance(migration_rates, (float, int)):
-            migration_rates = {0: migration_rates}
+        if isinstance(rate, (float, int)):
+            rate = {0: rate}
 
-        migration_rates = {(p, q): migration_rates for p in pops for q in pops if p != q}
+        rate = {(p, q): rate for p in pops for q in pops if p != q}
 
-        super().__init__(migration_rates=migration_rates)
+        super().__init__(rates=rate)
+
+
+class PopulationSplit(DiscreteDemographicEvent):
+    """
+    Demographic event for a population split (forward in time).
+    This corresponds to population merger backwards in time.
+    Since PhaseGen does not support deterministic lineage movement due to its inherent structure,
+    we can model a population split by specifying a large unidirectional migration rate from the derived
+    to the ancestral population.
+    """
+
+    def __init__(
+            self,
+            time: float,
+            derived: str | List[str],
+            ancestral: str,
+            multiplier: float = 100
+    ):
+        """
+        Initialize the population split.
+
+        :param time: Time of the split.
+        :param derived: Derived populations from which all lineages move to the ancestral population.
+        :param ancestral: Ancestral population to which all lineages move.
+        :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population is
+            set to the population size of the derived population times this multiplier. This value should be chosen
+            large enough to ensure that the lineages move to the ancestral population *fast enough*.
+        """
+        if isinstance(derived, str):
+            derived = [derived]
+
+        #: Time of the split.
+        self.start_time: float = time
+
+        #: Times at which the event occurs.
+        self.times: np.ndarray = np.array([time])
+
+        #: Population names.
+        self.pop_names: List[str] = sorted(derived + [ancestral])
+
+        #: Derived populations.
+        self.derived: List[str] = derived
+
+        #: Ancestral population.
+        self.ancestral: str = ancestral
+
+        #: Migration rate multiplier.
+        self.multiplier: float = multiplier
+
+    def _apply(self, epoch: Epoch):
+        """
+        Apply the demographic event to the given epoch if applicable.
+
+        :param epoch: Epoch.
+        """
+        # if epoch is contained in the event
+        if epoch.start_time <= self.start_time < epoch.end_time:
+            # specify high migration rate from derived to ancestral population
+            for p in self.derived:
+                epoch.migration_rates[(self.ancestral, p)] = epoch.pop_sizes[p] * self.multiplier
+
+            # set all derived population sizes to zero
+            # for p in self.derived:
+            #    epoch.pop_sizes[p] = 0
+
+            # set all migration rates to the derived populations to zero
+            for p in self.derived:
+                for q in epoch.pop_names:
+                    epoch.migration_rates[(p, q)] = 0
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

@@ -118,6 +118,7 @@ class Visualization:
 
         # remove margins
         plt.margins(x=0)
+        plt.tight_layout()
 
         return ax
 

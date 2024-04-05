@@ -410,7 +410,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         Plot cumulative distribution function.
 
         :param ax: Axes to plot on.
-        :param t: Values to evaluate the CDF at. By default, 100 evenly spaced values between 0 and the 99th percentile.
+        :param t: Values to evaluate the CDF at. By default, 200 evenly spaced values between 0 and the 99th percentile.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -421,7 +421,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         from .visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self.quantile(0.99), 100)
+            t = np.linspace(0, self.quantile(0.99), 200)
 
         return Visualization.plot(
             ax=ax,
@@ -451,7 +451,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
 
         :param ax: The axes to plot on.
         :param t: Values to evaluate the density function at.
-            By default, 100 evenly spaced values between 0 and the 99th percentile.
+            By default, 200 evenly spaced values between 0 and the 99th percentile.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -462,7 +462,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         from .visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self.quantile(0.99), 100)
+            t = np.linspace(0, self.quantile(0.99), 200)
 
         return Visualization.plot(
             ax=ax,
@@ -874,7 +874,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             of having reached absorption at a certain time.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and the
+        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and the
             99th percentile.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :param ax: The axes to plot on.
@@ -888,7 +888,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         from .visualization import Visualization
 
         if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(0.99), 100)
+            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
 
         if rewards is None:
             rewards = (self.reward,) * k
@@ -985,7 +985,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             raise ValueError("Negative values are not allowed.")
 
         # sort array in ascending order but keep track of original indices
-        t_sorted: Collection[float] = np.sort(t)
+        t_sorted: Collection[float] = np.sort(t).astype(float)
 
         epochs = enumerate(self.demography.epochs)
         i_epoch, epoch = next(epochs)
@@ -1410,7 +1410,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             of having reached absorption at a certain time.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 100 evenly spaced values between 0 and
+        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
             the 99th percentile.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :param ax: The axes to plot on.
@@ -1428,7 +1428,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             ax = plt.gca()
 
         if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(0.99), 100)
+            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
 
         if rewards is None:
             rewards = (self.reward,) * k

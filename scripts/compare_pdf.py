@@ -6,13 +6,8 @@ __author__ = "Janek Sendrowski"
 __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-03-11"
 
-import time
-
 import matplotlib.pyplot as plt
-import numpy as np
-from fastdfe import Spectra
 
-import phasegen as pg
 from phasegen.comparison import Comparison
 
 try:
@@ -72,11 +67,11 @@ comp = Comparison(
     alpha=alpha
 )
 
-#ph = getattr(getattr(comp.ph, dist), stat)(ax=plt.gca(), show=False, label='phasegen')
-#ms = getattr(getattr(comp.ms, dist), stat)(ax=plt.gca(), show=True, label='msprime')
+# ph = getattr(getattr(comp.ph, dist), stat)(ax=plt.gca(), show=False, label='phasegen')
+# ms = getattr(getattr(comp.ms, dist), stat)(ax=plt.gca(), show=True, label='msprime')
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-#getattr(getattr(comp.ms, dist), stat)(ax=ax2, show=False, label='msprime')
+# getattr(getattr(comp.ms, dist), stat)(ax=ax2, show=False, label='msprime')
 getattr(getattr(comp.ph, dist), stat)(ax=ax1, show=True, label='phasegen')
 
 pass

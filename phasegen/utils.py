@@ -14,9 +14,6 @@ def expm(m: np.ndarray) -> np.ndarray:
     """
     Compute the matrix exponential.
     """
-    if m.shape[0] < 400:
-        return expm_scipy(m)
-
     return expm_ts(m)
 
 
@@ -24,8 +21,6 @@ def expm_ts(m: np.ndarray) -> np.ndarray:
     """
     Compute the matrix exponential using TensorFlow. This is because scipy.linalg.expm sometimes produces
     erroneous results for large matrices (see https://github.com/scipy/scipy/issues/18086).
-
-    TODO remove this function once the issue is resolved in scipy.
 
     :param m: Matrix
     :return: Matrix exponential

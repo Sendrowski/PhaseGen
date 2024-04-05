@@ -396,7 +396,7 @@ class DistributionTestCase(TestCase):
 
     def test_expm_ts_scipy(self):
         """
-        Test matrix exponential.
+        Test matrix exponential for medium-sized matrix.
         """
         from phasegen.utils import expm_ts, expm_scipy
 
@@ -408,3 +408,4 @@ class DistributionTestCase(TestCase):
         B = expm_ts(coal.block_counting_state_space.S)
 
         np.testing.assert_array_almost_equal(A, B)
+

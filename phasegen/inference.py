@@ -14,7 +14,7 @@ import scipy.optimize as opt
 from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
-from . import Demography
+from .demography import Demography
 from .distributions import Coalescent
 from .serialization import Serializable
 from .state_space import BlockCountingStateSpace, DefaultStateSpace
@@ -283,8 +283,8 @@ class Inference(Serializable):
             # return the value of the loss function
             loss = get_loss(dist, observation)
 
-            data = {'loss': loss} | params_dict
-            logger.debug(data)
+            data = params_dict | {'loss': loss}
+            logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
 
             if pbar is not None:
                 pbar.update()

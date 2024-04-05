@@ -23,8 +23,8 @@ wildcard_constraints:
 rule all:
     input:
         (
-            "results/graphs/inference/demography.png",
-            #"docs/_build"
+            #"results/graphs/inference/demography.png",
+            "docs/_build"
             #expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
             #    'coalescent_5_lineages_default',
@@ -85,8 +85,8 @@ rule merge_benchmarks:
     script:
         "scripts/merge_benchmarks.py"
 
-# generate a requirements.txt using poetry
-rule generate_requirements_poetry:
+# update dependencies
+rule update_dependencies:
     output:
         base="envs/requirements.txt",
         base_snakemake=".snakemake/conda/requirements.txt",

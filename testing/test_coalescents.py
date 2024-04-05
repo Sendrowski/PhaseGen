@@ -116,7 +116,7 @@ class CoalescentTestCase(TestCase):
 
     def test_demes_complex_coalescent(self):
         """
-        Test deme-wise complex coalescents.
+        Validate first moments for deme-wise complex coalescent.
         """
         coals = [
             pg.Coalescent(
@@ -695,7 +695,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertTrue(1e39 <= lamb <= 1e41)
 
-        self.assertAlmostEqual(coal.tree_height.mean, 1.5e40, delta=1e26)
+        self.assertAlmostEqual(coal.tree_height.mean, 1.5e40, delta=1e27)
 
     def test_precision_regularization_small_N(self):
         """

@@ -3,8 +3,11 @@ Infer 1-epoch demography using Poisson likelihood.
 """
 
 from fastdfe import Spectra
+from matplotlib import pyplot as plt
 
 import phasegen as pg
+
+pg.logger.setLevel('DEBUG')
 
 # observed (neutral) SFS
 observed = pg.SFS([177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652])
@@ -62,13 +65,11 @@ spectra = Spectra.from_spectra(dict(
     observed=observed
 ))
 
-spectra.plot()
-
-inf.plot_demography()
-inf.plot_pop_sizes()
-inf.plot_migration()
-inf.plot_bootstraps(kind='hist')
-inf.plot_bootstraps(kind='kde')
+fig, axes = plt.subplots(3, 1, figsize=(3.5, 7))
+spectra.plot(ax=axes[0], show=False, title='SFS comparison')
+inf.plot_pop_sizes(ax=axes[1], show=False)
+inf.plot_bootstraps(ax=axes[2], kind='hist', show=False, subplots=False)
+plt.show()
 
 inf.to_file('scratch/inference.json')
 

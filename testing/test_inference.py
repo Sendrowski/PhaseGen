@@ -1,7 +1,7 @@
 """
 Test Inference class.
 """
-
+import os
 from unittest import TestCase
 
 import pytest
@@ -71,6 +71,7 @@ class InferenceTestCase(TestCase):
 
         inf.run()
 
+    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
     def test_basic_inference_3_runs_parallel(self):
         """
         Test basic inference with 3 runs in parallel.
@@ -116,6 +117,7 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
         self.assertDictEqual(inf.bootstraps.var().to_dict(), inf2.bootstraps.var().to_dict())
 
+    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
     def test_seeded_inference_parallel(self):
         """
         Test seeded inference with parallelization.
@@ -172,7 +174,7 @@ class InferenceTestCase(TestCase):
             str(context.exception)
         )
 
-    def test_sequential_bootstrap_sequential(self):
+    def test_bootstrap_sequential(self):
         """
         Test sequential bootstrap.
         """
@@ -185,7 +187,8 @@ class InferenceTestCase(TestCase):
         # make sure the bootstraps are different
         self.assertGreater(inf.bootstraps.var().t, 0)
 
-    def test_sequential_bootstrap_parallel(self):
+    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
+    def test_bootstrap_parallel(self):
         """
         Test parallel bootstrap.
         """

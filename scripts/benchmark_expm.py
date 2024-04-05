@@ -15,7 +15,7 @@ import pandas as pd
 import scipy.linalg
 import scipy.sparse as sp
 import tensorflow as tf
-import cupy as cp
+#import cupy as cp
 from tqdm import tqdm
 
 try:
@@ -91,7 +91,8 @@ for i, size in enumerate(tqdm(sizes)):
     # benchmark SciPy (dense)
     scipy_dense = benchmark(lambda: scipy.linalg.expm(m))
 
-    cupy = benchmark(lambda: cp.linalg.expm(m))
+    #cupy = benchmark(lambda: cp.linalg.expm(m))
+    cupy = 0
 
     # benchmark SciPy (sparse)
     #scipy_sparse = benchmark(lambda: sp.linalg.expm(m_sparse))

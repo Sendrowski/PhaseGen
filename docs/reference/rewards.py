@@ -7,7 +7,7 @@ coal = pg.Coalescent(
         events=[
             pg.SymmetricMigrationRateChanges(
                 pops=['pop_0', 'pop_1', 'pop_2'],
-                migration_rates=1
+                rate=1
             )
         ]
     )

@@ -1,4 +1,4 @@
-.. _reference.installation:
+.. _installation:
 
 Installation
 ============
