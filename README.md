@@ -4,6 +4,6 @@
 [![PyPI version](https://badge.fury.io/py/phasegen.svg)](https://badge.fury.io/py/phasegen)
 
 
-``phasegen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios. It used phase-type theory do so. ``phasegen`` supports a wide range of demographic models and coalescent tree statistics.
+``phasegen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios. ``phasegen`` leverages phase-type theory and supports a wide range of demographic models and coalescent tree statistics.
 
 Please see the [documentation](https://phasegen.readthedocs.io/en/latest/) for all the details.
