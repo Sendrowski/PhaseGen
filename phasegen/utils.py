@@ -22,7 +22,7 @@ def expm_ts(m: np.ndarray) -> np.ndarray:
     Compute the matrix exponential using TensorFlow. This is because scipy.linalg.expm sometimes produces
     erroneous results for large matrices (see https://github.com/scipy/scipy/issues/18086).
 
-    :param m: Matrix
+    :param m: Matrix.
     :return: Matrix exponential
     """
     import tensorflow as tf
@@ -47,7 +47,8 @@ def parallelize(
         pbar: bool = True,
         batch_size: int = None,
         desc: str = None,
-        dtype: type = float
+        dtype: type = float,
+        delay: int = 0
 ) -> np.ndarray:
     """
     Parallelize given function or execute sequentially.
@@ -59,6 +60,7 @@ def parallelize(
     :param batch_size: Number of units to show in the pbar per function
     :param desc: Description for tqdm progress bar
     :param dtype: Data type of the results
+    :param delay: Delay for tqdm progress bar
     :return: Array of results
     """
 
@@ -70,6 +72,6 @@ def parallelize(
         iterator = map(func, data)
 
     if pbar:
-        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc, delay=2)
+        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc, delay=delay)
 
     return np.array(list(iterator), dtype=dtype)

@@ -5,22 +5,22 @@ import fastdfe as fd
 import phasegen as pg
 
 inf = pg.Inference(
-    bounds=dict(t=(0, 4), Ne=(0.1, 1)),
-    observation=pg.SFS(
-        [177782, 997, 441, 228, 156, 117, 114, 83, 105, 109, 0]
-    ),
-    resample=lambda sfs, _: sfs.resample(),
-    do_bootstrap=True,
     coal=lambda t, Ne: pg.Coalescent(
         n=10,
         demography=pg.Demography(
             pop_sizes={'pop_0': {0: 1, t: Ne}}
         )
     ),
+    observation=pg.SFS(
+        [177782, 997, 441, 228, 156, 117, 114, 83, 105, 109, 0]
+    ),
     loss=lambda coal, obs: pg.PoissonLikelihood().compute(
         observed=obs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
-    )
+    ),
+    bounds=dict(t=(0, 4), Ne=(0.1, 1)),
+    resample=lambda sfs, _: sfs.resample(),
+    do_bootstrap=True
 )
 
 # perform inference
@@ -28,6 +28,7 @@ inf.run()
 
 # plot results
 import matplotlib.pyplot as plt
+plt.gcf().set_facecolor('none')
 
 spectra = fd.Spectra.from_spectra(dict(
     modelled=inf.dist_inferred.sfs.mean.normalize() * inf.observation.n_polymorphic,
