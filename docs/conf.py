@@ -4,6 +4,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import sys
+import datetime
 
 sys.path.append('..')
 
@@ -11,9 +12,10 @@ sys.path.append('..')
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'PhaseGen'
-copyright = '2023, Janek Sendrowski'
+year = datetime.datetime.now().year
+copyright = f'{year}, Janek Sendrowski'
 author = 'Janek Sendrowski'
-release = 'alpha'
+release = '0.0.1-beta'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -52,3 +54,5 @@ add_module_names = False
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 html_css_files = ["custom.css"]
+html_logo = "logo.png"
+html_favicon = "favicon.ico"

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "phasegen"
-version = "0.0.1-alpha"
-description = "Generation and inference on exact moments of coalescent distributions."
+version = "0.0.1-beta"
+description = "Simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios."
 authors = ["Sendrowski <sendrowski.janek@gmail.com>"]
 license = "MIT"
 readme = "README.md"
