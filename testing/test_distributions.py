@@ -192,13 +192,13 @@ class DistributionTestCase(TestCase):
         """
         Test matrix exponential for medium-sized matrix.
         """
-        from phasegen.utils import expm_ts, expm_scipy
+        from phasegen.expm import TensorFlowExpm, SciPyExpm
 
         coal = pg.Coalescent(
             n=10
         )
 
-        A = expm_scipy(coal.block_counting_state_space.S)
-        B = expm_ts(coal.block_counting_state_space.S)
+        A = TensorFlowExpm.compute(coal.block_counting_state_space.S)
+        B = SciPyExpm.compute(coal.block_counting_state_space.S)
 
         np.testing.assert_array_almost_equal(A, B)
