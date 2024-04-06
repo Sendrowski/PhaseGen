@@ -4,8 +4,6 @@ channels:
 dependencies:
   - python=3.10
   - msprime
-  - tensorflow
-  - statsmodels
   - graphviz
   - python-graphviz
   - jupyterlab
