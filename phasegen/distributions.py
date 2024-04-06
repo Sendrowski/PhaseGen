@@ -12,7 +12,6 @@ from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator
 
 import numpy as np
-import tskit
 from numpy.polynomial.hermite_e import HermiteE
 from scipy import special
 from scipy.ndimage import gaussian_filter1d
@@ -2445,6 +2444,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             :return: Statistics.
             """
             import msprime as ms
+            import tskit
 
             # simulate trees
             g: Generator = ms.sim_ancestry(
@@ -2554,7 +2554,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.heights, self.total_branch_lengths, self.sfs_counts = res[0].T, res[1].T, res[2:].T
 
     @staticmethod
-    def _expand_trees(ts: tskit.TreeSequence) -> Iterator[tskit.Tree]:
+    def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:
         """
         Expand tree sequence to `n` trees where `n` is the number of loci.
 
