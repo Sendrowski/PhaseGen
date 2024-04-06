@@ -92,7 +92,7 @@ rule update_dependencies:
         base_snakemake=".snakemake/conda/requirements.txt",
         testing="envs/requirements_testing.txt",
         testing_snakemake=".snakemake/conda/requirements_testing.txt",
-        docs="../docs/requirements.txt"
+        docs="docs/requirements.txt"
     conda:
         "envs/build.yaml"
     shell:
