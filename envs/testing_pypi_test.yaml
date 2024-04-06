@@ -1,0 +1,18 @@
+name: testing-pypi-test-phasegen
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - msprime
+  - graphviz
+  - python-graphviz
+  - pip
+  - pip:
+      - pytest
+      - pytest-xdist
+      - pytest-cov
+      - pytest-sugar
+      - pytest-pycharm
+      - --index-url https://test.pypi.org/simple/
+      - --extra-index-url https://pypi.org/simple
+      - phasegen
