@@ -57,8 +57,9 @@ class SciPyExpm(MatrixExponentiation):
 
 class Backend(ABC):
     """
-    Base class for backends.
+    Backend for matrix exponentiation.
     """
+    #: Backend for matrix exponentiation
     backend: MatrixExponentiation = SciPyExpm
 
     @classmethod
