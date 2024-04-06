@@ -1,11 +1,6 @@
 Welcome to PhaseGen's documentation
 ===================================
 
-.. image:: https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml/badge.svg?branch=master
-    :target: https://github.com/Sendrowski/PhaseGen/actions/workflows/run-tests.yml
-    :alt: Build Status
-.. image:: https://codecov.io/gh/Sendrowski/PhaseGen/branch/master/graph/badge.svg?token=0LUE8SZYBJ
- :target: https://codecov.io/gh/Sendrowski/PhaseGen
 .. image:: https://readthedocs.org/projects/phasegen/badge/?version=latest
     :target: https://phasegen.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
