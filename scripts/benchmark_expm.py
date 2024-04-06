@@ -86,7 +86,7 @@ for i, size in enumerate(tqdm(sizes)):
     m_sparse = sp.csc_matrix(m)
 
     # benchmark TensorFlow
-    ts = benchmark(lambda: tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy())
+    ts = benchmark(lambda: tf.linalg.compute(tf.convert_to_tensor(m, dtype=tf.float64)).numpy())
 
     # benchmark SciPy (dense)
     scipy_dense = benchmark(lambda: scipy.linalg.expm(m))

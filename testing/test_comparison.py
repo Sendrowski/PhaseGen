@@ -19,7 +19,7 @@ class ComparisonTestCase(TestCase):
         """
         Test simple comparison.
         """
-        c = Comparison.from_yaml("../resources/configs/1_epoch_n_2_test_size.yaml")
+        c = Comparison.from_yaml("resources/configs/1_epoch_n_2_test_size.yaml")
 
         # touch msprime stats to cache them
         c.ms.touch()

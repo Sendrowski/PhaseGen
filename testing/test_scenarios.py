@@ -5,7 +5,7 @@ Test different demographic scenarios.
 import os
 from pathlib import Path
 from typing import List
-from unittest import TestCase
+from testing import TestCase
 
 from phasegen.comparison import Comparison
 
@@ -125,7 +125,7 @@ def generate_tests(config: str):
         """
         Run test for the given config.
         """
-        c = Comparison.from_file(f"../results/comparisons/serialized/{config}.json")
+        c = Comparison.from_file(f"results/comparisons/serialized/{config}.json")
 
         c.compare(
             title=config,

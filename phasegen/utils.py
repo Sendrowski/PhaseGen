@@ -1,43 +1,11 @@
 """
 Utility functions.
 """
-
 from typing import Callable, List
 
 import numpy as np
-import scipy
 from multiprocess.pool import Pool
 from tqdm import tqdm
-
-
-def expm(m: np.ndarray) -> np.ndarray:
-    """
-    Compute the matrix exponential.
-    """
-    return expm_ts(m)
-
-
-def expm_ts(m: np.ndarray) -> np.ndarray:
-    """
-    Compute the matrix exponential using TensorFlow. This is because scipy.linalg.expm sometimes produces
-    erroneous results for large matrices (see https://github.com/scipy/scipy/issues/18086).
-
-    :param m: Matrix.
-    :return: Matrix exponential
-    """
-    import tensorflow as tf
-
-    return tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy()
-
-
-def expm_scipy(m: np.ndarray) -> np.ndarray:
-    """
-    Compute the matrix exponential using SciPy.
-
-    :param m: Matrix
-    :return: Matrix exponential
-    """
-    return scipy.linalg.expm(m)
 
 
 def parallelize(

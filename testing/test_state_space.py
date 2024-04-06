@@ -2,6 +2,7 @@
 Test StateSpace class.
 """
 import itertools
+import sys
 from collections import defaultdict
 from unittest import TestCase
 
@@ -247,6 +248,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1, 'pop_3': 1})
         ).k, 2580)
 
+        sys.setrecursionlimit(1500)
+
         self.assertEqual(pg.BlockCountingStateSpace(
             pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
@@ -360,6 +363,8 @@ class StateSpaceTestCase(TestCase):
         """
         Test determine state space size.
         """
+        sys.setrecursionlimit(3000)
+
         size = defaultdict(dict)
 
         for n in range(2, 10):

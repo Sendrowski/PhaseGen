@@ -27,7 +27,10 @@ from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, Unfolded
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
-from .utils import expm, parallelize
+from .utils import parallelize
+from .expm import Backend
+
+expm = Backend.expm
 
 logger = logging.getLogger('phasegen')
 
