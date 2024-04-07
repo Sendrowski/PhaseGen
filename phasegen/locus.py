@@ -68,9 +68,9 @@ class LocusConfig:
             return np.ones(s.k)
 
         # number of lineages linked between loci
-        n_linked = max(s.pop_config.n - self.n_unlinked, 0)
+        n_linked = max(s.lineage_config.n - self.n_unlinked, 0)
 
-        # sum over demes and lineage blocks, and require all loci to have `n_linked` linked lineages
+        # sum over demes and lineage blocks, and require all loci to have ``n_linked`` linked lineages
         return (s.linked.sum(axis=(2, 3)) == n_linked).all(axis=1).astype(int)
 
     def __eq__(self, other):

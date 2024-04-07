@@ -28,7 +28,7 @@ class StateSpace(ABC):
 
     def __init__(
             self,
-            pop_config: LineageConfig,
+            lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None,
@@ -37,7 +37,7 @@ class StateSpace(ABC):
         """
         Create a rate matrix.
 
-        :param pop_config: Population configuration.
+        :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: Epoch.
@@ -59,7 +59,7 @@ class StateSpace(ABC):
         self.model: CoalescentModel = model
 
         #: Population configuration
-        self.pop_config: LineageConfig = pop_config
+        self.lineage_config: LineageConfig = lineage_config
 
         #: Locus configuration
         self.locus_config: LocusConfig = locus_config
@@ -88,8 +88,9 @@ class StateSpace(ABC):
     @cached_property
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
+        The states. Each state describes the lineage configuration per deme and locus, i.e.,
+        one state has the structure ``[[[a_ijk]]]`` where ``i`` is the lineage configuration, ``j`` is the deme
+        and ``k`` is the locus.
         """
         start = time.time()
 
@@ -113,7 +114,7 @@ class StateSpace(ABC):
     @cached_property
     def _states(self) -> List['State']:
         """
-        Get the (ordered) list of states.
+        Ordered list of states.
         """
         _ = self.states
         return self.__states
@@ -160,7 +161,7 @@ class StateSpace(ABC):
     @cached_property
     def S(self) -> np.ndarray:
         """
-        Get full intensity matrix.
+        Intensity matrix.
         """
         return self._get_rate_matrix()
 
@@ -169,7 +170,7 @@ class StateSpace(ABC):
         """
         Initial state vector.
         """
-        pops = self.pop_config._get_initial_states(self)
+        pops = self.lineage_config._get_initial_states(self)
         loci = self.locus_config._get_initial_states(self)
 
         # combine initial states
@@ -183,9 +184,7 @@ class StateSpace(ABC):
     @cached_property
     def k(self) -> int:
         """
-        Get number of states.
-
-        :return: The number of states.
+        Number of states.
         """
         k = len(self.states)
 
@@ -199,7 +198,7 @@ class StateSpace(ABC):
     @cached_property
     def transition(self) -> 'Transition':
         """
-        Get Transition.
+        Transition.
         """
         return Transition(self)
 
@@ -226,7 +225,7 @@ class StateSpace(ABC):
         """
         return (
                 self.__class__ == other.__class__ and
-                self.pop_config == other.pop_config and
+                self.lineage_config == other.lineage_config and
                 self.locus_config == other.locus_config and
                 self.model == other.model
         )
@@ -456,8 +455,8 @@ class DefaultStateSpace(StateSpace):
         """
         Get the initial state.
         """
-        data = tuple(np.zeros((self.locus_config.n, self.pop_config.n_pops, 1), dtype=int) for _ in range(2))
-        data[0][:, 0, 0] = self.pop_config.n
+        data = tuple(np.zeros((self.locus_config.n, self.lineage_config.n_pops, 1), dtype=int) for _ in range(2))
+        data[0][:, 0, 0] = self.lineage_config.n
 
         return State(data)
 
@@ -466,7 +465,7 @@ class DefaultStateSpace(StateSpace):
         Get the old state space.
         """
         return OldDefaultStateSpace(
-            pop_config=self.pop_config,
+            lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
             epoch=self.epoch
@@ -484,7 +483,7 @@ class BlockCountingStateSpace(StateSpace):
 
     def __init__(
             self,
-            pop_config: LineageConfig,
+            lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
@@ -492,7 +491,7 @@ class BlockCountingStateSpace(StateSpace):
         """
         Create a rate matrix.
 
-        :param pop_config: Population configuration.
+        :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: Epoch.
@@ -501,17 +500,18 @@ class BlockCountingStateSpace(StateSpace):
         if locus_config is not None and locus_config.n > 1:
             raise NotImplementedError('Block counting state space only supports one locus.')
 
-        super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
+        super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
     def _get_initial(self):
         """
         Get the initial state.
         """
         data = tuple(
-            np.zeros((self.locus_config.n, self.pop_config.n_pops, self.pop_config.n), dtype=int) for _ in range(2)
+            np.zeros((self.locus_config.n, self.lineage_config.n_pops, self.lineage_config.n), dtype=int)
+            for _ in range(2)
         )
 
-        data[0][:, 0, 0] = self.pop_config.n
+        data[0][:, 0, 0] = self.lineage_config.n
 
         return State(data)
 
@@ -520,7 +520,7 @@ class BlockCountingStateSpace(StateSpace):
         Get the old state space.
         """
         return OldBlockCountingStateSpace(
-            pop_config=self.pop_config,
+            lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
             epoch=self.epoch
@@ -603,14 +603,14 @@ class Transition:
         :return: All possible coalescent transitions from the given state.
         """
         targets: Dict['State', Tuple[float, str]] = {}
-        pop_sizes = [self.state_space.epoch.pop_sizes[pop] for pop in self.state_space.pop_config.pop_names]
+        pop_sizes = [self.state_space.epoch.pop_sizes[pop] for pop in self.state_space.lineage_config.pop_names]
 
         if source.n_loci == 1:
             locus = 0
             for deme in range(source.n_demes):
 
                 blocks = self.state_space.model.coalesce(
-                    self.state_space.pop_config.n,
+                    self.state_space.lineage_config.n,
                     source.lineages[locus, deme]
                 )
 
@@ -716,7 +716,7 @@ class Transition:
         :return: All possible migration transitions from the given state.
         """
         targets: Dict['State', Tuple[float, str]] = {}
-        pop_names = self.state_space.pop_config.pop_names
+        pop_names = self.state_space.lineage_config.pop_names
         kind = 'migration' if source.n_loci == 1 else 'unlinked_migration'
 
         for locus in range(source.n_loci):
@@ -753,7 +753,7 @@ class Transition:
         if source.n_loci == 1:
             return targets
 
-        pop_names = self.state_space.pop_config.pop_names
+        pop_names = self.state_space.lineage_config.pop_names
 
         for d1, d2 in filter(lambda x: x[0] != x[1], product(range(source.n_demes), repeat=2)):
 

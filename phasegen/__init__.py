@@ -175,6 +175,8 @@ from .norms import (
 
 from .state_space_old import StateSpace as OldStateSpace
 
+from .expm import Backend, SciPyExpm, TensorFlowExpm
+
 __all__ = [
     'PhaseTypeDistribution',
     'Coalescent',

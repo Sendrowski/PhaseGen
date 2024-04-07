@@ -370,7 +370,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         :param c: The rate of potential multiple merger events.
         :param scale_time: Whether to scale coalescence time as described in
             `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
-            highlight=dirac+coalescent#msprime.DiracCoalescent>`__. If ``False``, the timescale is set to N.
+            highlight=dirac+coalescent#msprime.DiracCoalescent>`__. If `False`, the timescale is set to N.
         """
         super().__init__()
 

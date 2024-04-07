@@ -54,7 +54,7 @@ class CoalescentModelTestCase(TestCase):
         Test against result in paper "Phase-type distributions in population genetics"
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=5),
+            lineage_config=pg.LineageConfig(n=5),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch()
         )

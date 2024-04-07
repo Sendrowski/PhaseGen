@@ -159,7 +159,7 @@ sites = sites[sites.n >= n_proj]
 # sites['count'] = np.array([hypergeom.rvs(M=n, n=k, N=n_proj) for k, n in zip(sites.k, sites.n)], dtype=int)
 sites['count'] = sites.k
 
-# make sure that the number of individuals is `n_proj` for all sites
+# make sure that the number of individuals is ``n_proj`` for all sites
 assert (sites.n == n_proj).all()
 
 # calculate spectra

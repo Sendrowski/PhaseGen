@@ -58,7 +58,7 @@ class Comparison(Serializable):
             population. Note that the first time must always be 0.
         :param migration_rates: Migration matrix. Use ``None`` for no migration.
             A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` where ``m_ij`` is the
-            migration rate from population ``pop_i`` to population ``pop_j`` at time ``time1`` and ``time2`` etc.
+            migration rate from population ``pop_i`` to population ``pop_j`` at time ``time1`` and `time2` etc.
             Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source
             population and the columns to the destination. Note that migration rates for which the source and
             destination population are the same are ignored and that the first time must always be 0.
@@ -75,8 +75,6 @@ class Comparison(Serializable):
         :param alpha: Alpha parameter of the beta coalescent.
         :param psi: Psi parameter of the Dirac coalescent.
         :param c: C parameter of the Dirac coalescent.
-        :param max_epochs: Maximum number of epochs.
-        :param precision: Precision of the phase-type coalescent.
         """
         if migration_rates is None:
             migration_rates = {}
@@ -158,7 +156,7 @@ class Comparison(Serializable):
     @cached_property
     def ph(self):
         """
-        Get the phase-type coalescent.
+        PhaseGen coalescent.
         """
         return Coalescent(
             n=self.n,
@@ -172,7 +170,7 @@ class Comparison(Serializable):
     @cached_property
     def ms(self):
         """
-        Get the msprime coalescent.
+        Msprime coalescent.
         """
         return MsprimeCoalescent(
             n=self.n,

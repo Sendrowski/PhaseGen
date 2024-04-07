@@ -436,7 +436,7 @@ class Epoch:
 
         :param start_time: Start time of the epoch.
         :param end_time: End time of the epoch.
-        :param pop_sizes: Population sizes. By default, we have ``{'pop_0': 1}``.
+        :param pop_sizes: Population sizes. By default, we have ``{'pop_0': 1}`.
         :param migration_rates: Migration rates. By default, we have zero migration rates between all populations.
         """
         if pop_sizes is None:
@@ -597,12 +597,12 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         """
         Initialize the population size change.
 
-        :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
-            indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
-            by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
+        :param pop_sizes: Population sizes. Either a dictionary of the form `{pop_i: {time1: size1, time2: size2}}`,
+            indexed by population name, or a list of dictionaries of the form `{time1: size1, time2: size2}` ordered
+            by population index, or a single dictionary of the form `{time1: size1, time2: size2}` for a single
             population.
-        :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
-            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc.
+        :param migration_rates: Migration rates. A dictionary of the form `{(pop_i, pop_j): {time1: rate1, time2:
+            rate2}}` of migration from population `pop_i` to population `pop_j` at time `time1` etc.
         """
         if pop_sizes is None:
             pop_sizes = {}
@@ -685,7 +685,7 @@ class PopSizeChanges(DiscreteRateChanges):
         """
         Initialize the population size change.
 
-        :param pop_sizes: Population sizes. A dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``.
+        :param pop_sizes: Population sizes. A dictionary of the form `{pop_i: {time1: size1, time2: size2}}`.
         """
         super().__init__(pop_sizes=pop_sizes)
 
@@ -716,8 +716,8 @@ class MigrationRateChanges(DiscreteRateChanges):
         Initialize the (backwards-time) migration rate change.
 
         :param rates: Migration rates. A dictionary of the form
-            ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` of migration from population ``pop_i`` to population
-            ``pop_j`` at time ``time1`` etc.
+            `{(pop_i, pop_j): {time1: rate1, time2: rate2}}` of migration from population `pop_i` to population
+            `pop_j` at time `time1` etc.
         """
         super().__init__(migration_rates=rates)
 
@@ -749,8 +749,8 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
         Initialize the (backwards-time) migration rate change.
 
         :param pops: Population names across which the migration rates change uniformly.
-        :param rate: Migration rates. A dictionary of the form ``{time1: rate1, time2: rate2}`` of migration
-            from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc. or alternatively a single float
+        :param rate: Migration rates. A dictionary of the form `{time1: rate1, time2: rate2}` of migration
+            from population `pop_i` to population `pop_j` at time `time1` etc. or alternatively a single float
             if the migration rate is constant over time.
         """
         if isinstance(rate, (float, int)):

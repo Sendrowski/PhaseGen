@@ -156,7 +156,7 @@ class SFS2(Iterable):
 
     def fold(self) -> 'SFS2':
         """
-        Fold 2-SFS by adding up `i` and `n - i` for both axes.
+        Fold 2-SFS by adding up ``i`` and ``n - i`` for both axes.
         Node that this only make sense for counts or frequencies.
 
         :return: Folded 2-SFS.
@@ -183,7 +183,7 @@ class SFS2(Iterable):
 
     def symmetrize(self) -> 'SFS2':
         """
-        Symmetric SFS so that `i, j` and `j, i` are the same.
+        Symmetric SFS so that ``i, j`` and ``j, i`` are the same.
 
         :return: Symmetric 2-SFS.
         """

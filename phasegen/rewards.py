@@ -245,10 +245,10 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
         :param state_space: state space
         :return: indices
         """
-        if self.index == state_space.pop_config.n - self.index:
+        if self.index == state_space.lineage_config.n - self.index:
             return np.array([self.index - 1])
 
-        return np.array([self.index - 1, state_space.pop_config.n - self.index - 1])
+        return np.array([self.index - 1, state_space.lineage_config.n - self.index - 1])
 
     def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """

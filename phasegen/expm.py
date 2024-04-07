@@ -2,6 +2,7 @@
 Matrix exponential computation.
 """
 from abc import ABC, abstractmethod
+from typing import Type
 
 import numpy as np
 import scipy
@@ -60,7 +61,7 @@ class Backend(ABC):
     Backend for matrix exponentiation.
     """
     #: Backend for matrix exponentiation
-    backend: MatrixExponentiation = SciPyExpm
+    backend: Type[MatrixExponentiation] = SciPyExpm
 
     @classmethod
     @abstractmethod
@@ -71,7 +72,7 @@ class Backend(ABC):
         return cls.backend.compute(m)
 
     @classmethod
-    def register(cls, backend: MatrixExponentiation):
+    def register(cls, backend: Type[MatrixExponentiation]):
         """
         Register a backend.
         """

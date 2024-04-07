@@ -28,7 +28,7 @@ class StateSpace(ABC):
 
     def __init__(
             self,
-            pop_config: LineageConfig,
+            lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None,
@@ -37,7 +37,7 @@ class StateSpace(ABC):
         """
         Create a rate matrix.
 
-        :param pop_config: Population configuration.
+        :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: Epoch.
@@ -59,7 +59,7 @@ class StateSpace(ABC):
         self.model: CoalescentModel = model
 
         #: Population configuration
-        self.pop_config: LineageConfig = pop_config
+        self.lineage_config: LineageConfig = lineage_config
 
         #: Locus configuration
         self.locus_config: LocusConfig = locus_config
@@ -82,10 +82,7 @@ class StateSpace(ABC):
     @cached_property
     def _non_zero_states(self) -> Tuple[np.ndarray, ...]:
         """
-        Get the indices of non-zero rates. This improves performance when computing the rate matrix
-        for different epochs
-
-        :return: Indices of non-zero rates.
+        Indices of non-zero rates.
         """
         # cache the current epoch
         epoch = self.epoch
@@ -119,22 +116,23 @@ class StateSpace(ABC):
     @abstractmethod
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
+        The states. Each state describes the lineage configuration per deme and locus, i.e.,
+        one state has the structure ``[[[a_ijk]]]`` where ``i`` is the lineage configuration, ``j`` is the deme
+        and ``k`` is the locus.
         """
         pass
 
     @cached_property
     def e(self) -> np.ndarray:
         """
-        Vector with ones of size ``n``.
+        Vector with ones of size `k`.
         """
         return np.ones(self.k)
 
     @cached_property
     def S(self) -> np.ndarray:
         """
-        Get full intensity matrix.
+        Intensity matrix.
         """
         # obtain intensity matrix
         return self._get_rate_matrix()
@@ -144,7 +142,7 @@ class StateSpace(ABC):
         """
         Initial state vector.
         """
-        pops = self.pop_config._get_initial_states(self)
+        pops = self.lineage_config._get_initial_states(self)
         loci = self.locus_config._get_initial_states(self)
 
         # combine initial states
@@ -178,7 +176,7 @@ class StateSpace(ABC):
         """
         return (
                 self.__class__ == other.__class__ and
-                self.pop_config == other.pop_config and
+                self.lineage_config == other.lineage_config and
                 self.locus_config == other.locus_config and
                 self.model == other.model
         )
@@ -186,9 +184,7 @@ class StateSpace(ABC):
     @cached_property
     def k(self) -> int:
         """
-        Get number of states.
-
-        :return: The number of states.
+        Number of states.
         """
         k = len(self.states)
 
@@ -202,9 +198,7 @@ class StateSpace(ABC):
     @cached_property
     def m(self) -> int:
         """
-        Length of the state vector for a single deme.
-
-        :return: The length
+        Length of state vector for a single deme.
         """
         return self.states.shape[2]
 
@@ -271,12 +265,12 @@ class StateSpace(ABC):
     @abstractmethod
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
+        Get the coalescent rate from state `s1` to state `s2`.
 
         :param n: Number of lineages.
         :param s1: Block configuration of state 1.
         :param s2: Block configuration of state 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        :return: The coalescent rate from state `s1` to state `s2`.
         """
         pass
 
@@ -400,11 +394,11 @@ class StateSpace(ABC):
     @staticmethod
     def _find_vectors(n: int, k: int) -> List[List[int]]:
         """
-        Find all vectors of length ``k`` with non-negative integers that sum to ``n``.
+        Find all vectors of length `k` with non-negative integers that sum to `n`.
 
         :param n: The sum.
         :param k: The length of the vectors.
-        :return: All vectors of length ``k`` with non-negative integers that sum to ``n``.
+        :return: All vectors of length `k` with non-negative integers that sum to `n`.
         """
         if k == 0:
             return [[]]
@@ -422,22 +416,22 @@ class StateSpace(ABC):
     @staticmethod
     def p(n: int, k: int) -> int:
         """
-        Partition function. Get number of ways to partition ``n`` into ``k`` positive integers.
+        Partition function. Get number of ways to partition `n` into `k` positive integers.
 
         :param n: Number to partition.
         :param k: Number of parts.
-        :return: Number of ways to partition ``n`` into ``k`` positive integers.
+        :return: Number of ways to partition `n` into `k` positive integers.
         """
         return comb(n - 1, k - 1, exact=True)
 
     @classmethod
     def p0(cls, n: int, k: int) -> int:
         """
-        Partition function. Get number of ways to partition ``n`` into ``k`` non-negative integers.
+        Partition function. Get number of ways to partition `n` into `k` non-negative integers.
 
         :param n: Number to partition.
         :param k: Number of parts.
-        :return: Number of ways to partition ``n`` into ``k`` non-negative integers.
+        :return: Number of ways to partition `n` into `k` non-negative integers.
         """
         return cls.p(n + k, k)
 
@@ -490,12 +484,12 @@ class DefaultStateSpace(StateSpace):
 
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
+        Get the coalescent rate from state `s1` to state `s2`.
 
         :param n: Number of lineages.
         :param s1: Block configuration of state 1.
         :param s2: Block configuration of state 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        :return: The coalescent rate from state `s1` to state `s2`.
         """
         return self.model.get_rate(s1=s1[0], s2=s2[0])
 
@@ -515,11 +509,11 @@ class DefaultStateSpace(StateSpace):
             return states
 
         if self.locus_config.n == 2:
-            n_pops = self.pop_config.n_pops
+            n_pops = self.lineage_config.n_pops
 
             # determine number of linked lineage configurations irrespective of states
-            linked_locus = np.array(list(itertools.product(range(self.pop_config.n + 1), repeat=n_pops)))
-            linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.pop_config.n]
+            linked_locus = np.array(list(itertools.product(range(self.lineage_config.n + 1), repeat=n_pops)))
+            linked_locus = linked_locus[linked_locus.sum(axis=1) <= self.lineage_config.n]
 
             # expand loci, each deme needs to have the same number of linked lineages
             linked = np.repeat(linked_locus[:, np.newaxis], 2, axis=1)
@@ -542,11 +536,12 @@ class DefaultStateSpace(StateSpace):
     @cached_property
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
+        The states. Each state describes the lineage configuration per deme and locus, i.e.,
+        one state has the structure `[[[a_ijk]]]` where `i` is the lineage configuration, `j` is the deme and `k` is
+        the locus.
         """
         # the number of lineages
-        lineages = np.arange(1, self.pop_config.n + 1)[::-1]
+        lineages = np.arange(1, self.lineage_config.n + 1)[::-1]
 
         # iterate lineage configurations and find all possible deme configurations
         states = []
@@ -571,8 +566,8 @@ class DefaultStateSpace(StateSpace):
 
         :return: The number of states.
         """
-        n = self.pop_config.n
-        d = self.pop_config.n_pops
+        n = self.lineage_config.n
+        d = self.lineage_config.n_pops
 
         i = np.arange(1, n + 1)[::-1]
 
@@ -592,7 +587,7 @@ class BlockCountingStateSpace(StateSpace):
 
     def __init__(
             self,
-            pop_config: LineageConfig,
+            lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
@@ -600,7 +595,7 @@ class BlockCountingStateSpace(StateSpace):
         """
         Create a rate matrix.
 
-        :param pop_config: Population configuration.
+        :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: Epoch.
@@ -609,16 +604,16 @@ class BlockCountingStateSpace(StateSpace):
         if locus_config is not None and locus_config.n > 1:
             raise NotImplementedError('Block counting state space only supports one locus.')
 
-        super().__init__(pop_config=pop_config, locus_config=locus_config, model=model, epoch=epoch)
+        super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
     def _get_coalescent_rate(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         """
-        Get the coalescent rate from state ``s1`` to state ``s2``.
+        Get the coalescent rate from state `s1` to state `s2`.
 
         :param n: Number of lineages.
         :param s1: Block configuration of state 1.
         :param s2: Block configuration of state 2.
-        :return: The coalescent rate from state ``s1`` to state ``s2``.
+        :return: The coalescent rate from state `s1` to state `s2`.
         """
         return self.model.get_rate_block_counting(n=n, s1=s1, s2=s2)
 
@@ -673,13 +668,12 @@ class BlockCountingStateSpace(StateSpace):
     @cached_property
     def states(self) -> np.ndarray:
         """
-        Get the states. Each state describes the lineage configuration per deme and locus, i.e.
-        one state has the structure [[[a_ijk]]] where i is the lineage configuration, j is the deme and k is the locus.
-
-        :return: The states.
+        The states. Each state describes the lineage configuration per deme and locus, i.e.,
+        one state has the structure `[[[a_ijk]]]` where `i` is the lineage configuration, `j` is the deme and `k` is
+        the locus.
         """
         # the possible allele configurations
-        lineage_configs = np.array(self._find_sample_configs(m=self.pop_config.n, n=self.pop_config.n))
+        lineage_configs = np.array(self._find_sample_configs(m=self.lineage_config.n, n=self.lineage_config.n))
 
         # iterate over possible allele configurations and find all possible deme configurations
         states = []
@@ -732,8 +726,8 @@ class BlockCountingStateSpace(StateSpace):
 
         :return: The number of states.
         """
-        n = self.pop_config.n
-        d = self.pop_config.n_pops
+        n = self.lineage_config.n
+        d = self.lineage_config.n_pops
 
         # len(i) == self.P(n)
         i = np.array(self._find_sample_configs(m=n, n=n))
@@ -1435,7 +1429,7 @@ class Transition:
         means they are no longer exchangeable.
         """
         return self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
+            n=self.state_space.lineage_config.n,
             s1=self.linked1[0, self.deme_coal],
             s2=self.linked2[0, self.deme_coal]
         ) / self.get_scaled_pop_size_coalescence()
@@ -1449,7 +1443,7 @@ class Transition:
         # rates = np.zeros(self.n_loci)
         # for i in range(self.n_loci):
         #    rates[i] = self.state_space._get_coalescent_rate(
-        #        n=self.state_space.pop_config.n,
+        #        n=self.state_space.lineage_config.n,
         #        s1=self.linked1[i, self.deme_coal],
         #        s2=self.linked2[i, self.deme_coal]
         #    )
@@ -1464,7 +1458,7 @@ class Transition:
         unlinked2 = self.unlinked2[self.locus_coal_unlinked, self.deme_coal]
 
         rate = self.state_space._get_coalescent_rate(
-            n=self.state_space.pop_config.n,
+            n=self.state_space.lineage_config.n,
             s1=unlinked1,
             s2=unlinked2
         )

@@ -12,13 +12,11 @@ from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator
 
 import numpy as np
-from numpy.polynomial.hermite_e import HermiteE
-from scipy import special
 from scipy.ndimage import gaussian_filter1d
-from scipy.stats import norm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, PopSizeChanges
+from .expm import Backend
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
@@ -27,7 +25,6 @@ from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
 from .utils import parallelize
-from .expm import Backend
 
 expm = Backend.expm
 
@@ -65,9 +62,7 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
     @cached_property
     def mean(self) -> float:
         """
-        Get the mean absorption time.
-
-        :return: The mean absorption time.
+        First moment / mean.
         """
         pass
 
@@ -75,9 +70,7 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
     @cached_property
     def var(self) -> float:
         """
-        Get the variance in the absorption time.
-
-        :return: The variance in the absorption time.
+        Second central moment / variance.
         """
         pass
 
@@ -85,9 +78,7 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
     @cached_property
     def m2(self) -> float:
         """
-        Get the second (non-central) moment of the absorption time.
-
-        :return: The variance in the absorption time.
+        Second (non-central) moment.
         """
         pass
 
@@ -103,9 +94,7 @@ class MarginalDistributions(Mapping, ABC):
     @cached_property
     def cov(self) -> np.ndarray:
         """
-        Get the covariance matrix.
-
-        :return: covariance matrix
+        Covariance matrix.
         """
         pass
 
@@ -113,9 +102,7 @@ class MarginalDistributions(Mapping, ABC):
     @cached_property
     def corr(self) -> np.ndarray:
         """
-        Get the correlation matrix.
-
-        :return: correlation matrix
+        Correlation matrix.
         """
         pass
 
@@ -183,9 +170,7 @@ class MarginalLocusDistributions(MarginalDistributions):
     @cached_property
     def loci(self) -> Dict[int, 'PhaseTypeDistribution']:
         """
-        Get the distribution for each locus.
-
-        :return: List of distributions.
+        Distributions marginalized over loci.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -224,9 +209,7 @@ class MarginalLocusDistributions(MarginalDistributions):
     @cached_property
     def cov(self) -> np.ndarray:
         """
-        The covariance matrix for the loci under the distribution in question.
-
-        :return: covariance matrix
+        Covariance matrix across loci.
         """
         n_loci = self.dist.locus_config.n
 
@@ -245,9 +228,7 @@ class MarginalLocusDistributions(MarginalDistributions):
     @cached_property
     def corr(self) -> np.ndarray:
         """
-        The correlation matrix for the loci under the distribution in question.
-
-        :return: correlation matrix
+        Correlation matrix across loci.
         """
         n_loci = self.dist.locus_config.n
 
@@ -295,9 +276,7 @@ class MarginalDemeDistributions(MarginalDistributions):
     @cached_property
     def demes(self) -> Dict[str, 'PhaseTypeDistribution']:
         """
-        Get the distribution for each deme.
-
-        :return: List of distributions.
+        Distributions marginalized over demes.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -305,7 +284,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         cls = self.dist.__class__ if not isinstance(self.dist, TreeHeightDistribution) else PhaseTypeDistribution
 
         demes = {}
-        for pop in self.dist.pop_config.pop_names:
+        for pop in self.dist.lineage_config.pop_names:
             demes[pop] = cls(
                 state_space=self.dist.state_space,
                 tree_height=self.dist.tree_height,
@@ -323,7 +302,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         :param pop2: The second deme.
         :return: The covariance.
         """
-        if pop1 not in self.dist.pop_config.pop_names or pop2 not in self.dist.pop_config.pop_names:
+        if pop1 not in self.dist.lineage_config.pop_names or pop2 not in self.dist.lineage_config.pop_names:
             raise ValueError(f"Population {pop1} or {pop2} does not exist.")
 
         xy = self.dist.moment(k=2, rewards=(
@@ -336,11 +315,9 @@ class MarginalDemeDistributions(MarginalDistributions):
     @cached_property
     def cov(self) -> np.ndarray:
         """
-        The covariance matrix for the demes under the distribution in question.
-
-        :return: covariance matrix
+        Covariance matrix across demes.
         """
-        pops = self.dist.pop_config.pop_names
+        pops = self.dist.lineage_config.pop_names
 
         return np.array([[self.get_cov(p1, p2) for p1 in pops] for p2 in pops])
 
@@ -357,11 +334,9 @@ class MarginalDemeDistributions(MarginalDistributions):
     @cached_property
     def corr(self) -> np.ndarray:
         """
-        The correlation matrix for the demes under the distribution in question.
-
-        :return: correlation matrix
+        Correlation matrix across demes.
         """
-        pops = self.dist.pop_config.pop_names
+        pops = self.dist.lineage_config.pop_names
 
         return np.array([[self.get_corr(p1, p2) for p1 in pops] for p2 in pops])
 
@@ -484,8 +459,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     """
     Phase-type distribution for a piecewise time-homogeneous process.
     """
-    #: Number of decimals to round moments to.
-    n_decimals: int = 12
 
     def __init__(
             self,
@@ -511,7 +484,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         super().__init__()
 
         #: Population configuration
-        self.pop_config: LineageConfig = state_space.pop_config
+        self.lineage_config: LineageConfig = state_space.lineage_config
 
         #: Locus configuration
         self.locus_config: LocusConfig = state_space.locus_config
@@ -526,7 +499,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         self.demography: Demography = demography
 
         #: Tree height distribution
-        self.tree_height = tree_height
+        self.tree_height: TreeHeightDistribution = tree_height
 
     @staticmethod
     def _get_van_loan_matrix(R: List[np.ndarray], S: np.ndarray, k: int = 1) -> np.ndarray:
@@ -547,139 +520,44 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     @cached_property
     def mean(self) -> float | SFS:
         """
-        Get the mean absorption time.
-
-        :return: The mean absorption time.
+        First moment / mean.
         """
         return self.moment(k=1)
 
     @cached_property
     def var(self) -> float | SFS:
         """
-        Get the variance in the absorption time.
-
-        :return: The variance in the absorption time.
+        Second central moment / variance.
         """
         return self.moment(k=2) - self.moment(k=1) ** 2
 
     @cached_property
     def std(self) -> float | SFS:
         """
-        Get the standard deviation in the absorption time.
-
-        :return: The standard deviation in the absorption time.
+        Standard deviation.
         """
         return self.var ** 0.5
 
     @cached_property
     def m2(self) -> float | SFS:
         """
-        Get the (non-central) second moment.
-
-        :return: The second moment.
+        Second (non-central) moment.
         """
         return self.moment(k=2)
 
     @cached_property
     def demes(self) -> MarginalDemeDistributions:
         """
-        Get marginal distributions for each deme.
-
-        :return: Marginal distributions.
+        Marginal distributions over each deme.
         """
         return MarginalDemeDistributions(self)
 
     @cached_property
     def loci(self) -> MarginalLocusDistributions:
         """
-        Get marginal distributions for each locus.
-
-        :return: Marginal distributions.
+        Marginal distributions over each locus.
         """
         return MarginalLocusDistributions(self)
-
-    @cache
-    def moment_deprecated(
-            self,
-            k: int,
-            rewards: Tuple[Reward, ...] = None,
-            start_time: float = None,
-            end_time: float = None
-    ) -> float:
-        """
-        Get the kth (non-central) moment.
-
-        TODO remove later
-
-        :param k: The order of the moment.
-        :param rewards: Tuple of k rewards
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :return: The kth moment
-        """
-        # use default reward if not specified
-        if rewards is None:
-            rewards = (self.reward,) * k
-        else:
-            if len(rewards) != k:
-                raise ValueError(f"Number of rewards must be {k}.")
-
-        if start_time is None:
-            start_time = self.tree_height.start_time
-
-        if end_time is None:
-            end_time = self.tree_height.t_max
-
-        # get reward matrix
-        R = [np.diag(r._get(state_space=self.state_space)) for r in rewards]
-
-        # number of states
-        n_states = self.state_space.k
-
-        # initialize Van Loan matrix holding (rewarded) moments
-        Q = np.eye(n_states * (k + 1))
-
-        # iterate through epochs and compute initial values
-        for i, epoch in enumerate(self.demography.epochs):
-
-            # get state space for this epoch
-            self.state_space.update_epoch(epoch)
-
-            # get Van Loan matrix
-            V = self._get_van_loan_matrix(S=self.state_space.S, R=R, k=k)
-
-            # compute tau
-            tau = min(epoch.end_time, end_time) - epoch.start_time
-
-            # compute matrix exponential
-            Q_curr = expm(V * tau)
-
-            # update by accumulated reward
-            Q = Q @ Q_curr
-
-            # break if we have reached the end time
-            if epoch.end_time >= end_time:
-                break
-
-        # calculate moment
-        m = factorial(k) * self.state_space.alpha @ Q[:n_states, -n_states:] @ self.state_space.e
-
-        # subtract accumulated moment up to start time if greater than 0
-        if start_time > 0:
-            # call on PhaseTypeDistribution to make possible SFS moment calculation
-            m -= PhaseTypeDistribution.moment(
-                self,
-                k=k,
-                rewards=rewards,
-                start_time=0,
-                end_time=self.tree_height.start_time
-            )
-
-        # TODO round to avoid numerical errors?
-        # return np.round(m, self.n_decimals)
-        return m
 
     @cache
     def moment(
@@ -1102,10 +980,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     @cached_property
     def t_max(self) -> float:
         """
-        Get the time until which computations are performed. This is either the end time specified when initializing
+        Time until which computations are performed. This is either the end time specified when initializing
         the distribution or the time until almost sure absorption.
-
-        :return: The maximum time.
         """
         if self.end_time is not None:
             return self.end_time
@@ -1151,8 +1027,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 self._logger.warning(
                     f"Reached maximum number of epochs ({self.max_epochs}) when determining "
                     "time of almost sure absorption. This may be due to an ill-defined demography. "
-                    "You can also increase the maximum number of epochs (`TreeHeightDistribution.max_epochs`) or "
-                    "set the end time manually (`Coalescent.end_time`)."
+                    "You can also increase the maximum number of epochs (TreeHeightDistribution.max_epochs) or "
+                    "set the end time manually (Coalescent.end_time)."
                 )
                 return t
 
@@ -1225,7 +1101,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         Warn if the probability of absorption is nan.
 
-        :param p: The probability of absorption.
+        :param t: The absorption time.
         :return: The time.
         """
         self._logger.critical(
@@ -1329,7 +1205,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             parallelize=self.parallelize
         )
 
-        return SFS([0] + list(moments) + [0] * (self.pop_config.n - len(moments)))
+        return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
     def _moment(
             self,
@@ -1390,7 +1266,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return np.concatenate([
             np.zeros((1, len(end_times))),
             accumulation,
-            np.zeros((self.pop_config.n - len(indices), len(end_times)))
+            np.zeros((self.lineage_config.n - len(indices), len(end_times)))
         ])
 
     def plot_accumulation(
@@ -1486,7 +1362,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     @cached_property
     def cov(self) -> SFS2:
         """
-        The 2-SFS, i.e. the (central) covariance matrix of the site-frequencies.
+        Covariance matrix across site-frequency counts.
         """
         # create list of arguments for each combination of i, j
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
@@ -1506,7 +1382,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         )
 
         # re-structure the results to a matrix form
-        sfs = np.zeros((self.pop_config.n + 1, self.pop_config.n + 1))
+        sfs = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
         for ((i, j), result) in zip(indices, sfs_results):
             sfs[i, j] = result
 
@@ -1526,7 +1402,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: covariance
         """
-        if i in (0, self.pop_config.n) or j in (0, self.pop_config.n):
+        if i in (0, self.lineage_config.n) or j in (0, self.lineage_config.n):
             return 0
 
         reward_i = CombinedReward([self.reward, self._get_sfs_reward(i)])
@@ -1544,9 +1420,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     @cached_property
     def corr(self) -> SFS2:
         """
-        The correlation coefficient matrix of the site-frequencies.
-
-        :return: The correlation coefficient matrix
+        Correlation matrix across site-frequency counts.
         """
         # get standard deviations
         std = np.sqrt(self.var.data)
@@ -1566,7 +1440,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The jth frequency count
         :return: Correlation coefficient
         """
-        if i in (0, self.pop_config.n) or j in (0, self.pop_config.n):
+        if i in (0, self.lineage_config.n) or j in (0, self.lineage_config.n):
             return 0
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
@@ -1592,7 +1466,7 @@ class UnfoldedSFSDistribution(SFSDistribution):
 
         :return: The indices.
         """
-        return np.arange(1, self.pop_config.n)
+        return np.arange(1, self.lineage_config.n)
 
 
 class FoldedSFSDistribution(SFSDistribution):
@@ -1615,7 +1489,7 @@ class FoldedSFSDistribution(SFSDistribution):
 
         :return: The indices.
         """
-        return np.arange(1, self.pop_config.n // 2 + 1)
+        return np.arange(1, self.lineage_config.n // 2 + 1)
 
 
 class EmpiricalDistribution(DensityAwareDistribution):
@@ -1658,63 +1532,49 @@ class EmpiricalDistribution(DensityAwareDistribution):
     @cached_property
     def mean(self) -> float | np.ndarray:
         """
-        Get the mean absorption time.
-
-        :return: Mean absorption time.
+        First moment / mean.
         """
         return np.mean(self.samples, axis=0)
 
     @cached_property
     def var(self) -> float | np.ndarray:
         """
-        Get the variance in the absorption time.
-
-        :return: Variance in the absorption time.
+        Second central moment / variance.
         """
         return np.var(self.samples, axis=0)
 
     @cached_property
     def m2(self) -> float | np.ndarray:
         """
-        Get the second moment.
-
-        :return: Second moment.
+        Second non-central moment.
         """
         return np.mean(self.samples ** 2, axis=0)
 
     @cached_property
     def m3(self) -> float | np.ndarray:
         """
-        Get the third moment.
-
-        :return: Third moment.
+        Third non-central moment.
         """
         return np.mean(self.samples ** 3, axis=0)
 
     @cached_property
     def m4(self) -> float | np.ndarray:
         """
-        Get the fourth moment.
-
-        :return: Fourth moment.
+        Fourth non-central moment.
         """
         return np.mean(self.samples ** 4, axis=0)
 
     @cached_property
     def cov(self) -> float | np.ndarray:
         """
-        Get the covariance matrix.
-
-        :return: Second moment.
+        Covariance matrix.
         """
         return np.nan_to_num(np.cov(self.samples, rowvar=False))
 
     @cached_property
     def corr(self) -> float | np.ndarray:
         """
-        Get the correlation matrix.
-
-        :return: Second moment.
+        Correlation matrix.
         """
         return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
 
@@ -1806,45 +1666,35 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
     @cached_property
     def mean(self) -> SFS:
         """
-        Get the mean absorption time.
-
-        :return: Mean absorption time.
+        First moment / mean.
         """
         return SFS(super().mean)
 
     @cached_property
     def var(self) -> SFS:
         """
-        Get the variance in the absorption time.
-
-        :return: Variance in the absorption time.
+        Second central moment / variance.
         """
         return SFS(super().var)
 
     @cached_property
     def m2(self) -> SFS:
         """
-        Get the second moment.
-
-        :return: Second moment.
+        Second non-central moment.
         """
         return SFS(super().m2)
 
     @cached_property
     def cov(self) -> SFS2:
         """
-        Get the covariance matrix.
-
-        :return: Second moment.
+        Covariance matrix.
         """
         return SFS2(np.nan_to_num(np.cov(self.samples, rowvar=False)))
 
     @cached_property
     def corr(self) -> SFS2:
         """
-        Get the correlation matrix.
-
-        :return: Second moment.
+        Correlation matrix.
         """
         return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
@@ -2037,12 +1887,12 @@ class AbstractCoalescent(ABC):
 
         :param n: n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
-            :class:`PopulationConfig` object can be passed.
+            :class:`LineageConfig` object can be passed.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If ``None``, the end time is end time is taken to be the
+        :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         self._logger = logger.getChild(self.__class__.__name__)
@@ -2055,10 +1905,10 @@ class AbstractCoalescent(ABC):
 
         if not isinstance(n, LineageConfig):
             #: Population configuration
-            self.pop_config: LineageConfig = LineageConfig(n)
+            self.lineage_config: LineageConfig = LineageConfig(n)
         else:
             #: Population configuration
-            self.pop_config: LineageConfig = n
+            self.lineage_config: LineageConfig = n
 
         # set up locus configuration
         if isinstance(loci, int):
@@ -2075,7 +1925,7 @@ class AbstractCoalescent(ABC):
                 self.locus_config.recombination_rate = recombination_rate
 
         # population names present in the population configuration but not in the demography
-        initial_sizes = {p: {0: 1} for p in self.pop_config.pop_names if p not in demography.pop_names}
+        initial_sizes = {p: {0: 1} for p in self.lineage_config.pop_names if p not in demography.pop_names}
 
         # add missing population sizes to demography
         if len(initial_sizes) > 0:
@@ -2084,8 +1934,8 @@ class AbstractCoalescent(ABC):
             )
 
         # add zero lineage counts to lineage configuration for populations only present in the demography
-        unspecified_lineages = set(demography.pop_names) - set(self.pop_config.pop_names)
-        self.pop_config = LineageConfig(self.pop_config.lineage_dict | {p: 0 for p in unspecified_lineages})
+        unspecified_lineages = set(demography.pop_names) - set(self.lineage_config.pop_names)
+        self.lineage_config = LineageConfig(self.lineage_config.lineage_dict | {p: 0 for p in unspecified_lineages})
 
         #: Coalescent model
         self.model: CoalescentModel = model
@@ -2143,7 +1993,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param :param n: n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
-            :class:`PopulationConfig` object can be passed.
+            :class:`LineageConfig` object can be passed.
         :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
@@ -2151,7 +2001,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param pbar: Whether to show a progress bar.
         :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
-        :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
+        :param end_time: Time when to end the accumulating moments. If `None`, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(
@@ -2178,7 +2028,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         The default state space.
         """
         return DefaultStateSpace(
-            pop_config=self.pop_config,
+            lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
             epoch=self.demography.get_epochs(0)
@@ -2190,7 +2040,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         The block counting state space.
         """
         return BlockCountingStateSpace(
-            pop_config=self.pop_config,
+            lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
             epoch=self.demography.get_epochs(0)
@@ -2341,7 +2191,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             self._logger.warning("Non-zero start times are not supported by MsprimeCoalescent.")
 
         return MsprimeCoalescent(
-            n=self.pop_config,
+            n=self.lineage_config,
             demography=self.demography,
             model=self.model,
             loci=self.locus_config,
@@ -2429,12 +2279,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
-        samples = self.pop_config.lineage_dict
+        samples = self.lineage_config.lineage_dict
         demography = self.demography.to_msprime()
         model = self.get_coalescent_model()
         end_time = self.end_time
         n_pops = self.demography.n_pops
-        sample_size = self.pop_config.n
+        sample_size = self.lineage_config.n
 
         def simulate_batch(_) -> (np.ndarray, np.ndarray, np.ndarray):
             """
@@ -2652,7 +2502,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        mid = (self.pop_config.n + 1) // 2
+        mid = (self.lineage_config.n + 1) // 2
 
         counts = self.sfs_counts.copy().T
 
@@ -2668,261 +2518,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         :return: phasegen coalescent.
         """
         return Coalescent(
-            n=self.pop_config,
+            n=self.lineage_config,
             model=self.model,
             demography=self.demography,
             loci=self.locus_config,
             recombination_rate=self.locus_config.recombination_rate,
             end_time=self.end_time
         )
-
-
-class _GramCharlierExpansion:
-    """
-    Probability density function approximated from its moments using Hermite polynomials.
-
-    .. note::
-        Does not work reliably at all. We get negative values for the density function which seems to be a problem
-        with the method in general. Trying some other statsmodels implementation provides similarly cumbersome results.
-    """
-
-    @classmethod
-    def pdf(cls, x: np.ndarray, moments: np.ndarray[float], mu: float = 0, sigma: float = 1) -> np.ndarray:
-        """
-        Approximate the distribution using its moments and Hermite polynomials.
-
-        :param x: Array of standard normal values.
-        :param moments: List of moments of the distribution.
-        :param mu: Mean of the normal distribution.
-        :param sigma: Standard deviation of the normal distribution.
-        :return: Approximated probability density function values.
-        """
-        y = np.ones_like(x)
-
-        # d = [cls.d(n, moments, mu, sigma) for n in range(0, len(moments) + 1)]
-
-        for n in range(3, len(moments) + 1):
-            y += cls.d(n, moments, mu, sigma) * cls.H(n, (x - mu) / sigma)
-
-        return norm.pdf(x, loc=mu, scale=sigma) * y
-
-    @classmethod
-    def H(cls, n: int, x: np.ndarray[float]) -> np.ndarray[float]:
-        """
-        Probabilist's Hermite polynomial of order n.
-
-        :param n: Order of the polynomial.
-        :param x: Values to evaluate the polynomial at.
-        :return: Hermite polynomial of order n evaluated at x.
-        """
-        y = np.zeros_like(x)
-
-        for j in range(int(n / 2) + 1):
-            y += (((-1) ** j * factorial(n) * x ** (n - 2 * j) / (2 ** j * factorial(n - 2 * j) * factorial(j)))
-                  .astype(float))
-
-        return y
-
-    @classmethod
-    def d(cls, n: int, moments: np.ndarray[float], mu: float, sigma: float) -> float:
-        """
-        Coefficient of the Hermite series.
-
-        :param n: Order of the coefficient.
-        :param moments: Moments of the distribution.
-        :param mu: Mean of the distribution.
-        :param sigma: Standard deviation of the distribution.
-        :return: Coefficients of the Hermite polynomial of order n.
-        """
-        y = np.zeros(int(n / 2) + 1)
-
-        for j in range(len(y)):
-            y[j] = (-1) ** j / 2 ** j / factorial(j) * cls.E(n - 2 * j, moments, mu, sigma)
-
-        return y.sum()
-
-    @classmethod
-    def E(cls, n: int, moments: np.ndarray[float], mu: float, sigma: float) -> float:
-        """
-        Expectation of the nth standard normal moment.
-
-        :param n: Order of the polynomial.
-        :param moments: Moments of the distribution.
-        :param mu: Mean of the distribution.
-        :param sigma: Standard deviation of the distribution.
-        :return: Expectation of the Hermite polynomial of order n.
-        """
-        # add zeroth moment
-        all_moments = np.concatenate((np.array([1]), moments))
-
-        # return all_moments[n] / factorial(n)
-
-        y = np.zeros(n + 1)
-
-        for k in range(len(y)):
-            y[k] = (-1) ** k * mu ** (n - k) * all_moments[k] / factorial(n - k) / factorial(k)
-
-        return y.sum() / sigma ** n
-
-
-class _EdgeworthExpansion:
-    """
-    Probability density function approximated from its moments using Edgeworth expansion.
-
-    Adapted from statsmodels.distributions.edgeworth.
-
-    .. note::
-        Only works well for values for which the normal distribution is not close to zero, so it is unsuitable for
-        approximating long-tailed distributions.
-    """
-
-    @staticmethod
-    def _norm_pdf(x: np.ndarray | float) -> np.ndarray | float:
-        """
-        Standard normal probability density function.
-
-        :param x: Value or values to evaluate the PDF at.
-        :return: PDF.
-        """
-        return np.exp(-x ** 2 / 2.0) / np.sqrt(2 * np.pi)
-
-    @staticmethod
-    def _norm_cdf(x: np.ndarray | float) -> np.ndarray | float:
-        """
-        Standard normal cumulative distribution function.
-
-        :param x: Value or values to evaluate the CDF at.
-        :return: CDF.
-        """
-        return special.ndtr(x)
-
-    def __init__(self, cum: List[float]):
-        """
-        Initialize object.
-
-        :param cum: Cumulants.
-        """
-
-        self._logger = logger.getChild(self.__class__.__name__)
-
-        self._coef, self._mu, self._sigma = self._compute_coefficients(cum)
-
-        self._herm_pdf = HermiteE(self._coef)
-
-        if self._coef.size > 2:
-            self._herm_cdf = HermiteE(-self._coef[1:])
-        else:
-            self._herm_cdf = lambda x: 0
-
-        # warn if pdf(x) < 0 for some values of x within 4 sigma
-        r = np.real_if_close(self._herm_pdf.roots())
-        r = (r - self._mu) / self._sigma
-
-        if r[(np.imag(r) == 0) & (np.abs(r) < 4)].any():
-            self._logger.warning(f'PDF has zeros at {r}')
-
-    def _pdf(self, x: np.ndarray | float) -> np.ndarray | float:
-        """
-        Probability density function.
-
-        :param x: Value or values to evaluate the PDF at.
-        :return: PDF.
-        """
-        y = (x - self._mu) / self._sigma
-
-        return self._herm_pdf(y) * self._norm_pdf(y) / self._sigma
-
-    def _cdf(self, x: np.ndarray | float) -> np.ndarray | float:
-        """
-        Cumulative distribution function.
-
-        :param x: Value or values to evaluate the CDF at.
-        :return: CDF.
-        """
-        y = (x - self._mu) / self._sigma
-
-        return self._norm_cdf(y) + self._herm_cdf(y) * self._norm_pdf(y)
-
-    def _compute_coefficients(self, cum: List[float]) -> (np.ndarray, float, float):
-        """
-        Compute coefficients of the Edgeworth expansion for the PDF.
-
-        :param cum: Cumulants.
-        :return: Coefficients, mean and standard deviation.
-        """
-        # scale cumulants by \sigma
-        mu, sigma = cum[0], np.sqrt(cum[1])
-        lam = np.asarray(cum)
-        for j, l in enumerate(lam):
-            lam[j] /= cum[1] ** j
-
-        coef = np.zeros(lam.size * 3 - 5)
-        coef[0] = 1
-
-        for s in range(lam.size - 2):
-            for p in self._generate_partitions(s + 1):
-                term = sigma ** (s + 1)
-
-                for (m, k) in p:
-                    term *= np.power(lam[m + 1] / factorial(m + 2), k) / factorial(k)
-
-                r = sum(k for (m, k) in p)
-                coef[s + 1 + 2 * r] += term
-
-        return coef, mu, sigma
-
-    @classmethod
-    def cumulant_from_moments(cls, moments: List[float], n: int) -> float:
-        """
-        Compute n-th cumulant from moments.
-
-        :param moments: The moments, raw or central
-        :param n: The order of the cumulant to compute
-        :return: The cumulant
-        """
-        kappa = 0
-
-        for p in cls._generate_partitions(n):
-            r = sum(k for (m, k) in p)
-            term = (-1) ** (r - 1) * factorial(r - 1)
-
-            for (m, k) in p:
-                term *= np.power(moments[m - 1] / factorial(m), k) / factorial(k)
-
-            kappa += term
-
-        kappa *= factorial(n)
-
-        return kappa
-
-    @classmethod
-    def cumulants_from_moments(cls, moments: List[float]) -> List[float]:
-        """
-        Compute cumulants from moments.
-
-        The mnc2cum implementation which provides more accurate results
-
-        :param moments: The moments, raw or central
-        :return: The cumulants
-        """
-        return [cls.cumulant_from_moments(moments, k) for k in range(1, len(moments) + 1)]
-
-    @classmethod
-    def _generate_partitions(cls, n: int):
-        """
-        Generate partitions of an integer.
-
-        :param n: Integer to partition.
-        :return: Partitions formatted as a list of tuples where the first element is the partition and the second
-            element is the number of times the partition is repeated.
-        """
-        x = BlockCountingStateSpace._find_sample_configs(n, n)
-
-        for v in x:
-
-            m = []
-            for i in range(0, n):
-                if v[i] > 0:
-                    m.append((i + 1, v[i]))
-
-            yield m

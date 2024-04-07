@@ -24,7 +24,7 @@ class StateSpaceTestCase(TestCase):
         Test default intensity matrix for n = 4.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
@@ -40,7 +40,7 @@ class StateSpaceTestCase(TestCase):
         Test n = 2, 2 demes.
         """
         s = pg.state_space_old.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=2),
+            lineage_config=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 2}
@@ -59,7 +59,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, n = 2.
         """
         s = pg.state_space_old.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=2),
+            lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
 
@@ -83,7 +83,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, n = 3.
         """
         s = pg.state_space_old.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=3),
+            lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
 
@@ -121,7 +121,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, two lineages.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=2),
+            lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2)
         )
 
@@ -133,7 +133,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, two lineages.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=3),
+            lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
 
@@ -147,7 +147,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, four lineages.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
 
@@ -161,7 +161,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, four lineages.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
 
@@ -175,7 +175,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, two demes, four lineages.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig([2, 2]),
+            lineage_config=pg.LineageConfig([2, 2]),
             locus_config=pg.LocusConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
@@ -189,7 +189,7 @@ class StateSpaceTestCase(TestCase):
         Test two loci, two demes, four lineages.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig([2, 2]),
+            lineage_config=pg.LineageConfig([2, 2]),
             locus_config=pg.LocusConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
@@ -204,25 +204,25 @@ class StateSpaceTestCase(TestCase):
         Test default state space size.
         """
         self.assertEqual(pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(10)
+            lineage_config=pg.LineageConfig(10)
         ).k, 10)
 
         self.assertEqual(pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(20)
+            lineage_config=pg.LineageConfig(20)
         ).k, 20)
 
         self.assertEqual(pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
+            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         ).k, 65)
 
         self.assertEqual(pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}),
+            lineage_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1, 'pop_3': 1})
         ).k, 494)
 
         self.assertEqual(pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
+            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
         ).k, 815)
 
@@ -231,27 +231,27 @@ class StateSpaceTestCase(TestCase):
         Test block counting state space size.
         """
         self.assertEqual(pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(10)
+            lineage_config=pg.LineageConfig(10)
         ).k, 42)
 
         self.assertEqual(pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(20)
+            lineage_config=pg.LineageConfig(20)
         ).k, 627)
 
         self.assertEqual(pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
+            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         ).k, 481)
 
         self.assertEqual(pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}),
+            lineage_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1, 'pop_3': 1})
         ).k, 2580)
 
         sys.setrecursionlimit(1500)
 
         self.assertEqual(pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
+            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
         )._get_old().k, 35581)
 
@@ -260,7 +260,7 @@ class StateSpaceTestCase(TestCase):
         Test plot rates.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=3),
+            lineage_config=pg.LineageConfig(n=3),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
@@ -273,7 +273,7 @@ class StateSpaceTestCase(TestCase):
         Test block counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             model=pg.DiracCoalescent(c=50, psi=0.5),
             epoch=pg.Epoch()
         )
@@ -288,7 +288,7 @@ class StateSpaceTestCase(TestCase):
         Test block counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=5),
+            lineage_config=pg.LineageConfig(n=5),
             model=pg.DiracCoalescent(c=50, psi=0.5),
             epoch=pg.Epoch()
         )
@@ -303,7 +303,7 @@ class StateSpaceTestCase(TestCase):
         Test block counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             model=pg.DiracCoalescent(c=50, psi=0.7),
             epoch=pg.Epoch()
         )
@@ -318,7 +318,7 @@ class StateSpaceTestCase(TestCase):
         Test default state space for beta, n = 3, alpha = 1.5.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=3),
+            lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.BetaCoalescent(alpha=1.5),
             epoch=pg.Epoch()
@@ -334,7 +334,7 @@ class StateSpaceTestCase(TestCase):
         Test default state space for beta, n = 2, alpha = 1.5.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=2),
+            lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch()
@@ -350,7 +350,7 @@ class StateSpaceTestCase(TestCase):
         Test default state space for kingman, n = 2, alpha = 1.5.
         """
         s = pg.DefaultStateSpace(
-            pop_config=pg.LineageConfig(n=2),
+            lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             epoch=pg.Epoch()
         )
@@ -452,7 +452,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for standard coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=10),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
@@ -464,7 +464,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of block counting state space and graph space for standard coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=10),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
@@ -477,7 +477,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for beta coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=10),
             model=pg.BetaCoalescent(alpha=1.5),
             epoch=pg.Epoch()
         )
@@ -489,7 +489,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of block counting state space and graph space for beta coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=10),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch()
         )
@@ -502,7 +502,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for dirac coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=10),
             model=pg.DiracCoalescent(c=50, psi=0.5),
             epoch=pg.Epoch()
         )
@@ -514,7 +514,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of block counting state space and graph space for dirac coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=4),
+            lineage_config=pg.LineageConfig(n=4),
             model=pg.DiracCoalescent(c=50, psi=0.5),
             epoch=pg.Epoch()
         )
@@ -527,7 +527,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for migration coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
+            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 1},
                 migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.2}
@@ -541,7 +541,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of block counting state space and graph space for migration coalescent.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
+            lineage_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 3, 'pop_2': 2},
@@ -564,7 +564,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for recombination.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig(n=6),
+            lineage_config=pg.LineageConfig(n=6),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
@@ -580,7 +580,7 @@ class StateSpaceTestCase(TestCase):
         Test equivalence of default state space and graph space for recombination and multiple demes.
         """
         kwargs = dict(
-            pop_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
+            lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(

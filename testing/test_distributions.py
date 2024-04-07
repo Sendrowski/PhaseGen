@@ -99,7 +99,7 @@ class DistributionTestCase(TestCase):
         pass
 
     @pytest.mark.skip(reason="Fix later")
-    def test_n_4_2_loci_wrong_pop_config_raises_error(self):
+    def test_n_4_2_loci_wrong_lineage_config_raises_error(self):
         """
         How to solve errors when passing additional populations? Be more rigorous?
 

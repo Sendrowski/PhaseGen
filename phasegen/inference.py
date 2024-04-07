@@ -172,8 +172,6 @@ class Inference(Serializable):
     def x0(self) -> Dict[str, float]:
         """
         Initial parameters.
-
-        :return: Initial parameters.
         """
         return self._x0 if self._x0 is not None else self._sample()
 
@@ -209,7 +207,7 @@ class Inference(Serializable):
 
         TODO test state space caching by comparing cached und uncached results.
 
-        :param kwargs: Keyword arguments passed to the callback specified as ``dist``.
+        :param kwargs: Keyword arguments passed to the callback specified as ``dist`.
         :return: Coalescent distribution.
         """
         coal = self.coal(**kwargs)
@@ -231,18 +229,14 @@ class Inference(Serializable):
     @cached_property
     def default_state_space(self) -> DefaultStateSpace:
         """
-        Default state space.
-
-        :return: Default state space.
+        Default state space which only keeps track of the number of lineages present.
         """
         return self.coal(**self.x0).default_state_space
 
     @cached_property
     def block_counting_state_space(self) -> BlockCountingStateSpace:
         """
-        Block counting state space.
-
-        :return: Block counting state space.
+        Block counting state space which keeps track for the number of lineages that subtend `i` lineages.
         """
         return self.coal(**self.x0).block_counting_state_space
 
