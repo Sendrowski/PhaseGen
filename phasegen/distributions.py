@@ -624,7 +624,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         rates = S[S > 0]
 
-        if rates.min() / rates.max() < 1e-6:
+        if rates.min() / rates.max() < 1e-10:
             self._logger.warning(
                 f"Intensity matrix in epoch {epoch} contains rates that differ by more than 6 orders of magnitude: "
                 f"min: {rates.min()}, max: {rates.max()}. "
