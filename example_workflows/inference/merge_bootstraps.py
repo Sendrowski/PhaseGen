@@ -1,5 +1,3 @@
-# TODO test workflow
-
 import phasegen as pg
 
 inf_file = snakemake.input.inference
