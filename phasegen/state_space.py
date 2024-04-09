@@ -366,25 +366,27 @@ class StateSpace(ABC):
 
         return 'lightblue'
 
-    def _plot_rates(
+    def plot_rates(
             self,
             file: str,
             view: bool = True,
             cleanup: bool = False,
             dpi: int = 400,
             ratio: float = 0.6,
+            background_color: str = 'white',
             extension: str = 'png',
             format_state: Callable[[np.array], str] = None,
             format_transition: Callable[['Transition'], str] = None
     ):
         """
-        Plot the rate matrix using graphviz.
+        Plot the rate matrix using graphviz. Note that graphviz must be installed which is an external dependency.
 
         :param file: File to save plot to.
         :param view: Whether to view the plot.
         :param cleanup: Whether to remove the source file.
         :param dpi: Dots per inch.
         :param ratio: Aspect ratio.
+        :param background_color: Background color.
         :param extension: File format.
         :param format_state: Function to format state with state array as argument.
         :param format_transition: Function to format transition with transition as argument.
@@ -437,6 +439,7 @@ class StateSpace(ABC):
 
         graph.graph_attr['dpi'] = str(dpi)
         graph.graph_attr['ratio'] = str(ratio)
+        graph.graph_attr['bgcolor'] = background_color
 
         graph.render(
             filename=file,
@@ -544,6 +547,7 @@ class Transition:
         'mixed_coalescence+unlinked_coalescence': 'darkgreen',
         'linked_migration': 'blue',
         'unlinked_migration': 'blue',
+        'migration': 'blue',
         'invalid': 'red'
     }
 

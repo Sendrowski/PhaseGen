@@ -139,8 +139,6 @@ from .state_space import (
 
 from .rewards import (
     Reward,
-    DefaultReward,
-    NonDefaultReward,
     TreeHeightReward,
     TotalTreeHeightReward,
     TotalBranchLengthReward,
@@ -215,8 +213,6 @@ __all__ = [
     'ProductReward',
     'SumReward',
     'DemeReward',
-    'DefaultReward',
-    'NonDefaultReward',
     'CombinedReward',
     'StateSpace',
     'DefaultStateSpace',

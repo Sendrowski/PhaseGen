@@ -24,18 +24,19 @@ rule all:
     input:
         (
             #"results/graphs/inference/demography.png",
-            "docs/_build"
+            #"docs/_build"
             #expand("results/comparisons/serialized/{config}.json",config=configs),
-            #expand("results/graphs/transitions/{name}.png",name=[
-            #    'coalescent_5_lineages_default',
-            #    'coalescent_5_lineages_block_counting',
-            #    'migration_2_lineages_default',
-            #    'migration_3_lineages_block_counting',
-            #    'recombination_2_lineages',
-            #    'recombination_2_loci_2_pops_3_lineages_default',
-            #    'beta_coalescent_5_lineages_default',
-            #    'beta_coalescent_5_lineages_block_counting',
-            #]),
+            expand("results/graphs/transitions/{name}.png",name=[
+                'coalescent_4_lineages_default',
+                'coalescent_5_lineages_default',
+                'coalescent_5_lineages_block_counting',
+                'migration_2_lineages_default',
+                'migration_3_lineages_block_counting',
+                'recombination_2_lineages',
+                'recombination_2_loci_2_pops_3_lineages_default',
+                'beta_coalescent_5_lineages_default',
+                'beta_coalescent_5_lineages_block_counting',
+            ]),
             #"results/graphs/executions_times.png",
             #"results/graphs/state_space_sizes.png",
             #"results/benchmarks/state_space/all.csv",

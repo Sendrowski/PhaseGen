@@ -19,8 +19,8 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "recombination_2_lineages"
-    out = "scratch/recombination_2_lineages.png"
+    name = "coalescent_5_lineages_default"
+    out = f"scratch/{name}.png"
 
 import phasegen as pg
 
@@ -33,10 +33,19 @@ configs = dict(
         state_space_type="default",
         plot=dict(
             format_state=lambda s: (
-                str(s[0, 0, 0, 0]).replace('\n', '')
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                str(s[0][0, 0, 0]).replace('\n', '')
+            )
+        )
+    ),
+    # 4 lineages, one deme, default state space
+    coalescent_4_lineages_default=dict(
+        coal=pg.Coalescent(
+            n=4
+        ),
+        state_space_type="default",
+        plot=dict(
+            format_state=lambda s: (
+                str(s[0][0, 0, 0]).replace('\n', '')
             )
         )
     ),
@@ -48,10 +57,7 @@ configs = dict(
         state_space_type="block_counting",
         plot=dict(
             format_state=lambda s: (
-                str(s[0, 0, 0, :]).replace('\n', '')
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                str(s[0][0, 0, :]).replace('\n', '')
             )
         )
     ),
@@ -66,10 +72,7 @@ configs = dict(
         state_space_type="default",
         plot=dict(
             format_state=lambda s: (
-                str(s[0, 0, :, 0])
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                str(s[0][0, :, 0])
             )
         )
     ),
@@ -84,10 +87,7 @@ configs = dict(
         state_space_type="block_counting",
         plot=dict(
             format_state=lambda s: (
-                    str(s[0, 0, 0]).replace('\n', '') + '\n' + str(s[0, 0, 1]).replace('\n', '')
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                    str(s[0][0, 0]).replace('\n', '') + '\n' + str(s[0][0, 1]).replace('\n', '')
             )
         )
     ),
@@ -100,7 +100,7 @@ configs = dict(
         state_space_type="default",
         plot=dict(
             format_state=lambda s: (
-                    str(s[0, :, 0, 0]).replace('\n', '') + '\n' + str(s[1, :, 0, 0]).replace('\n', '')
+                    str(s[0][:, 0, 0]).replace('\n', '') + '\n' + str(s[1][:, 0, 0]).replace('\n', '')
             ),
             ratio=0.8
         )
@@ -131,10 +131,7 @@ configs = dict(
         state_space_type="default",
         plot=dict(
             format_state=lambda s: (
-                str(s[0, 0, 0, 0]).replace('\n', '')
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                str(s[0][0, 0, 0]).replace('\n', '')
             ),
             ratio=0.8
         )
@@ -147,21 +144,19 @@ configs = dict(
         state_space_type="block_counting",
         plot=dict(
             format_state=lambda s: (
-                str(s[0, 0, 0, :]).replace('\n', '')
-            ),
-            format_transition=lambda t: (
-                f" {t.type.replace('unlinked_', '')}: {t.get_rate():.2g}"
+                str(s[0][0, 0, :]).replace('\n', '')
             ),
             ratio=0.8
         )
     ),
 )
 
-getattr(configs[name]['coal'], configs[name]['state_space_type'] + "_state_space")._plot_rates(
+getattr(configs[name]['coal'], configs[name]['state_space_type'] + "_state_space").plot_rates(
     file=os.path.splitext(out)[0],
     extension=os.path.splitext(out)[1].replace('.', ''),
     view=False,
     cleanup=True,
+    #background_color='#b4ccfc',
     **configs[name]['plot']
 )
 

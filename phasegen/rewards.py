@@ -91,27 +91,9 @@ class BlockCountingReward(Reward, ABC):
     pass
 
 
-class DefaultReward(Reward, ABC):
+class TreeHeightReward(LineageCountingReward, BlockCountingReward):
     """
-    Default reward where all non-absorbing states have a reward of 1.
-
-    :meta private:
-    """
-    pass
-
-
-class NonDefaultReward(Reward, ABC):
-    """
-    Non-default reward where not all non-absorbing states have a reward of 1.
-
-    :meta private:
-    """
-    pass
-
-
-class TreeHeightReward(DefaultReward, LineageCountingReward, BlockCountingReward):
-    """
-    Reward based on tree height. Note that when using multiple loci, this will provide the
+    Reward for tree height. Note that when using multiple loci, this will provide the
     height of the locus with the highest tree.
     """
 
@@ -132,10 +114,10 @@ class TreeHeightReward(DefaultReward, LineageCountingReward, BlockCountingReward
         )
 
 
-class TotalTreeHeightReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
+class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
     """
-    Reward based on tree height. When using multiple loci, this will provide the sum of the
-    heights of all loci, regardless of whether they are linked or not.
+    Reward based on tree height. When using multiple loci, this will provide the sum of the tree 
+    heights over all loci, regardless of whether they are linked or not.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -154,10 +136,10 @@ class TotalTreeHeightReward(NonDefaultReward, LineageCountingReward, BlockCounti
         )
 
 
-class TotalBranchLengthReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
+class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward):
     """
-    Reward based on total branch length. When using multiple loci, this will provide the sum of the
-    total branch lengths of all loci, regardless of whether they are linked or not. Note that due to
+    Reward for total branch length. When using multiple loci, this will provide the sum of the
+    total branch lengths over all loci, regardless of whether they are linked or not. Note that due to
     inherent limitation to rewards, we cannot determine the total branch length of the tree with
     the largest total branch length as done in :class:`TreeHeightReward`.
     """
@@ -187,9 +169,9 @@ class TotalBranchLengthReward(NonDefaultReward, LineageCountingReward, BlockCoun
         )
 
 
-class SFSReward(NonDefaultReward, BlockCountingReward, ABC):
+class SFSReward(BlockCountingReward, ABC):
     """
-    Reward based on site frequency spectrum (SFS).
+    Base class for site frequency spectrum (SFS) rewards.
 
     :meta private:
     """
@@ -213,7 +195,7 @@ class SFSReward(NonDefaultReward, BlockCountingReward, ABC):
 
 class UnfoldedSFSReward(SFSReward, BlockCountingReward):
     """
-    Reward based on unfolded site frequency spectrum (SFS).
+    Reward for unfolded site frequency spectrum (SFS).
     """
 
     def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
@@ -235,7 +217,7 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
 
 class FoldedSFSReward(SFSReward, BlockCountingReward):
     """
-    Reward based on folded site frequency spectrum (SFS).
+    Reward for folded site frequency spectrum (SFS).
     """
 
     def _get_indices(self, state_space: BlockCountingStateSpace) -> np.ndarray:
@@ -269,10 +251,11 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
         )
 
 
-class DemeReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
+class DemeReward(LineageCountingReward, BlockCountingReward):
     """
-    Reward based on fraction of lineages in a specific deme. Taking the product of this reward with another reward
-    will result in a reward that only considers the specified deme.
+    Reward fraction of lineages in a specific deme. Taking the product of this reward with another reward
+    will result in a reward that only considers the specified deme. Use :class:`SumReward` to marginalize over
+    several demes.
     """
 
     def __init__(self, pop: str):
@@ -313,9 +296,9 @@ class DemeReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
         return hash(self.__class__.__name__ + str(self.pop))
 
 
-class LocusReward(NonDefaultReward, LineageCountingReward):
+class LocusReward(LineageCountingReward):
     """
-    Reward based on fraction of lineages in a specific locus. Taking the product of this reward with another reward
+    Reward fraction of lineages in a specific locus. Taking the product of this reward with another reward
     will result in a reward that only considers the specified locus.
     """
 
@@ -351,9 +334,9 @@ class LocusReward(NonDefaultReward, LineageCountingReward):
         return hash(self.__class__.__name__ + str(self.locus))
 
 
-class UnitReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
+class UnitReward(LineageCountingReward, BlockCountingReward):
     """
-    Rewards all states with 1 (including absorbing states).
+    Reward all states with 1 (including absorbing states).
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -368,7 +351,9 @@ class UnitReward(NonDefaultReward, LineageCountingReward, BlockCountingReward):
 
 class TotalBranchLengthLocusReward(LocusReward, LineageCountingReward):
     """
-    Reward based on total branch length per locus.
+    Reward for total branch length per locus. This is needed as the taking the product of
+    :class:`TotalBranchLengthReward` and :class:`LocusReward` will not work as expected (see
+    :class:`CombinedReward`).
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:

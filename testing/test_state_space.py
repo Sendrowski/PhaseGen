@@ -265,7 +265,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/plot_rates', view=False)
+        s.plot_rates('scratch/plot_rates', view=False)
 
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
@@ -278,7 +278,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/block_counting_state_space_n_4_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac')
 
         pass
 
@@ -293,7 +293,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/block_counting_state_space_n_5_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_5_dirac')
 
         pass
 
@@ -308,7 +308,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
 
         pass
 
@@ -324,7 +324,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/default_state_space_beta_2_loci_n_3_alpha_1_5')
+        s.plot_rates('scratch/default_state_space_beta_2_loci_n_3_alpha_1_5')
 
         pass
 
@@ -340,7 +340,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/default_state_space_beta_2_loci_n_2_alpha_1_5')
+        s.plot_rates('scratch/default_state_space_beta_2_loci_n_2_alpha_1_5')
 
         pass
 
@@ -355,7 +355,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s._plot_rates('scratch/default_state_space_kingman_2_loci_n_2')
+        s.plot_rates('scratch/default_state_space_kingman_2_loci_n_2')
 
         pass
 
@@ -430,7 +430,7 @@ class StateSpaceTestCase(TestCase):
         """
         if plot:
             state_space_old._plot_rates('scratch/state_space_old')
-            state_space._plot_rates('scratch/state_space')
+            state_space.plot_rates('scratch/state_space')
 
         self.assertEqual(state_space.k, state_space_old.k)
 

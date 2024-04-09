@@ -46,7 +46,7 @@ def loss(coal: pg.Coalescent, observation: pg.SFS) -> float:
 # create inference object
 inf = pg.Inference(
     x0=dict(t=1, Ne=1),
-    bounds=dict(t=(0, 4), Ne=(0.1, 1)),
+    bounds=dict(t=(0, 4), Ne=(0.1, 10)),
     observation=observed,
     resample=lambda sfs, _: sfs.resample(),
     do_bootstrap=True,
