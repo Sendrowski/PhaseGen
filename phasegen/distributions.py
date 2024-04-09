@@ -86,8 +86,6 @@ class MomentAwareDistribution(ProbabilityDistribution, ABC):
 class MarginalDistributions(Mapping, ABC):
     """
     Base class for marginal distributions.
-
-    TODO remove marginal properties from sub-distributions
     """
 
     @abstractmethod
@@ -617,7 +615,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     def _check_numerical_stability(self, S: np.ndarray, epoch: int):
         """
         Warn about potential numerical instability with very small or very large rates.
-        TODO this is a good approach but often there are not precision problem so this might confuse the user
 
         :param S: (Regularized) intensity matrix.
         :param epoch: Epoch number.
@@ -1414,7 +1411,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         x = super().moment(k=1, rewards=(reward_i,))
         y = super().moment(k=1, rewards=(reward_j,))
 
-        # TODO check why covariance is not symmetric
         return (xy + yx) / 2 - x * y
 
     @cached_property
