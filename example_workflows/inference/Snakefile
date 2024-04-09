@@ -1,6 +1,6 @@
 rule all:
     input:
-        "results/graphs/inference/demography.png",
+        "results/graphs/inference/demography.png"
 
 # setup inference and perform initial run
 rule setup_inference:
