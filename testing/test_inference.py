@@ -245,3 +245,77 @@ class InferenceTestCase(TestCase):
         inf.plot_demography()
         inf.plot_bootstraps(kind='hist')
         inf.plot_bootstraps(kind='kde')
+
+    def test_manual_runs_unseeded(self):
+        """
+        Test unseeded manual runs.
+        """
+        # create inference object
+        inf = self.get_basic_inference(dict(do_bootstrap=False))
+
+        run2 = inf.create_run()
+        run3 = inf.create_run()
+
+        inf.run()
+        run2.run()
+        run3.run()
+
+        # make sure the runs are different
+        self.assertNotEqual(inf.result.x[0], run2.result.x[0])
+        self.assertNotEqual(inf.result.x[0], run3.result.x[0])
+
+        inf.add_runs([run2, run3])
+
+        self.assertEqual(inf.loss_inferred, min([inf.loss_inferred, run2.loss_inferred, run3.loss_inferred]))
+
+    def test_manual_runs_seeded(self):
+        """
+        Test seeded manual runs.
+        """
+        # create inference object
+        inf = self.get_basic_inference(dict(seed=42, do_bootstrap=False))
+
+        run2 = inf.create_run()
+        run3 = inf.create_run()
+
+        inf.run()
+        run2.run()
+        run3.run()
+
+        # make sure the runs are not the same
+        self.assertNotEqual(inf.result.x[0], run2.result.x[0])
+        self.assertNotEqual(inf.result.x[0], run3.result.x[0])
+
+        inf.add_runs([run2, run3])
+
+        self.assertEqual(inf.loss_inferred, min([inf.loss_inferred, run2.loss_inferred, run3.loss_inferred]))
+
+        # make sure seeds are different
+        self.assertNotEqual(inf.seed, run2.seed)
+        self.assertNotEqual(inf.seed, run3.seed)
+
+    def test_add_run_without_run_itself(self):
+        """
+        Test adding a run without running it.
+        """
+        # create inference object
+        inf = self.get_basic_inference(dict(do_bootstrap=False))
+
+        run = inf.create_run()
+        run.run()
+
+        inf.add_run(run)
+
+        self.assertEqual(inf.loss_inferred, run.loss_inferred)
+
+    def test_add_not_run_run_raises_error(self):
+        """
+        Test adding a run which has not been run raises error.
+        """
+        # create inference object
+        inf = self.get_basic_inference(dict(do_bootstrap=False))
+
+        run = inf.create_run()
+
+        with self.assertRaises(RuntimeError) as context:
+            inf.add_run(run)

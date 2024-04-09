@@ -13,3 +13,4 @@
 /testing/tmp/
 __pycache__/
 /testing/scratch/
+/example_workflows/inference/results/

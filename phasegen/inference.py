@@ -695,6 +695,53 @@ class Inference(Serializable):
 
         return ax
 
+    def create_run(self, x0: Dict[str, float] = None) -> 'Inference':
+        """
+        Create a new Inference object which can be run independently. This is useful when parallelizing runs on a
+        cluster. You can add performed runs by using the `add_run` method.
+
+        :param x0: Initial parameters.
+        :return: Inference object.
+        """
+        other = copy.deepcopy(self)
+
+        other._x0 = x0
+        other._check_x0_within_bounds()
+
+        # generate a new random seed if seeded
+        if other.seed is not None:
+            other.seed = self._rng.integers(0, 2 ** 32 - 1)
+            other._rng = np.random.default_rng(other.seed)
+
+        return other
+
+    def add_run(self, inference: 'Inference'):
+        """
+        Merge the main optimization result from another Inference object into the current Inference object. We only
+        store the result of the run with the lowest loss.
+
+        :param inference: Inference object.
+        :raises RuntimeError: If the main optimization has not been run yet.
+        """
+        if inference.loss_inferred is None:
+            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+
+        if self.loss_inferred is None or inference.loss_inferred < self.loss_inferred:
+            self.result = inference.result
+            self.params_inferred = inference.params_inferred
+            self.loss_inferred = inference.loss_inferred
+            self.dist_inferred = inference.dist_inferred
+
+    def add_runs(self, inferences: Iterable['Inference']):
+        """
+        Merge the main optimization results from an iterable of Inference objects with the current Inference object. We
+        only store the result of the run with the lowest loss.
+
+        :param inferences: Iterable of Inference objects.
+        """
+        for inference in inferences:
+            self.add_run(inference)
+
     def create_bootstrap(self, n_runs: int = 1) -> 'Inference':
         """
         Resample the observation and return a new Inference object with the resampled observation.
@@ -717,8 +764,8 @@ class Inference(Serializable):
         :param inference: Inference object with bootstraps.
         :return: Inference object with bootstraps.
         """
-        if inference.params_inferred is None:
-            raise RuntimeError('The main optimization must be run first (call the `run` method).')
+        if inference.loss_inferred is None:
+            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
 
         self.bootstrap_results.append(inference.result.x)
         self.bootstrap_dists.append(inference.dist_inferred)
