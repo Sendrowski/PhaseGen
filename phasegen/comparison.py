@@ -56,7 +56,7 @@ class Comparison(Serializable):
             indexed by population name, or a list of dictionaries of the form ``{time1: size1, time2: size2}`` ordered
             by population index, or a single dictionary of the form ``{time1: size1, time2: size2}`` for a single
             population. Note that the first time must always be 0.
-        :param migration_rates: Migration matrix. Use ``None`` for no migration.
+        :param migration_rates: Migration matrix. Use ```None``` for no migration.
             A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2: rate2}}`` where ``m_ij`` is the
             migration rate from population ``pop_i`` to population ``pop_j`` at time ``time1`` and `time2` etc.
             Alternatively, a dictionary of 2-dimensional numpy arrays where the rows correspond to the source

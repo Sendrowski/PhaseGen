@@ -1892,7 +1892,7 @@ class AbstractCoalescent(ABC):
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If `None`, the end time is end time is taken to be the
+        :param end_time: Time when to end the computation. If ``None``, the end time is end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         self._logger = logger.getChild(self.__class__.__name__)
@@ -2001,7 +2001,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param pbar: Whether to show a progress bar.
         :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
-        :param end_time: Time when to end the accumulating moments. If `None`, the end time is taken to
+        :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         super().__init__(
