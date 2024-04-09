@@ -21,6 +21,7 @@ PhaseGen is a package for simulating and making inference on coalescent distribu
    reference/rewards
    reference/demography
    reference/inference
+   reference/exponentiation_backend
 
 .. toctree::
    :caption: API Reference

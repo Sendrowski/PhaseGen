@@ -11,6 +11,8 @@ import scipy
 class MatrixExponentiation(ABC):
     """
     Base class for matrix exponentiation.
+
+    :meta private:
     """
 
     @staticmethod
@@ -58,7 +60,7 @@ class SciPyExpm(MatrixExponentiation):
 
 class Backend(ABC):
     """
-    Backend for matrix exponentiation.
+    Configure the backend for matrix exponentiation.
     """
     #: Backend for matrix exponentiation
     backend: Type[MatrixExponentiation] = SciPyExpm

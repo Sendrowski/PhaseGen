@@ -1,0 +1,26 @@
+.. _exponentation_backend:
+
+Exponentiation Backend
+======================
+
+``phasegen`` makes heavy use of matrix exponentiation to compute quantities of interest. You can choose between different exponentiation backends for this purpose. The default is :class:`~phasegen.expm.SciPyExpm` which uses SciPy's expm function. One alternative, which is often faster, especially when parallelization is enabled, is :class:`~phasegen.expm.TensorFlowExpm`. To switch to the TensorFlow backend, you need to install TensorFlow which is an optional dependency of ``phasegen`` due to its heavy weight. To install everything in one go, you can use
+
+   .. code-block:: yaml
+
+      name: phasegen
+      channels:
+        - defaults
+      dependencies:
+        - python>=3.10,<3.13
+        - tensorflow
+        - pip
+        - pip:
+            - phasegen
+
+After installation you can use register the backend as follows:
+
+.. code-block:: python
+
+    import phasegen as fd
+
+    pg.Backend.register(pg.TensorFlowExpm)
