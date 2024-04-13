@@ -251,6 +251,47 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
         )
 
 
+class LineageReward(LineageCountingReward):
+    """
+    Reward for a specific number of lineages present in across all demes and loci.
+    This reward can be used to, for example, track the individual coalescent times.
+    """
+
+    def __init__(self, n: int):
+        """
+        Initialize the reward.
+
+        :param n: The number of lineages to reward. Must be at least 2.
+        """
+        if n < 2:
+            raise ValueError('Number of lineages must be at least 2.')
+
+        self.n: int = n
+
+    def _get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+            return (state_space.states.sum(axis=(1, 2, 3)) == self.n).astype(int)
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name and the lineage index.
+
+        :return: hash
+        """
+        return hash(self.__class__.__name__ + str(self.n))
+
+
 class DemeReward(LineageCountingReward, BlockCountingReward):
     """
     Reward fraction of lineages in a specific deme. Taking the product of this reward with another reward
@@ -340,6 +381,22 @@ class UnitReward(LineageCountingReward, BlockCountingReward):
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        """
+        return np.ones(state_space.k)
+
+
+class BlockCountingUnitReward(BlockCountingReward):
+    """
+    Reward all states with 1 (including absorbing states), and only support block counting state spaces.
+    This reward can be used to force usage of the block counting state space.
+    """
+
+    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
         """
         Get the reward vector.
 

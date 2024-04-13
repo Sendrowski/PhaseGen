@@ -111,6 +111,13 @@ class StateSpace(ABC):
         # indices of non-zero rates
         return np.array([s.lineages for s in states])
 
+    @property
+    def unlinked(self) -> np.ndarray:
+        """
+        Unlinked lineages.
+        """
+        return self.states - self.linked
+
     @cached_property
     def _states(self) -> List['State']:
         """

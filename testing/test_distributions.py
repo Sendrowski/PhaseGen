@@ -202,3 +202,66 @@ class DistributionTestCase(TestCase):
         B = SciPyExpm.compute(coal.block_counting_state_space.S)
 
         np.testing.assert_array_almost_equal(A, B)
+
+    def test_lineage_reward_basic_coalescent_default_state_space(self):
+        """
+        Test lineage reward for basic coalescent and default state space.
+        """
+        coal = pg.Coalescent(
+            n=10
+        )
+
+        times = [coal.moment(1, rewards=(pg.LineageReward(i),)) for i in range(2, 11)[::-1]]
+
+        np.testing.assert_array_almost_equal(times, [1 / (i * (i - 1) / 2) for i in range(2, 11)[::-1]])
+
+    def test_lineage_reward_basic_coalescent_block_counting_state_space(self):
+        """
+        Test lineage reward for basic coalescent and block counting state space.
+        """
+        coal = pg.Coalescent(
+            n=10
+        )
+
+        # make sure default state space is not supported
+        r = pg.ProductReward([pg.rewards.BlockCountingUnitReward(), pg.LineageReward(2)])
+        self.assertFalse(pg.Reward.support(pg.DefaultStateSpace, [r]))
+
+        times = [coal.moment(1, rewards=(pg.ProductReward([
+            pg.rewards.BlockCountingUnitReward(), pg.LineageReward(i)]),)) for i in range(2, 11)[::-1]]
+
+        np.testing.assert_array_almost_equal(times, [1 / (i * (i - 1) / 2) for i in range(2, 11)[::-1]])
+
+    def test_lineage_reward_2_demes(self):
+        """
+        Test lineage reward for a 2-deme coalescent.
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 6, 'pop_1': 4},
+            demography=pg.Demography(
+                migration_rates={
+                    ('pop_0', 'pop_1'): {0: 1},
+                    ('pop_1', 'pop_0'): {0: 1},
+                },
+            )
+        )
+
+        times = [coal.moment(1, rewards=(pg.LineageReward(i),)) for i in range(2, 11)[::-1]]
+
+        # check that times add up to tree height
+        self.assertAlmostEqual(sum(times), coal.tree_height.mean)
+
+    def test_lineage_reward_2_loci(self):
+        """
+        Test lineage reward for a 2-locus coalescent.
+        """
+        coal = pg.Coalescent(
+            n=6,
+            loci=2,
+            recombination_rate=0
+        )
+
+        times = [coal.moment(1, rewards=(pg.LineageReward(i),)) for i in range(3, 14)[::-1]]
+
+        # check that times add up to tree height
+        self.assertAlmostEqual(sum(times), coal.tree_height.mean)

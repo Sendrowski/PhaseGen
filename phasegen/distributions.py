@@ -1896,15 +1896,15 @@ class AbstractCoalescent(ABC):
         if model is None:
             model = StandardCoalescent()
 
-        if demography is None:
-            demography = Demography()
-
         if not isinstance(n, LineageConfig):
             #: Population configuration
             self.lineage_config: LineageConfig = LineageConfig(n)
         else:
             #: Population configuration
             self.lineage_config: LineageConfig = n
+
+        if demography is None:
+            demography = Demography(pop_sizes={p: 1 for p in self.lineage_config.pop_names})
 
         # set up locus configuration
         if isinstance(loci, int):
