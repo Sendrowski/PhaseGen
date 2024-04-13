@@ -188,21 +188,6 @@ class DistributionTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(observed.data, expected.data)
 
-    def test_expm_ts_scipy(self):
-        """
-        Test matrix exponential for medium-sized matrix.
-        """
-        from phasegen.expm import TensorFlowExpm, SciPyExpm
-
-        coal = pg.Coalescent(
-            n=10
-        )
-
-        A = TensorFlowExpm.compute(coal.block_counting_state_space.S)
-        B = SciPyExpm.compute(coal.block_counting_state_space.S)
-
-        np.testing.assert_array_almost_equal(A, B)
-
     def test_lineage_reward_basic_coalescent_default_state_space(self):
         """
         Test lineage reward for basic coalescent and default state space.

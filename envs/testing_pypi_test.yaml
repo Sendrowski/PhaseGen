@@ -6,6 +6,8 @@ dependencies:
   - msprime
   - graphviz
   - python-graphviz
+  - jax
+  - tensorflow
   - pip
   - pip:
       - pytest

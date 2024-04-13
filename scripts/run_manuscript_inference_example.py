@@ -5,7 +5,7 @@ import fastdfe as fd
 import phasegen as pg
 
 #pg.logger.setLevel('DEBUG')
-pg.Backend.register(pg.TensorFlowExpm)
+pg.Backend.register(pg.TensorFlowExpmBackend())
 
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(

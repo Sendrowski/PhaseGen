@@ -6,6 +6,7 @@ dependencies:
   - msprime
   - graphviz
   - tensorflow
+  - jax
   - python-graphviz
   - jupyterlab
   - jupyter

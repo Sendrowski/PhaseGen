@@ -30,15 +30,15 @@ prioritize_installed_packages()
 
 import phasegen as pg
 
-# register the TensorFlow backend
-pg.expm.Backend.register(pg.TensorFlowExpm)
+# register the expm backend
+pg.Backend.register(pg.TensorFlowExpmBackend())
 
 logger = logging.getLogger('phasegen')
 
 logger.info(sys.version)
 logger.info(f"Running tests for {pg.__file__}")
 logger.info(f"phasegen version: {pg.__version__}")
-logger.info(f"Exponentiation backend: {pg.expm.Backend.backend.__name__}")
+logger.info(f"Exponentiation backend: {pg.expm.Backend.backend.__class__.__name__}")
 
 
 class TestCase(BaseTestCase):

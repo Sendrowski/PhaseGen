@@ -174,7 +174,13 @@ from .norms import (
 
 from .state_space_old import StateSpace as OldStateSpace
 
-from .expm import Backend, SciPyExpm, TensorFlowExpm
+from .expm import (
+    ExpmBackend,
+    Backend,
+    SciPyExpmBackend,
+    TensorFlowExpmBackend,
+    JaxExpmBackend
+)
 
 __all__ = [
     'PhaseTypeDistribution',
@@ -222,4 +228,9 @@ __all__ = [
     'CoalescentModel',
     'LineageConfig',
     'LocusConfig',
+    'Backend',
+    'ExpmBackend',
+    'SciPyExpmBackend',
+    'TensorFlowExpmBackend',
+    'JaxExpmBackend'
 ]
