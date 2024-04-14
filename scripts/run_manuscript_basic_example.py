@@ -52,6 +52,6 @@ plt.show()
 
 # joint SFS correlation matrix
 # TODO check if corr makes sense for SFS
-coal.sfs.demes.corr
+_ = coal.sfs.demes.corr
 
 pass

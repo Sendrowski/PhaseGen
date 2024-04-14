@@ -67,7 +67,6 @@ sfs_pop0 = coal.sfs.demes['pop_0'].mean
 m3 = coal.moment(3, (pg.TotalBranchLengthReward(),) * 3)
 
 # joint SFS correlation matrix
-# TODO check if corr makes sense for SFS
-coal.sfs.demes.corr
+_ = coal.sfs.demes.corr
 
 pass

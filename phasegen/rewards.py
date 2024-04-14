@@ -29,10 +29,19 @@ class Reward(ABC):
         """
         Get the hash for the reward.
         
-        :return: hash
+        :return: hash.
         """
         # hash the class name as this class is stateless.
         return hash(self.__class__.__name__)
+
+    def __eq__(self, other: 'Reward') -> bool:
+        """
+        Check if the rewards are equal.
+
+        :param other: other reward.
+        :return: True if the rewards are equal, False otherwise.
+        """
+        return self.__class__ == other.__class__ and hash(self) == hash(other)
 
     def prod(self, *rewards: 'Reward') -> 'ProductReward':
         """

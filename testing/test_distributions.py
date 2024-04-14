@@ -61,6 +61,20 @@ class DistributionTestCase(TestCase):
 
         self.assertEqual(str(context.exception), 'Specified quantile must be between 0 and 1.')
 
+    def test_update_transition_matrix(self):
+        """
+        Test _update function against CDF for different times.
+        """
+        dist = self.get_test_coalescent().tree_height
+        e = dist.reward._get(dist.state_space)
+        alpha = dist.state_space.alpha
+
+        for t in [0, 0.001, 0.01, 0.1, 1, 10, 100]:
+
+            u, T, epoch = dist._update(t, 0, np.eye(dist.state_space.k), next(dist.demography.epochs))
+
+            self.assertAlmostEqual(1 - alpha @ T @ e, dist.cdf(t))
+
     def test_quantile(self):
         """
         Test quantile function.
@@ -68,7 +82,7 @@ class DistributionTestCase(TestCase):
         dist = self.get_test_coalescent().tree_height
 
         for (quantile, tol) in itertools.product([0, 0.01, 0.5, 0.99, 1], [1e-1, 1e-5, 1e-10]):
-            self.assertAlmostEqual(dist.cdf(dist.quantile(quantile, tol=tol)), quantile, delta=tol)
+            self.assertAlmostEqual(dist.cdf(dist.quantile(quantile, precision=tol)), quantile, delta=tol)
 
     def test_tree_height_per_population(self):
         """

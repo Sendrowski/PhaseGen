@@ -740,8 +740,6 @@ class BlockCountingStateSpace(StateSpace):
 class Transition:
     """
     Class representing a transition between two states.
-
-    TODO reimplement by cycling through all possible transitions
     """
     #: Colors for different types of transitions
     _colors: Dict[str, str] = {

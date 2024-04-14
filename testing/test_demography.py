@@ -308,7 +308,7 @@ class DemographyTestCase(TestCase):
             warn_n_epochs=4
         )
 
-        self.assertEqual(0.1, d.get_epochs(5).pop_sizes['pop_1'])
+        self.assertEqual(0.1, d.get_epoch(5).pop_sizes['pop_1'])
 
         pass
 
@@ -370,14 +370,14 @@ class DemographyTestCase(TestCase):
             )
         )
 
-        self.assertEqual(coal.demography.get_epochs(1).pop_sizes['pop_0'], 1)
-        self.assertEqual(coal.demography.get_epochs(1).pop_sizes['pop_1'], 3)
+        self.assertEqual(coal.demography.get_epoch(1).pop_sizes['pop_0'], 1)
+        self.assertEqual(coal.demography.get_epoch(1).pop_sizes['pop_1'], 3)
 
-        self.assertEqual(coal.demography.get_epochs(2).pop_sizes['pop_0'], 1)
-        self.assertEqual(coal.demography.get_epochs(2).pop_sizes['pop_1'], 3)
+        self.assertEqual(coal.demography.get_epoch(2).pop_sizes['pop_0'], 1)
+        self.assertEqual(coal.demography.get_epoch(2).pop_sizes['pop_1'], 3)
 
-        self.assertEqual(coal.demography.get_epochs(1).migration_rates[('pop_1', 'pop_0')], 0)
-        self.assertEqual(coal.demography.get_epochs(1).migration_rates[('pop_0', 'pop_1')], 0)
+        self.assertEqual(coal.demography.get_epoch(1).migration_rates[('pop_1', 'pop_0')], 0)
+        self.assertEqual(coal.demography.get_epoch(1).migration_rates[('pop_0', 'pop_1')], 0)
 
-        self.assertEqual(coal.demography.get_epochs(2).migration_rates[('pop_1', 'pop_0')], 100)
-        self.assertEqual(coal.demography.get_epochs(2).migration_rates[('pop_0', 'pop_1')], 0)
+        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_1', 'pop_0')], 100)
+        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_0', 'pop_1')], 0)

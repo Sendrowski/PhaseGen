@@ -6,8 +6,10 @@ import copy
 import itertools
 import logging
 from abc import ABC, abstractmethod
+from collections import Counter
 from collections.abc import Mapping
 from functools import cached_property, cache
+from math import comb
 from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator
 
@@ -197,12 +199,14 @@ class MarginalLocusDistributions(MarginalDistributions):
         if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
-        xy = self.dist.moment(k=2, rewards=(
-            CombinedReward([self.dist.reward, LocusReward(locus1)]),
-            CombinedReward([self.dist.reward, LocusReward(locus2)])
-        ))
-
-        return xy - self.loci[locus1].mean * self.loci[locus2].mean
+        return self.dist.moment(
+            k=2,
+            rewards=(
+                CombinedReward([self.dist.reward, LocusReward(locus1)]),
+                CombinedReward([self.dist.reward, LocusReward(locus2)])
+            ),
+            center=True
+        )
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -303,12 +307,14 @@ class MarginalDemeDistributions(MarginalDistributions):
         if pop1 not in self.dist.lineage_config.pop_names or pop2 not in self.dist.lineage_config.pop_names:
             raise ValueError(f"Population {pop1} or {pop2} does not exist.")
 
-        xy = self.dist.moment(k=2, rewards=(
-            CombinedReward([self.dist.reward, DemeReward(pop1)]),
-            CombinedReward([self.dist.reward, DemeReward(pop2)])
-        ))
-
-        return xy - self.demes[pop1].mean * self.demes[pop2].mean
+        return self.dist.moment(
+            k=2,
+            rewards=(
+                CombinedReward([self.dist.reward, DemeReward(pop1)]),
+                CombinedReward([self.dist.reward, DemeReward(pop2)])
+            ),
+            center=True
+        )
 
     @cached_property
     def cov(self) -> np.ndarray:
@@ -527,7 +533,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         Second central moment / variance.
         """
-        return self.moment(k=2) - self.moment(k=1) ** 2
+        return self.moment(k=2, center=True)
 
     @cached_property
     def std(self) -> float | SFS:
@@ -541,7 +547,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         Second (non-central) moment.
         """
-        return self.moment(k=2)
+        return self.moment(k=2, center=False)
 
     @cached_property
     def demes(self) -> MarginalDemeDistributions:
@@ -557,8 +563,82 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         return MarginalLocusDistributions(self)
 
-    @cache
     def moment(
+            self,
+            k: int,
+            rewards: Tuple[Reward, ...] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float:
+        """
+        Get the kth (non-central) (cross-)moment.
+
+        :param k: The order of the moment.
+        :param rewards: Iterable of k rewards. By default, the reward of the underlying distribution.
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
+        :return: The kth moment
+        """
+        if rewards is None:
+            rewards = [self.reward] * k
+
+        if k != len(rewards):
+            raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
+
+        if k == 0:
+            return 1
+
+        # center moments around the mean
+        if center and k > 1:
+
+            # center moment
+            if len(set(rewards)) == 1:
+
+                reward = list(rewards)[0]
+                components = []
+
+                for i in range(k + 1):
+                    mu_i = PhaseTypeDistribution.moment(self, i, (reward,) * i, start_time, end_time, False)
+                    mu1_k_i = PhaseTypeDistribution.moment(self, 1, (reward,), start_time, end_time, False) ** (k - i)
+
+                    components += [comb(k, i) * (-1) ** (k - i) * mu_i * mu1_k_i]
+
+                return sum(components)
+
+            # center cross-moment
+            else:
+
+                cross_components = []
+
+                # count number of different rewards
+                for reward, count in Counter(rewards).items():
+                    cross_components += [
+                        PhaseTypeDistribution.moment(self, count, (reward,) * count, start_time, end_time, True)
+                    ]
+
+                uncentered = PhaseTypeDistribution.moment(self, k, rewards, start_time, end_time, False)
+
+                return uncentered - np.prod(cross_components)
+
+        if permute:
+            # get all possible permutations of rewards
+            permutations = list(itertools.permutations(rewards))
+
+            # compute average over all permutations
+            return sum(self._raw_moment(k, r, start_time, end_time) for r in permutations) / len(permutations)
+
+        return self._raw_moment(k, rewards, start_time, end_time)
+
+    @cache
+    def _raw_moment(
             self,
             k: int,
             rewards: Tuple[Reward, ...] = None,
@@ -566,10 +646,11 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             end_time: float = None
     ) -> float:
         """
-        Get the kth (non-central) moment.
+        Get the raw kth-order (non-central) moment. Note that for cross-moments, we need average over all possible
+        reward permutations.
 
         :param k: The order of the moment.
-        :param rewards: Tuple of k rewards
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
@@ -796,7 +877,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     max_epochs: int = 10000
 
     #: Maximum number of time we double the end time when determining time to almost sure absorption.
-    max_iter: int = 10
+    max_iter: int = 20
 
     #: Probability of almost sure absorption.
     p_absorption: float = 1 - 1e-15
@@ -914,47 +995,107 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return probs
 
+    def _update(
+            self,
+            u: float,
+            u_prev: float,
+            T: np.ndarray,
+            epoch: 'Epoch'
+    ) -> Tuple[float, np.ndarray, 'Epoch']:
+        """
+        Update transition matrix and time.
+
+        :param u: Time to update to.
+        :param u_prev: Previous time.
+        :param T: Transition matrix.
+        :param epoch: Current epoch.
+        :return: Updated time, transition matrix, and epoch.
+        """
+        self.state_space.update_epoch(epoch)
+
+        while u > epoch.end_time:
+
+            # update transition matrix with remaining time in current epoch
+            tau = epoch.end_time - u_prev
+            T = T @ expm(self.state_space.S * tau)
+            u_prev = epoch.end_time
+
+            # fetch and update for next epoch
+            epoch = self.demography.get_epoch(epoch.end_time)
+            self.state_space.update_epoch(epoch)
+        else:
+            # update transition matrix
+            T = T @ expm(self.state_space.S * (u - u_prev))
+
+        return u, T, epoch
+
+    @cached_property
+    def _e(self) -> np.ndarray:
+        """
+        Exit vector.
+        """
+        return self.reward._get(self.state_space)
+
+    def _cum(self, T: np.ndarray) -> float:
+        """
+        Get cumulative probability for given transition matrix.
+
+        :param T: Transition matrix.
+        :return: Cumulative probability.
+        """
+        return float(1 - self.state_space.alpha @ T @ self._e)
+
     @cache
     def quantile(
             self,
             q: float,
             expansion_factor: float = 2,
-            tol: float = 1e-5,
+            precision: float = 1e-5,
             max_iter: int = 1000
     ):
         """
         Find the specified quantile of a CDF using an adaptive bisection method.
 
-        TODO this can be optimized
-
         :param q: The desired quantile (between 0 and 1).
-        :param expansion_factor: Factor by which to expand the upper bound that does not yet contain the quantile.
-        :param tol: The tolerance for convergence.
-        :param max_iter: Maximum number of iterations for the bisection method.
-        :return: The approximate x value for the nth quantile.
+        :param expansion_factor: Factor by which to multiply the upper bound that does not yet contain the quantile.
+        :param precision: Precision for quantile, i.e. ``F(b) - F(a) < precision``.
+        :param max_iter: Maximum number of iterations.
+        :return: The quantile.
         """
         if q < 0 or q > 1:
             raise ValueError("Specified quantile must be between 0 and 1.")
 
+        if expansion_factor <= 1:
+            raise ValueError("Expansion factor must be greater than 1.")
+
         # initialize bounds
         a, b = 0, 1
 
-        # expand upper bound until it contains the quantile
-        while self.cdf(b) < q and max_iter > 0:
-            b *= expansion_factor
-            max_iter -= 1
+        T_a = np.eye(self.state_space.k)
+        epoch_a, epoch_b = self.demography.get_epoch(0), self.demography.get_epoch(0)
+        b, T_b, epoch_b = self._update(b, a, T_a, epoch_b)
+
+        i = 0
+
+        # expand lower bound until it contains the quantile
+        while self._cum(T_b) < q and i < max_iter:
+            b, T_b, epoch_b = self._update(b * expansion_factor, b, T_b, epoch_b)
+
+            i += 1
 
         # use bisection method within the determined bounds
-        while (b - a) > tol and max_iter > 0:
-            m = (a + b) / 2
-            if self.cdf(m) < q:
-                a = m
+        while self._cum(T_b) - self._cum(T_a) > precision and i < max_iter:
+            m, T_m, epoch_m = self._update((a + b) / 2, a, T_a, epoch_a)
+
+            if self._cum(T_m) < q:
+                a, T_a, epoch_a = m, T_m, epoch_m
             else:
-                b = m
-            max_iter -= 1
+                b, T_b, epoch_b = m, T_m, epoch_m
+
+            i += 1
 
         # warn if maximum number of iterations reached
-        if max_iter == 0:
+        if i - 1 == max_iter:
             raise RuntimeError("Maximum number of iterations reached when determining quantile.")
 
         return (a + b) / 2
@@ -1001,112 +1142,39 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         we have a good idea about how likely absorption, and can warn the user if necessary.
         Stopping the simulation when no more rewards are accumulated is not a good idea, as this
         can happen before almost sure absorption (exponential runaway growth, temporary isolation in different demes).
-
-        TODO clean up further?
         """
-        # initialize transition matrix
-        T_curr = np.eye(self.state_space.k)
+        i = 0
+        T = np.eye(self.state_space.k)
+        epoch = self.demography.get_epoch(0)
+        t = 2 ** int(np.log2(np.mean(list(epoch.pop_sizes.values()))))
+        expansion_factor = 2
 
-        # take reward vector as exit vector
-        e = self.reward._get(self.state_space)
+        t, T, epoch = self._update(t, 0, T, epoch)
+        p = self._cum(T)
 
-        # time and probability of absorption
-        t, p = 0, 0
+        # multiple time by expansion_factor until we reach p_absorption
+        while p < self.p_absorption and i < self.max_iter:
+            t, T, epoch = self._update(t * expansion_factor, t, T, epoch)
+            p = self._cum(T)
 
-        epoch = None
-
-        # iterate over epochs and stop when almost sure absorption is reached
-        for i, epoch in enumerate(self.demography.epochs):
-            # update state space
-            self.state_space.update_epoch(epoch)
-
-            if i > self.max_epochs:
-                self._logger.warning(
-                    f"Reached maximum number of epochs ({self.max_epochs}) when determining "
-                    "time of almost sure absorption. This may be due to an ill-defined demography. "
-                    "You can also increase the maximum number of epochs (TreeHeightDistribution.max_epochs) or "
-                    "set the end time manually (Coalescent.end_time)."
+            if np.isnan(p):
+                self._logger.critical(
+                    "Could not reliably find time of almost sure absorption "
+                    "as probability of absorption is NaN. "
+                    "This is likely due to an ill-conditioned rate matrix. "
+                    f"Using time {t:.1f}. "
                 )
-                return t
 
-            # make sure we are not in last epoch
-            if epoch.tau < np.inf:
-                # update transition matrix
-                T_curr = expm(self.state_space.S * epoch.tau) @ T_curr
+            i += 1
 
-                # calculate probability of absorption
-                p = 1 - self.state_space.alpha @ T_curr @ e
-
-                if np.isnan(p):
-                    return self._warn_p_is_nan(t)
-
-                t += epoch.tau
-
-                if p >= self.p_absorption:
-                    return t
-            else:
-                # handle last epoch separately
-                break
-
-        # in the last epoch choose step size to be log-average population size
-        tau = 10 ** np.mean(np.log10(np.array(list(epoch.pop_sizes.values()))))
-        T_tau = expm(self.state_space.S * tau)
-
-        # in the last epoch, we increase tau exponentially
-        for i in range(self.max_iter):
-            # update transition matrix
-            T_curr = T_tau @ T_curr
-
-            # calculate probability of absorption
-            p_next = 1 - self.state_space.alpha @ T_curr @ e
-
-            if np.isnan(p_next):
-                return self._warn_p_is_nan(t)
-
-            # break if p_next is not increasing anymore
-            if p_next < p:
-                self._logger.warning(
-                    "Could not reliably find time of almost sure absorption as it decreased for increasing time. "
-                    f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
-                    "This could be due to numerical imprecision, unreachable states or very large or small "
-                    "absorption times. You can also set the end time manually (see `Coalescent.end_time`)."
-                )
-                return t
-
-            # update time and probability
-            t += tau
-            p = p_next
-
-            # double tau, and update transition matrix accordingly
-            tau *= 2
-            T_tau @= T_tau
-
-            if p >= self.p_absorption:
-                return t
-
-        self._logger.warning(
-            "Could not reliably find time of almost sure absorption after maximum number of iterations. "
-            f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
-            "This could be due to numerical imprecision, unreachable states or very large or small absorption times. "
-            "You can set the end time manually (see `Coalescent.end_time`) or increase the maximum "
-            "number of iterations (`TreeHeightDistribution.max_iter`)."
-        )
-
-        return t
-
-    def _warn_p_is_nan(self, t: float) -> float:
-        """
-        Warn if the probability of absorption is nan.
-
-        :param t: The absorption time.
-        :return: The time.
-        """
-        self._logger.critical(
-            "Could not reliably find time of almost sure absorption "
-            "as probability of absorption is NaN. "
-            "This is likely due to an ill-conditioned rate matrix. "
-            f"Using time {t:.1f}. "
-        )
+        if i - 1 == self.max_iter:
+            self._logger.warning(
+                "Could not reliably find time of almost sure absorption after maximum number of iterations. "
+                f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
+                "This could be due to numerical imprecision, unreachable states or very large or small "
+                "absorption times. You can set the end time manually (see `Coalescent.end_time`) or increase "
+                "the maximum number of iterations (`TreeHeightDistribution.max_iter`)."
+            )
 
         return t
 
@@ -1177,7 +1245,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             k: int,
             rewards: Tuple[SFSReward, ...] = None,
             start_time: float = None,
-            end_time: float = None
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
     ) -> SFS:
         """
         Get the kth moments of the site-frequency spectrum.
@@ -1188,6 +1258,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: A site-frequency spectrum of kth order moments.
         """
         if rewards is None:
@@ -1196,7 +1270,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # optionally parallelize the moment computation of the SFS bins
         moments = parallelize(
             func=lambda x: self._moment(*x),
-            data=[[k, i, rewards, start_time, end_time] for i in self._get_indices()],
+            data=[[k, i, rewards, start_time, end_time, center, permute] for i in self._get_indices()],
             desc=f"Calculating {k}-moments",
             pbar=self.pbar,
             parallelize=self.parallelize
@@ -1210,10 +1284,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             i: int,
             rewards: Tuple[SFSReward, ...] = None,
             start_time: float = None,
-            end_time: float = None
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
     ) -> float:
         """
-        Get the kth moment for the ith site-frequency count.
+        Get the kth raw moment for the ith site-frequency count.
 
         :param k: The order of the moment
         :param i: The ith site-frequency count
@@ -1222,13 +1298,20 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: The kth SFS (cross)-moment at the ith site-frequency count
         """
-        return super().moment(
+        return PhaseTypeDistribution.moment(
+            self,
             k=k,
             rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
+            center=center,
+            permute=permute
         )
 
     def accumulate(
@@ -1367,7 +1450,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # get sfs using parallelized function
         sfs_results = parallelize(
             func=lambda x: (
-                PhaseTypeDistribution.moment(self, k=2, rewards=(
+                PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(
                     CombinedReward([self.reward, self._get_sfs_reward(x[0])]),
                     CombinedReward([self.reward, self._get_sfs_reward(x[1])])
                 ))
@@ -1402,16 +1485,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if i in (0, self.lineage_config.n) or j in (0, self.lineage_config.n):
             return 0
 
-        reward_i = CombinedReward([self.reward, self._get_sfs_reward(i)])
-        reward_j = CombinedReward([self.reward, self._get_sfs_reward(j)])
-
-        xy = super().moment(k=2, rewards=(reward_i, reward_j))
-        yx = super().moment(k=2, rewards=(reward_j, reward_i))
-
-        x = super().moment(k=1, rewards=(reward_i,))
-        y = super().moment(k=1, rewards=(reward_j,))
-
-        return (xy + yx) / 2 - x * y
+        return super().moment(
+            k=2,
+            rewards=(
+                CombinedReward([self.reward, self._get_sfs_reward(i)]),
+                CombinedReward([self.reward, self._get_sfs_reward(j)])
+            ),
+            center=True
+        )
 
     @cached_property
     def corr(self) -> SFS2:
@@ -2027,7 +2108,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epochs(0)
+            epoch=self.demography.get_epoch(0)
         )
 
     @cached_property
@@ -2039,7 +2120,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epochs(0)
+            epoch=self.demography.get_epoch(0)
         )
 
     @cached_property
@@ -2088,13 +2169,36 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
-    @cache
+    def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
+        """
+        Get the kth-order phase-type distribution with state space inferred from the rewards.
+        The returned phase-type distribution is configured with the unit reward.
+
+        :return: Distribution.
+        """
+        if rewards is None:
+            rewards = [TreeHeightReward()] * k
+
+        if Reward.support(DefaultStateSpace, rewards):
+            state_space = self.default_state_space
+        else:
+            state_space = self.block_counting_state_space
+
+        return PhaseTypeDistribution(
+            reward=UnitReward(),
+            tree_height=self.tree_height,
+            state_space=state_space,
+            demography=self.demography
+        )
+
     def moment(
             self,
             k: int = 1,
             rewards: Tuple[Reward, ...] = None,
             start_time: float = None,
-            end_time: float = None
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
     ) -> float:
         """
         Get the kth (non-central) moment using the specified rewards and state space.
@@ -2105,21 +2209,44 @@ class Coalescent(AbstractCoalescent, Serializable):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
+        :param center: Whether to center the moment.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: The kth moment
         """
-        if Reward.support(DefaultStateSpace, rewards):
-            state_space = self.default_state_space
-        else:
-            state_space = self.block_counting_state_space
+        dist = self._get_dist(k, rewards)
 
-        dist = PhaseTypeDistribution(
-            reward=TreeHeightReward() if rewards is None else UnitReward(),
-            tree_height=self.tree_height,
-            state_space=state_space,
-            demography=self.demography
+        return dist.moment(
+            k=k,
+            rewards=rewards,
+            start_time=start_time,
+            end_time=end_time,
+            center=center,
+            permute=permute
         )
 
-        return dist.moment(k=k, rewards=rewards, start_time=start_time, end_time=end_time)
+    def _raw_moment(
+            self,
+            k: int,
+            rewards: Tuple[Reward, ...] = None,
+            start_time: float = None,
+            end_time: float = None
+    ) -> float:
+        """
+        Get the kth raw moment using the specified rewards and state space.
+
+        :param k: The order of the moment
+        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :return: The kth raw moment
+        """
+        dist = self._get_dist(k, rewards)
+
+        return dist._raw_moment(k=k, rewards=rewards, start_time=start_time, end_time=end_time)
 
     def drop_cache(self):
         """

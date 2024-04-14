@@ -220,16 +220,13 @@ class Demography:
 
             i += 1
 
-    def get_epochs(self, t: float | Iterable[float]) -> Union['Epoch', Sequence['Epoch']]:
+    def get_epochs(self, t: Iterable[float]) -> Sequence['Epoch']:
         """
         Get the epoch at the given times.
 
-        :param t: Time or times.
-        :return: Epoch or array of epochs.
+        :param t: Times.
+        :return: Array of epochs.
         """
-        if not isinstance(t, Iterable):
-            return self.get_epochs([t])[0]
-
         t = list(t)
 
         # sort times in ascending order
@@ -254,6 +251,15 @@ class Demography:
 
         # sort back to original order
         return np.array(epochs[np.argsort(t)])
+
+    def get_epoch(self, t: float) -> 'Epoch':
+        """
+        Get the epoch at the given time.
+
+        :param t: Time.
+        :return: Epoch.
+        """
+        return self.get_epochs([t])[0]
 
     def add_events(self, events: List['DemographicEvent']):
         """

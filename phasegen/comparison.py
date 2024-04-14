@@ -233,7 +233,7 @@ class Comparison(Serializable):
         with mpl.rc_context({'axes.titlesize': 7}):
 
             if stat in ['m3', 'm4']:
-                ph_stat = ph.moment(int(stat[1]))
+                ph_stat = ph.moment(int(stat[1]), center=False)
                 ms_stat = getattr(ms, stat)
 
             else:
@@ -300,7 +300,7 @@ class Comparison(Serializable):
             self.logger.critical(f"{title}: {diff} > {tol}")
 
             if do_assertion:
-                raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol}.")
+                raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol} for {title}.")
         else:
             self.logger.info(f"{title}: {diff} <= {tol}")
 

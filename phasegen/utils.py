@@ -31,7 +31,6 @@ def parallelize(
     :param delay: Delay for tqdm progress bar
     :return: Array of results
     """
-
     if parallelize and len(data) > 1:
         # parallelize
         iterator = Pool().imap(func, data)

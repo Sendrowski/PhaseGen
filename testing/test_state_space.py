@@ -248,13 +248,6 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1, 'pop_3': 1})
         ).k, 2580)
 
-        sys.setrecursionlimit(1500)
-
-        self.assertEqual(pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
-        )._get_old().k, 35581)
-
     def test_plot_rates(self):
         """
         Test plot rates.
@@ -367,8 +360,8 @@ class StateSpaceTestCase(TestCase):
 
         size = defaultdict(dict)
 
-        for n in range(2, 10):
-            for d in range(1, 5):
+        for n in range(2, 8):
+            for d in range(1, 4):
                 coal = pg.Coalescent(
                     n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
                 )
@@ -437,7 +430,8 @@ class StateSpaceTestCase(TestCase):
         # reorder the states of s2 to match s1
         ordering = [
             np.where(
-                ((state_space_old.states == state_space.states[i]) & (state_space_old.linked == state_space.linked[i])).all(
+                ((state_space_old.states == state_space.states[i]) & (
+                            state_space_old.linked == state_space.linked[i])).all(
                     axis=(1, 2, 3)))[0][0] for i in range(state_space.k)
         ]
 

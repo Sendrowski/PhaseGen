@@ -73,7 +73,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height.t_max
 
-        self.assertEqual(t, 63)
+        self.assertEqual(t, 64)
 
     def test_t_max_complex_coalescent(self):
         """
@@ -83,7 +83,7 @@ class CoalescentTestCase(TestCase):
 
         t = coal.tree_height.t_max
 
-        self.assertTrue(150 < t < 200)
+        self.assertEqual(t, 128)
 
     def test_t_max_exponential_growth(self):
         """
@@ -674,7 +674,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertEqual(
             coal.tree_height.accumulate(2, coal.tree_height.t_max),
-            coal.tree_height.moment(2)
+            coal.tree_height.moment(2, center=False)
         )
 
         np.testing.assert_array_equal(
@@ -769,3 +769,166 @@ class CoalescentTestCase(TestCase):
             _ = coal.tree_height.mean
 
         self.assertIn("numerical instability", cm.output[0])
+
+    def test_symmetric_deme_covariance(self):
+        """
+        Make sure deme covariance is symmetric.
+        """
+        coal = self.get_complex_coalescent()
+
+        np.testing.assert_array_equal(coal.tree_height.demes.cov, coal.tree_height.demes.cov.T)
+        np.testing.assert_array_equal(coal.tree_height.demes.corr, coal.tree_height.demes.corr.T)
+
+        # check that diagonal is 1
+        np.testing.assert_array_almost_equal(np.diag(coal.tree_height.demes.corr), 1)
+
+    def test_variance(self):
+        """
+        Test kurtosis.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward()
+        )
+
+        var = coal.moment(2, rewards, center=True)
+
+        self.assertEqual(var, coal.moment(2, rewards, center=False) - coal.moment(1, rewards[:1], center=False) ** 2)
+
+    def test_kurtosis(self):
+        """
+        Test kurtosis.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward()
+        )
+
+        kurtosis = coal.moment(3, rewards, center=True)
+
+        m1 = coal.moment(1, rewards[:1], center=False)
+        m2 = coal.moment(2, rewards[:2], center=False)
+        m3 = coal.moment(3, rewards, center=False)
+
+        self.assertAlmostEqual(kurtosis, m3 - 3 * m2 * m1 + 2 * m1 ** 3)
+
+    def test_skewness(self):
+        """
+        Test skewness.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward()
+        )
+
+        skewness = coal.moment(4, rewards, center=True)
+
+        m4 = coal.moment(4, rewards, center=False)
+        m1 = coal.moment(1, rewards[:1], center=False)
+        m3m1 = coal.moment(3, rewards[:3], center=False) * m1
+        m2m2 = coal.moment(2, rewards[:2], center=False) * m1 ** 2
+
+        self.assertAlmostEqual(skewness, m4 - 4 * m3m1 + 6 * m2m2 - 3 * m1 ** 4)
+
+    def test_central_m5(self):
+        """
+        Test central 5th moment.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward(),
+            pg.TreeHeightReward()
+        )
+
+        moment = coal.moment(5, rewards, center=True)
+
+        m5 = coal.moment(5, rewards, center=False)
+        m1 = coal.moment(1, rewards[:1], center=False)
+        m4m1 = coal.moment(4, rewards[:4], center=False) * m1
+        m3m2 = coal.moment(3, rewards[:3], center=False) * m1 ** 2
+        m2m3 = coal.moment(2, rewards[:2], center=False) * m1 ** 3
+
+        self.assertAlmostEqual(moment, m5 - 5 * m4m1 + 10 * m3m2 - 10 * m2m3 + 4 * m1 ** 5)
+
+    def test_central_2nd_order_cross_moment(self):
+        """
+        Test 2nd order central cross moment.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.UnfoldedSFSReward(2),
+            pg.UnfoldedSFSReward(3)
+        )
+
+        moment = coal.moment(2, rewards, center=True)
+        xy = coal._raw_moment(2, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3)))
+        yx = coal._raw_moment(2, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2)))
+        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
+        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(3),))
+
+        self.assertAlmostEqual(moment, (xy + yx) / 2 - x * y)
+
+    def test_3rd_order_cross_moment(self):
+        """
+        Test 3rd order cross moment.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.UnfoldedSFSReward(2),
+            pg.UnfoldedSFSReward(3),
+            pg.UnfoldedSFSReward(4)
+        )
+
+        moment = coal.moment(3, rewards, center=True)
+        xyz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(4)))
+        xzy = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(3)))
+        yxz = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
+        yzx = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
+        zxy = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3)))
+        zyx = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2)))
+        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
+        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(3),))
+        z = coal._raw_moment(1, (pg.UnfoldedSFSReward(4),))
+
+        self.assertAlmostEqual(moment, (xyz + xzy + yxz + yzx + zxy + zyx) / 6 - x * y * z)
+
+    def test_3rd_order_uncentered_partial_cross_moment(self):
+        """
+        Test 3rd order uncentered partial cross moment.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.UnfoldedSFSReward(2),
+            pg.UnfoldedSFSReward(2),
+            pg.UnfoldedSFSReward(4)
+        )
+
+        moment = coal.moment(3, rewards, center=False)
+        xyz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
+        xzy = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
+        yxz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
+        yzx = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
+        zxy = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
+        zyx = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
+        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
+        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
+        z = coal._raw_moment(1, (pg.UnfoldedSFSReward(4),))
+
+        self.assertAlmostEqual(moment, (xyz + xzy + yxz + yzx + zxy + zyx) / 6)
+
