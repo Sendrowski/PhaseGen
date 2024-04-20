@@ -2,6 +2,7 @@
 Initialization for the testing module.
 """
 import logging
+import os
 import sys
 from pathlib import Path
 from unittest import TestCase as BaseTestCase
@@ -39,6 +40,10 @@ logger.info(sys.version)
 logger.info(f"Running tests for {pg.__file__}")
 logger.info(f"phasegen version: {pg.__version__}")
 logger.info(f"Exponentiation backend: {pg.expm.Backend.backend.__class__.__name__}")
+
+# create scratch directory if it doesn't exist
+if not os.path.exists('scratch'):
+    os.makedirs('scratch')
 
 
 class TestCase(BaseTestCase):

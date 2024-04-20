@@ -230,6 +230,8 @@ class StateSpaceTestCase(TestCase):
         """
         Test block counting state space size.
         """
+        sys.setrecursionlimit(1500)
+
         self.assertEqual(pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(10)
         ).k, 42)
