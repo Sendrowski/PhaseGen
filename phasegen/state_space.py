@@ -485,7 +485,12 @@ class DefaultStateSpace(StateSpace):
 class BlockCountingStateSpace(StateSpace):
     r"""
     Rate matrix for block counting state space where there is one state per sample configuration:
-    :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`,
+
+    A block counting state is a vector of length ``n`` where each element represents the number of lineages
+    subtending ``i`` lineages in the coalescent tree.
+
+        .. math::
+            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} a_i = n.
 
     per deme and per locus. This state space can distinguish between different tree topologies
     and is thus used when computing statistics based on the SFS.

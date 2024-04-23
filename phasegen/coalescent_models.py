@@ -22,6 +22,7 @@ class CoalescentModel(ABC):
         :param s1: Number of lineages in the first state.
         :param s2: Number of lineages in the second state.
         :return: The rate.
+        :meta private:
         """
         # not possible
         if s2 > s1:
@@ -32,12 +33,18 @@ class CoalescentModel(ABC):
     def get_rate_block_counting(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         r"""
         Get (positive) rate between two block counting states.
-        :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`.
+
+        A block counting state is a vector of length ``n`` where each element represents the number of lineages
+        subtending ``i`` lineages in the coalescent tree.
+
+        .. math::
+            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} a_i = n.
 
         :param n: Number of lineages.
         :param s1: Block configuration 1, a vector of length n.
         :param s2: Block configuration 2, a vector of length n.
         :return: The rate.
+        :meta private:
         """
         diff = s2 - s1
 
@@ -113,6 +120,7 @@ class CoalescentModel(ABC):
         :param n: The total number of lineages.
         :param blocks: The lineages in each block.
         :return: List of coalesced states and their rates.
+        :meta private:
         """
         pass
 
@@ -178,6 +186,7 @@ class StandardCoalescent(CoalescentModel):
         :param n: The total number of lineages.
         :param blocks: The lineages in each block.
         :return: List of coalesced states and their rates.
+        :meta private:
         """
         n_blocks = len(blocks)
         states = []
@@ -235,6 +244,7 @@ class MultipleMergerCoalescent(CoalescentModel, ABC):
         :param n: The total number of lineages.
         :param blocks: The lineages in each block.
         :return: List of coalesced states and their rates.
+        :meta private:
         """
         n_blocks = len(blocks)
         states = []
