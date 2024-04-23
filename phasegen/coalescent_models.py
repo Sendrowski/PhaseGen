@@ -378,10 +378,10 @@ class DiracCoalescent(MultipleMergerCoalescent):
             raise ValueError("Psi must be between 0 and 1.")
 
         #: The fraction of the population replaced by offspring in one large reproduction event
-        self.psi = psi
+        self.psi: float = psi
 
         #: The rate of potential multiple merger events.
-        self.c = c
+        self.c: float = c
 
         #: Whether to scale coalescence time
         self.scale_time: bool = scale_time
