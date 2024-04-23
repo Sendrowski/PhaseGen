@@ -882,7 +882,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertAlmostEqual(moment, (xy + yx) / 2 - x * y)
 
-    def test_3rd_order_cross_moment(self):
+    def test_central_3rd_order_cross_moment(self):
         """
         Test 3rd order cross moment.
         """
@@ -895,21 +895,23 @@ class CoalescentTestCase(TestCase):
         )
 
         moment = coal.moment(3, rewards, center=True)
-        xyz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(4)))
-        xzy = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(3)))
-        yxz = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
-        yzx = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
-        zxy = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3)))
-        zyx = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2)))
-        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
-        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(3),))
-        z = coal._raw_moment(1, (pg.UnfoldedSFSReward(4),))
+        xyz = coal.moment(3, rewards, center=False)
+        xy = coal.moment(2, tuple(np.array(rewards)[[0, 1]]), center=False)
+        xz = coal.moment(2, tuple(np.array(rewards)[[0, 2]]), center=False)
+        yz = coal.moment(2, tuple(np.array(rewards)[[1, 2]]), center=False)
+        xy_centered = coal.moment(2, tuple(np.array(rewards)[[0, 1]]))
+        xz_centered = coal.moment(2, tuple(np.array(rewards)[[0, 2]]))
+        yz_centered = coal.moment(2, tuple(np.array(rewards)[[1, 2]]))
+        x = coal.moment(1, (pg.UnfoldedSFSReward(2),))
+        y = coal.moment(1, (pg.UnfoldedSFSReward(3),))
+        z = coal.moment(1, (pg.UnfoldedSFSReward(4),))
 
-        self.assertAlmostEqual(moment, (xyz + xzy + yxz + yzx + zxy + zyx) / 6 - x * y * z)
+        self.assertAlmostEqual(moment, xyz - xy * z - xz * y - yz * x + 2 * x * y * z)
+        self.assertAlmostEqual(moment, xyz - xy_centered * z - xz_centered * y - yz_centered * x - x * y * z)
 
-    def test_3rd_order_uncentered_partial_cross_moment(self):
+    def test_3rd_order_uncentered_cross_moment(self):
         """
-        Test 3rd order uncentered partial cross moment.
+        Test 3rd order uncentered cross moment.
         """
         coal = self.get_complex_coalescent()
 
@@ -926,9 +928,61 @@ class CoalescentTestCase(TestCase):
         yzx = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
         zxy = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
         zyx = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
-        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
-        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
-        z = coal._raw_moment(1, (pg.UnfoldedSFSReward(4),))
 
         self.assertAlmostEqual(moment, (xyz + xzy + yxz + yzx + zxy + zyx) / 6)
 
+    def test_3rd_order_uncentered_partial_cross_moment(self):
+        """
+        Test 3rd order uncentered partial cross moment.
+        """
+        coal = self.get_complex_coalescent()
+
+        rewards = (
+            pg.UnfoldedSFSReward(3),
+            pg.UnfoldedSFSReward(2),
+            pg.UnfoldedSFSReward(4)
+        )
+
+        moment = coal.moment(3, rewards, center=False, permute=False)
+        moment_raw = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
+
+        self.assertAlmostEqual(moment, moment_raw)
+
+    def test_uncentered_cross_moments_msprime(self):
+        """
+        Test higher-order uncentered cross-moments against Msprime coalescent.
+        """
+        coal = self.get_complex_coalescent()
+        ms = coal._to_msprime(num_replicates=100000)
+
+        # test uncentered moments
+        for indices in [[2, 3, 4], [1, 1, 4], [1, 1, 1], [4, 2, 1]]:
+            m_ms = np.mean(ms.sfs.samples[:, indices].prod(axis=1))
+            m_ph = coal.moment(3, tuple(pg.UnfoldedSFSReward(l) for l in indices), center=False)
+
+            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.05)
+
+    def test_centered_cross_moments_msprime(self):
+        """
+        Test higher-order centered cross-moments against Msprime coalescent.
+        """
+        coal = pg.Coalescent(n=6)
+        ms = coal._to_msprime(num_replicates=1000000, n_threads=100)
+
+        combinations = [
+            [2, 3, 4, 4, 4],
+            [1, 2, 3, 4, 5],
+            [1, 2, 3, 4],
+            [3, 2, 3, 4],
+            [1, 1, 4],
+            [1, 1, 1],
+            [4, 2, 1],
+            [2, 3]
+        ]
+
+        # test centered moments
+        for indices in combinations:
+            m_ph = coal.moment(len(indices), tuple(pg.UnfoldedSFSReward(l) for l in indices), center=True)
+            m_ms = np.mean((ms.sfs.samples[:, indices] - ms.sfs.samples[:, indices].mean(axis=0)).prod(axis=1))
+
+            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.1)

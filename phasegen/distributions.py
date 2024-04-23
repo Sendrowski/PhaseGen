@@ -6,10 +6,8 @@ import copy
 import itertools
 import logging
 from abc import ABC, abstractmethod
-from collections import Counter
 from collections.abc import Mapping
 from functools import cached_property, cache
-from math import comb
 from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator
 
@@ -563,6 +561,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         return MarginalLocusDistributions(self)
 
+    @cache
     def moment(
             self,
             k: int,
@@ -599,34 +598,40 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # center moments around the mean
         if center and k > 1:
 
-            # center moment
-            if len(set(rewards)) == 1:
+            components = []
 
-                reward = list(rewards)[0]
-                components = []
+            # first order moments
+            means = [
+                PhaseTypeDistribution.moment(
+                    self,
+                    k=1,
+                    rewards=(rewards[i],),
+                    start_time=start_time,
+                    end_time=end_time
+                ) for i in range(k)
+            ]
 
-                for i in range(k + 1):
-                    mu_i = PhaseTypeDistribution.moment(self, i, (reward,) * i, start_time, end_time, False)
-                    mu1_k_i = PhaseTypeDistribution.moment(self, 1, (reward,), start_time, end_time, False) ** (k - i)
+            for i in range(k + 1):
+                # iterate over all possible subsets of rewards of size i
+                for indices in itertools.combinations(range(k), i):
 
-                    components += [comb(k, i) * (-1) ** (k - i) * mu_i * mu1_k_i]
+                    # joint moment
+                    mu_i = PhaseTypeDistribution.moment(
+                        self,
+                        k=i,
+                        rewards=tuple(rewards[j] for j in indices),
+                        start_time=start_time,
+                        end_time=end_time,
+                        center=False,
+                        permute=permute
+                    )
 
-                return sum(components)
+                    # product of means of remaining rewards
+                    mu1 = np.prod([means[j] for j in range(k) if j not in indices])
 
-            # center cross-moment
-            else:
+                    components += [(-1) ** (k - i) * mu_i * mu1]
 
-                cross_components = []
-
-                # count number of different rewards
-                for reward, count in Counter(rewards).items():
-                    cross_components += [
-                        PhaseTypeDistribution.moment(self, count, (reward,) * count, start_time, end_time, True)
-                    ]
-
-                uncentered = PhaseTypeDistribution.moment(self, k, rewards, start_time, end_time, False)
-
-                return uncentered - np.prod(cross_components)
+            return sum(components)
 
         if permute:
             # get all possible permutations of rewards
@@ -2191,6 +2196,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    @cache
     def moment(
             self,
             k: int = 1,
