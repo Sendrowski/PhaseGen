@@ -35,10 +35,10 @@ class SFS2(Iterable):
         data = np.array(data).copy()
 
         if data.ndim != 2:
-            raise AssertionError('Data has to be 2-dimensional')
+            raise ValueError('Data has to be 2-dimensional')
 
         if data.shape[0] != data.shape[1]:
-            raise AssertionError('Matrix has to be square.')
+            raise ValueError('Matrix has to be square.')
 
         self.n = data.shape[0]
 
@@ -49,7 +49,7 @@ class SFS2(Iterable):
 
     def to_file(self, file):
         """
-        Save to file.
+        Save to file (in JSON format).
         
         :param file: File path.
         """
@@ -68,6 +68,32 @@ class SFS2(Iterable):
         obj.data = obj.data.tolist()
 
         return jsonpickle.encode(obj)
+
+    @staticmethod
+    def from_file(file: str) -> 'SFS2':
+        """
+        Load from file.
+
+        :param file: File path.
+        :return: SFS2
+        """
+        with open(file, 'r') as f:
+            return SFS2.from_json(f.read())
+
+    @staticmethod
+    def from_json(json: str) -> 'SFS2':
+        """
+        Load from JSON string.
+
+        :param json: JSON string.
+        :return: SFS2
+        """
+        obj = jsonpickle.decode(json)
+
+        # convert list to numpy array
+        obj.data = np.array(obj.data)
+
+        return obj
 
     def is_folded(self) -> bool:
         """
@@ -367,10 +393,9 @@ class SFS2(Iterable):
             )
         )
 
-        if log_scale:
-            pass  # log scale currently doesn't work
-            # ax.yaxis.set_scale('log')
-            # ax.set_yscale('log', base=1.001)
+        # if log_scale:
+        # ax.yaxis.set_scale('log')
+        # ax.set_yscale('log', base=1.001)
 
         if title is not None:
             ax.set_title(title)
