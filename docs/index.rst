@@ -1,6 +1,8 @@
 Welcome to PhaseGen's documentation
 ===================================
 
+.. image:: https://codecov.io/gh/Sendrowski/PhaseGen/graph/badge.svg?token=RMCUGD6CAX
+ :target: https://codecov.io/gh/Sendrowski/PhaseGen
 .. image:: https://readthedocs.org/projects/phasegen/badge/?version=latest
     :target: https://phasegen.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status

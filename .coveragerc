@@ -1,0 +1,7 @@
+[run]
+source = phasegen
+
+[report]
+omit =
+    phasegen/comparison.py
+    phasegen/state_space_old.py
