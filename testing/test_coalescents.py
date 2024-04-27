@@ -1,12 +1,13 @@
 """
 Test coalescents.
 """
-
+from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
 
 import numpy as np
 import pytest
+from matplotlib import pyplot as plt
 
 import phasegen as pg
 from phasegen.distributions import MsprimeCoalescent
@@ -962,27 +963,53 @@ class CoalescentTestCase(TestCase):
 
             self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.05)
 
-    def test_centered_cross_moments_msprime(self):
+    def compare_centered_sfs_cross_moments_msprime(self):
         """
-        Test higher-order centered cross-moments against Msprime coalescent.
+        Test higher-order centered SFS cross-moments against Msprime coalescent.
         """
         coal = pg.Coalescent(n=6)
-        ms = coal._to_msprime(num_replicates=1000000, n_threads=100)
+        ms = coal._to_msprime(num_replicates=1000000, n_threads=100, seed=42)
 
-        combinations = [
-            [2, 3, 4, 4, 4],
-            [1, 2, 3, 4, 5],
-            [1, 2, 3, 4],
-            [3, 2, 3, 4],
-            [1, 1, 4],
-            [1, 1, 1],
-            [4, 2, 1],
-            [2, 3]
+        data = [
+            dict(moments=[2, 3, 4, 4, 4], tol=0.1),
+            dict(moments=[1, 2, 3, 4, 5], tol=0.1),
+            dict(moments=[1, 2, 3, 4], tol=0.1),
+            dict(moments=[3, 2, 3, 4], tol=0.1),
+            dict(moments=[1, 1, 4], tol=0.1),
+            dict(moments=[1, 1, 1], tol=0.1),
+            dict(moments=[4, 2, 1], tol=0.1),
+            dict(moments=[2, 3], tol=0.1)
         ]
 
         # test centered moments
-        for indices in combinations:
-            m_ph = coal.moment(len(indices), tuple(pg.UnfoldedSFSReward(l) for l in indices), center=True)
-            m_ms = np.mean((ms.sfs.samples[:, indices] - ms.sfs.samples[:, indices].mean(axis=0)).prod(axis=1))
+        for config in data:
+            moments, tol = config['moments'], config['tol']
+            m_ph = coal.moment(len(moments), tuple(pg.UnfoldedSFSReward(l) for l in moments), center=True)
+            m_ms = np.mean((ms.sfs.samples[:, moments] - ms.sfs.samples[:, moments].mean(axis=0)).prod(axis=1))
 
-            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.1)
+            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), tol)
+
+    def test_pdf_large_N(self):
+        """
+        Test plotting pdf for different population sizes.
+        """
+        Ns = np.array([1e-30, 1e-20, 1e-10, 1, 1e10, 1e20, 1e30])
+        _, axs = plt.subplots(len(Ns), 1, figsize=(5, 10))
+        data = []
+
+        for i, N in enumerate(Ns):
+            coal = pg.Coalescent(
+                n=4,
+                demography=pg.Demography(
+                    pop_sizes=cast(float, N)
+                )
+            )
+
+            t = np.linspace(0, coal.tree_height.quantile(0.99), 200)
+            data += [coal.tree_height.pdf(t=t)]
+            coal.tree_height.plot_pdf(ax=axs[i], label=f'N={N}', show=False, t=t)
+
+        plt.show()
+
+        data = np.array(data)
+        self.assertTrue((np.var(data.T * Ns[None, :], axis=1) < 1e-10).all())

@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from functools import cached_property, cache
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator
+from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -366,11 +366,12 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         pass
 
     @abstractmethod
-    def pdf(self, t: float | np.ndarray) -> float | np.ndarray:
+    def pdf(self, t: float | np.ndarray, **kwargs) -> float | np.ndarray:
         """
         Density function.
 
         :param t: Value or values to evaluate the density function at.
+        :param kwargs: Additional keyword arguments.
         :return: Density.
         """
         pass
@@ -423,7 +424,8 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
             file: str = None,
             clear: bool = True,
             label: str = None,
-            title: str = 'Tree height PDF'
+            title: str = 'Tree height PDF',
+            dx: float = None
     ) -> 'plt.Axes':
         """
         Plot density function.
@@ -436,9 +438,13 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         :param clear: Whether to clear the plot before plotting.
         :param label: Label for the plot.
         :param title: Title of the plot.
+        :param dx: Step size for numerical differentiation. By default, the 99th percentile divided by 1e10.
         :return: Axes.
         """
         from .visualization import Visualization
+
+        if dx is None:
+            dx = self.quantile(0.99) / 1e10
 
         if t is None:
             t = np.linspace(0, self.quantile(0.99), 200)
@@ -446,7 +452,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         return Visualization.plot(
             ax=ax,
             x=t,
-            y=self.pdf(t),
+            y=self.pdf(t, dx=dx),
             xlabel='t',
             ylabel='f(t)',
             label=label,
@@ -614,7 +620,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             for i in range(k + 1):
                 # iterate over all possible subsets of rewards of size i
                 for indices in itertools.combinations(range(k), i):
-
                     # joint moment
                     mu_i = PhaseTypeDistribution.moment(
                         self,
@@ -1105,15 +1110,18 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return (a + b) / 2
 
-    def pdf(self, t: float | np.ndarray, dx: float = 1e-10) -> float | np.ndarray:
+    def pdf(self, t: float | np.ndarray, dx: float = None) -> float | np.ndarray:
         """
         Density function. We use numerical differentiation of the CDF to calculate the density. This provides good
         results as the CDF is exact and continuous.
 
         :param t: Value or values to evaluate the density function at.
-        :param dx: Step size for numerical differentiation.
+        :param dx: Step size for numerical differentiation. By default, the 99th percentile divided by 1e10.
         :return: Density
         """
+        if dx is None:
+            dx = self.quantile(0.99) / 1e10
+
         # determine (non-negative) evaluation points
         x1 = np.max([t - dx / 2, np.zeros_like(t)], axis=0)
         x2 = x1 + dx
@@ -1574,7 +1582,7 @@ class FoldedSFSDistribution(SFSDistribution):
         return np.arange(1, self.lineage_config.n // 2 + 1)
 
 
-class EmpiricalDistribution(DensityAwareDistribution):
+class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
     Probability distribution based on realisations.
     """
@@ -1732,7 +1740,7 @@ class EmpiricalDistribution(DensityAwareDistribution):
         return y
 
 
-class EmpiricalSFSDistribution(EmpiricalDistribution):
+class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     """
     SFS probability distribution based on realisations.
     """
@@ -1781,14 +1789,14 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):
         return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
-class DictContainer(dict):
+class DictContainer(dict):  # pragma: no cover
     """
     Dictionary container.
     """
     pass
 
 
-class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
+class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     """
     Phase-type distribution based on realisations.
     """
@@ -1886,7 +1894,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):
         return loci
 
 
-class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):
+class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # pragma: no cover
     """
     SFS phase-type distribution based on realisations.
     """
@@ -2305,7 +2313,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             num_replicates: int = 10000,
             n_threads: int = 10,
             parallelize: bool = True,
-            record_migration: bool = False
+            record_migration: bool = False,
+            seed: int = None
     ) -> 'MsprimeCoalescent':
         """
         Convert to msprime coalescent.
@@ -2329,11 +2338,12 @@ class Coalescent(AbstractCoalescent, Serializable):
             num_replicates=num_replicates,
             n_threads=n_threads,
             parallelize=parallelize,
-            record_migration=record_migration
+            record_migration=record_migration,
+            seed=seed
         )
 
 
-class MsprimeCoalescent(AbstractCoalescent):
+class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
     """
     Empirical coalescent distribution based on msprime simulations.
     """
@@ -2349,7 +2359,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
-            record_migration: bool = False
+            record_migration: bool = False,
+            seed: int = None
     ):
         """
         Simulate data using msprime.
@@ -2363,6 +2374,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param n_threads: Number of threads.
         :param parallelize: Whether to parallelize.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
+        :param seed: Random seed.
         """
         super().__init__(
             n=n,
@@ -2381,6 +2393,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.n_threads: int = n_threads
         self.parallelize: bool = parallelize
         self.record_migration: bool = record_migration
+        self.seed: int = seed
 
         self.p_accepted: int = 0
 
@@ -2415,11 +2428,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         n_pops = self.demography.n_pops
         sample_size = self.lineage_config.n
 
-        def simulate_batch(_) -> (np.ndarray, np.ndarray, np.ndarray):
+        def simulate_batch(seed: Optional[int]) -> (np.ndarray, np.ndarray, np.ndarray):
             """
             Simulate statistics.
 
-            :param _:
+            :param seed: Random seed.
             :return: Statistics.
             """
             import msprime as ms
@@ -2435,7 +2448,8 @@ class MsprimeCoalescent(AbstractCoalescent):
                 demography=demography,
                 model=model,
                 ploidy=1,
-                end_time=end_time
+                end_time=end_time,
+                random_seed=seed
             )
 
             # initialize variables
@@ -2523,7 +2537,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # parallelize and add up results
         res = np.hstack(parallelize(
             func=simulate_batch,
-            data=[None] * self.n_threads,
+            data=[self.seed + i if self.seed is not None else None for i in range(self.n_threads)],
             parallelize=self.parallelize,
             batch_size=num_replicates,
             desc="Simulating trees"
