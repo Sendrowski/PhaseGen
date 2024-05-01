@@ -37,7 +37,7 @@ rule all:
                 'beta_coalescent_5_lineages_default',
                 'beta_coalescent_5_lineages_block_counting',
             ]),
-            #"results/graphs/executions_times.png",
+            #"results/graphs/execution_times.png",
             #"results/graphs/state_space_sizes.png",
             #"results/benchmarks/state_space/all.csv",
             #expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
@@ -253,7 +253,7 @@ rule calculate_2sfs_simulated:
 # plot execution time
 rule plot_execution_time:
     output:
-        "results/graphs/executions_times.png"
+        "results/graphs/execution_times.png"
     conda:
         "envs/dev.yaml"
     script:
