@@ -592,81 +592,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             the order of rewards.
         :return: The kth moment
         """
-        if rewards is None:
-            rewards = [self.reward] * k
-
-        if k != len(rewards):
-            raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
-
-        if k == 0:
-            return 1
-
-        # center moments around the mean
-        if center and k > 1:
-
-            components = []
-
-            # first order moments
-            means = [
-                PhaseTypeDistribution.moment(
-                    self,
-                    k=1,
-                    rewards=(rewards[i],),
-                    start_time=start_time,
-                    end_time=end_time
-                ) for i in range(k)
-            ]
-
-            for i in range(k + 1):
-                # iterate over all possible subsets of rewards of size i
-                for indices in itertools.combinations(range(k), i):
-                    # joint moment
-                    mu_i = PhaseTypeDistribution.moment(
-                        self,
-                        k=i,
-                        rewards=tuple(rewards[j] for j in indices),
-                        start_time=start_time,
-                        end_time=end_time,
-                        center=False,
-                        permute=permute
-                    )
-
-                    # product of means of remaining rewards
-                    mu1 = np.prod([means[j] for j in range(k) if j not in indices])
-
-                    components += [(-1) ** (k - i) * mu_i * mu1]
-
-            return sum(components)
-
-        if permute:
-            # get all possible permutations of rewards
-            permutations = list(itertools.permutations(rewards))
-
-            # compute average over all permutations
-            return sum(self._raw_moment(k, r, start_time, end_time) for r in permutations) / len(permutations)
-
-        return self._raw_moment(k, rewards, start_time, end_time)
-
-    @cache
-    def _raw_moment(
-            self,
-            k: int,
-            rewards: Tuple[Reward, ...] = None,
-            start_time: float = None,
-            end_time: float = None
-    ) -> float:
-        """
-        Get the raw kth-order (non-central) moment. Note that for cross-moments, we need average over all possible
-        reward permutations.
-
-        :param k: The order of the moment.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :return: The kth moment
-        """
         if start_time is None:
             start_time = self.tree_height.start_time
 
@@ -674,10 +599,25 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             end_time = self.tree_height.t_max
 
         if start_time > 0:
-            m_start, m_end = PhaseTypeDistribution.accumulate(self, k, [start_time, end_time], rewards)
+            m_start, m_end = PhaseTypeDistribution.accumulate(
+                self,
+                k=k,
+                end_times=[start_time, end_time],
+                rewards=rewards,
+                center=center,
+                permute=permute
+            )
+
             m = float(m_end - m_start)
         else:
-            m = float(PhaseTypeDistribution.accumulate(self, k, [end_time], rewards)[0])
+            m = float(PhaseTypeDistribution.accumulate(
+                self,
+                k=k,
+                end_times=[end_time],
+                rewards=rewards,
+                center=center,
+                permute=permute
+            )[0])
 
         if np.isnan(m):
             raise ValueError(
@@ -722,22 +662,92 @@ class PhaseTypeDistribution(MomentAwareDistribution):
     def accumulate(
             self,
             k: int,
-            end_times: Iterable[float] | float,
-            rewards: Tuple[Reward, ...] = None
-    ) -> np.ndarray | float:
+            end_times: Iterable[float],
+            rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> np.ndarray:
         """
         Evaluate the kth (non-central) moment at different end times.
 
         :param k: The order of the moment.
         :param end_times: List of ends times or end time when to evaluate the moment.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: The moment accumulated at the specified times or time.
         """
-        # handle scalar input
-        if not isinstance(end_times, Iterable):
-            return self.accumulate(k, [end_times], rewards)[0]
+        if rewards is None:
+            rewards = [self.reward] * k
 
-        end_times = np.array(list(end_times))
+        if k != len(rewards):
+            raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
+
+        if k == 0:
+            return np.ones_like(list(end_times))
+
+        # center moments around the mean
+        if center and k > 1:
+
+            components = []
+
+            # first order moments
+            means = [
+                PhaseTypeDistribution.accumulate(
+                    self,
+                    k=1,
+                    rewards=(rewards[i],),
+                    end_times=end_times
+                ) for i in range(k)
+            ]
+
+            for i in range(k + 1):
+                # iterate over all possible subsets of rewards of size i
+                for indices in itertools.combinations(range(k), i):
+                    # joint moment
+                    mu_i = PhaseTypeDistribution.accumulate(
+                        self,
+                        k=i,
+                        rewards=tuple(rewards[j] for j in indices),
+                        end_times=end_times,
+                        center=False,
+                        permute=permute
+                    )
+
+                    # product of means of remaining rewards
+                    mu1 = np.prod([means[j] for j in range(k) if j not in indices], axis=0)
+
+                    components += [(-1) ** (k - i) * mu_i * mu1]
+
+            return np.sum(components, axis=0)
+
+        if permute:
+            # get all possible permutations of rewards
+            permutations = list(itertools.permutations(rewards))
+
+            # compute average over all permutations
+            return np.sum([self._accumulate(k, tuple(end_times), r) for r in permutations], axis=0) / len(permutations)
+
+        return self._accumulate(k, tuple(end_times), rewards)
+
+    @cache
+    def _accumulate(
+            self,
+            k: int,
+            end_times: Tuple[float, ...],
+            rewards: Tuple[Reward, ...] = None
+    ) -> np.ndarray:
+        """
+        Evaluate the kth (non-central) moment at different end times.
+
+        :param k: The order of the moment.
+        :param end_times: Tuple of ends times or end time when to evaluate the moment.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :return: The moment accumulated at the specified times or time.
+        """
+        end_times = np.array(end_times)
 
         # check for negative values
         if np.any(end_times < 0):
@@ -828,6 +838,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True,
             ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
@@ -845,6 +857,10 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and the
             99th percentile.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -864,10 +880,12 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         if title is None:
             title = f"Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
 
+        y = self.accumulate(k, end_times, rewards, center, permute)
+
         Visualization.plot(
             ax=ax,
             x=end_times,
-            y=self.accumulate(k, end_times, rewards),
+            y=y,
             xlabel='t',
             ylabel='moment',
             label=label,
@@ -1302,7 +1320,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute: bool = True
     ) -> float:
         """
-        Get the kth raw moment for the ith site-frequency count.
+        Get the kth moment for the ith site-frequency count.
 
         :param k: The order of the moment
         :param i: The ith site-frequency count
@@ -1330,8 +1348,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     def accumulate(
             self,
             k: int,
-            end_times: Iterable[float] | float,
-            rewards: Tuple[Reward, ...] = None
+            end_times: Iterable[float],
+            rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True
     ) -> np.ndarray:
         """
         Evaluate the kth (non-central) moments at different end times.
@@ -1339,11 +1359,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param k: The order of the moment.
         :param end_times: Times or time when to evaluate the moment.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
-        if not isinstance(end_times, Iterable):
-            return self.accumulate(k, [end_times], rewards)[:, 0]
-
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
@@ -1367,6 +1388,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True,
             ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
@@ -1384,6 +1407,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
             the 99th percentile.
         :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -1409,7 +1436,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
                      f"({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})")
 
         # get accumulation of moments
-        accumulation = self.accumulate(k, end_times, rewards)
+        accumulation = self.accumulate(k, end_times, rewards, center, permute)
 
         for i, acc in zip(self._get_indices(), accumulation[1: -1]):
             Visualization.plot(
@@ -1432,7 +1459,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             k: int,
             i: int,
             end_times: Iterable[float] | float,
-            rewards: Tuple[SFSReward, ...] = None
+            rewards: Tuple[SFSReward, ...] = None,
+            center: bool = True,
+            permute: bool = True
     ) -> np.ndarray | float:
         """
         Get accumulation of moments for the ith site-frequency count.
@@ -1441,6 +1470,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param i: The ith site-frequency count.
         :param end_times: Times or time when to evaluate the moment.
         :param rewards: Tuple of k rewards.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
         :return: The kth SFS (cross)-moment accumulations at the ith site-frequency count
         """
         if rewards is None:
@@ -1449,7 +1482,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return super().accumulate(
             k=k,
             end_times=end_times,
-            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards])
+            rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
+            center=center,
+            permute=permute
         )
 
     @cached_property
@@ -2187,6 +2222,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         Get the kth-order phase-type distribution with state space inferred from the rewards.
         The returned phase-type distribution is configured with the unit reward.
 
+        :param k: Order of the moment.
+        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
         :return: Distribution.
         """
         if rewards is None:
@@ -2229,9 +2266,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             the order of rewards.
         :return: The kth moment
         """
-        dist = self._get_dist(k, rewards)
-
-        return dist.moment(
+        return self._get_dist(k, rewards).moment(
             k=k,
             rewards=rewards,
             start_time=start_time,
@@ -2258,9 +2293,90 @@ class Coalescent(AbstractCoalescent, Serializable):
             initializing the distribution or the time until almost sure absorption.
         :return: The kth raw moment
         """
-        dist = self._get_dist(k, rewards)
+        return self.moment(
+            k=k,
+            rewards=rewards,
+            start_time=start_time,
+            end_time=end_time,
+            center=False,
+            permute=False
+        )
 
-        return dist._raw_moment(k=k, rewards=rewards, start_time=start_time, end_time=end_time)
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> np.ndarray:
+        """
+        Accumulate moments at different times.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
+            the 99th percentile.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
+        :return: Accumulation of moments.
+        """
+        return self._get_dist(k, rewards).accumulate(
+            k=k,
+            end_times=end_times,
+            rewards=rewards,
+            center=center,
+            permute=permute
+        )
+
+    def plot_accumulation(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Tuple[Reward, ...] = None,
+            center: bool = True,
+            permute: bool = True,
+            ax: 'plt.Axes' = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = False,
+            label: str = None,
+            title: str = None
+    ) -> 'plt.Axes':
+        """
+        Plot the accumulation of moments.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
+            the 99th percentile.
+        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
+            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
+            the order of rewards.
+        :param ax: Axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        self._get_dist(k, rewards).plot_accumulation(
+            k=k,
+            end_times=end_times,
+            rewards=rewards,
+            center=center,
+            permute=permute,
+            ax=ax,
+            show=show,
+            file=file,
+            clear=clear,
+            label=label,
+            title=title
+        )
 
     def drop_cache(self):
         """
