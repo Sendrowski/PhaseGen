@@ -648,9 +648,40 @@ class CoalescentTestCase(TestCase):
         _ = coal.tree_height.pdf(1)
         _ = coal.tree_height.cdf(1)
 
+    def test_plot_accumulation_center_permute(self):
+        """
+        Test accumulation plot for center and permute.
+        """
+        coal = pg.Coalescent(
+            n=3
+        )
+
+        values = np.linspace(0, coal.tree_height.quantile(0.99), 10)
+        rewards = (pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2))
+
+        fig, ax = plt.subplots(1)
+
+        for i, kwargs in enumerate([
+            dict(center=True, permute=True),
+            dict(center=False, permute=True),
+            dict(center=True, permute=False),
+            dict(center=False, permute=False)
+        ]):
+            coal.plot_accumulation(
+                k=2,
+                end_times=values,
+                rewards=rewards,
+                ax=ax,
+                show=False,
+                label=str(kwargs),
+                **kwargs
+            )
+
+        plt.show()
+
     def test_plot_accumulation(self):
         """
-        Test moments.
+        Test accumulation plot.
         """
         coal = self.get_complex_coalescent()
 
@@ -668,18 +699,17 @@ class CoalescentTestCase(TestCase):
         coal = self.get_complex_coalescent()
 
         self.assertEqual(
-            coal.tree_height.accumulate(1, coal.tree_height.t_max),
+            coal.tree_height.accumulate(1, [coal.tree_height.t_max])[0],
             coal.tree_height.moment(1)
-
         )
 
         self.assertEqual(
-            coal.tree_height.accumulate(2, coal.tree_height.t_max),
-            coal.tree_height.moment(2, center=False)
+            coal.tree_height.accumulate(2, [coal.tree_height.t_max])[0],
+            coal.tree_height.moment(2)
         )
 
         np.testing.assert_array_equal(
-            coal.sfs.accumulate(1, coal.tree_height.t_max),
+            coal.sfs.accumulate(1, [coal.tree_height.t_max])[:, 0],
             coal.sfs.moment(1).data
         )
 
@@ -1013,3 +1043,38 @@ class CoalescentTestCase(TestCase):
 
         data = np.array(data)
         self.assertTrue((np.var(data.T * Ns[None, :], axis=1) < 1e-10).all())
+
+    def test_accumulate_same_as_moment(self):
+        """
+        Test accumulation is the same as moment with adjusted end time.
+        """
+        coal = pg.Coalescent(n=4)
+
+        rewards = [
+            (pg.TreeHeightReward(),),
+            (pg.TotalTreeHeightReward(),),
+            (pg.TreeHeightReward(), pg.TreeHeightReward()),
+            (pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)),
+        ]
+
+        times = np.linspace(0, coal.tree_height.quantile(0.99), 10)
+
+        for reward in rewards:
+            moments = [coal.moment(k=len(reward), rewards=reward, end_time=t) for t in times]
+            accumulation = coal.accumulate(k=len(reward), rewards=reward, end_times=times)
+
+            np.testing.assert_array_almost_equal(moments, accumulation)
+
+    def test_accumulate_same_as_moment_sfs(self):
+        """
+        Test accumulation is the same as moment with adjusted end time for SFS-based moments.
+        """
+        coal = pg.Coalescent(n=4)
+
+        times = np.linspace(0, coal.tree_height.quantile(0.99), 10)
+
+        for k in [1, 2]:
+            moments = np.array([coal.sfs.moment(k=k, end_time=t).data for t in times]).T
+            accumulation = coal.sfs.accumulate(k=k, end_times=times)
+
+            np.testing.assert_array_almost_equal(moments, accumulation)
