@@ -16,4 +16,7 @@ To obtain moments we need to exponentiate matrices whose size equals the state s
 
 .. image:: https://github.com/Sendrowski/PhaseGen/blob/master/docs/images/execution_times.png?raw=true
    :alt: Execution times
+   :width: 60%
+   :align: center
+
 
