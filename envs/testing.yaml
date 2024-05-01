@@ -1,0 +1,18 @@
+name: testing-phasegen
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - msprime
+  - graphviz
+  - tensorflow
+  - jax
+  - python-graphviz
+  - pip
+  - pip:
+    - pytest
+    - pytest-xdist
+    - pytest-cov
+    - pytest-sugar
+    - pytest-pycharm
+    - -r requirements_testing.txt
