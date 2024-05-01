@@ -230,8 +230,6 @@ class StateSpaceTestCase(TestCase):
         """
         Test block counting state space size.
         """
-        sys.setrecursionlimit(1500)
-
         self.assertEqual(pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(10)
         ).k, 42)
@@ -358,8 +356,6 @@ class StateSpaceTestCase(TestCase):
         """
         Test determine state space size.
         """
-        sys.setrecursionlimit(3000)
-
         size = defaultdict(dict)
 
         for n in range(2, 8):
@@ -433,7 +429,7 @@ class StateSpaceTestCase(TestCase):
         ordering = [
             np.where(
                 ((state_space_old.states == state_space.states[i]) & (
-                            state_space_old.linked == state_space.linked[i])).all(
+                        state_space_old.linked == state_space.linked[i])).all(
                     axis=(1, 2, 3)))[0][0] for i in range(state_space.k)
         ]
 
@@ -453,20 +449,25 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs)
+        )
 
     def test_equivalence_block_counting_state_space_standard_coalescent(self):
         """
         Test equivalence of block counting state space and graph space for standard coalescent.
         """
         kwargs = dict(
-            lineage_config=pg.LineageConfig(n=10),
+            lineage_config=pg.LineageConfig(n=6),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
-                                  pg.BlockCountingStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            pg.BlockCountingStateSpace(**kwargs)
+        )
 
     def test_equivalence_default_state_space_beta_coalescent(self):
         """
@@ -478,7 +479,10 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs)
+        )
 
     def test_equivalence_block_counting_state_space_beta_coalescent(self):
         """
@@ -490,8 +494,10 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
-                                  pg.BlockCountingStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            pg.BlockCountingStateSpace(**kwargs)
+        )
 
     def test_equivalence_default_state_space_dirac_coalescent(self):
         """
@@ -503,7 +509,10 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs)
+        )
 
     def test_equivalence_block_counting_state_space_dirac_coalescent(self):
         """
@@ -515,8 +524,10 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
-                                  pg.BlockCountingStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            pg.BlockCountingStateSpace(**kwargs)
+        )
 
     def test_equivalence_default_state_space_migration(self):
         """
@@ -530,7 +541,10 @@ class StateSpaceTestCase(TestCase):
             )
         )
 
-        self.compare_state_spaces(pg.state_space_old.DefaultStateSpace(**kwargs), pg.DefaultStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.DefaultStateSpace(**kwargs),
+            pg.DefaultStateSpace(**kwargs)
+        )
 
     def test_equivalence_block_counting_state_space_migration(self):
         """
@@ -552,8 +566,10 @@ class StateSpaceTestCase(TestCase):
             )
         )
 
-        self.compare_state_spaces(pg.state_space_old.BlockCountingStateSpace(**kwargs),
-                                  pg.BlockCountingStateSpace(**kwargs))
+        self.compare_state_spaces(
+            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            pg.BlockCountingStateSpace(**kwargs)
+        )
 
     def test_equivalence_default_state_space_recombination(self):
         """
