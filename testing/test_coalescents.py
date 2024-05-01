@@ -1078,3 +1078,27 @@ class CoalescentTestCase(TestCase):
             accumulation = coal.sfs.accumulate(k=k, end_times=times)
 
             np.testing.assert_array_almost_equal(moments, accumulation)
+
+    def test_get_cov_sfs(self):
+        """
+        Test get_cov method for SFS.
+        """
+        n = 4
+        coal = pg.Coalescent(n=n)
+
+        cov = coal.sfs.cov.data
+        cov2 = np.array([[coal.sfs.get_cov(i, j) for i in range(n + 1)] for j in range(n + 1)])
+
+        np.testing.assert_array_almost_equal(cov, cov2)
+
+    def test_get_corr_sfs(self):
+        """
+        Test get_corr method for SFS.
+        """
+        n = 4
+        coal = pg.Coalescent(n=n)
+
+        corr = coal.sfs.corr.data
+        corr2 = np.array([[coal.sfs.get_corr(i, j) for i in range(n + 1)] for j in range(n + 1)])
+
+        np.testing.assert_array_almost_equal(corr, corr2)
