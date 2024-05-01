@@ -7,7 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import product
-from typing import List, Tuple, Dict, Callable, Iterable, cast
+from typing import List, Tuple, Dict, Callable, cast
 
 import numpy as np
 
@@ -75,9 +75,6 @@ class StateSpace(ABC):
 
         #: Ordered list of states
         self.__states: List['State'] = []
-
-        #: State counter
-        self._i_state: int = 0
 
         # number of lineages linked across loci
         self.linked: np.ndarray | None = None
@@ -153,10 +150,52 @@ class StateSpace(ABC):
 
         :return: All possible transitions from the given state.
         """
-        # reset state counter
-        self._i_state = 0
+        sources = [self._get_initial()]
+        transitions = {}
+        visited = []
+        i = 0
 
-        return self._get_transitions([self._get_initial()], {}, [])
+        while True:
+
+            targets_new = {}
+
+            for source in sources:
+
+                # skip if source has been visited already
+                if source in visited:
+                    continue
+
+                # get all possible transitions from source
+                targets = self.transition.transit(source)
+
+                # add visited source state
+                visited += [source]
+
+                # add transitions to dictionary
+                for target, transition in targets.items():
+                    transitions[(source, target)] = transition
+
+                # add targets to new targets
+                targets_new |= targets
+
+                # increment state counter
+                i += 1
+
+                if i in [1000, 10000, 100000]:
+                    levels = {1000: 'slow', 10000: 'very slow', 100000: 'extremely slow'}
+
+                    self._logger.warning(
+                        f'State space size exceeds {i} states. Computation may be {levels[i]}.'
+                    )
+
+            # break if no more targets
+            if len(targets_new) == 0:
+                break
+
+            # take new targets as source states
+            sources = tuple(targets_new.keys())
+
+        return transitions, visited
 
     @cached_property
     def e(self) -> np.ndarray:
@@ -307,51 +346,6 @@ class StateSpace(ABC):
         S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
 
         return S
-
-    def _get_transitions(
-            self,
-            states: Iterable['State'],
-            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]],
-            visited: List['State']
-    ) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
-        """
-        Get all possible transitions from the given states.
-
-        :param states: States.
-        :param transitions: Transitions.
-        :return: All possible transitions from the given state.
-        """
-        for source in states:
-
-            # skip if source has been visited
-            if source in visited:
-                continue
-
-            # get all possible transitions from source
-            targets = self.transition.transit(source)
-
-            # add visited source state
-            visited += [source]
-
-            # increment state counter
-            self._i_state += 1
-
-            if self._i_state in [1000, 10000, 100000]:
-
-                levels = {1000: 'slow', 10000: 'very slow', 100000: 'extremely slow'}
-
-                self._logger.warning(
-                    f'State space size exceeds {self._i_state} states. Computation may be {levels[self._i_state]}.'
-                )
-
-            # add transitions to dictionary
-            for target, transition in targets.items():
-                transitions[(source, target)] = transition
-
-            # get transitions from target states
-            self._get_transitions(targets.keys(), transitions, visited)
-
-        return transitions, visited
 
     def _get_sparsity(self) -> float:
         """
