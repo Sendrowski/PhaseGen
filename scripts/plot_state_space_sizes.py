@@ -24,6 +24,9 @@ except NameError:
     out = "scratch/state_space_size.png"
 
 import phasegen as pg
+from phasegen.utils import parallelize
+
+cache = {}
 
 
 def plot_heatmap(
@@ -48,18 +51,25 @@ def plot_heatmap(
     if ax is None:
         fig, ax = plt.subplots()
 
-    sizes = {}
+    def get_state_space(kwargs: tuple[int, int]):
+        """
+        Get the state space size for a given number of lineages and demes.
 
-    for n in N:
-        for d in D:
-            coal = pg.Coalescent(
-                n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
-                loci=locus_config
-            )
+        :param kwargs: Tuple of number of lineages and demes
+        :return: Number of states
+        """
+        n, d = kwargs
 
-            sizes[(n, d)] = state_space(coal).k
+        coal = pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
+            loci=locus_config
+        )
 
-    data = np.array([[sizes[(n, d)] for d in D] for n in N])
+        return state_space(coal).k
+
+    data = parallelize(get_state_space, [(n, d) for n in N for d in D]).reshape(len(N), len(D))
+
+    cache[title] = data
 
     # Plot heatmap using Seaborn
     sns.heatmap(
@@ -79,6 +89,8 @@ def plot_heatmap(
     ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
     ax.set_title(title)
     ax.set_box_aspect(1)
+
+    return ax
 
 
 fig, ax = plt.subplots(1, 3, figsize=(11, 3.5))
@@ -104,7 +116,7 @@ plot_heatmap(
 plot_heatmap(
     ax=ax[2],
     N=np.arange(2, 16, 2),
-    D=np.arange(1, 5),
+    D=np.arange(1, 4),
     state_space=lambda coal: coal.block_counting_state_space,
     locus_config=pg.LocusConfig(1),
     title="Block counting state space, one locus"
@@ -112,7 +124,7 @@ plot_heatmap(
 
 fig.tight_layout()
 
-plt.savefig(out)
+plt.savefig(out, dpi=400)
 
 if testing:
     plt.show()
