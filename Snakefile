@@ -105,6 +105,7 @@ rule update_dependencies:
             poetry export --with dev -f requirements.txt --without-hashes -o {output.testing_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.docs}
             mamba env update -f envs/dev.yaml
+            mamba env update -f envs/testing.yaml
             mamba env update -f envs/base.yaml
         """
 
