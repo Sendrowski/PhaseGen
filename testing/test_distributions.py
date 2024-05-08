@@ -139,9 +139,9 @@ class DistributionTestCase(TestCase):
 
         _ = coal.tree_height.mean
 
-    def test_n_4_2_loci_default_state_space(self):
+    def test_n_4_2_loci_lineage_counting_state_space(self):
         """
-        Test n=4, 2 loci, default state space.
+        Test n=4, 2 loci, lineage-counting state space.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
@@ -161,7 +161,7 @@ class DistributionTestCase(TestCase):
             loci=pg.LocusConfig(n=2, recombination_rate=1)
         )
 
-        _ = coal.default_state_space.S
+        _ = coal.lineage_counting_state_space.S
 
         pass
 
@@ -202,9 +202,9 @@ class DistributionTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(observed.data, expected.data)
 
-    def test_lineage_reward_basic_coalescent_default_state_space(self):
+    def test_lineage_reward_basic_coalescent_lineage_counting_state_space(self):
         """
-        Test lineage reward for basic coalescent and default state space.
+        Test lineage reward for basic coalescent and lineage-counting state space.
         """
         coal = pg.Coalescent(
             n=10
@@ -216,15 +216,15 @@ class DistributionTestCase(TestCase):
 
     def test_lineage_reward_basic_coalescent_block_counting_state_space(self):
         """
-        Test lineage reward for basic coalescent and block counting state space.
+        Test lineage reward for basic coalescent and block-counting state space.
         """
         coal = pg.Coalescent(
             n=10
         )
 
-        # make sure default state space is not supported
+        # make sure lineage-counting state space is not supported
         r = pg.ProductReward([pg.rewards.BlockCountingUnitReward(), pg.LineageReward(2)])
-        self.assertFalse(pg.Reward.support(pg.DefaultStateSpace, [r]))
+        self.assertFalse(pg.Reward.support(pg.LineageCountingStateSpace, [r]))
 
         times = [coal.moment(1, rewards=(pg.ProductReward([
             pg.rewards.BlockCountingUnitReward(), pg.LineageReward(i)]),)) for i in range(2, 11)[::-1]]

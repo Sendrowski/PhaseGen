@@ -17,7 +17,7 @@ from tqdm import tqdm
 from .demography import Demography
 from .distributions import Coalescent
 from .serialization import Serializable
-from .state_space import BlockCountingStateSpace, DefaultStateSpace
+from .state_space import BlockCountingStateSpace, LineageCountingStateSpace
 from .utils import parallelize
 
 logger = logging.getLogger('phasegen')
@@ -218,8 +218,8 @@ class Inference(Serializable):
         # if state space caching is enabled, replace by cached state space if possible
         if self.cache:
 
-            if coal.default_state_space == self.default_state_space:
-                coal.__dict__['default_state_space'] = self.default_state_space
+            if coal.lineage_counting_state_space == self.lineage_counting_state_space:
+                coal.__dict__['lineage_counting_state_space'] = self.lineage_counting_state_space
 
             if coal.block_counting_state_space == self.block_counting_state_space:
                 coal.__dict__['block_counting_state_space'] = self.block_counting_state_space
@@ -227,16 +227,16 @@ class Inference(Serializable):
         return coal
 
     @cached_property
-    def default_state_space(self) -> DefaultStateSpace:
+    def lineage_counting_state_space(self) -> LineageCountingStateSpace:
         """
-        Default state space which only keeps track of the number of lineages present.
+        Lineage-counting state space which only keeps track of the number of lineages present.
         """
-        return self.coal(**self.x0).default_state_space
+        return self.coal(**self.x0).lineage_counting_state_space
 
     @cached_property
     def block_counting_state_space(self) -> BlockCountingStateSpace:
         """
-        Block counting state space which keeps track for the number of lineages that subtend `i` lineages.
+        Block-counting state space which keeps track for the number of lineages that subtend `i` lineages.
         """
         return self.coal(**self.x0).block_counting_state_space
 

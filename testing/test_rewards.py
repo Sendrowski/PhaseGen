@@ -16,11 +16,11 @@ class RewardsTestCase(TestCase):
     """
 
     @staticmethod
-    def test_tree_height_reward_default_state_space():
+    def test_tree_height_reward_lineage_counting_state_space():
         """
-        Test tree height reward for default state space.
+        Test tree height reward for lineage-counting state space.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
@@ -32,7 +32,7 @@ class RewardsTestCase(TestCase):
 
     def test_tree_height_reward_block_counting_state_space(self):
         """
-        Test tree height reward for block counting state space.
+        Test tree height reward for block-counting state space.
         """
         s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
@@ -45,11 +45,11 @@ class RewardsTestCase(TestCase):
         testing.assert_array_equal(r[s._get_old_ordering()], [1, 1, 1, 1, 0])
 
     @staticmethod
-    def test_total_branch_length_reward_default_state_space():
+    def test_total_branch_length_reward_lineage_counting_state_space():
         """
-        Test total branch length reward for default state space.
+        Test total branch length reward for lineage-counting state space.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             epoch=pg.Epoch(),
             model=pg.StandardCoalescent()
@@ -61,7 +61,7 @@ class RewardsTestCase(TestCase):
 
     def test_total_branch_length_reward_block_counting_state_space(self):
         """
-        Test total branch length reward for block counting state space.
+        Test total branch length reward for block-counting state space.
         """
         s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
@@ -104,17 +104,17 @@ class RewardsTestCase(TestCase):
         """
         Test that rewards support state space.
         """
-        self.assertTrue(pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward()]))
+        self.assertTrue(pg.Reward.support(pg.LineageCountingStateSpace, [pg.TreeHeightReward()]))
         self.assertTrue(pg.Reward.support(pg.BlockCountingStateSpace, [pg.TreeHeightReward()]))
         self.assertTrue(
-            pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward(), pg.TotalBranchLengthReward()])
+            pg.Reward.support(pg.LineageCountingStateSpace, [pg.TreeHeightReward(), pg.TotalBranchLengthReward()])
         )
-        self.assertFalse(pg.Reward.support(pg.DefaultStateSpace, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)]))
+        self.assertFalse(pg.Reward.support(pg.LineageCountingStateSpace, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)]))
 
         self.assertTrue(
             pg.Reward.support(pg.BlockCountingStateSpace, [pg.ProductReward([pg.TreeHeightReward()])])
         )
-        self.assertTrue(pg.Reward.support(pg.DefaultStateSpace, [pg.ProductReward([pg.TreeHeightReward()])]))
+        self.assertTrue(pg.Reward.support(pg.LineageCountingStateSpace, [pg.ProductReward([pg.TreeHeightReward()])]))
         self.assertFalse(pg.Reward.support(
-            pg.DefaultStateSpace, [pg.ProductReward([pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)])]
+            pg.LineageCountingStateSpace, [pg.ProductReward([pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)])]
         ))

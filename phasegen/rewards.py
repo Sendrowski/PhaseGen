@@ -7,7 +7,7 @@ from typing import List, Callable, Tuple, Dict, Iterable, Type
 
 import numpy as np
 
-from .state_space import StateSpace, DefaultStateSpace, BlockCountingStateSpace
+from .state_space import StateSpace, LineageCountingStateSpace, BlockCountingStateSpace
 
 
 class Reward(ABC):
@@ -68,7 +68,7 @@ class Reward(ABC):
         :param state_space: state space
         :return: True if the reward supports the state space, False otherwise
         """
-        if state_space is DefaultStateSpace:
+        if state_space is LineageCountingStateSpace:
             return isinstance(self, LineageCountingReward)
 
         if state_space is BlockCountingStateSpace:
@@ -88,7 +88,7 @@ class Reward(ABC):
 
 class LineageCountingReward(Reward, ABC):
     """
-    Base class for rewards that count lineages. Such rewards are compatible with :class:`DefaultStateSpace`.
+    Base class for rewards that count lineages. Such rewards are compatible with :class:`LineageCountingStateSpace`.
     """
     pass
 
@@ -114,7 +114,7 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
             return np.any(state_space.states.sum(axis=(2, 3)) > 1, axis=1).astype(int)
 
@@ -137,7 +137,7 @@ class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             return np.sum([LocusReward(i)._get(state_space) for i in range(state_space.locus_config.n)], axis=0)
 
         raise NotImplementedError(
@@ -161,7 +161,7 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             # sum over demes and blocks
             loci = state_space.states.sum(axis=(2, 3))
 
@@ -285,7 +285,7 @@ class LineageReward(LineageCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             return (state_space.states.sum(axis=(1, 2, 3)) == self.n).astype(int)
 
         raise NotImplementedError(
@@ -324,7 +324,7 @@ class DemeReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (DefaultStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             # get the index of the population
             pop_index: int = state_space.epoch.pop_names.index(self.pop)
 
@@ -368,7 +368,7 @@ class LocusReward(LineageCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, DefaultStateSpace):
+        if isinstance(state_space, LineageCountingStateSpace):
             return (state_space.states.sum(axis=(2, 3))[:, self.locus] > 1).astype(int)
 
         raise NotImplementedError(
@@ -401,8 +401,8 @@ class UnitReward(LineageCountingReward, BlockCountingReward):
 
 class BlockCountingUnitReward(BlockCountingReward):
     """
-    Reward all states with 1 (including absorbing states), and only support block counting state spaces.
-    This reward can be used to force usage of the block counting state space.
+    Reward all states with 1 (including absorbing states), and only support block-counting state spaces.
+    This reward can be used to force usage of the block-counting state space.
     """
 
     def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
@@ -430,7 +430,7 @@ class TotalBranchLengthLocusReward(LocusReward, LineageCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, DefaultStateSpace):
+        if isinstance(state_space, LineageCountingStateSpace):
             # number of branches for focal locus
             n_branches = state_space.states.sum(axis=(2, 3))[:, self.locus]
 

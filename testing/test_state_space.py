@@ -23,7 +23,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test default intensity matrix for n = 4.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
@@ -39,7 +39,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test n = 2, 2 demes.
         """
-        s = pg.state_space_old.DefaultStateSpace(
+        s = pg.state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(
@@ -54,11 +54,11 @@ class StateSpaceTestCase(TestCase):
                                                      [0., 0., 0., 0., -0.]]))
 
     @staticmethod
-    def test_2_loci_default_state_space_n_2():
+    def test_2_loci_lineage_counting_state_space_n_2():
         """
         Test two loci, n = 2.
         """
-        s = pg.state_space_old.DefaultStateSpace(
+        s = pg.state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -78,11 +78,11 @@ class StateSpaceTestCase(TestCase):
         np.testing.assert_array_almost_equal(s.S, expected)
 
     @staticmethod
-    def test_2_loci_default_state_space_n_3():
+    def test_2_loci_lineage_counting_state_space_n_3():
         """
         Test two loci, n = 3.
         """
-        s = pg.state_space_old.DefaultStateSpace(
+        s = pg.state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -115,7 +115,7 @@ class StateSpaceTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(s.S, expected)
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_block_counting_state_space_two_loci_one_deme_n_2(self):
         """
         Test two loci, one deme, two lineages.
@@ -127,7 +127,7 @@ class StateSpaceTestCase(TestCase):
 
         _ = s.S
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_block_counting_state_space_two_loci_one_deme_n_3(self):
         """
         Test two loci, one deme, two lineages.
@@ -142,11 +142,11 @@ class StateSpaceTestCase(TestCase):
         pass
 
     @staticmethod
-    def test_default_state_space_two_loci_one_deme_n_4():
+    def test_lineage_counting_state_space_two_loci_one_deme_n_4():
         """
         Test two loci, one deme, four lineages.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -155,7 +155,7 @@ class StateSpaceTestCase(TestCase):
 
         pass
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_block_counting_state_space_two_loci_one_deme_n_4(self):
         """
         Test two loci, one deme, four lineages.
@@ -170,11 +170,11 @@ class StateSpaceTestCase(TestCase):
         pass
 
     @staticmethod
-    def test_default_state_space_two_loci_two_demes_n_4():
+    def test_lineage_counting_state_space_two_loci_two_demes_n_4():
         """
         Test two loci, two demes, four lineages.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig([2, 2]),
             locus_config=pg.LocusConfig(n=2),
             model=pg.StandardCoalescent(),
@@ -183,7 +183,7 @@ class StateSpaceTestCase(TestCase):
 
         _ = s.S
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_block_counting_state_space_two_loci_two_demes_n_4(self):
         """
         Test two loci, two demes, four lineages.
@@ -199,36 +199,36 @@ class StateSpaceTestCase(TestCase):
 
         _ = s.S
 
-    def test_default_state_space_size(self):
+    def test_lineage_counting_state_space_size(self):
         """
-        Test default state space size.
+        Test lineage-counting state space size.
         """
-        self.assertEqual(pg.DefaultStateSpace(
+        self.assertEqual(pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(10)
         ).k, 10)
 
-        self.assertEqual(pg.DefaultStateSpace(
+        self.assertEqual(pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(20)
         ).k, 20)
 
-        self.assertEqual(pg.DefaultStateSpace(
+        self.assertEqual(pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         ).k, 65)
 
-        self.assertEqual(pg.DefaultStateSpace(
+        self.assertEqual(pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1, 'pop_3': 1})
         ).k, 494)
 
-        self.assertEqual(pg.DefaultStateSpace(
+        self.assertEqual(pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5, 'pop_2': 5}),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1})
         ).k, 815)
 
     def test_block_counting_state_space_size(self):
         """
-        Test block counting state space size.
+        Test block-counting state space size.
         """
         self.assertEqual(pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(10)
@@ -252,7 +252,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test plot rates.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
@@ -263,7 +263,7 @@ class StateSpaceTestCase(TestCase):
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
         """
-        Test block counting state space for n = 4, dirac.
+        Test block-counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
@@ -278,7 +278,7 @@ class StateSpaceTestCase(TestCase):
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_5_dirac(self):
         """
-        Test block counting state space for n = 4, dirac.
+        Test block-counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=5),
@@ -293,7 +293,7 @@ class StateSpaceTestCase(TestCase):
     @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac_psi_0_7_c_50(self):
         """
-        Test block counting state space for n = 4, dirac.
+        Test block-counting state space for n = 4, dirac.
         """
         s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
@@ -306,49 +306,49 @@ class StateSpaceTestCase(TestCase):
         pass
 
     @pytest.mark.skip('Not a test')
-    def test_default_state_space_beta_2_loci_n_3_alpha_1_5(self):
+    def test_lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5(self):
         """
-        Test default state space for beta, n = 3, alpha = 1.5.
+        Test lineage-counting state space for beta, n = 3, alpha = 1.5.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.BetaCoalescent(alpha=1.5),
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/default_state_space_beta_2_loci_n_3_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5')
 
         pass
 
     @pytest.mark.skip('Not a test')
-    def test_default_state_space_beta_2_loci_n_2_alpha_1_5(self):
+    def test_lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5(self):
         """
-        Test default state space for beta, n = 2, alpha = 1.5.
+        Test lineage-counting state space for beta, n = 2, alpha = 1.5.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/default_state_space_beta_2_loci_n_2_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5')
 
         pass
 
     @pytest.mark.skip('Not a test')
-    def test_default_state_space_kingman_2_loci_n_2(self):
+    def test_lineage_counting_state_space_kingman_2_loci_n_2(self):
         """
-        Test default state space for kingman, n = 2, alpha = 1.5.
+        Test lineage-counting state space for kingman, n = 2, alpha = 1.5.
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/default_state_space_kingman_2_loci_n_2')
+        s.plot_rates('scratch/lineage_counting_state_space_kingman_2_loci_n_2')
 
         pass
 
@@ -364,13 +364,13 @@ class StateSpaceTestCase(TestCase):
                     n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
                 )
 
-                size['default.observed'][(n, d)] = coal.default_state_space.k
+                size['lineage_counting.observed'][(n, d)] = coal.lineage_counting_state_space.k
                 size['block_counting.observed'][(n, d)] = coal.block_counting_state_space.k
 
-                size['default.theoretical'][(n, d)] = coal.default_state_space._get_old().get_k()
+                size['lineage_counting.theoretical'][(n, d)] = coal.lineage_counting_state_space._get_old().get_k()
                 size['block_counting.theoretical'][(n, d)] = coal.block_counting_state_space._get_old().get_k()
 
-                self.assertEqual(size['default.observed'][(n, d)], size['default.theoretical'][(n, d)])
+                self.assertEqual(size['lineage_counting.observed'][(n, d)], size['lineage_counting.theoretical'][(n, d)])
                 self.assertEqual(size['block_counting.observed'][(n, d)], size['block_counting.theoretical'][(n, d)])
 
         pass
@@ -394,7 +394,7 @@ class StateSpaceTestCase(TestCase):
 
     def test_equivalence_block_counting_state_space(self):
         """
-        Make sure size of block counting state space is equivalent the number of partitions of n.
+        Make sure size of block-counting state space is equivalent the number of partitions of n.
         """
         n = np.arange(1, 10)
         k = np.zeros((len(n), 2))
@@ -439,9 +439,9 @@ class StateSpaceTestCase(TestCase):
         testing.assert_array_almost_equal(state_space.S, state_space_old.S[ordering][:, ordering], decimal=14)
         print(f"graph: {state_space.time}, matrix: {state_space_old.time}")
 
-    def test_equivalence_default_state_space_standard_coalescent(self):
+    def test_equivalence_lineage_counting_state_space_standard_coalescent(self):
         """
-        Test equivalence of default state space and graph space for standard coalescent.
+        Test equivalence of lineage-counting state space and graph space for standard coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=10),
@@ -450,13 +450,13 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs)
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs)
         )
 
     def test_equivalence_block_counting_state_space_standard_coalescent(self):
         """
-        Test equivalence of block counting state space and graph space for standard coalescent.
+        Test equivalence of block-counting state space and graph space for standard coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=6),
@@ -469,9 +469,9 @@ class StateSpaceTestCase(TestCase):
             pg.BlockCountingStateSpace(**kwargs)
         )
 
-    def test_equivalence_default_state_space_beta_coalescent(self):
+    def test_equivalence_lineage_counting_state_space_beta_coalescent(self):
         """
-        Test equivalence of default state space and graph space for beta coalescent.
+        Test equivalence of lineage-counting state space and graph space for beta coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=10),
@@ -480,13 +480,13 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs)
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs)
         )
 
     def test_equivalence_block_counting_state_space_beta_coalescent(self):
         """
-        Test equivalence of block counting state space and graph space for beta coalescent.
+        Test equivalence of block-counting state space and graph space for beta coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=10),
@@ -499,9 +499,9 @@ class StateSpaceTestCase(TestCase):
             pg.BlockCountingStateSpace(**kwargs)
         )
 
-    def test_equivalence_default_state_space_dirac_coalescent(self):
+    def test_equivalence_lineage_counting_state_space_dirac_coalescent(self):
         """
-        Test equivalence of default state space and graph space for dirac coalescent.
+        Test equivalence of lineage-counting state space and graph space for dirac coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=10),
@@ -510,13 +510,13 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs)
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs)
         )
 
     def test_equivalence_block_counting_state_space_dirac_coalescent(self):
         """
-        Test equivalence of block counting state space and graph space for dirac coalescent.
+        Test equivalence of block-counting state space and graph space for dirac coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=4),
@@ -529,9 +529,9 @@ class StateSpaceTestCase(TestCase):
             pg.BlockCountingStateSpace(**kwargs)
         )
 
-    def test_equivalence_default_state_space_migration(self):
+    def test_equivalence_lineage_counting_state_space_migration(self):
         """
-        Test equivalence of default state space and graph space for migration coalescent.
+        Test equivalence of lineage-counting state space and graph space for migration coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig({'pop_0': 5, 'pop_1': 5}),
@@ -542,13 +542,13 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs)
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs)
         )
 
     def test_equivalence_block_counting_state_space_migration(self):
         """
-        Test equivalence of block counting state space and graph space for migration coalescent.
+        Test equivalence of block-counting state space and graph space for migration coalescent.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
@@ -571,9 +571,9 @@ class StateSpaceTestCase(TestCase):
             pg.BlockCountingStateSpace(**kwargs)
         )
 
-    def test_equivalence_default_state_space_recombination(self):
+    def test_equivalence_lineage_counting_state_space_recombination(self):
         """
-        Test equivalence of default state space and graph space for recombination.
+        Test equivalence of lineage-counting state space and graph space for recombination.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig(n=6),
@@ -583,13 +583,13 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs),
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs),
         )
 
-    def test_equivalence_default_state_space_recombination_demes(self):
+    def test_equivalence_lineage_counting_state_space_recombination_demes(self):
         """
-        Test equivalence of default state space and graph space for recombination and multiple demes.
+        Test equivalence of lineage-counting state space and graph space for recombination and multiple demes.
         """
         kwargs = dict(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
@@ -602,6 +602,6 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.DefaultStateSpace(**kwargs),
-            pg.DefaultStateSpace(**kwargs)
+            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            pg.LineageCountingStateSpace(**kwargs)
         )

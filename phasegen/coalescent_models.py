@@ -32,9 +32,9 @@ class CoalescentModel(ABC):
 
     def get_rate_block_counting(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         r"""
-        Get (positive) rate between two block counting states.
+        Get (positive) rate between two block-counting states.
 
-        A block counting state is a vector of length ``n`` where each element represents the number of lineages
+        A block-counting state is a vector of length ``n`` where each element represents the number of lineages
         subtending ``i`` lineages in the coalescent tree.
 
         .. math::
@@ -191,14 +191,14 @@ class StandardCoalescent(CoalescentModel):
         n_blocks = len(blocks)
         states = []
 
-        # default state space
+        # lineage-counting state space
         if n_blocks == 1:
             if blocks[0] > 1:
                 states += [(np.array([blocks[0] - 1]), self._get_rate(b=blocks[0], k=2))]
 
             return states
 
-        # block counting state space
+        # block-counting state space
         for i, j in itertools.product(range(n_blocks), repeat=2):
             if i == j:
                 if blocks[i] > 1:
@@ -249,14 +249,14 @@ class MultipleMergerCoalescent(CoalescentModel, ABC):
         n_blocks = len(blocks)
         states = []
 
-        # default state space
+        # lineage-counting state space
         if n_blocks == 1:
             for k in range(1, blocks[0]):
                 states += [(np.array([blocks[0] - k]), self._get_rate(b=blocks[0], k=k + 1))]
 
             return states
 
-        # block counting state space
+        # block-counting state space
         for comb in itertools.product(*[list(range(blocks[i] + 1)) for i in range(n_blocks)]):
             comb = np.array(comb)
 

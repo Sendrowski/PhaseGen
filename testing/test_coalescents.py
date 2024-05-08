@@ -212,7 +212,7 @@ class CoalescentTestCase(TestCase):
 
         pass
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_two_loci_one_deme_n_2_sfs(self):
         """
         Test two loci.
@@ -264,7 +264,7 @@ class CoalescentTestCase(TestCase):
 
         pass
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_two_loci_one_deme_n_2(self):
         """
         Test two loci.
@@ -276,7 +276,7 @@ class CoalescentTestCase(TestCase):
 
         coal.sfs.mean.plot()
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_two_loci_one_deme_n_linked(self):
         """
         Test SFS for two loci with different numbers of linked lineages.
@@ -301,7 +301,7 @@ class CoalescentTestCase(TestCase):
 
         pass
 
-    @pytest.mark.skip(reason="recombination not implemented for block counting state space")
+    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
     def test_two_loci_one_deme_linked_coalescence(self):
         """
         Test two loci.
@@ -349,9 +349,9 @@ class CoalescentTestCase(TestCase):
             _ = coal.sfs
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_2_2_loci_default_state_space_unlinked(self):
+    def test_n_2_2_loci_lineage_counting_state_space_unlinked(self):
         """
-        Test n=2, 2 loci, default state space.
+        Test n=2, 2 loci, lineage-counting state space.
         """
         means = []
         m2 = []
@@ -381,9 +381,9 @@ class CoalescentTestCase(TestCase):
         pass
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_2_2_loci_default_state_space_completely_unlinked(self):
+    def test_n_2_2_loci_lineage_counting_state_space_completely_unlinked(self):
         """
-        Test n=2, 2 loci, default state space.
+        Test n=2, 2 loci, lineage-counting state space.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
@@ -406,14 +406,14 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space.plot_rates('scratch/test_n_2_2_loci_default_state_space_completely_unlinked')
+        coal.lineage_counting_state_space.plot_rates('scratch/test_n_2_2_loci_lineage_counting_state_space_completely_unlinked')
 
         pass
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_2_1_locus_default_state_space(self):
+    def test_n_2_1_locus_lineage_counting_state_space(self):
         """
-        Test n=2, 1 locus, default state space.
+        Test n=2, 1 locus, lineage-counting state space.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
@@ -434,14 +434,14 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space.plot_rates('scratch/test_n_2_1_locus_default_state_space')
+        coal.lineage_counting_state_space.plot_rates('scratch/test_n_2_1_locus_lineage_counting_state_space')
 
         pass
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_3_2_loci_default_state_space_unlinked(self):
+    def test_n_3_2_loci_lineage_counting_state_space_unlinked(self):
         """
-        Test n=3, 2 loci, default state space.
+        Test n=3, 2 loci, lineage-counting state space.
         """
         means = []
         m2 = []
@@ -471,9 +471,9 @@ class CoalescentTestCase(TestCase):
         pass
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_3_2_loci_default_state_space_completely_linked(self):
+    def test_n_3_2_loci_lineage_counting_state_space_completely_linked(self):
         """
-        Test n=3, 2 loci, default state space.
+        Test n=3, 2 loci, lineage-counting state space.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
@@ -496,14 +496,14 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.default_state_space.plot_rates('scratch/test_n_3_2_loci_default_state_space_completely_linked')
+        coal.lineage_counting_state_space.plot_rates('scratch/test_n_3_2_loci_lineage_counting_state_space_completely_linked')
 
         pass
 
     @pytest.mark.skip(reason="not needed")
-    def test_n_3_1_locus_default_state_space(self):
+    def test_n_3_1_locus_lineage_counting_state_space(self):
         """
-        Test n=3, 1 locus, default state space.
+        Test n=3, 1 locus, lineage-counting state space.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
@@ -524,13 +524,13 @@ class CoalescentTestCase(TestCase):
 
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
 
-        coal.default_state_space.plot_rates('scratch/test_n_3_1_locus_default_state_space')
+        coal.lineage_counting_state_space.plot_rates('scratch/test_n_3_1_locus_lineage_counting_state_space')
 
         pass
 
-    def test_beta_coalescent_n_2_alpha_close_to_2_default_state_space(self):
+    def test_beta_coalescent_n_2_alpha_close_to_2_lineage_counting_state_space(self):
         """
-        Test beta coalescent with default state space for n = 2.
+        Test beta coalescent with lineage-counting state space for n = 2.
         """
         coal = pg.Coalescent(
             n=pg.LineageConfig(2),
@@ -722,7 +722,7 @@ class CoalescentTestCase(TestCase):
             demography=pg.Demography(pop_sizes={'pop_0': {0: 1e40}})
         )
 
-        lamb = coal.tree_height._get_regularization_factor(coal.default_state_space.S)
+        lamb = coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S)
 
         self.assertTrue(1e39 <= lamb <= 1e41)
 
@@ -737,7 +737,7 @@ class CoalescentTestCase(TestCase):
             demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-40}})
         )
 
-        lamb = coal.tree_height._get_regularization_factor(coal.default_state_space.S)
+        lamb = coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S)
 
         self.assertTrue(1e-41 <= lamb <= 1e-39)
 
