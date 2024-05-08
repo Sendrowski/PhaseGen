@@ -477,7 +477,7 @@ class StateSpace(ABC):
         return rates, indices
 
 
-class DefaultStateSpace(StateSpace):
+class LineageCountingStateSpace(StateSpace):
     """
     Default rate matrix where there is one state per number of lineages for each deme and locus.
     """
@@ -578,7 +578,7 @@ class DefaultStateSpace(StateSpace):
 
 class BlockCountingStateSpace(StateSpace):
     r"""
-    Rate matrix for block counting state space where there is one state per sample configuration:
+    Rate matrix for block-counting state space where there is one state per sample configuration:
     :math:`{ (a_1,...,a_n) \in \mathbb{Z}^+ : \sum_{i=1}^{n} a_i = n \}`,
 
     per deme and per locus. This state space can distinguish between different tree topologies
@@ -602,7 +602,7 @@ class BlockCountingStateSpace(StateSpace):
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
         if locus_config is not None and locus_config.n > 1:
-            raise NotImplementedError('Block counting state space only supports one locus.')
+            raise NotImplementedError('Block-counting state space only supports one locus.')
 
         super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
@@ -1172,7 +1172,7 @@ class Transition:
         """
         In a mixed coalescence event there has to be reduction in the number of linked lineages.
         """
-        # in the default state space, where we only keep track of the number of linked lineages per deme,
+        # in the lineage-counting state space, where we only keep track of the number of linked lineages per deme,
         # we may have a mixed coalescence event where the number of linked lineages does not change
         if self.n_blocks == 1 and not self.has_diff_demes_linked:
             return True
@@ -1549,7 +1549,7 @@ class Transition:
             return self.get_rate_unlinked_migration()
 
         # From here on we may have both unlinked and mixed coalescence simultaneously,
-        # if using the default state space.
+        # if using the lineage-counting state space.
         rate = 0
 
         if self.is_unlinked_coalescence:

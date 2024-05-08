@@ -19,37 +19,37 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "coalescent_5_lineages_default"
+    name = "coalescent_5_lineages_lineage_counting"
     out = f"scratch/{name}.png"
 
 import phasegen as pg
 
 configs = dict(
-    # 5 lineages, one deme, default state space
-    coalescent_5_lineages_default=dict(
+    # 5 lineages, one deme, lineage-counting state space
+    coalescent_5_lineages_lineage_counting=dict(
         coal=pg.Coalescent(
             n=5
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             format_state=lambda s: (
                 str(s[0][0, 0, 0]).replace('\n', '')
             )
         )
     ),
-    # 4 lineages, one deme, default state space
-    coalescent_4_lineages_default=dict(
+    # 4 lineages, one deme, lineage-counting state space
+    coalescent_4_lineages_lineage_counting=dict(
         coal=pg.Coalescent(
             n=4
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             format_state=lambda s: (
                 str(s[0][0, 0, 0]).replace('\n', '')
             )
         )
     ),
-    # 5 lineages, one deme, block counting state space
+    # 5 lineages, one deme, block-counting state space
     coalescent_5_lineages_block_counting=dict(
         coal=pg.Coalescent(
             n=5
@@ -61,22 +61,22 @@ configs = dict(
             )
         )
     ),
-    # 2 lineages, 2 demes, default state space
-    migration_2_lineages_default=dict(
+    # 2 lineages, 2 demes, lineage-counting state space
+    migration_2_lineages_lineage_counting=dict(
         coal=pg.Coalescent(
             n={'pop_0': 1, 'pop_1': 1},
             demography=pg.Demography(
                 migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 1}},
             )
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             format_state=lambda s: (
                 str(s[0][0, :, 0])
             )
         )
     ),
-    # 2 lineages, 2 demes, block counting state space
+    # 2 lineages, 2 demes, block-counting state space
     migration_3_lineages_block_counting=dict(
         coal=pg.Coalescent(
             n={'pop_0': 2, 'pop_1': 1},
@@ -91,13 +91,13 @@ configs = dict(
             )
         )
     ),
-    # 2 loci, 2 lineages, default state space
+    # 2 loci, 2 lineages, lineage-counting state space
     recombination_2_lineages=dict(
         coal=pg.Coalescent(
             n=2,
             loci=pg.LocusConfig(n=2, recombination_rate=1)
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             format_state=lambda s: (
                     str(s[0][:, 0, 0]).replace('\n', '') + '\n' + str(s[1][:, 0, 0]).replace('\n', '')
@@ -106,7 +106,7 @@ configs = dict(
         )
     ),
     # 2 demes, 3 lineages, 2 loci
-    recombination_2_loci_2_pops_3_lineages_default=dict(
+    recombination_2_loci_2_pops_3_lineages_lineage_counting=dict(
         coal=pg.Coalescent(
             n={'pop_0': 2, 'pop_1': 1},
             loci=pg.LocusConfig(n=2, recombination_rate=1),
@@ -117,18 +117,18 @@ configs = dict(
                 }
             ),
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             dpi=20,
             ratio=0.7
         )
     ),
-    beta_coalescent_5_lineages_default=dict(
+    beta_coalescent_5_lineages_lineage_counting=dict(
         coal=pg.Coalescent(
             n=5,
             model=pg.BetaCoalescent(alpha=1.7)
         ),
-        state_space_type="default",
+        state_space_type="lineage_counting",
         plot=dict(
             format_state=lambda s: (
                 str(s[0][0, 0, 0]).replace('\n', '')

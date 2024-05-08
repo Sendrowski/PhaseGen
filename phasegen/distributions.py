@@ -23,7 +23,7 @@ from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, Unfolded
     LocusReward, CombinedReward, FoldedSFSReward, SFSReward
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
-from .state_space import BlockCountingStateSpace, DefaultStateSpace, StateSpace
+from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace
 from .utils import parallelize
 
 expm = Backend.expm
@@ -912,7 +912,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     def __init__(
             self,
-            state_space: DefaultStateSpace,
+            state_space: LineageCountingStateSpace,
             demography: Demography = None,
             start_time: float = 0,
             end_time: float = None
@@ -942,7 +942,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         )
 
         #: State space
-        self.state_space: DefaultStateSpace = state_space
+        self.state_space: LineageCountingStateSpace = state_space
 
         #: Start time
         self.start_time: float = start_time
@@ -1227,7 +1227,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         Initialize the distribution.
 
-        :param state_space: Block counting state space.
+        :param state_space: Block-counting state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
         :param pbar: Whether to show a progress bar.
@@ -2148,11 +2148,11 @@ class Coalescent(AbstractCoalescent, Serializable):
         self.parallelize: bool = parallelize
 
     @cached_property
-    def default_state_space(self) -> DefaultStateSpace:
+    def lineage_counting_state_space(self) -> LineageCountingStateSpace:
         """
-        The default state space.
+        The lineage-counting state space.
         """
-        return DefaultStateSpace(
+        return LineageCountingStateSpace(
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
@@ -2162,7 +2162,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def block_counting_state_space(self) -> BlockCountingStateSpace:
         """
-        The block counting state space.
+        The block-counting state space.
         """
         return BlockCountingStateSpace(
             lineage_config=self.lineage_config,
@@ -2177,7 +2177,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         Tree height distribution.
         """
         return TreeHeightDistribution(
-            state_space=self.default_state_space,
+            state_space=self.lineage_counting_state_space,
             demography=self.demography,
             start_time=self.start_time,
             end_time=self.end_time
@@ -2191,7 +2191,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         return PhaseTypeDistribution(
             reward=TotalBranchLengthReward(),
             tree_height=self.tree_height,
-            state_space=self.default_state_space,
+            state_space=self.lineage_counting_state_space,
             demography=self.demography
         )
 
@@ -2229,8 +2229,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         if rewards is None:
             rewards = [TreeHeightReward()] * k
 
-        if Reward.support(DefaultStateSpace, rewards):
-            state_space = self.default_state_space
+        if Reward.support(LineageCountingStateSpace, rewards):
+            state_space = self.lineage_counting_state_space
         else:
             state_space = self.block_counting_state_space
 
@@ -2382,7 +2382,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         Drop state space cache.
         """
-        self.default_state_space.drop_cache()
+        self.lineage_counting_state_space.drop_cache()
         self.block_counting_state_space.drop_cache()
 
     def __setstate__(self, state: dict):
@@ -2402,8 +2402,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         # create deep copy of object without causing infinite recursion
         other = copy.deepcopy(self.__dict__)
 
-        if 'default_state_space' in other:
-            other['default_state_space'].drop_cache()
+        if 'lineage_counting_state_space' in other:
+            other['lineage_counting_state_space'].drop_cache()
 
         if 'block_counting_state_space' in other:
             other['block_counting_state_space'].drop_cache()

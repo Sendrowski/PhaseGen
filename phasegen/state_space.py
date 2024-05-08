@@ -15,7 +15,7 @@ from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .state_space_old import StateSpace as OldStateSpace, DefaultStateSpace as OldDefaultStateSpace, \
+from .state_space_old import StateSpace as OldStateSpace, LineageCountingStateSpace as OldLineageCountingStateSpace, \
     BlockCountingStateSpace as OldBlockCountingStateSpace
 
 logger = logging.getLogger('phasegen')
@@ -450,7 +450,7 @@ class StateSpace(ABC):
         )
 
 
-class DefaultStateSpace(StateSpace):
+class LineageCountingStateSpace(StateSpace):
     """
     Default rate matrix where there is one state per number of lineages for each deme and locus.
     """
@@ -464,11 +464,11 @@ class DefaultStateSpace(StateSpace):
 
         return State(data)
 
-    def _get_old(self) -> OldDefaultStateSpace:
+    def _get_old(self) -> OldLineageCountingStateSpace:
         """
         Get the old state space.
         """
-        return OldDefaultStateSpace(
+        return OldLineageCountingStateSpace(
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
@@ -478,9 +478,9 @@ class DefaultStateSpace(StateSpace):
 
 class BlockCountingStateSpace(StateSpace):
     r"""
-    Rate matrix for block counting state space where there is one state per sample configuration:
+    Rate matrix for block-counting state space where there is one state per sample configuration:
 
-    A block counting state is a vector of length ``n`` where each element represents the number of lineages
+    A block-counting state is a vector of length ``n`` where each element represents the number of lineages
     subtending ``i`` lineages in the coalescent tree.
 
         .. math::
@@ -507,7 +507,7 @@ class BlockCountingStateSpace(StateSpace):
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
         if locus_config is not None and locus_config.n > 1:
-            raise NotImplementedError('Block counting state space only supports one locus.')
+            raise NotImplementedError('Block-counting state space only supports one locus.')
 
         super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
@@ -635,8 +635,10 @@ class Transition:
 
         if source.n_loci == 2:
 
-            if not isinstance(self.state_space, DefaultStateSpace):
-                raise NotImplementedError('Coalescence with recombination is only implemented for DefaultGraphSpace.')
+            if not isinstance(self.state_space, LineageCountingStateSpace):
+                raise NotImplementedError(
+                    'Coalescence with recombination is only implemented for LineageCountingStateSpace.'
+                )
 
             if not isinstance(self.state_space.model, StandardCoalescent):
                 raise NotImplementedError('Coalescence with recombination is only implemented for StandardCoalescent.')
@@ -803,7 +805,7 @@ class Transition:
         if self.state_space.locus_config.n == 1:
             return targets
 
-        if isinstance(self.state_space, DefaultStateSpace):
+        if isinstance(self.state_space, LineageCountingStateSpace):
 
             # iterate over demes
             for deme in range(state.n_demes):

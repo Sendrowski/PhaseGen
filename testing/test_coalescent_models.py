@@ -17,7 +17,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_standard_coalescent_block_counting_n_2(self):
         """
-        Test standard coalescent with block counting state space for n = 2.
+        Test standard coalescent with block-counting state space for n = 2.
         """
         model = pg.StandardCoalescent()
 
@@ -29,7 +29,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_standard_coalescent_block_counting_n_3(self):
         """
-        Test standard coalescent with block counting state space for n = 3.
+        Test standard coalescent with block-counting state space for n = 3.
         """
         model = pg.StandardCoalescent()
 
@@ -39,7 +39,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_standard_coalescent_block_counting_n_10(self):
         """
-        Test beta coalescent with block counting state space for n = 10.
+        Test beta coalescent with block-counting state space for n = 10.
         """
         model = pg.StandardCoalescent()
 
@@ -49,11 +49,11 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(f([2, 2, 0, 1, 0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]), 4)
 
     @staticmethod
-    def test_beta_coalescent_default_state_space_compare_with_paper():
+    def test_beta_coalescent_lineage_counting_state_space_compare_with_paper():
         """
         Test against result in paper "Phase-type distributions in population genetics"
         """
-        s = pg.DefaultStateSpace(
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=5),
             model=pg.BetaCoalescent(alpha=1.5, scale_time=False),
             epoch=pg.Epoch()
@@ -68,7 +68,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_beta_coalescent_block_counting_n_2_alpha_1_5(self):
         """
-        Test beta coalescent with block counting state space for n = 2.
+        Test beta coalescent with block-counting state space for n = 2.
         """
         model = pg.BetaCoalescent(alpha=1.5)
 
@@ -81,7 +81,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_beta_coalescent_block_counting_n_3_alpha_close_to_2(self):
         """
-        Test beta coalescent with block counting state space for n = 3.
+        Test beta coalescent with block-counting state space for n = 3.
         """
         model = pg.BetaCoalescent(alpha=2 - 1e-10)
 
@@ -91,7 +91,7 @@ class CoalescentModelTestCase(TestCase):
 
     def test_beta_coalescent_block_counting_n_3_alpha_1_5(self):
         """
-        Test beta coalescent with block counting state space for n = 3.
+        Test beta coalescent with block-counting state space for n = 3.
         """
         model = pg.BetaCoalescent(alpha=1.5)
 

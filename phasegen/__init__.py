@@ -133,7 +133,7 @@ from .coalescent_models import (
 
 from .state_space import (
     StateSpace,
-    DefaultStateSpace,
+    LineageCountingStateSpace,
     BlockCountingStateSpace
 )
 
@@ -223,7 +223,7 @@ __all__ = [
     'DemeReward',
     'CombinedReward',
     'StateSpace',
-    'DefaultStateSpace',
+    'LineageCountingStateSpace',
     'BlockCountingStateSpace',
     'CoalescentModel',
     'LineageConfig',
