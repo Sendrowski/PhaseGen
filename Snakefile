@@ -31,6 +31,7 @@ rule all:
                 'coalescent_5_lineages_lineage_counting',
                 'coalescent_5_lineages_block_counting',
                 'migration_2_lineages_lineage_counting',
+                'migration_3_lineages_lineage_counting',
                 'migration_3_lineages_block_counting',
                 'recombination_2_lineages',
                 'recombination_2_loci_2_pops_3_lineages_lineage_counting',

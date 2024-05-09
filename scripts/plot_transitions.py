@@ -76,6 +76,21 @@ configs = dict(
             )
         )
     ),
+    # 3 lineages, 2 demes, lineage-counting state space
+    migration_3_lineages_lineage_counting=dict(
+        coal=pg.Coalescent(
+            n={'pop_0': 2, 'pop_1': 1},
+            demography=pg.Demography(
+                migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 1}},
+            )
+        ),
+        state_space_type="lineage_counting",
+        plot=dict(
+            format_state=lambda s: (
+                str(s[0][0, :, 0])
+            )
+        )
+    ),
     # 2 lineages, 2 demes, block-counting state space
     migration_3_lineages_block_counting=dict(
         coal=pg.Coalescent(
