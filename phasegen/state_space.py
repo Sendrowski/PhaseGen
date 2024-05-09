@@ -484,7 +484,7 @@ class BlockCountingStateSpace(StateSpace):
     subtending ``i`` lineages in the coalescent tree.
 
         .. math::
-            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} a_i = n.
+            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} i a_i = n.
 
     per deme and per locus. This state space can distinguish between different tree topologies
     and is thus used when computing statistics based on the SFS.
