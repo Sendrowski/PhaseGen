@@ -127,7 +127,7 @@ class CoalescentModel(ABC):
 
 class StandardCoalescent(CoalescentModel):
     """
-    Standard (Kingman) coalescent model. Refer to
+    Standard (Kingman) coalescent model. Refer to the
     `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
     highlight=standard+coalescent#msprime.StandardCoalescent>`__
     for more information.
@@ -273,7 +273,7 @@ class MultipleMergerCoalescent(CoalescentModel, ABC):
 
 class BetaCoalescent(MultipleMergerCoalescent):
     """
-    Beta coalescent model. Refer to
+    Beta coalescent model. Refer to the
     `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=beta+coalescent#msprime.BetaCoalescent>`__
     for more information.
     """
@@ -367,7 +367,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
 
 class DiracCoalescent(MultipleMergerCoalescent):
     """
-    Dirac coalescent model. Refer to
+    Dirac coalescent model. Refer to the
     `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=dirac+coalescent#msprime.DiracCoalescent>`__
     for more information.
     """
