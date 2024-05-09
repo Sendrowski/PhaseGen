@@ -40,7 +40,7 @@ class CoalescentModel(ABC):
         .. math::
             (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} i a_i = n.
 
-        :param n: Number of lineages.
+        :param n: Total number of lineages.
         :param s1: Block configuration 1, a vector of length n.
         :param s2: Block configuration 2, a vector of length n.
         :return: The rate.
@@ -91,7 +91,6 @@ class CoalescentModel(ABC):
     def _get_rate(self, b: int, k: int) -> float:
         """
         Get positive rate for a merger of k out of b lineages.
-        Negative rates will be inferred later
 
         :param b: Number of lineages.
         :param k: Number of lineages that merge.
@@ -103,9 +102,8 @@ class CoalescentModel(ABC):
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
-        Negative rates will be inferred later
 
-        :param n: Number of lineages.
+        :param n: Number of lineages involved in the merger.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -161,7 +159,7 @@ class StandardCoalescent(CoalescentModel):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages.
+        :param n: Number of lineages involved in the merger.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -342,7 +340,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages.
+        :param n: Number of lineages involved in the merger.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -435,7 +433,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages.
+        :param n: Number of lineages involved in the merger.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
