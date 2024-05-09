@@ -290,7 +290,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
         if alpha < 1 or alpha > 2:
             raise ValueError("Alpha must be between 1 and 2.")
 
-        #: Whether to scale coalescence time
+        #: Whether to scale coalescence time.
         self.scale_time: bool = scale_time
 
         #: The alpha parameter of the beta coalescent model.
@@ -376,7 +376,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         """
         Initialize the Dirac coalescent model.
 
-        :param psi: The fraction of the population replaced by offspring in one large reproduction event
+        :param psi: The fraction of the population replaced by offspring in one large reproduction event.
         :param c: The rate of potential multiple merger events.
         :param scale_time: Whether to scale coalescence time as described in
             `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
@@ -387,16 +387,16 @@ class DiracCoalescent(MultipleMergerCoalescent):
         if not 0 < psi < 1:
             raise ValueError("Psi must be between 0 and 1.")
 
-        #: The fraction of the population replaced by offspring in one large reproduction event
+        #: The fraction of the population replaced by offspring in one large reproduction event.
         self.psi: float = psi
 
         #: The rate of potential multiple merger events.
         self.c: float = c
 
-        #: Whether to scale coalescence time
+        #: Whether to scale coalescence time.
         self.scale_time: bool = scale_time
 
-        #: The standard coalescent model
+        #: The standard coalescent model.
         self._standard = StandardCoalescent()
 
     def _get_timescale(self, N: float) -> float:
