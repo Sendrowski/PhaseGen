@@ -37,6 +37,8 @@ rule all:
                 'recombination_2_loci_2_pops_3_lineages_lineage_counting',
                 'beta_coalescent_5_lineages_lineage_counting',
                 'beta_coalescent_5_lineages_block_counting',
+                'dirac_coalescent_5_lineages_lineage_counting',
+                'dirac_coalescent_5_lineages_block_counting',
             ]),
             #"results/graphs/execution_times.png",
             #"results/graphs/state_space_sizes.png",
