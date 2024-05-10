@@ -1,0 +1,29 @@
+# This workflow will install Python dependencies, and run tests
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Run tests on local package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: run tests on macos for local package
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          miniconda-version: "latest"
+          python-version: "3.10"
+          environment-file: envs/testing.yaml
+          auto-activate-base: false
+          activate-environment: testing-phasegen
+      - run: |
+          pytest testing/ -n 9
