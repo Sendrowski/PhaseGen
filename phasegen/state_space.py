@@ -413,7 +413,7 @@ class StateSpace(ABC):
                 :param kind: Kind.
                 :return: Formatted transition.
                 """
-                return f' {kind}: {rate:.2g}'
+                return f' {kind}: ' + '{:.2f}'.format(rate).rstrip('0').rstrip('.')
 
         graph = graphviz.Digraph()
 
