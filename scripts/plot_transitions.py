@@ -19,7 +19,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "coalescent_5_lineages_lineage_counting"
+    name = "dirac_coalescent_5_lineages_lineage_counting"
     out = f"scratch/{name}.png"
 
 import phasegen as pg
@@ -155,6 +155,32 @@ configs = dict(
         coal=pg.Coalescent(
             n=5,
             model=pg.BetaCoalescent(alpha=1.7)
+        ),
+        state_space_type="block_counting",
+        plot=dict(
+            format_state=lambda s: (
+                str(s[0][0, 0, :]).replace('\n', '')
+            ),
+            ratio=0.8
+        )
+    ),
+    dirac_coalescent_5_lineages_lineage_counting=dict(
+        coal=pg.Coalescent(
+            n=5,
+            model=pg.DiracCoalescent(psi=0.5, c=1)
+        ),
+        state_space_type="lineage_counting",
+        plot=dict(
+            format_state=lambda s: (
+                str(s[0][0, 0, 0]).replace('\n', '')
+            ),
+            ratio=0.8
+        )
+    ),
+    dirac_coalescent_5_lineages_block_counting=dict(
+        coal=pg.Coalescent(
+            n=5,
+            model=pg.DiracCoalescent(psi=0.5, c=1)
         ),
         state_space_type="block_counting",
         plot=dict(
