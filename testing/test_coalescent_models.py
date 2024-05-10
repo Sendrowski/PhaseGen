@@ -1,7 +1,7 @@
 """
 Test coalescent models.
 """
-
+from math import comb
 from unittest import TestCase
 
 import numpy as np
@@ -162,3 +162,20 @@ class CoalescentModelTestCase(TestCase):
         t2 = compute_beta_timescale(1, 1.999999)
 
         self.assertAlmostEqual(t1, t2)
+
+    def test_dirac_coalescent_lineage_counting_n_5(self):
+        """
+        Test Dirac coalescent with lineage-counting state space for n = 5.
+        """
+        c = pg.DiracCoalescent(psi=0.5, c=1)
+
+        self.assertAlmostEqual(c.get_rate(5, 4), 5 * 4 / 2 + c.c * comb(5, 2) * c.psi ** 2 * (1 - c.psi) ** 3)
+        self.assertAlmostEqual(c.get_rate(5, 3), c.c * comb(5, 3) * c.psi ** 3 * (1 - c.psi) ** 2)
+        self.assertAlmostEqual(c.get_rate(5, 2), c.c * comb(5, 4) * c.psi ** 4 * (1 - c.psi) ** 1)
+        self.assertAlmostEqual(c.get_rate(5, 1), c.c * comb(5, 5) * c.psi ** 5 * (1 - c.psi) ** 0)
+        self.assertAlmostEqual(c.get_rate(5, 0), 0)
+
+        self.assertAlmostEqual(c.get_rate(4, 3), 4 * 3 / 2 + c.c * comb(4, 2) * c.psi ** 2 * (1 - c.psi) ** 2)
+        self.assertAlmostEqual(c.get_rate(4, 2), c.c * comb(4, 3) * c.psi ** 3 * (1 - c.psi) ** 1)
+        self.assertAlmostEqual(c.get_rate(4, 1), c.c * comb(4, 4) * c.psi ** 4 * (1 - c.psi) ** 0)
+        self.assertAlmostEqual(c.get_rate(4, 0), 0)
