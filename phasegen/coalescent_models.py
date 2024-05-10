@@ -103,7 +103,7 @@ class CoalescentModel(ABC):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages involved in the merger.
+        :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -159,7 +159,7 @@ class StandardCoalescent(CoalescentModel):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages involved in the merger.
+        :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -340,7 +340,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages involved in the merger.
+        :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -433,7 +433,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         """
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
-        :param n: Number of lineages involved in the merger.
+        :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merge for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
@@ -445,6 +445,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         # p_psi = binom.pmf(k=k.sum(), n=n, p=self.psi)
         p_psi = np.prod([binom.pmf(k=k[i], n=b[i], p=self.psi) for i in range(len(k))])
 
+        # account for probability of no merger
         if sum(b) < n:
             p_psi *= binom.pmf(k=0, n=n - sum(b), p=self.psi)
 
