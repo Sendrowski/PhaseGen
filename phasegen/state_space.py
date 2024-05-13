@@ -663,6 +663,7 @@ class Transition:
                         if np.any(counts1[deme] < 2):
                             continue
 
+                        # if the classes are the same, the counts are the same
                         rate = self.state_space.model._get_rate(b=counts1[deme, 0], k=2)
 
                         # unlinked coalescence in locus 1
@@ -685,6 +686,7 @@ class Transition:
                             self.add_target(targets, target, rate / time_scale, 'linked_coalescence')
 
                     # mixed or locus coalescence
+                    # use lower than operator to ensure we only consider each case once
                     elif class1 < class2:
                         if counts1[deme] < 1 or counts2[deme] < 1:
                             continue
@@ -694,6 +696,8 @@ class Transition:
                         # mixed coalescence of linked and unlinked lineages
                         if 'linked' in (class1, class2) and ('unlinked' in class1 or 'unlinked' in class2):
                             locus = 0 if '1' in class1 or '1' in class2 else 1
+
+                            # condition already checked above
                             if target.lineages[locus, deme, 0] > 1:
                                 target.lineages[locus, deme, 0] -= 1
 
@@ -701,7 +705,8 @@ class Transition:
 
                         # locus coalescence of unlinked lineages
                         else:
-                            if np.all(source.linked[:, deme, 0] < source.lineages[:, deme, 0]):
+                            # make sure we have unlinked lineages in both loci
+                            if np.all(source.unlinked[:, deme, 0] > 0):
                                 target.linked[:, deme, 0] += 1
 
                                 self.add_target(targets, target, rate / time_scale, 'locus_coalescence')

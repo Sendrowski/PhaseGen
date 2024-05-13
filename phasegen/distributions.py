@@ -740,7 +740,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             rewards: Tuple[Reward, ...] = None
     ) -> np.ndarray:
         """
-        Evaluate the kth (non-central) moment at different end times.
+        Evaluate the kth (non-central) conditioned moment at different end times.
 
         :param k: The order of the moment.
         :param end_times: Tuple of ends times or end time when to evaluate the moment.
