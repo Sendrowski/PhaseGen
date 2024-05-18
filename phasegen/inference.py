@@ -29,6 +29,8 @@ class Inference(Serializable):
     provided loss function, through coalescent simulation based on phase-type
     theory. The optimization is performed via the BFGS algorithm from scipy.
 
+    TODO pickling doesn't work reliably.
+
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -486,23 +488,23 @@ class Inference(Serializable):
 
     def plot_bootstraps(
             self,
-            title: str = 'Bootstrapped parameters',
+            title: str | List[str] = None,
             show: bool = True,
             file: str = None,
             subplots: bool = True,
             kind: Literal['hist', 'kde'] = 'hist',
-            ax: Optional['plt.Axes'] = None,
+            ax: 'plt.Axes' | List['plt.Axes'] = None,
             kwargs: dict = None
     ) -> 'plt.Axes' | List['plt.Axes']:
         """
         Plot bootstrapped parameters.
 
-        :param title: Title of the plot.
+        :param title: Title or list of titles.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param subplots: Whether to plot subplots.
         :param kind: Kind of plot. Either 'hist' or 'kde'.
-        :param ax: Axes to plot on.
+        :param ax: Axes or list of axes.
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
         :return: Axes or list of axes.
         """
@@ -516,6 +518,12 @@ class Inference(Serializable):
 
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
+
+        if title is None:
+            if subplots:
+                title = ['Marginal distribution'] * len(self.bootstraps.columns)
+            else:
+                title = 'Marginal distributions'
 
         ax = self.bootstraps.plot(
             ax=ax,
