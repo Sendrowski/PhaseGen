@@ -2,9 +2,10 @@
 Run the inference example from the manuscript and saves the results to a file.
 """
 import fastdfe as fd
+
 import phasegen as pg
 
-#pg.logger.setLevel('DEBUG')
+# pg.logger.setLevel('DEBUG')
 pg.Backend.register(pg.TensorFlowExpmBackend())
 
 inf = pg.Inference(
@@ -29,19 +30,22 @@ inf = pg.Inference(
 # perform inference
 inf.run()
 
+# inf = pg.Inference.from_file('scratch/inference.json')
+
 # plot results
 import matplotlib.pyplot as plt
 
 spectra = fd.Spectra.from_spectra(dict(
-    modelled=inf.dist_inferred.sfs.mean.normalize() * inf.observation.n_polymorphic,
+    modelled=inf.dist_inferred.sfs.mean.normalize() *
+             inf.observation.n_polymorphic,
     observed=inf.observation
 ))
 
-_, axs = plt.subplots(3, 1, figsize=(5, 10))
+_, axs = plt.subplots(2, 2, figsize=(6, 5))
 
-spectra.plot(ax=axs[0], show=False, title='SFS comparison')
-inf.plot_pop_sizes(ax=axs[1], show=False)
-inf.plot_bootstraps(ax=axs[2], show=False, subplots=False)
+spectra.plot(ax=axs[0, 0], show=False, title='SFS comparison')
+inf.plot_pop_sizes(ax=axs[0, 1], show=False)
+inf.plot_bootstraps(ax=axs[1], show=False)
 
 plt.tight_layout()
 plt.savefig('scratch/manuscript_inference_example.png', dpi=400)

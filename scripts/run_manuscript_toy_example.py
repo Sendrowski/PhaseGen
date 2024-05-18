@@ -13,7 +13,7 @@ coal = pg.Coalescent(
     )
 )
 
-_ = coal.tree_height.mean
-_ = coal.total_branch_length.mean
+mean = coal.total_branch_length.mean
+var = coal.total_branch_length.var
 
 pass
