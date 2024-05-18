@@ -884,7 +884,7 @@ class State:
 
         :return: Whether the state is absorbing.
         """
-        return np.all(np.sum(self.lineages * np.arange(1, self.n_blocks + 1)[::-1], axis=(1, 2)) == 1)
+        return np.all(self.lineages.sum(axis=(1, 2)) == 1)
 
     @property
     def n_demes(self) -> int:
