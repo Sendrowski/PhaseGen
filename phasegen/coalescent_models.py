@@ -104,7 +104,7 @@ class CoalescentModel(ABC):
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
         :param n: Number of lineages currently present in the block configuration.
-        :param b: Number of lineages before merge for blocks that experience a merger.
+        :param b: Number of lineages before merger for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
         """
@@ -160,7 +160,7 @@ class StandardCoalescent(CoalescentModel):
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
         :param n: Number of lineages currently present in the block configuration.
-        :param b: Number of lineages before merge for blocks that experience a merger.
+        :param b: Number of lineages before merger for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
         """
@@ -341,7 +341,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
         :param n: Number of lineages currently present in the block configuration.
-        :param b: Number of lineages before merge for blocks that experience a merger.
+        :param b: Number of lineages before merger for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
         """
@@ -434,7 +434,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         Get positive rate for a merger of k_i out of b_i lineages for all i.
 
         :param n: Number of lineages currently present in the block configuration.
-        :param b: Number of lineages before merge for blocks that experience a merger.
+        :param b: Number of lineages before merger for blocks that experience a merger.
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
         """
