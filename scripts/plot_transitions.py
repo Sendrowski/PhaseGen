@@ -19,7 +19,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "dirac_coalescent_5_lineages_lineage_counting"
+    name = "recombination_2_lineages"
     out = f"scratch/{name}.png"
 
 import phasegen as pg
@@ -114,8 +114,23 @@ configs = dict(
         ),
         state_space_type="lineage_counting",
         plot=dict(
+            # (linked, unlinked)
             format_state=lambda s: (
-                    str(s[0][:, 0, 0]).replace('\n', '') + '\n' + str(s[1][:, 0, 0]).replace('\n', '')
+                    str(s[1][:, 0, 0]).replace('\n', '') + '\n' + str((s[0] - s[1])[:, 0, 0]).replace('\n', '')
+            ),
+            ratio=0.8
+        )
+    ),
+    # 2 loci, 2 lineages, lineage-counting state space
+    recombination_3_lineages=dict(
+        coal=pg.Coalescent(
+            n=3,
+            loci=pg.LocusConfig(n=2, recombination_rate=1)
+        ),
+        state_space_type="lineage_counting",
+        plot=dict(
+            format_state=lambda s: (
+                    str(s[1][:, 0, 0]).replace('\n', '') + '\n' + str((s[0] - s[1])[:, 0, 0]).replace('\n', '')
             ),
             ratio=0.8
         )
