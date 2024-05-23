@@ -10,6 +10,8 @@ Welcome to PhaseGen's documentation
     :target: https://badge.fury.io/py/phasegen
 .. image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: https://www.gnu.org/licenses/gpl-3.0
+.. image:: https://static.pepy.tech/badge/phasegen
+   :target: https://pepy.tech/project/phasegen
 
 PhaseGen is a package for simulating and making inference on coalescent distributions.
 
