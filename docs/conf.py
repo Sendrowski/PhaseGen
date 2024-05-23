@@ -53,7 +53,14 @@ add_module_names = False
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = 'sphinx_book_theme'
-html_theme_options = {'search_bar_text': 'Search...', 'repository_url': 'https://github.com/Sendrowski/phasegen', 'repository_branch': 'master', 'use_repository_button': True, 'use_edit_page_button': False, 'use_issues_button': False}
+html_theme_options = {
+    'search_bar_text': 'Search...',
+    'repository_url': 'https://github.com/Sendrowski/phasegen',
+    'repository_branch': 'master',
+    'use_repository_button': True,
+    'use_edit_page_button': False,
+    'use_issues_button': False
+}
 html_static_path = ['_static']
 html_css_files = ["custom.css"]
 html_logo = "logo.png"
