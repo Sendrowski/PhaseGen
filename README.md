@@ -3,6 +3,7 @@
 [![codecov](https://codecov.io/gh/Sendrowski/PhaseGen/graph/badge.svg?token=RMCUGD6CAX)](https://codecov.io/gh/Sendrowski/PhaseGen)
 [![Documentation Status](https://readthedocs.org/projects/phasegen/badge/?version=latest)](https://phasegen.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/phasegen.svg)](https://badge.fury.io/py/phasegen)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
 ``phasegen`` is a package for simulation and inference on exact solutions of coalescent distributions under diverse demographic scenarios. ``phasegen`` leverages phase-type theory and supports a wide range of demographic models and coalescent tree statistics.
