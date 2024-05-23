@@ -8,6 +8,9 @@ Motivation
 ----------
 Coalescent simular such as `msprime <https://tskit.dev/msprime/docs/stable/intro.html>`_, while being very fast and flexible, provide stochastic solutions. This necessitates the use of Approximate Bayesian Computation (ABC) for parameter estimation, which can be computationally expensive. A set of tools that do, in principle, provide exact solutions are forward simulators, such as `dadi <https://dadi.readthedocs.io/en/latest>`_ and `moments <https://moments.readthedocs.io/en/latest/index.html>`_. However, Forward simulators, while having the great advantage of being able to incorporate selection, have different caveats associated with model initialization, choice of run times, and they tend to be overall less efficient than backward simulations. PhaseGen is particularly useful in settings where exact solutions of the coalescent are required. The availability of exact solutions also allows for the use of gradient-based optimization methods for parameter estimation, such as maximum likelihood estimation, which can be more efficient than ABC in some cases.
 
+Contents
+--------
+
 .. toctree::
    :caption: Reference
    :maxdepth: 2
