@@ -19,39 +19,39 @@ However, to avoid potential conflicts with other packages, it is recommended to 
 
 To do this, you can run
 
-    .. code-block:: bash
+.. code-block:: bash
 
-        mamba create -n phasegen 'python>=3.10,<3.13' pip
-        mamba activate phasegen
-        pip install phasegen
+    mamba create -n phasegen 'python>=3.10,<3.13' pip
+    mamba activate phasegen
+    pip install phasegen
 
 Alternative, create a new file called ``environment.yml`` with the following content:
 
-   .. code-block:: yaml
+.. code-block:: yaml
 
-      name: phasegen
-      channels:
-        - defaults
-      dependencies:
-        - python>=3.10,<3.13
-        - pip
-        - pip:
-            - phasegen
+  name: phasegen
+  channels:
+    - defaults
+  dependencies:
+    - python>=3.10,<3.13
+    - pip
+    - pip:
+        - phasegen
 
 Run the following command to create a new `conda` environment using the ``environment.yml`` file:
 
-   .. code-block:: bash
+.. code-block:: bash
 
-      mamba env create -f environment.yml
+  mamba env create -f environment.yml
 
 Activate the newly created conda environment:
 
-   .. code-block:: bash
+.. code-block:: bash
 
-      mamba activate phasegen
+  mamba activate phasegen
 
 You are now ready to use the ``phasegen`` package within the isolated conda environment.
 
-   .. code-block:: python
+.. code-block:: python
 
-        import phasegen as fd
+    import phasegen as fd
