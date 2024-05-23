@@ -6,6 +6,7 @@
  */
 
 /* scale logo to 50% width */
-.icon {
-    width: 40%;
+.logo {
+    width: 50%;
+    margin: 0 auto;
 }
