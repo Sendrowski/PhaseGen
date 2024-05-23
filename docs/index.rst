@@ -1,18 +1,6 @@
 Welcome to PhaseGen's documentation
 ===================================
 
-.. image:: https://codecov.io/gh/Sendrowski/PhaseGen/graph/badge.svg?token=RMCUGD6CAX
- :target: https://codecov.io/gh/Sendrowski/PhaseGen
-.. image:: https://readthedocs.org/projects/phasegen/badge/?version=latest
-    :target: https://phasegen.readthedocs.io/en/latest/?badge=latest
-    :alt: Documentation Status
-.. image:: https://badge.fury.io/py/phasegen.svg
-    :target: https://badge.fury.io/py/phasegen
-.. image:: https://img.shields.io/badge/License-GPLv3-blue.svg
-   :target: https://www.gnu.org/licenses/gpl-3.0
-.. image:: https://static.pepy.tech/badge/phasegen
-   :target: https://pepy.tech/project/phasegen
-
 PhaseGen is a package for simulating and making inference on coalescent distributions.
 
 .. toctree::
