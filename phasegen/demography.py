@@ -220,9 +220,27 @@ class Demography:
 
             i += 1
 
+    def has_n_epochs(self, n: int) -> bool:
+        """
+        Check whether the demography has at least `n` epochs.
+
+        :param n: Number of epochs.
+        :return: Whether the demography has at least `n` epochs.
+        """
+        # get epoch iterator
+        epochs = self.epochs
+
+        for _ in range(n):
+            try:
+                next(epochs)
+            except StopIteration:
+                return False
+
+        return True
+
     def get_epochs(self, t: Iterable[float]) -> Sequence['Epoch']:
         """
-        Get the epoch at the given times.
+        Get the epochs at the given times.
 
         :param t: Times.
         :return: Array of epochs.

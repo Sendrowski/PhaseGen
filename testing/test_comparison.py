@@ -29,6 +29,27 @@ class ComparisonTestCase(TestCase):
 
         c.compare(title="1_epoch_n_2_test_size")
 
+    def test_mutation_configs_test_size(self):
+        """
+        Test simple comparison for mutation configs.
+        """
+        for n in [2, 3]:
+            c = Comparison(
+                n=n,
+                num_replicates=1000,
+                mutation_rate=1,
+                simulate_mutations=True,
+                pop_sizes={'pop_0': {0: 1}},
+                parallelize=False,
+                seed=42,
+                comparisons={'tolerance': {
+                    'sfs': {'mutation_configs': 0.5},
+                    'fsfs': {'mutation_configs': 0.5}
+                }}
+            )
+
+            c.compare(title="mutation_config_test_size")
+
     @staticmethod
     @pytest.mark.skip("not needed")
     def test_3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time():

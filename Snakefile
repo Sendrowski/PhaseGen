@@ -25,7 +25,7 @@ rule all:
         (
             #"results/graphs/inference/demography.png",
             #"docs/_build"
-            #expand("results/comparisons/serialized/{config}.json",config=configs),
+            expand("results/comparisons/serialized/{config}.json",config=configs),
             expand("results/graphs/transitions/{name}.png",name=[
                 'coalescent_4_lineages_lineage_counting',
                 'coalescent_5_lineages_lineage_counting',

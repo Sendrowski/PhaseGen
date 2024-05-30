@@ -1,0 +1,15 @@
+n: 4
+num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 0.000000001
+mass_threshold: 0.9
+pop_sizes:
+  pop_0:
+    0: 1000000000
+model: standard
+comparisons:
+  tolerance:
+    sfs:
+      mutation_configs: 0.1
+    fsfs:
+      mutation_configs: 0.1

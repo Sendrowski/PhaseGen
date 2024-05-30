@@ -1,0 +1,22 @@
+n: 4
+num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 1
+mass_threshold: 0.5
+pop_sizes:
+  pop_0:
+    0: 0.5
+  pop_1:
+    0: 2
+migration_rates:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
+    0: 1
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 0.2
+model: standard
+comparisons:
+  tolerance:
+    sfs:
+      mutation_configs: 0.1
+    fsfs:
+      mutation_configs: 0.1
