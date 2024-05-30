@@ -88,14 +88,16 @@ class Reward(ABC):
 
 class LineageCountingReward(Reward, ABC):
     """
-    Base class for rewards that count lineages. Such rewards are compatible with :class:`LineageCountingStateSpace`.
+    Base class for rewards that count lineages. Such rewards are compatible with
+    :class:`~phasegen.state_space.LineageCountingStateSpace`.
     """
     pass
 
 
 class BlockCountingReward(Reward, ABC):
     """
-    Base class for rewards that count blocks. Such rewards are compatible with :class:`BlockCountingStateSpace`.
+    Base class for rewards that count blocks. Such rewards are compatible with
+    :class:`~phasegen.state_space.BlockCountingStateSpace`.
     """
     pass
 
