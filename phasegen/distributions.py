@@ -6,10 +6,11 @@ import copy
 import itertools
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Mapping
 from functools import cached_property, cache
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional
+from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional, Sequence, Set, Type
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -24,7 +25,7 @@ from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, Unfolded
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace
-from .utils import parallelize
+from .utils import parallelize, multiset_permutations
 
 expm = Backend.expm
 
@@ -43,9 +44,11 @@ class ProbabilityDistribution(ABC):
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self):
+    def touch(self, **kwargs):
         """
         Touch all cached properties.
+
+        :param kwargs: Additional keyword arguments.
         """
         for cls in self.__class__.__mro__:
             for attr, value in cls.__dict__.items():
@@ -1245,11 +1248,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             reward=reward,
         )
 
-        #: Whether to show a progress bar
+        #: Whether to show a progress bar.
         self.pbar: bool = pbar
 
-        #: Whether to parallelize computations
+        #: Whether to parallelize computations.
         self.parallelize: bool = parallelize
+
+        #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
+        self.generated_mass = 0
 
     @abstractmethod
     def _get_sfs_reward(self, i: int) -> SFSReward:
@@ -1267,6 +1273,18 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         Get the indices for the site-frequency spectrum.
 
         :return: The indices.
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
+        """
+        Get all possible mutational configurations for a given number of mutations.
+
+        :param n: The number of lineages.
+        :param k: The number of mutations.
+        :return: An iterator over all possible mutational configurations.
         """
         pass
 
@@ -1570,6 +1588,127 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
+    def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
+        """
+        Get the probabilities of observing the given mutational configurations according to the infinite sites model.
+
+        .. note::
+            This currently only works for a single epoch, i.e. a time-homogeneous demography, and recombination is not
+            supported.
+
+        :param config: The mutational configuration. A sequence of integers of length n - 1 for unfolded configurations
+            and n // 2 for folded configurations, where n is the number of
+            lineages. Each element in the sequence is an integer representing the number of mutations
+            at each frequency count starting from 1. For example, the unfolded configuration [2, 1, 0] represents two
+            singleton, one doubleton and zero tripleton mutations for a sample size of 4 lineages. Similarly, the
+            folded configuration [2, 1] represents two singleton or tripleton and one doubleton mutation for the same
+            number of lineages.
+        :param theta: The mutation rate.
+        :return: The probability of observing the given mutational configuration.
+        """
+        # raise not implemented error if more than one epoch
+        if self.demography.has_n_epochs(2):
+            raise NotImplementedError("Sampling not implemented for more than one epoch.")
+
+        # make sure theta is non-negative
+        if theta < 0:
+            raise ValueError("Theta must be greater than or equal to 0.")
+
+        # number of frequency bins
+        n = len(self._get_configs(self.lineage_config.n, 0)[0])
+
+        if len(config) != n:
+            raise ValueError(
+                "The length of the configuration must be equal to the number of frequency bins. "
+                f"Expected {n}, got {len(config)}."
+            )
+
+        # handle special case of theta = 0
+        if theta == 0:
+            if sum(config) == 0:
+                return 1
+
+            return 0
+
+        # get non-absorbing states
+        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
+
+        # number of non-absorbing states
+        k = non_absorbing.sum()
+
+        alpha = self.state_space.alpha[non_absorbing]
+        e = self.state_space.e[non_absorbing]
+        R = np.array([self._get_sfs_reward(i)._get(self.state_space) for i in range(1, n + 1)])[:, non_absorbing]
+        r_total = R.T @ np.ones(n)
+
+        S = self.state_space.S[non_absorbing, :][:, non_absorbing]
+        I = np.eye(S.shape[0])
+
+        P_total = np.linalg.inv(I - np.diag(1 / r_total) / theta @ S)
+        p_total = (I - P_total) @ e
+        P = np.array([P_total @ np.diag(R[i] / r_total) for i in range(n)])
+
+        q = list(itertools.chain(*[[i + 1] * j for i, j in enumerate(config)]))
+
+        # iterate over permutations of q
+        Q = np.zeros((k, k))
+        for p in multiset_permutations(q):
+            U = np.eye(k)
+
+            for i in p:
+                U @= P[i - 1]
+
+            Q += U
+
+        p = alpha @ Q @ p_total
+
+        return p
+
+    def get_mutation_configs(self, theta: float) -> Iterator[Tuple[Tuple[float, ...], float]]:
+        """
+        An iterator over the probabilities of observing mutational configurations according to the infinite sites model.
+        The order of the mutational configurations generated ascends in the number of mutations observed.
+        See :meth:`get_mutation_config` for more information on mutational configurations.
+
+        .. note::
+            This currently only works for a single epoch, i.e. a time-homogeneous demography, and recombination is not
+            supported. Also note that the number of configurations is infinite, so this iterator will never stop.
+            However, depending on the mutation rate, the probability of observing configurations of higher mutation
+            counts will decrease over time. You can keep track of the generated probability mass by checking the
+            :attr:`~.generated_mass` attribute, which is reset every time this method is called.
+            A good approach is thus to keep generating configurations until the generated mass is above a certain
+            threshold. More complex demographic models and larger sample sizes increase the number of configurations
+            and higher mutation rates, the number of generated configurations necessary to reach a certain mass.
+
+        Code example:
+
+        ::
+
+            coal = pg.Coalescent(n=5)
+
+            it = coal.sfs.get_mutation_configs(theta=1)
+
+            # continue until generated mass is above 0.8
+            samples = list(pg.utils.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
+
+        :param theta: The mutation rate.
+        :return: An iterator over the probabilities of observing mutational configurations.
+        """
+        # reset generated mass
+        self.generated_mass = 0
+
+        # iterate over number of mutations
+        i = 0
+        while True:
+            # iterate over configurations
+            for config in self._get_configs(self.lineage_config.n, i):
+                p = self.get_mutation_config(config=config, theta=theta)
+                self.generated_mass += p
+                yield config, p
+
+            # increase counter for number of mutations
+            i += 1
+
 
 class UnfoldedSFSDistribution(SFSDistribution):
     """
@@ -1592,6 +1731,17 @@ class UnfoldedSFSDistribution(SFSDistribution):
         :return: The indices.
         """
         return np.arange(1, self.lineage_config.n)
+
+    @staticmethod
+    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
+        """
+        Get all possible mutational configurations for a given number of mutations.
+
+        :param n: The number of lineages.
+        :param k: The number of mutations.
+        :return: An iterator over all possible mutational configurations.
+        """
+        return StateSpace._get_partitions(n=k, k=n - 1)
 
 
 class FoldedSFSDistribution(SFSDistribution):
@@ -1616,6 +1766,47 @@ class FoldedSFSDistribution(SFSDistribution):
         """
         return np.arange(1, self.lineage_config.n // 2 + 1)
 
+    @staticmethod
+    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
+        """
+        Get all possible mutational configurations for a given number of mutations.
+
+        :param n: The number of lineages.
+        :param k: The number of mutations.
+        :return: An iterator over all possible mutational configurations.
+        """
+        return StateSpace._get_partitions(n=k, k=n // 2)
+
+    def _unfold(self, config: Sequence[int]) -> Set[Tuple[int, ...]]:
+        """
+        Unfold a folded configuration into all possible unfolded configurations.
+
+        :param config: The folded configuration. A sequence of integers of length n // 2 where n is the number of
+            lineages.
+        :return: The unfolded configurations.
+        """
+        n = self.lineage_config.n
+
+        if n // 2 != len(config):
+            raise ValueError("The length of the configuration must equal n // 2 where n is the number of lineages.")
+
+        if n % 2 == 1:
+            lower_counts = [range(i + 1) for i in config]
+            i_center = len(config)
+        else:
+            lower_counts = [range(i + 1) for i in config[:-1]] + [[config[-1]]]
+            i_center = len(config) - 1
+
+        unfolded = []
+        # iterate over unfolded configurations
+        for lower in itertools.product(*lower_counts):
+            # get higher counts
+            higher = (np.array(config) - np.array(lower))[:i_center][::-1]
+
+            unfolded += [list(lower) + list(higher)]
+
+        return set(tuple(u) for u in unfolded)
+
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
@@ -1632,6 +1823,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         self._cache = None
 
+        #: Samples
         self.samples = np.array(samples, dtype=float)
 
     def touch(self, t: np.ndarray):
@@ -1936,26 +2128,39 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # prag
 
     def __init__(
             self,
-            samples: np.ndarray | list,
+            branch_lengths: np.ndarray,
+            mutations: np.ndarray,
             pops: List[str],
-            locus_agg: Callable = lambda x: x.sum(axis=0)
+            sfs_dist: Type[SFSDistribution],
+            locus_agg: Callable = lambda x: x.sum(axis=0),
     ):
         """
         Create object.
 
-        :param samples: 4-D array of samples.
+        :param branch_lengths: 4-D array of branch length samples.
+        :param mutations: 4-D array of mutation counts.
         :param pops: List of population names.
+        :param sfs_dist: SFS distribution class.
         :param locus_agg: Aggregation function for loci.
         """
-        over_loci = locus_agg(samples).astype(float)
+        over_loci = locus_agg(branch_lengths).astype(float)
 
         EmpiricalDistribution.__init__(self, over_loci.sum(axis=0))
 
         #: Population names
         self.pops = pops
 
-        #: Samples by deme and locus
-        self._samples = samples
+        # : Number of lineages
+        self.n = branch_lengths.shape[-1] - 1
+
+        #: SFS distribution class
+        self._sfs_dist = sfs_dist
+
+        #: Branch length samples by deme and locus
+        self._samples = branch_lengths
+
+        #: Mutation counts by deme and locus
+        self._mutations = mutations
 
         #: Correlation matrix for the loci
         self.pops_corr = self._get_stat_pops(over_loci, np.corrcoef)
@@ -1963,9 +2168,14 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # prag
         #: Covariance matrix for the demes
         self.pops_cov: np.ndarray = self._get_stat_pops(over_loci, np.cov)
 
-        self.loci_corr = None
+        #: Correlation matrix for the loci
+        self.loci_corr: np.ndarray = None
 
-        self.loci_cov = None
+        #: Covariance matrix for the loci
+        self.loci_cov: np.ndarray = None
+
+        #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
+        self.generated_mass = 0
 
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
@@ -1990,6 +2200,51 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # prag
         :return: Dictionary of distributions.
         """
         return {pop: EmpiricalSFSDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
+
+    @cached_property
+    def mutation_configs(self) -> Dict[Tuple[float, ...], float]:
+        """
+        Get a dictionary of all mutation configurations and their probabilities.
+
+        :return: Dictionary of distributions.
+        """
+        configs = defaultdict(lambda: 0)
+
+        for config in self._mutations[0, 0]:
+            configs[tuple(config)] += 1 / self._mutations.shape[2]
+
+        return configs
+
+    def get_mutation_config(self, config: Sequence[int]) -> float:
+        """
+        Get the probability of observing the given mutational configuration.
+
+        :param config: The mutational configuration.
+        :return: The probability of observing the given mutational configuration.
+        """
+        return self.mutation_configs[tuple(config)]
+
+    def get_mutation_configs(self) -> Iterator[Tuple[Tuple[float, ...], float]]:
+        """
+        An iterator over the probabilities of observing mutational configurations according to the infinite sites model.
+        The order of the mutational configurations generated ascends in the number of mutations observed.
+
+        :return: An iterator over the probabilities of observing mutational configurations.
+        """
+        # reset generated mass
+        self.generated_mass = 0
+
+        # iterate over number of mutations
+        i = 0
+        while True:
+            # iterate over configurations
+            for config in self._sfs_dist._get_configs(self.n, i):
+                p = self.get_mutation_config(config=config)
+                self.generated_mass += p
+                yield config, p
+
+            # increase counter for number of mutations
+            i += 1
 
 
 class AbstractCoalescent(ABC):
@@ -2091,7 +2346,15 @@ class AbstractCoalescent(ABC):
     @abstractmethod
     def sfs(self) -> MomentAwareDistribution:
         """
-        Site frequency spectrum distribution.
+        Unfolded site-frequency spectrum distribution.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def fsfs(self) -> MomentAwareDistribution:
+        """
+        Folded site-frequency spectrum distribution.
         """
         pass
 
@@ -2198,7 +2461,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def sfs(self) -> UnfoldedSFSDistribution:
         """
-        Site frequency spectrum distribution.
+        Unfolded site-frequency spectrum distribution.
         """
         return UnfoldedSFSDistribution(
             state_space=self.block_counting_state_space,
@@ -2209,7 +2472,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fsfs(self) -> FoldedSFSDistribution:
         """
-        Folded site frequency spectrum distribution.
+        Folded site-frequency spectrum distribution.
         """
         return FoldedSFSDistribution(
             state_space=self.block_counting_state_space,
@@ -2430,6 +2693,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             n_threads: int = 10,
             parallelize: bool = True,
             record_migration: bool = False,
+            simulate_mutations: bool = False,
+            mutation_rate: float = None,
             seed: int = None
     ) -> 'MsprimeCoalescent':
         """
@@ -2439,6 +2704,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param n_threads: Number of threads.
         :param parallelize: Whether to parallelize.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
+        :param simulate_mutations: Whether to simulate mutations.
+        :param mutation_rate: Mutation rate.
         :return: msprime coalescent.
         """
         if self.start_time != 0:
@@ -2450,11 +2717,13 @@ class Coalescent(AbstractCoalescent, Serializable):
             model=self.model,
             loci=self.locus_config,
             recombination_rate=self.locus_config.recombination_rate,
+            mutation_rate=mutation_rate,
             end_time=self.end_time,
             num_replicates=num_replicates,
             n_threads=n_threads,
             parallelize=parallelize,
             record_migration=record_migration,
+            simulate_mutations=simulate_mutations,
             seed=seed
         )
 
@@ -2471,11 +2740,13 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
             model: CoalescentModel = StandardCoalescent(),
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
+            mutation_rate: float = None,
             end_time: float = None,
             num_replicates: int = 10000,
             n_threads: int = 100,
             parallelize: bool = True,
             record_migration: bool = False,
+            simulate_mutations: bool = False,
             seed: int = None
     ):
         """
@@ -2485,11 +2756,14 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
         :param demography: Demography.
         :param model: Coalescent model.
         :param loci: Number of loci or locus configuration.
+        :param recombination_rate: Recombination rate.
+        :param mutation_rate: Mutation rate.
         :param end_time: Time when to end the simulation.
         :param num_replicates: Number of replicates.
         :param n_threads: Number of threads.
         :param parallelize: Whether to parallelize.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
+        :param simulate_mutations: Whether to simulate mutations.
         :param seed: Random seed.
         """
         super().__init__(
@@ -2501,17 +2775,41 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
             end_time=end_time
         )
 
-        self.sfs_counts: np.ndarray | None = None
+        if mutation_rate is not None and not simulate_mutations:
+            self._logger.warning("Mutation rate is set but mutations are not simulated.")
+
+        #: Site frequency spectrum counts per locus, deme and replicate.
+        self.sfs_lengths: np.ndarray | None = None
+
+        #: Total branch lengths per locus, deme and replicate.
         self.total_branch_lengths: np.ndarray | None = None
+
+        #: Tree heights per locus, deme and replicate.
         self.heights: np.ndarray | None = None
 
-        self.num_replicates: int = num_replicates
-        self.n_threads: int = n_threads
-        self.parallelize: bool = parallelize
-        self.record_migration: bool = record_migration
-        self.seed: int = seed
+        #: Mutations per locus, deme and replicate.
+        self.mutations: np.ndarray | None = None
 
-        self.p_accepted: int = 0
+        #: Number of replicates.
+        self.num_replicates: int = num_replicates
+
+        #: Mutation rate.
+        self.mutation_rate: float = mutation_rate
+
+        #: Number of threads.
+        self.n_threads: int = n_threads
+
+        #: Whether to parallelize computations.
+        self.parallelize: bool = parallelize
+
+        #: Whether to record migrations.
+        self.record_migration: bool = record_migration
+
+        #: Whether to simulate mutations.
+        self.simulate_mutations: bool = simulate_mutations
+
+        #: Random seed.
+        self.seed: int = seed
 
     def get_coalescent_model(self) -> 'msprime.AncestryModel':
         """
@@ -2572,6 +2870,7 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
             heights = np.zeros((self.locus_config.n, n_pops, num_replicates), dtype=float)
             total_branch_lengths = np.zeros((self.locus_config.n, n_pops, num_replicates), dtype=float)
             sfs = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=float)
+            mutations = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=int)
 
             # iterate over trees and compute statistics
             ts: tskit.TreeSequence
@@ -2648,7 +2947,16 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
 
                             sfs[j, 0, i, n] += t
 
-            return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T])
+                # simulate mutations if specified
+                if self.simulate_mutations:
+
+                    mts = ms.sim_mutations(ts, rate=self.mutation_rate, random_seed=seed)
+                    tree = next(mts.trees())
+
+                    for node in mts.mutations_node:
+                        mutations[0, 0, i, tree.get_num_leaves(node)] += 1
+
+            return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T, mutations.T])
 
         # parallelize and add up results
         res = np.hstack(parallelize(
@@ -2660,7 +2968,10 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
         ))
 
         # store results
-        self.heights, self.total_branch_lengths, self.sfs_counts = res[0].T, res[1].T, res[2:].T
+        self.heights = res[0].T
+        self.total_branch_lengths = res[1].T
+        self.sfs_lengths = res[2:sample_size + 3].T
+        self.mutations = res[sample_size + 3:].T.astype(int)
 
     @staticmethod
     def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:
@@ -2683,9 +2994,11 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
 
         return np.linspace(0, t_max, 100)
 
-    def touch(self):
+    def touch(self, **kwargs):
         """
         Touch cached properties.
+
+        :param kwargs: Additional keyword arguments.
         """
         self.simulate()
 
@@ -2703,7 +3016,7 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
         """
         self.heights = None
         self.total_branch_lengths = None
-        self.sfs_counts = None
+        self.sfs_lengths = None
 
         self.tree_height.drop()
         self.total_tree_height.drop()
@@ -2748,27 +3061,42 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
         """
-        Site frequency spectrum distribution.
+        Unfolded site-frequency spectrum distribution.
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeSFSDistribution(self.sfs_counts, pops=self.demography.pop_names)
+        return EmpiricalPhaseTypeSFSDistribution(
+            branch_lengths=self.sfs_lengths,
+            mutations=self.mutations.T[1:-1].T,
+            pops=self.demography.pop_names,
+            sfs_dist=UnfoldedSFSDistribution
+        )
 
     @cached_property
     def fsfs(self) -> EmpiricalPhaseTypeSFSDistribution:
         """
-        Folded site frequency spectrum distribution.
+        Folded site-frequency spectrum distribution.
         """
         self.simulate()
 
         mid = (self.lineage_config.n + 1) // 2
 
-        counts = self.sfs_counts.copy().T
+        # fold SFS branch lengths
+        lengths = self.sfs_lengths.copy().T
+        lengths[:mid] += lengths[-mid:][::-1]
+        lengths[-mid:] = 0
 
-        counts[:mid] += counts[-mid:][::-1]
-        counts[-mid:] = 0
+        # fold SFS mutations
+        mutations = self.mutations.copy().T
+        mutations[:mid] += mutations[-mid:][::-1]
+        mutations = mutations[1:self.lineage_config.n // 2 + 1]
 
-        return EmpiricalPhaseTypeSFSDistribution(counts.T, pops=self.demography.pop_names)
+        return EmpiricalPhaseTypeSFSDistribution(
+            branch_lengths=lengths.T,
+            mutations=mutations.T,
+            pops=self.demography.pop_names,
+            sfs_dist=FoldedSFSDistribution
+        )
 
     def to_phasegen(self) -> Coalescent:
         """

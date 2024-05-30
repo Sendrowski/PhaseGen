@@ -1,6 +1,7 @@
 """
 Test coalescents.
 """
+from itertools import islice
 from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
@@ -406,7 +407,8 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.lineage_counting_state_space.plot_rates('scratch/test_n_2_2_loci_lineage_counting_state_space_completely_unlinked')
+        coal.lineage_counting_state_space.plot_rates(
+            'scratch/test_n_2_2_loci_lineage_counting_state_space_completely_unlinked')
 
         pass
 
@@ -496,7 +498,8 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.moment(1, (pg.TotalTreeHeightReward(),))
         m2 = coal.tree_height.moment(2, (pg.TotalTreeHeightReward(),) * 2)
 
-        coal.lineage_counting_state_space.plot_rates('scratch/test_n_3_2_loci_lineage_counting_state_space_completely_linked')
+        coal.lineage_counting_state_space.plot_rates(
+            'scratch/test_n_3_2_loci_lineage_counting_state_space_completely_linked')
 
         pass
 
@@ -1018,6 +1021,25 @@ class CoalescentTestCase(TestCase):
             m_ms = np.mean((ms.sfs.samples[:, moments] - ms.sfs.samples[:, moments].mean(axis=0)).prod(axis=1))
 
             self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), tol)
+
+    def test_mutation_configuration_probability_mass_close_to_one(self):
+        """
+        Test mutation configuration probability mass is close to one.
+        """
+        coal = pg.Coalescent(n=5)
+
+        ms = coal._to_msprime(
+            num_replicates=1000,
+            seed=42,
+            n_threads=1,
+            parallelize=False,
+            mutation_rate=0.01,
+            simulate_mutations=True,
+        )
+
+        self.assertAlmostEqual(1, sum(map(lambda x: x[1], islice(ms.sfs.get_mutation_configs(), 100))))
+        self.assertAlmostEqual(1, sum(map(lambda x: x[1],
+                                          islice(coal.sfs.get_mutation_configs(theta=ms.mutation_rate), 100))))
 
     def test_pdf_large_N(self):
         """

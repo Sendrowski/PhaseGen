@@ -20,6 +20,7 @@ Contents
    reference/coalescent
    reference/rewards
    reference/demography
+   reference/mutation_configs
    reference/inference
    reference/exponentiation_backend
    reference/performance

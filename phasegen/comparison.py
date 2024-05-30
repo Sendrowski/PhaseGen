@@ -1,7 +1,7 @@
 """
 Module for simulating population genetic scenarios using both phasegen and msprime, for comparison.
 """
-
+import itertools
 import logging
 from functools import cached_property
 from typing import Iterable, Dict, Literal, List
@@ -19,6 +19,7 @@ from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution,
 from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
+from .utils import takewhile_inclusive
 
 logger = logging.getLogger('phasegen')
 
@@ -37,10 +38,14 @@ class Comparison(Serializable):
             n_loci: int = 1,
             recombination_rate: float = 0,
             num_replicates: int = 10000,
+            mutation_rate: float = None,
             record_migration: bool = False,
+            simulate_mutations: bool = False,
+            mass_threshold: float = 0.9,
             end_time: float = None,
             n_threads: int = 100,
             parallelize: bool = True,
+            seed: int = None,
             comparisons: dict = None,
             model: Literal['standard', 'beta'] = 'standard',
             alpha: float = 1.5,
@@ -65,10 +70,15 @@ class Comparison(Serializable):
         :param n_loci: Number of loci.
         :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
+        :param mutation_rate: Mutation rate. Only used if simulate_mutations is True.
         :param record_migration: Whether to record migrations.
+        :param simulate_mutations: Whether to simulate mutations. This is used for comparing mutational configurations
+            rather than branch lengths.
+        :param mass_threshold: Probability threshold above which to stop generating mutational configurations.
         :param end_time: End time of the simulation.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
+        :param seed: Seed for the random number generator.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
         :param model: Coalescent model to use.
@@ -88,10 +98,14 @@ class Comparison(Serializable):
         self.n_loci = n_loci
         self.recombination_rate = recombination_rate
         self.num_replicates = num_replicates
+        self.mutation_rate = mutation_rate
         self.record_migration = record_migration
+        self.simulate_mutations = simulate_mutations
+        self.mass_threshold = mass_threshold
         self.end_time = end_time
         self.n_threads = n_threads
         self.parallelize = parallelize
+        self.seed = seed
         self.alpha = alpha
         self.psi = psi
         self.c = c
@@ -177,10 +191,13 @@ class Comparison(Serializable):
             demography=self.get_demography(),
             loci=self.get_locus_config(),
             num_replicates=self.num_replicates,
+            mutation_rate=self.mutation_rate,
             record_migration=self.record_migration,
+            simulate_mutations=self.simulate_mutations,
             end_time=self.end_time,
             n_threads=self.n_threads,
             parallelize=self.parallelize,
+            seed=self.seed,
             model=self.model
         )
 
@@ -236,6 +253,14 @@ class Comparison(Serializable):
                 ph_stat = ph.moment(int(stat[1]), center=False)
                 ms_stat = getattr(ms, stat)
 
+            elif stat == 'mutation_configs':
+
+                ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
+                ms_it = ms.get_mutation_configs()
+
+                ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
+                ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
+
             else:
                 ph_stat = getattr(ph, stat)
                 ms_stat = getattr(ms, stat)
@@ -243,6 +268,25 @@ class Comparison(Serializable):
             if isinstance(ph_stat, float):
 
                 diff = self.rel_diff(ms_stat, ph_stat).max()
+
+            elif stat == 'mutation_configs':
+                configs = [x[0] for x in ph_stat]
+                ms_stat = np.array([x[1] for x in ms_stat])
+                ph_stat = np.array([x[1] for x in ph_stat])
+                diff = self.rel_diff(ms_stat, ph_stat).mean()
+
+                if visualize:
+                    plt.plot(ph_stat, label='phasegen')
+                    plt.plot(ms_stat, label='msprime')
+
+                    plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
+
+                    plt.legend()
+                    plt.title(title)
+
+                    plt.tight_layout()
+
+                    plt.show()
 
             # assume we have an SFS
             elif isinstance(ph_stat, Iterable):
@@ -264,8 +308,8 @@ class Comparison(Serializable):
 
                         fig.suptitle(title)
 
-                        SFS2(ph_stat).plot_surface(ax=axs[0], title='ph', show=False)
-                        SFS2(ms_stat).plot_surface(ax=axs[1], title='ms')
+                        SFS2(ph_stat).plot_surface(ax=axs[0], title='phasegen', show=False)
+                        SFS2(ms_stat).plot_surface(ax=axs[1], title='msprime')
 
             # assume we have a PDF or CDF
             elif stat in ['pdf', 'cdf']:
@@ -300,7 +344,7 @@ class Comparison(Serializable):
             self.logger.critical(f"{title}: {diff} > {tol}")
 
             if do_assertion:
-                raise AssertionError(f"Maximum relative difference {diff} exceeds threshold {tol} for {title}.")
+                raise AssertionError(f"Relative difference {diff} exceeds threshold {tol} for {title}.")
         else:
             self.logger.info(f"{title}: {diff} <= {tol}")
 

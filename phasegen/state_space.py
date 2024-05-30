@@ -144,6 +144,28 @@ class StateSpace(ABC):
             for i in range(self.k)
         ])
 
+    @staticmethod
+    def _get_partitions(n: int, k: int) -> List[List[int]]:
+        """
+        Find all vectors of length `k` with non-negative integers that sum to `n`.
+
+        :param n: The sum.
+        :param k: The length of the vectors.
+        :return: All vectors of length `k` with non-negative integers that sum to `n`.
+        """
+        if k == 0:
+            return [[]]
+
+        if k == 1:
+            return [[n]]
+
+        vectors = []
+        for i in range(n + 1):
+            for vector in StateSpace._get_partitions(n - i, k - 1):
+                vectors.append(vector + [i])
+
+        return vectors
+
     def get_transitions(self) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
         """
         Get all possible transitions from the given state.
