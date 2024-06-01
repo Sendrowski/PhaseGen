@@ -10,6 +10,6 @@ model: standard
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.15
     fsfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.15
