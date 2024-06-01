@@ -1842,7 +1842,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def drop(self):
         """
-        Drop all cached properties.
+        Drop simulated samples.
         """
         self.samples = None
 
@@ -2077,7 +2077,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
     def drop(self):
         """
-        Drop all cached properties.
+        Drop simulated samples.
         """
         super().drop()
 
@@ -2176,6 +2176,14 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # prag
 
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
+
+    def drop(self):
+        """
+        Drop simulated samples.
+        """
+        super().drop()
+
+        self._mutations = None
 
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
@@ -3017,6 +3025,7 @@ class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
         self.heights = None
         self.total_branch_lengths = None
         self.sfs_lengths = None
+        self.mutations = None
 
         self.tree_height.drop()
         self.total_tree_height.drop()
