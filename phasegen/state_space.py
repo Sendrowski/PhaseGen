@@ -73,21 +73,13 @@ class StateSpace(ABC):
         #: Cached rate matrices
         self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
 
-        #: Ordered list of states
-        self.__states: List['State'] = []
-
-        # number of lineages linked across loci
-        self.linked: np.ndarray | None = None
-
         # time in seconds to compute original rate matrix
         self.time: float | None = None
 
     @cached_property
-    def states(self) -> np.ndarray:
+    def states(self) -> List['State']:
         """
-        The states. Each state describes the lineage configuration per deme and locus, i.e.,
-        one state has the structure ``[[[a_ijk]]]`` where ``i`` is the lineage configuration, ``j`` is the deme
-        and ``k`` is the locus.
+        The states.
         """
         start = time.time()
 
@@ -97,31 +89,34 @@ class StateSpace(ABC):
         # record time to compute rate matrix
         self.time = time.time() - start
 
-        # save linked lineages
-        self.linked = np.array([s.linked for s in states])
-        self.__states = states
-
         # cache rate matrix if specified
         if self.cache:
             self._cache[self.epoch] = (transitions, states)
 
-        # indices of non-zero rates
-        return np.array([s.lineages for s in states])
+        return states
+
+    @cached_property
+    def lineages(self) -> np.ndarray:
+        """
+        The lineage configurations. Each configuration describes the lineages per block, deme and locus, i.e.,
+        ``[[[a_ijk]]]`` for block ``i``, deme ``j`` and locus ``k``.
+        """
+        return np.array([s.lineages for s in self.states])
+
+    @cached_property
+    def linked(self) -> np.ndarray:
+        """
+        The linked lineages per block, deme and locus.
+        :return:
+        """
+        return np.array([s.linked for s in self.states])
 
     @property
     def unlinked(self) -> np.ndarray:
         """
         Unlinked lineages.
         """
-        return self.states - self.linked
-
-    @cached_property
-    def _states(self) -> List['State']:
-        """
-        Ordered list of states.
-        """
-        _ = self.states
-        return self.__states
+        return self.lineages - self.linked
 
     @abstractmethod
     def _get_old(self) -> OldStateSpace:
@@ -140,7 +135,7 @@ class StateSpace(ABC):
 
         # reorder the states of s2 to match s1
         return cast(List[int], [
-            np.where(((old.states == self.states[i]) & (old.linked == self.linked[i])).all(axis=(1, 2, 3)))[0][0]
+            np.where(((old.states == self.lineages[i]) & (old.linked == self.linked[i])).all(axis=(1, 2, 3)))[0][0]
             for i in range(self.k)
         ])
 
@@ -254,7 +249,7 @@ class StateSpace(ABC):
         """
         Number of states.
         """
-        k = len(self.states)
+        k = len(self.lineages)
 
         # warn if state space is large
         if k > 400:
@@ -350,7 +345,7 @@ class StateSpace(ABC):
             transitions: Dict[Tuple['State', 'State'], Tuple[float, str]]
     ) -> np.ndarray:
         """
-        Convert graph to matrix.
+        Convert transition graph to rate matrix.
 
         :param transitions: Transitions.
         :return: Rate matrix.
@@ -358,7 +353,7 @@ class StateSpace(ABC):
         S = np.zeros((self.k, self.k))
 
         # order of original states
-        ordering = {s: i for i, s in enumerate(self._states)}
+        ordering = {s: i for i, s in enumerate(self.states)}
 
         # fill rate matrix
         for (source, target), transition in transitions.items():
@@ -369,7 +364,7 @@ class StateSpace(ABC):
 
         return S
 
-    def _get_sparsity(self) -> float:
+    def get_sparsity(self) -> float:
         """
         Get the sparsity of the rate matrix.
 
@@ -381,7 +376,7 @@ class StateSpace(ABC):
         """
         Get color of the state indexed by `i`.
         """
-        if self._states[i].is_absorbing():
+        if self.states[i].is_absorbing():
             return '#f1807e'
 
         if self.alpha[i] > 0:
@@ -440,7 +435,7 @@ class StateSpace(ABC):
         graph = graphviz.Digraph()
 
         # add nodes
-        for i, state in enumerate(self._states):
+        for i, state in enumerate(self.states):
             graph.node(
                 name=format_state(state.data),
                 fillcolor=self._get_color_state(i),
@@ -477,7 +472,7 @@ class LineageCountingStateSpace(StateSpace):
     Default rate matrix where there is one state per number of lineages for each deme and locus.
     """
 
-    def _get_initial(self):
+    def _get_initial(self) -> 'State':
         """
         Get the initial state.
         """
@@ -533,7 +528,7 @@ class BlockCountingStateSpace(StateSpace):
 
         super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
-    def _get_initial(self):
+    def _get_initial(self) -> 'State':
         """
         Get the initial state.
         """
@@ -600,7 +595,6 @@ class Transition:
         """
         targets: Dict['State', Tuple[float, str]] = {}
 
-        # TODO why do we allow migration from absorbing states?
         targets |= self.migrate(source)
 
         if source.is_absorbing():

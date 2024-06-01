@@ -118,7 +118,7 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward):
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
-            return np.any(state_space.states.sum(axis=(2, 3)) > 1, axis=1).astype(int)
+            return np.any(state_space.lineages.sum(axis=(2, 3)) > 1, axis=1).astype(int)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -165,7 +165,7 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward):
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
             # sum over demes and blocks
-            loci = state_space.states.sum(axis=(2, 3))
+            loci = state_space.lineages.sum(axis=(2, 3))
 
             # number of loci
             n_loci = state_space.locus_config.n
@@ -219,7 +219,7 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
         """
         if isinstance(state_space, BlockCountingStateSpace):
             # sum over demes and loci, and select block
-            return state_space.states[:, :, :, self.index - 1].sum(axis=(1, 2))
+            return state_space.lineages[:, :, :, self.index - 1].sum(axis=(1, 2))
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -255,7 +255,7 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
             blocks = self._get_indices(state_space)
 
             # sum over demes and loci, and select block
-            return state_space.states[:, :, :, blocks].sum(axis=(1, 2, 3))
+            return state_space.lineages[:, :, :, blocks].sum(axis=(1, 2, 3))
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -288,7 +288,7 @@ class LineageReward(LineageCountingReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
-            return (state_space.states.sum(axis=(1, 2, 3)) == self.n).astype(int)
+            return (state_space.lineages.sum(axis=(1, 2, 3)) == self.n).astype(int)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -331,7 +331,7 @@ class DemeReward(LineageCountingReward, BlockCountingReward):
             pop_index: int = state_space.epoch.pop_names.index(self.pop)
 
             # fraction of total lineages in the population
-            fraction = (state_space.states.sum(axis=(1, 3))[:, pop_index] / state_space.states.sum(axis=(1, 2, 3)))
+            fraction = (state_space.lineages.sum(axis=(1, 3))[:, pop_index] / state_space.lineages.sum(axis=(1, 2, 3)))
 
             return fraction
 
@@ -371,7 +371,7 @@ class LocusReward(LineageCountingReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, LineageCountingStateSpace):
-            return (state_space.states.sum(axis=(2, 3))[:, self.locus] > 1).astype(int)
+            return (state_space.lineages.sum(axis=(2, 3))[:, self.locus] > 1).astype(int)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -434,7 +434,7 @@ class TotalBranchLengthLocusReward(LocusReward, LineageCountingReward):
         """
         if isinstance(state_space, LineageCountingStateSpace):
             # number of branches for focal locus
-            n_branches = state_space.states.sum(axis=(2, 3))[:, self.locus]
+            n_branches = state_space.lineages.sum(axis=(2, 3))[:, self.locus]
 
             # no reward for loci with less than two branches
             n_branches[n_branches < 2] = 0
