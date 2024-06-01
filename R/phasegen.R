@@ -1,5 +1,5 @@
 
-# vector of required packaged
+# vector of required packages
 required_packages <- c("reticulate")
 
 # install required R packages
@@ -102,7 +102,6 @@ install_phasegen <- function(version = NULL, force = FALSE, silent = FALSE, pyth
 #'
 #' @seealso \link[reticulate]{import} for importing Python modules in R.
 #'
-#' @importFrom grDevices colorRampPalette dev.off pdf
 #' @export
 load_phasegen <- function(install = FALSE) {
   
@@ -112,4 +111,5 @@ load_phasegen <- function(install = FALSE) {
   }
   
   # use super assignment to update global reference to phasegen
-  fd <- reticulate::import("phasegen")
+  pg <- reticulate::import("phasegen")
+}
