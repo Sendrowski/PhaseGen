@@ -8,6 +8,8 @@ dependencies:
   - tensorflow
   - jax
   - python-graphviz
+  - r-base
+  - r-devtools
   - jupyterlab
   - jupyter
   - pip
