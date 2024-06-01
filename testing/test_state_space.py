@@ -428,12 +428,12 @@ class StateSpaceTestCase(TestCase):
         # reorder the states of s2 to match s1
         ordering = [
             np.where(
-                ((state_space_old.states == state_space.states[i]) & (
+                ((state_space_old.states == state_space.lineages[i]) & (
                         state_space_old.linked == state_space.linked[i])).all(
                     axis=(1, 2, 3)))[0][0] for i in range(state_space.k)
         ]
 
-        testing.assert_array_equal(state_space.states.astype(int), state_space_old.states[ordering])
+        testing.assert_array_equal(state_space.lineages.astype(int), state_space_old.states[ordering])
         testing.assert_array_equal(state_space.linked.astype(int), state_space_old.linked[ordering])
 
         testing.assert_array_almost_equal(state_space.S, state_space_old.S[ordering][:, ordering], decimal=14)
