@@ -1,4 +1,4 @@
-.. _exponentiation_backend:
+.. _reference.python.exponentiation_backend:
 
 Exponentiation Backend
 ======================

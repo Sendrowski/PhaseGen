@@ -1,4 +1,4 @@
-.. _reference.miscellaneous:
+.. _reference.python.miscellaneous:
 
 Miscellaneous
 =============

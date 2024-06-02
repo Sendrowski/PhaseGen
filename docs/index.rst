@@ -12,19 +12,34 @@ Contents
 --------
 
 .. toctree::
-   :caption: Reference
+   :caption: Python Reference
    :maxdepth: 2
 
-   reference/installation
-   reference/quickstart
-   reference/coalescent
-   reference/rewards
-   reference/demography
-   reference/mutation_configs
-   reference/inference
-   reference/exponentiation_backend
-   reference/performance
-   reference/miscellaneous
+   reference/Python/installation
+   reference/Python/quickstart
+   reference/Python/coalescent
+   reference/Python/rewards
+   reference/Python/demography
+   reference/Python/mutation_configs
+   reference/Python/inference
+   reference/Python/exponentiation_backend
+   reference/Python/performance
+   reference/Python/miscellaneous
+
+.. toctree::
+   :caption: R Reference
+   :maxdepth: 2
+
+   reference/R/installation
+   reference/R/quickstart
+   reference/R/coalescent
+   reference/R/rewards
+   reference/R/demography
+   reference/R/mutation_configs
+   reference/R/inference
+   reference/R/exponentiation_backend
+   reference/R/performance
+   reference/R/miscellaneous
 
 .. toctree::
    :caption: API Reference

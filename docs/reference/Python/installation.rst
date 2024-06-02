@@ -1,4 +1,4 @@
-.. _installation:
+.. _reference.python.installation:
 
 Installation
 ============
