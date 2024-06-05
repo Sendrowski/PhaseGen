@@ -187,13 +187,13 @@ class SFSReward(BlockCountingReward, ABC):
     :meta private:
     """
 
-    def __init__(self, index: int = None):
+    def __init__(self, index: int):
         """
         Initialize the reward.
 
         :param index: The index of the SFS bin to use, starting from 1.
         """
-        self.index = index
+        self.index = int(index)
 
     def __hash__(self) -> int:
         """
@@ -277,7 +277,7 @@ class LineageReward(LineageCountingReward):
         if n < 2:
             raise ValueError('Number of lineages must be at least 2.')
 
-        self.n: int = n
+        self.n: int = int(n)
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -360,7 +360,7 @@ class LocusReward(LineageCountingReward):
 
         :param locus: The locus index to use.
         """
-        self.locus: int = locus
+        self.locus: int = int(locus)
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """

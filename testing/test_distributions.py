@@ -323,7 +323,7 @@ class DistributionTestCase(TestCase):
         coal = pg.Coalescent(n=5)
 
         it = coal.sfs.get_mutation_configs(theta=1)
-        samples = list(pg.utils.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
+        samples = list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
 
         configs, probs = zip(*samples)
 

@@ -27,18 +27,18 @@ class LineageConfig:
 
         if isinstance(n, dict):
             # we have a dictionary
-            n_lineages = n
+            n_lineages = {k: int(v) for k, v in n.items()}
 
         elif isinstance(n, Iterable):
             # we have an iterable
-            n_lineages = {f"pop_{i}": n for i, n in enumerate(n)}
+            n_lineages = {f"pop_{i}": int(n) for i, n in enumerate(n)}
 
         else:
             # assume we have a scalar
-            n_lineages = dict(pop_0=n)
+            n_lineages = dict(pop_0=int(n))
 
         #: Number of lineages per deme.
-        self.lineages: np.array = np.array(list(n_lineages.values()))
+        self.lineages: np.ndarray = np.array(list(n_lineages.values()))
 
         #: Total number of lineages.
         self.n: int = sum(list(n_lineages.values()))

@@ -107,3 +107,16 @@ def takewhile_inclusive(predicate: Callable[[Any], bool], iterable: Iterable) ->
         yield item
         if not predicate(item):
             break
+
+def take_n(iterable: Iterable, n: int) -> Iterator:
+    """
+    Take n items from the iterable.
+
+    :param iterable: An iterable.
+    :param n: Number of items to take.
+    :return: An iterator.
+    """
+    iterator = iter(iterable)
+
+    for _ in range(int(n)):
+        yield next(iterator)
