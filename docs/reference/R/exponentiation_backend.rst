@@ -1,5 +1,7 @@
 .. _reference.r.exponentiation_backend:
 
+TODO add support for R
+
 Exponentiation Backend
 ======================
 

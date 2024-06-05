@@ -36,7 +36,6 @@ Contents
    reference/R/rewards
    reference/R/demography
    reference/R/mutation_configs
-   reference/R/inference
    reference/R/exponentiation_backend
    reference/performance
    reference/R/miscellaneous
