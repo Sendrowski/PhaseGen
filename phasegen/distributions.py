@@ -1636,6 +1636,31 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
+    @cache
+    def _get_P(self, n: int, theta: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get transition matrix for mutational configuration probabilities.
+
+        :param n: The number of frequency bins.
+        :param theta: The mutation rate.
+        :return: Transition matrix and exit vector.
+        """
+        # get non-absorbing states
+        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
+
+        e = self.state_space.e[non_absorbing]
+        R = np.array([self._get_sfs_reward(i)._get(self.state_space) for i in range(1, n + 1)])[:, non_absorbing]
+        r_total = R.T @ np.ones(n)
+
+        S = self.state_space.S[non_absorbing, :][:, non_absorbing]
+        I = np.eye(S.shape[0])
+
+        P_total = np.linalg.inv(I - np.diag(1 / r_total) / theta @ S)
+        p_total = (I - P_total) @ e
+        P = np.array([P_total @ np.diag(R[i] / r_total) for i in range(n)])
+
+        return P, p_total
+
     def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
         """
         Get the probabilities of observing the given mutational configurations according to the infinite sites model.
@@ -1674,7 +1699,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # explicitly convert to tuple of integers
         config = tuple(int(c) for c in config)
 
-        # handle special case of theta = 0
+        # handle special case when theta = 0
         if theta == 0:
             if sum(config) == 0:
                 return 1
@@ -1688,16 +1713,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         k = non_absorbing.sum()
 
         alpha = self.state_space.alpha[non_absorbing]
-        e = self.state_space.e[non_absorbing]
-        R = np.array([self._get_sfs_reward(i)._get(self.state_space) for i in range(1, n + 1)])[:, non_absorbing]
-        r_total = R.T @ np.ones(n)
 
-        S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-        I = np.eye(S.shape[0])
-
-        P_total = np.linalg.inv(I - np.diag(1 / r_total) / theta @ S)
-        p_total = (I - P_total) @ e
-        P = np.array([P_total @ np.diag(R[i] / r_total) for i in range(n)])
+        P, p_total = self._get_P(n, theta)
 
         q = list(itertools.chain(*[[i + 1] * j for i, j in enumerate(config)]))
 
