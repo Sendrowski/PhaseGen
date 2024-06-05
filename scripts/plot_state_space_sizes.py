@@ -30,8 +30,8 @@ cache = {}
 
 
 def plot_heatmap(
-        N: np.array,
-        D: np.array,
+        N: np.ndarray,
+        D: np.ndarray,
         state_space: Callable[[pg.Coalescent], pg.state_space.StateSpace],
         locus_config: pg.LocusConfig,
         title: str = "State space size",

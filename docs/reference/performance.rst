@@ -1,4 +1,4 @@
-.. _reference.python.performance:
+.. _reference.r.performance:
 
 Performance
 ===========

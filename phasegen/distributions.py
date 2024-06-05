@@ -3,6 +3,7 @@ Probability distributions.
 """
 
 import copy
+import functools
 import itertools
 import logging
 from abc import ABC, abstractmethod
@@ -30,6 +31,34 @@ from .utils import parallelize, multiset_permutations
 expm = Backend.expm
 
 logger = logging.getLogger('phasegen')
+
+
+def _make_hashable(func: Callable) -> Callable:
+    """
+    Decorator that makes a function hashable by converting non-hashable arguments to hashable ones.
+    """
+
+    @functools.wraps(func)
+    def wrapper(self, *args: tuple, **kwargs: dict):
+        """
+        Wrapper function.
+
+        :param self: Self.
+        :return: The result of the function.
+        """
+        args = list(args)
+
+        for i, arg in enumerate(args):
+            if isinstance(arg, (list, np.ndarray)):
+                args[i] = tuple(arg)
+
+        for key, value in kwargs.items():
+            if isinstance(value, (list, np.ndarray)):
+                kwargs[key] = tuple(value)
+
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class ProbabilityDistribution(ABC):
@@ -169,7 +198,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         return len(self.loci)
 
     @cached_property
-    def loci(self) -> Dict[int, 'PhaseTypeDistribution']:
+    def loci(self) -> 'MarginalLocusDistributions':
         """
         Distributions marginalized over loci.
         """
@@ -197,6 +226,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         :param locus2: The second locus.
         :return: The covariance.
         """
+        locus1 = int(locus1)
+        locus2 = int(locus2)
+
         if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
@@ -226,6 +258,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         :param locus2: The second locus.
         :return: The correlation coefficient.
         """
+        locus1 = int(locus1)
+        locus2 = int(locus2)
+
         return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
 
     @cached_property
@@ -277,7 +312,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         return len(self.demes)
 
     @cached_property
-    def demes(self) -> Dict[str, 'PhaseTypeDistribution']:
+    def demes(self) -> 'MarginalDemeDistributions':
         """
         Distributions marginalized over demes.
         """
@@ -352,7 +387,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
     """
 
     @abstractmethod
-    def cdf(self, t) -> float | np.ndarray:
+    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -369,7 +404,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         pass
 
     @abstractmethod
-    def pdf(self, t: float | np.ndarray, **kwargs) -> float | np.ndarray:
+    def pdf(self, t: float | Sequence[float], **kwargs) -> float | np.ndarray:
         """
         Density function.
 
@@ -570,11 +605,12 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         return MarginalLocusDistributions(self)
 
+    @_make_hashable
     @cache
     def moment(
             self,
             k: int,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             start_time: float = None,
             end_time: float = None,
             center: bool = True,
@@ -666,7 +702,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             self,
             k: int,
             end_times: Iterable[float],
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True
     ) -> np.ndarray:
@@ -675,13 +711,15 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         :param k: The order of the moment.
         :param end_times: List of ends times or end time when to evaluate the moment.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
             the order of rewards.
         :return: The moment accumulated at the specified times or time.
         """
+        k = int(k)
+
         if rewards is None:
             rewards = [self.reward] * k
 
@@ -735,19 +773,20 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         return self._accumulate(k, tuple(end_times), rewards)
 
+    @_make_hashable
     @cache
     def _accumulate(
             self,
             k: int,
-            end_times: Tuple[float, ...],
-            rewards: Tuple[Reward, ...] = None
+            end_times: Sequence[float],
+            rewards: Sequence[Reward] = None
     ) -> np.ndarray:
         """
         Evaluate the kth (non-central) conditioned moment at different end times.
 
         :param k: The order of the moment.
-        :param end_times: Tuple of ends times or end time when to evaluate the moment.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param end_times: Sequence of ends times or end time when to evaluate the moment.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         """
         end_times = np.array(end_times)
@@ -840,7 +879,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             self,
             k: int = 1,
             end_times: Iterable[float] = None,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True,
             ax: 'plt.Axes' = None,
@@ -859,7 +898,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and the
             99th percentile.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
@@ -872,6 +911,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param title: Title of the plot.
         :return: Axes.
         """
+        k = int(k)
+
         from .visualization import Visualization
 
         if end_times is None:
@@ -953,7 +994,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         #: End time
         self.end_time: float | None = end_time
 
-    def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
+    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -1131,7 +1172,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return (a + b) / 2
 
-    def pdf(self, t: float | np.ndarray, dx: float = None) -> float | np.ndarray:
+    def pdf(self, t: float | Sequence[float], dx: float = None) -> float | np.ndarray:
         """
         Density function. We use numerical differentiation of the CDF to calculate the density. This provides good
         results as the CDF is exact and continuous.
@@ -1142,6 +1183,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         if dx is None:
             dx = self.quantile(0.99) / 1e10
+
+        if isinstance(t, Iterable):
+            t = np.array(t)
 
         # determine (non-negative) evaluation points
         x1 = np.max([t - dx / 2, np.zeros_like(t)], axis=0)
@@ -1288,11 +1332,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         pass
 
+    @_make_hashable
     @cache
     def moment(
             self,
             k: int,
-            rewards: Tuple[SFSReward, ...] = None,
+            rewards: Sequence[SFSReward] = None,
             start_time: float = None,
             end_time: float = None,
             center: bool = True,
@@ -1302,7 +1347,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         Get the kth moments of the site-frequency spectrum.
 
         :param k: The order of the moment
-        :param rewards: Tuple of k rewards
+        :param rewards: Sequence of k rewards
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
@@ -1331,7 +1376,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             self,
             k: int,
             i: int,
-            rewards: Tuple[SFSReward, ...] = None,
+            rewards: Sequence[SFSReward] = None,
             start_time: float = None,
             end_time: float = None,
             center: bool = True,
@@ -1342,7 +1387,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param k: The order of the moment
         :param i: The ith site-frequency count
-        :param rewards: Tuple of k rewards
+        :param rewards: Sequence of k rewards
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
@@ -1367,22 +1412,23 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             self,
             k: int,
             end_times: Iterable[float],
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True
     ) -> np.ndarray:
         """
-        Evaluate the kth (non-central) moments at different end times.
+        Evaluate the kth (non-central) moments for site-frequency spectrum at different end times.
 
         :param k: The order of the moment.
         :param end_times: Times or time when to evaluate the moment.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
             the order of rewards.
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
+        k = int(k)
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
@@ -1405,7 +1451,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             self,
             k: int = 1,
             end_times: Iterable[float] = None,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True,
             ax: 'plt.Axes' = None,
@@ -1424,7 +1470,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
             the 99th percentile.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
@@ -1439,6 +1485,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         import matplotlib.pyplot as plt
         from .visualization import Visualization
+
+        k = int(k)
 
         if ax is None:
             ax = plt.gca()
@@ -1477,7 +1525,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             k: int,
             i: int,
             end_times: Iterable[float] | float,
-            rewards: Tuple[SFSReward, ...] = None,
+            rewards: Sequence[SFSReward] = None,
             center: bool = True,
             permute: bool = True
     ) -> np.ndarray | float:
@@ -1487,7 +1535,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param k: The order of the moment
         :param i: The ith site-frequency count.
         :param end_times: Times or time when to evaluate the moment.
-        :param rewards: Tuple of k rewards.
+        :param rewards: Sequence of k rewards.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
@@ -1623,6 +1671,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
                 f"Expected {n}, got {len(config)}."
             )
 
+        # explicitly convert to tuple of integers
+        config = tuple(int(c) for c in config)
+
         # handle special case of theta = 0
         if theta == 0:
             if sum(config) == 0:
@@ -1689,7 +1740,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             it = coal.sfs.get_mutation_configs(theta=1)
 
             # continue until generated mass is above 0.8
-            samples = list(pg.utils.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
+            samples = list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
 
         :param theta: The mutation rate.
         :return: An iterator over the probabilities of observing mutational configurations.
@@ -1904,7 +1955,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         return np.mean(self.samples ** k, axis=0)
 
-    def cdf(self, t: float | np.ndarray) -> float | np.ndarray:
+    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -2494,7 +2545,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         The returned phase-type distribution is configured with the unit reward.
 
         :param k: Order of the moment.
-        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
+        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :return: Distribution.
         """
         if rewards is None:
@@ -2512,11 +2563,12 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    @_make_hashable
     @cache
     def moment(
             self,
             k: int = 1,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             start_time: float = None,
             end_time: float = None,
             center: bool = True,
@@ -2526,7 +2578,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         Get the kth (non-central) moment using the specified rewards and state space.
 
         :param k: The order of the moment
-        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
+        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
@@ -2549,7 +2601,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     def _raw_moment(
             self,
             k: int,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             start_time: float = None,
             end_time: float = None
     ) -> float:
@@ -2557,7 +2609,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         Get the kth raw moment using the specified rewards and state space.
 
         :param k: The order of the moment
-        :param rewards: Tuple of k rewards. By default, tree height rewards are used.
+        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
@@ -2577,7 +2629,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             self,
             k: int,
             end_times: Iterable[float],
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True
     ) -> np.ndarray:
@@ -2587,7 +2639,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
             the 99th percentile.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
@@ -2606,7 +2658,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             self,
             k: int = 1,
             end_times: Iterable[float] = None,
-            rewards: Tuple[Reward, ...] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True,
             ax: 'plt.Axes' = None,
@@ -2622,7 +2674,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
             the 99th percentile.
-        :param rewards: Tuple of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on

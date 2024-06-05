@@ -1,4 +1,4 @@
-.. _reference.python.exponentiation_backend:
+.. _reference.r.exponentiation_backend:
 
 Exponentiation Backend
 ======================
@@ -17,10 +17,11 @@ Exponentiation Backend
     - pip:
         - phasegen
 
+Only Python-based backends are implemented which necessitates the use of a Python-based package manager for installation.
 After installation you can use register the backend as follows:
 
-.. code-block:: python
+.. code-block:: r
 
-    import phasegen as pg
+    pg <- load_phasegen()
 
-    pg.Backend.register(pg.TensorFlowExpmBackend())
+    pg$Backend$register(pg$TensorFlowExpmBackend())

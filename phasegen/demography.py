@@ -7,7 +7,7 @@ import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from functools import cached_property
-from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence, Union
+from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence
 
 import numpy as np
 
@@ -70,7 +70,7 @@ class Demography:
         self._logger = logger.getChild(self.__class__.__name__)
 
         #: Threshold for the number of epochs considered after which a warning is issued.
-        self.warn_n_epochs: int = warn_n_epochs
+        self.warn_n_epochs: int = int(warn_n_epochs)
 
         #: Whether a warning about the number of epochs has been already issued.
         self._issued_warning = False
@@ -133,7 +133,7 @@ class Demography:
                                        for p in self.pop_names])
         )
 
-        for epoch in itertools.islice(self.epochs, 1, max_epochs + 1):
+        for epoch in itertools.islice(self.epochs, 1, int(max_epochs) + 1):
             # iterate over populations
             for pop in self.pop_names:
                 # add population size changes
@@ -230,7 +230,7 @@ class Demography:
         # get epoch iterator
         epochs = self.epochs
 
-        for _ in range(n):
+        for _ in range(int(n)):
             try:
                 next(epochs)
             except StopIteration:
@@ -523,6 +523,33 @@ class Epoch:
             tuple(self.migration_rates.items())
         ))
 
+    def __str__(self):
+        """
+        String representation of the epoch.
+
+        :return: String representation.
+        """
+        string = (
+            f"Epoch(start_time={self.start_time:.4g}, "
+            f"end_time={self.end_time:.4g}, "
+            f"pop_sizes=({', '.join([f'{p}={s:.4g}' for p, s in self.pop_sizes.items()])})"
+        )
+
+        if self.n_pops > 1:
+            string += (
+                f", migration_rates=({', '.join([f'{p}->{q}={r:.4g}' for (p, q), r in self.migration_rates.items()])})"
+            )
+
+        return string
+
+    def to_string(self):
+        """
+        Alias for :meth:`__str__`.
+
+        :return: String representation.
+        """
+        return str(self)
+
 
 class DemographicEvent(ABC):
     """
@@ -633,6 +660,12 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         if migration_rates is None:
             migration_rates = {}
+
+        if not isinstance(pop_sizes, dict):
+            raise ValueError('Population sizes must be a dictionary.')
+
+        if not isinstance(migration_rates, dict):
+            raise ValueError('Migration rates must be a dictionary.')
 
         if len(pop_sizes) == 0 and len(migration_rates) == 0:
             raise ValueError('Either one population size or migration rate must be specified.')
@@ -789,7 +822,7 @@ class PopulationSplit(DiscreteDemographicEvent):
     """
     Demographic event for a population split (forward in time).
     This corresponds to population merger backwards in time.
-    Since PhaseGen does not support deterministic lineage movement due to its inherent structure,
+    Since ``phasegen`` does not support deterministic lineage movement due to its inherent structure,
     we can model a population split by specifying a large unidirectional migration rate from the derived
     to the ancestral population.
     """
