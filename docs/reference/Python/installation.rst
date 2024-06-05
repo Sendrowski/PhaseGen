@@ -54,4 +54,4 @@ You are now ready to use the ``phasegen`` package within the isolated conda envi
 
 .. code-block:: python
 
-    import phasegen as fd
+    import phasegen as pg

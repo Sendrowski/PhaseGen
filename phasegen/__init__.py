@@ -182,6 +182,11 @@ from .expm import (
     JaxExpmBackend
 )
 
+from .utils import (
+    take_n,
+    takewhile_inclusive
+)
+
 __all__ = [
     'PhaseTypeDistribution',
     'Coalescent',

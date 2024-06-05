@@ -44,10 +44,10 @@ class LocusConfig:
             raise ValueError("Recombination rate must be non-negative.")
 
         #: Number of loci.
-        self.n: int = n
+        self.n: int = int(n)
 
         #: Number of loci to start with.
-        self.n_unlinked: int = n_unlinked
+        self.n_unlinked: int = int(n_unlinked)
 
         #: Recombination rate.
         self.recombination_rate: float = recombination_rate

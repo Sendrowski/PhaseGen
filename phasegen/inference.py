@@ -88,7 +88,7 @@ class Inference(Serializable):
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
         """
         if do_bootstrap and (observation is None or resample is None):
-            raise ValueError('Observation and resample must be provided for automatic bootstrapping.')
+            raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -112,10 +112,10 @@ class Inference(Serializable):
         self.resample: Callable[[Any, np.random.Generator], Any] = resample
 
         #: Number of optimization runs.
-        self.n_runs: int = n_runs
+        self.n_runs: int = int(n_runs)
 
         #: Number of bootstrap replicates.
-        self.n_bootstraps: int = n_bootstraps
+        self.n_bootstraps: int = int(n_bootstraps)
 
         #: Whether to perform automatic bootstrapping.
         self.do_bootstrap: bool = do_bootstrap
@@ -127,7 +127,7 @@ class Inference(Serializable):
         self.pbar: bool = pbar
 
         #: Seed for the random number generator.
-        self.seed: int | None = seed
+        self.seed: int | None = None if seed is None else int(seed)
 
         #: Random number generator.
         self._rng: np.random.Generator = np.random.default_rng(seed)
@@ -150,6 +150,9 @@ class Inference(Serializable):
 
         #: Loss of the best optimization run
         self.loss_inferred: float | None = None
+
+        # losses for the `n_runs` independent optimization runs
+        self.loss_runs: np.ndarray | None = None
 
         #: Coalescent distribution of best run
         self.dist_inferred: Coalescent | None = None
@@ -282,6 +285,9 @@ class Inference(Serializable):
             data = params_dict | {'loss': loss}
             logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
 
+            if not np.isscalar(loss) or np.isnan(loss):
+                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}')
+
             if pbar is not None:
                 pbar.update()
                 pbar.set_postfix(data)
@@ -403,6 +409,9 @@ class Inference(Serializable):
         # loss of best run
         self.loss_inferred = self.result.fun
 
+        # loss for all runs
+        self.loss_runs = np.array([result.fun for result in results])
+
         # coalescent distribution of best run
         self.dist_inferred = self.get_coal(**self.params_inferred)
 
@@ -509,6 +518,7 @@ class Inference(Serializable):
         :return: Axes or list of axes.
         """
         from .visualization import Visualization
+        import matplotlib.pyplot as plt
 
         if kwargs is None:
             kwargs = {}
@@ -532,6 +542,9 @@ class Inference(Serializable):
             subplots=subplots,
             **kwargs
         )
+
+        # make layout tight
+        plt.tight_layout()
 
         Visualization.show_and_save(show=show, file=file)
 
