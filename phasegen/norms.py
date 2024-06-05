@@ -37,7 +37,7 @@ class LNorm(Norm):
         :param p: The order of the norm. see :func:`numpy.linalg.norm` for details.
         """
         #: The order of the norm.
-        self.p: int = p
+        self.p: int = np.inf if np.isinf(p) else int(p)
 
     def compute(self, a: float | np.ndarray, b: float | np.ndarray) -> float | int:
         """

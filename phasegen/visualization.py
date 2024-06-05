@@ -38,7 +38,7 @@ class Visualization:
             # add axes if not given
             if 'ax' not in kwargs or ('ax' in kwargs and kwargs['ax'] is None):
                 # clear current figure
-                plt.clf()
+                plt.close()
 
                 kwargs['ax'] = plt.gca()
 

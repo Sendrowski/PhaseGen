@@ -381,3 +381,36 @@ class DemographyTestCase(TestCase):
 
         self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_1', 'pop_0')], 100)
         self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_0', 'pop_1')], 0)
+
+    def test_epoch_to_string_two_pops_migration(self):
+        """
+        Test epoch to string.
+        """
+        epoch = pg.Epoch(
+            start_time=1 / 6,
+            end_time=2,
+            pop_sizes={'pop_0': 1.1134, 'pop_1': 2.22},
+            migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.2}
+        )
+
+        # make sure migration rates are not included in the string when only one population is present
+        self.assertEqual(
+            (
+                "Epoch(start_time=0.1667, end_time=2, pop_sizes=(pop_0=1.113, pop_1=2.22), "
+                "migration_rates=(pop_0->pop_1=0.1, pop_1->pop_0=0.2)"
+            ),
+            str(epoch)
+        )
+
+    def test_epoch_to_string_one_pop(self):
+        """
+        Test epoch to string.
+        """
+        epoch = pg.Epoch(
+            start_time=1 / 6,
+            end_time=2,
+            pop_sizes={'pop_0': 1.11}
+        )
+
+        # make sure migration rates are not included in the string when only one population is present
+        self.assertEqual("Epoch(start_time=0.1667, end_time=2, pop_sizes=(pop_0=1.11)", str(epoch))

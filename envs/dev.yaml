@@ -9,7 +9,9 @@ dependencies:
   - jax
   - python-graphviz
   - r-base
+  - r-reticulate
   - r-devtools
+  - r-irkernel
   - jupyterlab
   - jupyter
   - pip

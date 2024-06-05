@@ -48,8 +48,8 @@ def benchmark(callback: Callable) -> float:
 
 
 def plot_heatmap(
-        N: np.array,
-        D: np.array,
+        N: np.ndarray,
+        D: np.ndarray,
         callback: Callable[[pg.Coalescent], None],
         title: str = "State space time",
         ax: plt.Axes = None
