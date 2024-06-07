@@ -25,9 +25,7 @@ for(package in required_packages){
 phasegen_is_installed <- function() {
   
   # Check if phasegen is installed
-  installed <- reticulate::py_module_available("phasegen")
-  
-  return(installed)
+  return(reticulate::py_module_available("phasegen"))
 }
 
 
@@ -50,7 +48,7 @@ phasegen_is_installed <- function() {
 #' @examples
 #' \dontrun{
 #' install_phasegen()  # Installs the latest version of phasegen
-#' install_phasegen("1.1.7")  # Installs version 1.1.7 of phasegen
+#' install_phasegen("0.0.11-beta")  # Installs version 0.0.11-beta of phasegen
 #' install_phasegen(force = TRUE)  # Reinstalls the phasegen module
 #' }
 #' 
@@ -69,6 +67,7 @@ install_phasegen <- function(version = NULL, force = FALSE, silent = FALSE, pyth
       package_name, 
       method = "conda",
       pip = TRUE,
+      force = force,  # force = TRUE does not seem to work
       python_version = python_version,
       version = version, 
       ignore_installed = TRUE
@@ -110,6 +109,5 @@ load_phasegen <- function(install = FALSE) {
     install_phasegen(silent = TRUE)
   }
   
-  # use super assignment to update global reference to phasegen
   pg <- reticulate::import("phasegen")
 }
