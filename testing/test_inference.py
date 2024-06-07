@@ -231,7 +231,7 @@ class InferenceTestCase(TestCase):
         Test plotting inference.
         """
         # create inference object
-        inf = self.get_basic_inference(dict(do_bootstrap=True, n_runs=3, parallelize=False, n_bootstraps=3))
+        inf = self.get_basic_inference(dict(do_bootstrap=True, n_runs=3, parallelize=True, n_bootstraps=3))
         inf.run()
 
         inf.plot_migration()

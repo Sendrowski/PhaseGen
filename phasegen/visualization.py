@@ -65,7 +65,6 @@ class Visualization:
         :param file: File path to save plot to
         :param show: Whether to show plot
         :return: Axes
-
         """
         # save figure if file path given
         if file is not None:

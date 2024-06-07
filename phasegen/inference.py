@@ -66,9 +66,9 @@ class Inference(Serializable):
             distribution returned by the ``dist`` callback, and as second argument the
             observation passed to the ``observation`` argument (if any).
         :param x0: Dictionary of initial numeric guesses for parameters to optimize.
-        :param observation: The observation. This is passed as second argument to the
-            ``loss`` function, and is only required if you want to use automatic
-            bootstrapping.
+        :param observation: The observed summary statistic the inference is based on.
+            This is passed as second argument to the ``loss`` function, and is only required
+            if you want to use automatic bootstrapping.
         :param resample: Callback that is used to resample the observation. This is
             required for automatic bootstrapping. The resample function must accept
             the observation as first argument and a random number generator as second
@@ -105,7 +105,7 @@ class Inference(Serializable):
         #: Loss function.
         self.loss: Callable[[Coalescent, Any], float] = loss
 
-        #: The observation.
+        #: The observed summary statistic the inference is based on.
         self.observation: Any = observation
 
         #: Callback that is used to resample the observation.
@@ -152,19 +152,13 @@ class Inference(Serializable):
         self.loss_inferred: float | None = None
 
         # losses for the `n_runs` independent optimization runs
-        self.loss_runs: np.ndarray | None = None
+        self.loss_runs: np.ndarray = np.array([])
 
         #: Coalescent distribution of best run
         self.dist_inferred: Coalescent | None = None
 
-        #: Bootstrapped parameters
-        self.bootstraps: pd.DataFrame | None = None
-
-        #: Bootstrap optimization results
-        self.bootstrap_results: List[OptimizeResult] = []
-
-        #: Bootstrapped distributions
-        self.bootstrap_dists: List[Coalescent] = []
+        #: Bootstrap parameters
+        self.bootstraps: pd.DataFrame = pd.DataFrame(columns=list(self.bounds.keys()))
 
     def _check_x0_within_bounds(self):
         """
@@ -223,23 +217,23 @@ class Inference(Serializable):
         # if state space caching is enabled, replace by cached state space if possible
         if self.cache:
 
-            if coal.lineage_counting_state_space == self.lineage_counting_state_space:
-                coal.__dict__['lineage_counting_state_space'] = self.lineage_counting_state_space
+            if coal.lineage_counting_state_space == self._lineage_counting_state_space:
+                coal.__dict__['lineage_counting_state_space'] = self._lineage_counting_state_space
 
-            if coal.block_counting_state_space == self.block_counting_state_space:
-                coal.__dict__['block_counting_state_space'] = self.block_counting_state_space
+            if coal.block_counting_state_space == self._block_counting_state_space:
+                coal.__dict__['block_counting_state_space'] = self._block_counting_state_space
 
         return coal
 
     @cached_property
-    def lineage_counting_state_space(self) -> LineageCountingStateSpace:
+    def _lineage_counting_state_space(self) -> LineageCountingStateSpace:
         """
         Lineage-counting state space which only keeps track of the number of lineages present.
         """
         return self.coal(**self.x0).lineage_counting_state_space
 
     @cached_property
-    def block_counting_state_space(self) -> BlockCountingStateSpace:
+    def _block_counting_state_space(self) -> BlockCountingStateSpace:
         """
         Block-counting state space which keeps track for the number of lineages that subtend `i` lineages.
         """
@@ -283,6 +277,7 @@ class Inference(Serializable):
             loss = get_loss(dist, observation)
 
             data = params_dict | {'loss': loss}
+
             logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
 
             if not np.isscalar(loss) or np.isnan(loss):
@@ -486,14 +481,8 @@ class Inference(Serializable):
                 f'Only {n_success} out of {self.n_bootstraps} bootstrap replicates converged.'
             )
 
-        # store optimization results
-        self.bootstrap_results = np.array([result.x for result in results])
-
-        # store bootstrapped distributions
-        self.bootstrap_dists = [self.get_coal(**dict(zip(x0.keys(), result.x))) for result in results]
-
         # store bootstrapped parameters
-        self.bootstraps = pd.DataFrame(self.bootstrap_results, columns=list(self.x0.keys()))
+        self.bootstraps = pd.DataFrame([result.x for result in results], columns=list(self.x0.keys()))
 
     def plot_bootstraps(
             self,
@@ -529,16 +518,13 @@ class Inference(Serializable):
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
 
-        if title is None:
-            if subplots:
-                title = ['Marginal distribution'] * len(self.bootstraps.columns)
-            else:
-                title = 'Marginal distributions'
+        # avoid empty plots
+        plt.close()
 
         ax = self.bootstraps.plot(
             ax=ax,
             kind=kind,
-            title=title,
+            title='Marginal distributions' if title is None else title,
             subplots=subplots,
             **kwargs
         )
@@ -685,7 +671,7 @@ class Inference(Serializable):
         )
 
         if ax is None:
-            plt.clf()
+            plt.close()
             ax = plt.gca()
 
         def plot(d: Demography, kwargs2: dict) -> 'plt.Axes':
@@ -709,8 +695,8 @@ class Inference(Serializable):
 
         # plot bootstrapped demography
         if include_bootstraps:
-            for dist in self.bootstrap_dists:
-                plot(dist.demography, {'color': 'C0', 'alpha': 0.3})
+            for i, row in self.bootstraps.iterrows():
+                plot(self.get_coal(**row.to_dict()).demography, {'color': 'C0', 'alpha': 0.3})
 
         Visualization.show_and_save(show=show, file=file)
 
@@ -747,6 +733,10 @@ class Inference(Serializable):
         if inference.loss_inferred is None:
             raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
 
+        # add the loss of the new run to the list of losses
+        self.loss_runs = np.append(self.loss_runs, inference.loss_runs)
+
+        # update the result if the loss of the new run is lower
         if self.loss_inferred is None or inference.loss_inferred < self.loss_inferred:
             self.result = inference.result
             self.params_inferred = inference.params_inferred
@@ -778,25 +768,32 @@ class Inference(Serializable):
 
         return other
 
-    def add_bootstrap(self, inference: 'Inference'):
+    def add_bootstrap(self, data: 'Inference' | Dict[str, float]):
         """
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
-        :param inference: Inference object with bootstraps.
-        :return: Inference object with bootstraps.
+        :param data: Either an Inference object or a dictionary of inferred parameters.
+        :raises RuntimeError: If the main optimization has not been run yet.
         """
-        if inference.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+        if isinstance(data, dict):
+            # add bootstrap parameters
+            self.bootstraps.loc[len(self.bootstraps)] = data
 
-        self.bootstrap_results.append(inference.result.x)
-        self.bootstrap_dists.append(inference.dist_inferred)
-        self.bootstraps = pd.DataFrame(self.bootstrap_results, columns=list(self.x0.keys()))
+        elif isinstance(data, Inference):
 
-    def add_bootstraps(self, inferences: Iterable['Inference']):
+            if data.loss_inferred is None:
+                raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+
+            self.add_bootstrap(data.params_inferred)
+
+        else:
+            raise ValueError('Invalid data type.')
+
+    def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]):
         """
         Add bootstraps from an iterable of Inference objects.
 
-        :param inferences: Iterable of Inference objects.
+        :param data: Iterable of Inference objects or dictionaries of inferred parameters.
         """
-        for inference in inferences:
-            self.add_bootstrap(inference)
+        for d in data:
+            self.add_bootstrap(d)
