@@ -1,0 +1,10 @@
+name: r-phasegen
+channels:
+  - conda-forge
+dependencies:
+  - r-base
+  - r-reticulate
+  - r-devtools
+  - r-irkernel
+  - jupyterlab
+  - jupyter
