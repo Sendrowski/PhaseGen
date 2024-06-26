@@ -10,7 +10,7 @@ pg.Backend.register(pg.TensorFlowExpmBackend())
 
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(
-        n=10,
+        n=10,  # number of lineages
         demography=pg.Demography(
             pop_sizes={'pop_0': {0: 1, t: Ne}}
         )
