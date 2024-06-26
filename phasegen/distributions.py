@@ -1218,7 +1218,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         Get a time estimate for when we have reached absorption almost surely.
         We base this computation on the transition matrix rather than the moments, because here
         we have a good idea about how likely absorption, and can warn the user if necessary.
-        Stopping the simulation when no more rewards are accumulated is not a good idea, as this
+        Stopping the computation when no more rewards are accumulated is not a good idea, as this
         can happen before almost sure absorption (exponential runaway growth, temporary isolation in different demes).
         """
         i = 0
