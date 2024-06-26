@@ -396,7 +396,7 @@ class Demography:
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            ylabel: str = '$N_e|m_{ij}$',
+            ylabel: str = '$N_e, m_{ij}$',
             ax: 'plt.Axes' = None,
             title: str = 'Demography',
             kwargs: dict = None

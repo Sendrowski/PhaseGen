@@ -262,7 +262,7 @@ class SFS2(Iterable):
             return plt.gca()
 
         if cbar_kws is None:
-            cbar_kws = dict(pad=-0.05)
+            cbar_kws = dict(pad=0.05)
 
         data = self.data.copy()
 
@@ -297,14 +297,15 @@ class SFS2(Iterable):
         # invert y-axis and remove ticks
         ax.invert_yaxis()
         ax.axis('square')
-        ax.tick_params(size=0)
 
         if log_scale:
             ax.set_xscale('log', base=1.001)
             ax.set_yscale('log', base=1.001)
 
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
+        ax.set_xticklabels(range(1, len(data) + 1))
+        ax.set_yticklabels(range(1, len(data) + 1))
+
+        # remove confusing color bar ticks
         ax.collections[0].colorbar.ax.tick_params(size=0)
 
         # add frame around plot
