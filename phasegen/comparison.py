@@ -1,5 +1,5 @@
 """
-Module for simulating population genetic scenarios using both phasegen and msprime, for comparison.
+Compare statistics between PhaseGen and Msprime.
 """
 import itertools
 import logging
