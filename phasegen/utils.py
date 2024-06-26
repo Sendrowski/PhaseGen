@@ -53,11 +53,14 @@ def multiset_permutations(items: Sequence) -> Generator[Tuple, None, None]:
     :param items: Items to permute
     :return: Permutations
     """
+
     def visit(head):
         """
         Visit the head of the permutation.
         """
-        return tuple(u[i] for i in map(E.__getitem__, itertools.accumulate(range(N - 1), lambda e, N: nxts[e], initial=head)))
+        return tuple(
+            u[i] for i in map(E.__getitem__, itertools.accumulate(range(N - 1), lambda e, N: nxts[e], initial=head))
+        )
 
     u = list(set(items))
 
@@ -93,6 +96,7 @@ def multiset_permutations(items: Sequence) -> Generator[Tuple, None, None]:
 
         yield visit(head)
 
+
 def takewhile_inclusive(predicate: Callable[[Any], bool], iterable: Iterable) -> Iterator:
     """
     Take items from the iterable while the predicate is true, including the last item.
@@ -107,6 +111,7 @@ def takewhile_inclusive(predicate: Callable[[Any], bool], iterable: Iterable) ->
         yield item
         if not predicate(item):
             break
+
 
 def take_n(iterable: Iterable, n: int) -> Iterator:
     """

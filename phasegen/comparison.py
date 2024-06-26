@@ -26,8 +26,7 @@ logger = logging.getLogger('phasegen')
 
 class Comparison(Serializable):
     """
-    Class for simulation population genetic scenarios
-    using both phase-type theory and msprime, for comparison.
+    Class for comparing statistics between PhaseGen and Msprime.
     """
 
     def __init__(
@@ -75,7 +74,7 @@ class Comparison(Serializable):
         :param simulate_mutations: Whether to simulate mutations. This is used for comparing mutational configurations
             rather than branch lengths.
         :param mass_threshold: Probability threshold above which to stop generating mutational configurations.
-        :param end_time: End time of the simulation.
+        :param end_time: End time of the computation.
         :param n_threads: Number of threads to use.
         :param parallelize: Whether to parallelize the msprime simulations.
         :param seed: Seed for the random number generator.

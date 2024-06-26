@@ -25,9 +25,9 @@ logger = logging.getLogger('phasegen')
 
 class Inference(Serializable):
     """
-    The Inference class is designed to perform arbitrary inference using the
-    provided loss function, through coalescent simulation based on phase-type
-    theory. The optimization is performed via the BFGS algorithm from scipy.
+    Gradient-based parameter inference with respect to a specified loss function,
+    summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
+    The optimization is performed via the BFGS algorithm from scipy.
 
     TODO pickling doesn't work reliably.
 
@@ -76,7 +76,7 @@ class Inference(Serializable):
         :param n_runs: Number of independent optimization runs.
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
-        :param parallelize: Whether to parallelize the simulations.
+        :param parallelize: Whether to parallelize the computations.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
         :param cache: Whether to cache the state spaces across the given optimization iterations given
@@ -120,7 +120,7 @@ class Inference(Serializable):
         #: Whether to perform automatic bootstrapping.
         self.do_bootstrap: bool = do_bootstrap
 
-        #: Whether to parallelize the simulations.
+        #: Whether to parallelize the computations.
         self.parallelize: bool = parallelize
 
         #: Whether to show a progress bar.
