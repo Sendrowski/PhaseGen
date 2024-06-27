@@ -20,7 +20,7 @@ class LineageConfig:
         Initialize the population configuration.
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
-            or a dictionary with population names as keys and number of lineages as values.
+            or dictionary with population names as keys and number of lineages as values for multiple populations.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)

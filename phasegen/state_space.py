@@ -249,7 +249,7 @@ class StateSpace(ABC):
         """
         Number of states.
         """
-        k = len(self.lineages)
+        k = len(self.states)
 
         # warn if state space is large
         if k > 400:

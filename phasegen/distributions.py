@@ -2456,8 +2456,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         Create object.
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
-            or a dictionary with population names as keys and number of lineages as values. Alternatively, a
-            :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            or dictionary with population names as keys and number of lineages as values for multiple populations.
+             Alternatively, a :class:`~phasegen.lineage.LineageConfig` object can be passed.
         :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
