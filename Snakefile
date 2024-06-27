@@ -262,7 +262,7 @@ rule plot_execution_time:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/plot_execution_times.py"
+        "scripts/plot_heatmap_execution_times.py"
 
 # plot state space sizes
 rule plot_state_space_sizes:

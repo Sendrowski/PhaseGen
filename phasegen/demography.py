@@ -88,7 +88,7 @@ class Demography:
         # issue warning if multiple populations are specified but no migration rates are given
         if self.n_pops > 1 and migration_rates == {} and len(events) == 0:
             self._logger.warning(
-                'Multiple populations are specified, but no migration rates were specified so far. '
+                'Multiple populations are specified, but no migration rates were given so far. '
                 'Initializing with zero migration rates between all populations. '
                 'Note that this may lead to infinite coalescence times if not changed later.'
             )

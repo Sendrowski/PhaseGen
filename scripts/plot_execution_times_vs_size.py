@@ -49,7 +49,7 @@ def benchmark(callback: Callable) -> float:
 def compute(
         N: np.ndarray,
         D: np.ndarray,
-        callback: Callable[[pg.Coalescent], None],
+        stat: Callable[[pg.Coalescent], None],
         size: Callable[[pg.Coalescent], pg.StateSpace],
 ) -> List[Tuple[float, int]]:
     """
@@ -57,7 +57,7 @@ def compute(
 
     :param N: Number of lineages
     :param D: Number of demes
-    :param callback: Function to benchmark
+    :param stat: Function to benchmark
     :param size: Function to compute Van Loan's state space size
     :return: List of tuples (time, state space size)
     """
@@ -72,7 +72,7 @@ def compute(
             n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)})
         )
 
-        sizes += [(benchmark(lambda: callback(coal)), size(coal))]
+        sizes += [(benchmark(lambda: stat(coal)), size(coal))]
 
         pbar.update(1)
 
@@ -89,52 +89,49 @@ sizes = []
 sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
-    callback=lambda coal: coal.tree_height.mean,
+    stat=lambda coal: coal.tree_height.mean,
     size=lambda coal: coal.lineage_counting_state_space.k * 2,
 )
 
 sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
-    callback=lambda coal: coal.tree_height.var,
+    stat=lambda coal: coal.tree_height.var,
     size=lambda coal: coal.lineage_counting_state_space.k * 3,
 )
 
 sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
-    callback=lambda coal: coal.total_branch_length.mean,
+    stat=lambda coal: coal.total_branch_length.mean,
     size=lambda coal: coal.lineage_counting_state_space.k * 2,
 )
 
 sizes += compute(
     N=np.arange(2, 8, 1),
     D=np.arange(1, 3),
-    callback=lambda coal: coal.moment(1, rewards=(pg.UnfoldedSFSReward(1)),
-                                      state_space=coal.block_counting_state_space),
+    stat=lambda coal: coal.moment(1, rewards=[pg.UnfoldedSFSReward(1)]),
     size=lambda coal: coal.lineage_counting_state_space.k * 2,
 )
 
 sizes += compute(
     N=np.arange(3, 8, 1),
     D=np.arange(1, 3),
-    callback=lambda coal: coal.moment(1, rewards=(pg.UnfoldedSFSReward(2)),
-                                      state_space=coal.block_counting_state_space),
+    stat=lambda coal: coal.moment(1, rewards=[pg.UnfoldedSFSReward(2)]),
     size=lambda coal: coal.lineage_counting_state_space.k * 2,
 )
 
 sizes += compute(
     N=np.arange(3, 8, 1),
     D=np.arange(1, 3),
-    callback=lambda coal: coal.moment(2, rewards=(pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(1)),
-                                      state_space=coal.block_counting_state_space),
+    stat=lambda coal: coal.moment(2, rewards=(pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(1))),
     size=lambda coal: coal.lineage_counting_state_space.k * 3,
 )
 
 # scatter plot
 sns.set_theme(style="whitegrid")
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(5, 3.5))
 
 sizes = np.array(sizes)
 
@@ -142,12 +139,12 @@ ax.scatter(
     sizes[:, 1],
     sizes[:, 0],
     alpha=0.5,
-    s=10,
+    s=50,
 )
 
 # remove margin
 ax.set_xlabel("Van Loan matrix size")
-ax.set_ylabel("Execution time (s)")
+ax.set_ylabel("Execution time in seconds")
 
 fig.tight_layout()
 
