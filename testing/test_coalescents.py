@@ -1124,3 +1124,25 @@ class CoalescentTestCase(TestCase):
         corr2 = np.array([[coal.sfs.get_corr(i, j) for i in range(n + 1)] for j in range(n + 1)])
 
         np.testing.assert_array_almost_equal(corr, corr2)
+
+    def test_disable_regularization(self):
+        """
+        Test disabling regularization.
+        """
+        coal = pg.Coalescent(n=4, regularize=False)
+
+        self.assertEqual(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
+        self.assertEqual(1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S))
+        self.assertEqual(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
+
+    def test_enable_regularization(self):
+        """
+        Test enabling regularization.
+        """
+        coal = pg.Coalescent(n=4, regularize=True)
+
+        self.assertNotEquals(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
+        self.assertNotEquals(
+            1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S)
+        )
+        self.assertNotEquals(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))

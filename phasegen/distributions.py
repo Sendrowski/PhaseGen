@@ -511,7 +511,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             state_space: StateSpace,
             tree_height: 'TreeHeightDistribution',
             demography: Demography = None,
-            reward: Reward = None
+            reward: Reward = None,
+            regularize: bool = True
     ):
         """
         Initialize the distribution.
@@ -520,6 +521,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param tree_height: The tree height distribution.
         :param demography: The demography.
         :param reward: The reward. By default, the tree height reward.
+        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if demography is None:
             demography = Demography()
@@ -537,6 +539,9 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         #: Reward
         self.reward: Reward = reward
+
+        #: Whether to regularize the intensity matrix for numerical stability
+        self.regularize: bool = regularize
 
         #: State space
         self.state_space: StateSpace = state_space
@@ -666,16 +671,19 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         return m
 
-    @staticmethod
-    def _get_regularization_factor(S: np.ndarray) -> float:
+    def _get_regularization_factor(self, S: np.ndarray) -> float:
         """
         Get the regularization factor for the given intensity matrix. We
         multiply the intensity matrix by this factor to improve numerical
         stability when computing the matrix exponential of the Van Loan matrix.
+        If regularization is disabled, this factor is 1.
 
         :param S: Intensity matrix.
         :return: Regularization factor.
         """
+        if not self.regularize:
+            return 1.0
+
         # obtain positive rates
         rates = S[S > 0]
 
@@ -808,7 +816,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         epochs = enumerate(self.demography.epochs)
         i_epoch, epoch = next(epochs)
 
-        # get the transition matrix for the first epoch
+        # get state space for the first epoch
         self.state_space.update_epoch(epoch)
 
         # number of states
@@ -959,7 +967,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space: LineageCountingStateSpace,
             demography: Demography = None,
             start_time: float = 0,
-            end_time: float = None
+            end_time: float = None,
+            regularize: bool = True
     ):
         """
         Initialize the distribution.
@@ -968,6 +977,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param demography: The demography.
         :param start_time: Time when to start accumulating moments.
         :param end_time: Time when to end accumulation of moments. By default, the time until almost sure absorption.
+        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if start_time < 0:
             raise ValueError("Start time must be greater than or equal to 0.")
@@ -982,7 +992,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space=state_space,
             tree_height=self,
             demography=demography,
-            reward=TreeHeightReward()
+            reward=TreeHeightReward(),
+            regularize=regularize
         )
 
         #: State space
@@ -1269,7 +1280,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             demography: Demography,
             pbar: bool = False,
             parallelize: bool = False,
-            reward: Reward = None
+            reward: Reward = None,
+            regularize: bool = True
     ):
         """
         Initialize the distribution.
@@ -1281,6 +1293,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param parallelize: Use parallelization.
         :param reward: The reward to multiply the SFS reward with. By default, the unit reward is used, which
             has no effect.
+        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if reward is None:
             reward = UnitReward()
@@ -1290,6 +1303,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             tree_height=tree_height,
             demography=demography,
             reward=reward,
+            regularize=regularize
         )
 
         #: Whether to show a progress bar.
@@ -2450,7 +2464,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             pbar: bool = False,
             parallelize: bool = True,
             start_time: float = 0,
-            end_time: float = None
+            end_time: float = None,
+            regularize: bool = True
     ):
         """
         Create object.
@@ -2467,6 +2482,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
+        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         super().__init__(
             n=n,
@@ -2485,6 +2501,9 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         #: Whether to parallelize computations
         self.parallelize: bool = parallelize
+
+        #: Whether to regularize the intensity matrix for numerical stability
+        self.regularize: bool = regularize
 
     @cached_property
     def lineage_counting_state_space(self) -> LineageCountingStateSpace:
@@ -2519,7 +2538,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             state_space=self.lineage_counting_state_space,
             demography=self.demography,
             start_time=self.start_time,
-            end_time=self.end_time
+            end_time=self.end_time,
+            regularize=self.regularize
         )
 
     @cached_property
@@ -2531,7 +2551,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             reward=TotalBranchLengthReward(),
             tree_height=self.tree_height,
             state_space=self.lineage_counting_state_space,
-            demography=self.demography
+            demography=self.demography,
+            regularize=self.regularize
         )
 
     @cached_property
@@ -2542,7 +2563,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         return UnfoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
-            demography=self.demography
+            demography=self.demography,
+            regularize=self.regularize
         )
 
     @cached_property
@@ -2553,7 +2575,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         return FoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
-            demography=self.demography
+            demography=self.demography,
+            regularize=self.regularize
         )
 
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
@@ -2577,7 +2600,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             reward=UnitReward(),
             tree_height=self.tree_height,
             state_space=state_space,
-            demography=self.demography
+            demography=self.demography,
+            regularize=self.regularize
         )
 
     @_make_hashable
