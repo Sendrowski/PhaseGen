@@ -2,7 +2,7 @@
 
 Introduction
 ============
-``phasegen`` is a population genetic coalescent simulator and parameter inference framework that leverages phase-type theory to provide exact solutions for various population genetic scenarios. ``phasegen`` supports multiple demes, varying population sizes and migration rates, multiple-merger coalescents, and recombination between two loci. To ensure correctness, ``phasegen`` has been extensively tested against `msprime <https://tskit.dev/msprime/docs/stable/intro.html>`_ for a wide variety of demographic scenarios and statistics.
+``phasegen`` is a population genetics coalescent simulator and parameter inference framework that leverages phase-type theory to provide exact solutions for various population genetic scenarios. ``phasegen`` supports multiple demes, varying population sizes and migration rates, multiple-merger coalescents, and recombination between two loci. To ensure correctness, ``phasegen`` has been extensively tested against `msprime <https://tskit.dev/msprime/docs/stable/intro.html>`_ for a wide variety of demographic scenarios and statistics.
 
 Motivation
 ----------
