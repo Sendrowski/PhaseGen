@@ -512,8 +512,6 @@ class SumReward(CompositeReward):
 class CombinedReward(ProductReward):
     """
     Class extending ProductReward to allow for more intuitive combination of rewards.
-
-    TODO test this class
     """
     #: Dictionary of reward combinations
     combinations: Dict[Tuple[Reward, Reward], Callable[[Reward, Reward], Reward]] = {

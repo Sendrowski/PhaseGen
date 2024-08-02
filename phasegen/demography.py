@@ -82,7 +82,7 @@ class Demography:
         if len(pop_sizes) or len(migration_rates):
             self.events += [DiscreteRateChanges(pop_sizes=pop_sizes, migration_rates=migration_rates)]
 
-        #: Population names.
+        # prepare events
         self._prepare_events()
 
         # issue warning if multiple populations are specified but no migration rates are given
@@ -270,7 +270,7 @@ class Demography:
         # sort back to original order
         return np.array(epochs[np.argsort(t)])
 
-    def get_epoch(self, t: float) -> 'Epoch':
+    def get_epoch(self, t: float = 0) -> 'Epoch':
         """
         Get the epoch at the given time.
 
@@ -513,7 +513,7 @@ class Epoch:
 
     def __hash__(self):
         """
-        Hash the epoch. Note that we do not hash the start and end time, since they are not relevant for the
+        Hash the epoch. Note that we do not include the start and end time, since they are not relevant for the
         state space created from the epoch.
 
         :return: Hash of the epoch.

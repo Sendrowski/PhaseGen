@@ -114,18 +114,15 @@ class DistributionTestCase(TestCase):
 
         pass
 
-    @pytest.mark.skip(reason="Fix later")
     def test_n_4_2_loci_wrong_lineage_config_raises_error(self):
         """
-        How to solve errors when passing additional populations? Be more rigorous?
-
-        TODO Fix this.
+        Check that populations can be introduced later.
         """
         coal = pg.Coalescent(
             demography=pg.Demography(
                 pop_sizes=dict(
                     pop_0={0: 2},
-                    pop_1={0: 1}
+                    pop_1={0: 1.5}
                 ),
                 migration_rates={
                     ('pop_0', 'pop_1'): {0: 1},
@@ -133,13 +130,21 @@ class DistributionTestCase(TestCase):
                 }
             ),
             n=pg.LineageConfig(dict(
-                pop_0=2,
-                pop_1=2
+                pop_0=1,
+                pop_1=1
             )),
             loci=pg.LocusConfig(n=2, recombination_rate=1)
         )
 
         _ = coal.tree_height.mean
+
+        self.assertEqual(
+            set(coal.demography.get_epoch(0).pop_names),
+            {'pop_0', 'pop_1', 'pop_2'}
+        )
+
+        # population size is 1 be default
+        self.assertEqual(coal.demography.get_epoch(0).pop_sizes['pop_2'], 1)
 
     def test_n_4_2_loci_lineage_counting_state_space(self):
         """

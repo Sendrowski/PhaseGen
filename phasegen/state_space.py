@@ -281,7 +281,7 @@ class StateSpace(ABC):
     def __eq__(self, other):
         """
         Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
-        update the epoch of a state space.
+        update the epoch of a state space dynamically.
 
         :param other: Other state space
         :return: Whether the two state spaces are equal
@@ -322,7 +322,7 @@ class StateSpace(ABC):
         """
         Get the rate matrix.
 
-        TODO test caching
+        TODO don’t compute transitions twice for disabled caching
 
         :return: The rate matrix.
         """

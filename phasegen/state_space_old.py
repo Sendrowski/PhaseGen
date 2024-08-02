@@ -224,8 +224,6 @@ class StateSpace(ABC):
         """
         Get the rate matrix.
 
-        TODO test caching
-
         :return: The rate matrix.
         """
         # create empty matrix
@@ -562,7 +560,7 @@ class LineageCountingStateSpace(StateSpace):
     def get_k(self) -> int:
         """
         Get number of states.
-        TODO currently no support for multiple loci.
+        Currently no support for multiple loci.
 
         :return: The number of states.
         """
@@ -620,7 +618,7 @@ class BlockCountingStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        TODO two-locus state space not sufficient for computing SFS as lineages are not longer
+        Two-locus state space not sufficient for computing SFS as lineages are not longer
           exchangeable in this case.
 
         :param states: States.

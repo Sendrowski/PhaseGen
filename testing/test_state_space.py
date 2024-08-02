@@ -605,3 +605,142 @@ class StateSpaceTestCase(TestCase):
             pg.state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
+
+    def test_state_equality(self):
+        """
+        Test that the equality operator works as expected.
+        """
+        self.assertEqual(
+            pg.state_space.State((np.array([1, 2]), np.array([3, 4]))),
+            pg.state_space.State((np.array([1, 2]), np.array([3, 4])))
+        )
+
+        self.assertNotEqual(
+            pg.state_space.State((np.array([1, 2]), np.array([3, 4]))),
+            pg.state_space.State((np.array([1, 2]), np.array([3, 5])))
+        )
+
+        self.assertNotEqual(
+            pg.state_space.State((np.array([1, 2]), np.array([3, 4]))),
+            pg.state_space.State((np.array([1, 2]), np.array([4, 4])))
+        )
+
+    def test_state_space_equality(self):
+        """
+        Test that the equality operator works as expected.
+        """
+        self.assertEqual(
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch()
+            ),
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch()
+            )
+        )
+
+        self.assertNotEqual(
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch()
+            ),
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=3),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch()
+            )
+        )
+
+        self.assertNotEqual(
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch()
+            ),
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.BetaCoalescent(alpha=1.5),
+                epoch=pg.Epoch()
+            )
+        )
+
+        # epoch are ignored
+        self.assertEqual(
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 2})
+            ),
+            pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 1})
+            )
+        )
+
+    def test_state_space_caching(self):
+        """
+        Test that the state space is cached.
+        """
+        s = pg.state_space.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=4),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch(pop_sizes={'pop_0': 2}),
+            cache=True
+        )
+
+        # check that the cache is empty
+        self.assertEqual(s._cache, {})
+
+        # compute rate matrix
+        _ = s.S
+
+        # check that the rate matrix is in the cache
+        self.assertTrue(s.epoch in s._cache)
+
+        s = pg.state_space.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=4),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch(pop_sizes={'pop_0': 2}),
+            cache=False
+        )
+
+        _ = s.S
+
+        # check that the rate matrix is not in the cache
+        self.assertEqual(s._cache, {})
+
+    def test_epoch_equality(self):
+        """
+        Test that the equality operator works as expected.
+        """
+        self.assertEqual(
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={}),
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={})
+        )
+
+        self.assertEqual(
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={}),
+            pg.state_space.Epoch(start_time=0, end_time=2, pop_sizes={'pop_0': 2}, migration_rates={})
+        )
+
+        self.assertEqual(
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={}),
+            pg.state_space.Epoch(start_time=0.5, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={})
+        )
+
+        self.assertNotEqual(
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 2}, migration_rates={}),
+            pg.state_space.Epoch(start_time=0, end_time=1, pop_sizes={'pop_0': 3}, migration_rates={})
+        )
+
+        self.assertNotEqual(
+            pg.state_space.Epoch(pop_sizes={'pop_0': 2, 'pop_1': 2}, migration_rates={}),
+            pg.state_space.Epoch(pop_sizes={'pop_0': 2, 'pop_1': 2}, migration_rates={('pop_0', 'pop_1'): 0.1})
+        )
+
+

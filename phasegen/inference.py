@@ -29,8 +29,8 @@ class Inference(Serializable):
     summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
     The optimization is performed via the BFGS algorithm from scipy.
 
-    TODO pickling doesn't work reliably.
-
+    .. note::
+        TODO there are problems when pickling this object if is has already been unpickled previously.
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -203,8 +203,6 @@ class Inference(Serializable):
     def get_coal(self, **kwargs) -> Coalescent:
         """
         Get the (possibly cached) coalescent distribution.
-
-        TODO test state space caching by comparing cached und uncached results.
 
         :param kwargs: Keyword arguments passed to the callback specified as ``dist`.
         :return: Coalescent distribution.
