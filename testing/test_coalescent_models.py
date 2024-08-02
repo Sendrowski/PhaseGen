@@ -179,3 +179,18 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(c.get_rate(4, 2), c.c * comb(4, 3) * c.psi ** 3 * (1 - c.psi) ** 1)
         self.assertAlmostEqual(c.get_rate(4, 1), c.c * comb(4, 4) * c.psi ** 4 * (1 - c.psi) ** 0)
         self.assertAlmostEqual(c.get_rate(4, 0), 0)
+
+    def test_equality(self):
+        """
+        Test equality.
+        """
+        self.assertEqual(pg.StandardCoalescent(), pg.StandardCoalescent())
+        self.assertEqual(pg.BetaCoalescent(alpha=1.5), pg.BetaCoalescent(alpha=1.5))
+        self.assertEqual(pg.DiracCoalescent(psi=0.5, c=1), pg.DiracCoalescent(psi=0.5, c=1))
+
+        self.assertNotEqual(pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5))
+        self.assertNotEqual(pg.StandardCoalescent(), pg.DiracCoalescent(psi=0.5, c=1))
+        self.assertNotEqual(pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.5, c=1))
+        self.assertNotEqual(pg.BetaCoalescent(alpha=1.5), pg.BetaCoalescent(alpha=1.7))
+        self.assertNotEqual(pg.DiracCoalescent(psi=0.5, c=1), pg.DiracCoalescent(psi=0.7, c=1))
+        self.assertNotEqual(pg.DiracCoalescent(psi=0.5, c=1), pg.DiracCoalescent(psi=0.5, c=2))

@@ -118,3 +118,28 @@ class RewardsTestCase(TestCase):
         self.assertFalse(pg.Reward.support(
             pg.LineageCountingStateSpace, [pg.ProductReward([pg.TreeHeightReward(), pg.UnfoldedSFSReward(2)])]
         ))
+
+    def test_combined_reward(self):
+        """
+        Test combined reward.
+        """
+        rewards = [pg.LineageReward(5), pg.TreeHeightReward()]
+        r = pg.CombinedReward(rewards)
+
+        # no change
+        self.assertEqual(tuple(r.rewards), tuple(rewards))
+
+        rewards = [pg.TotalBranchLengthReward(), pg.LocusReward(1)]
+        r = pg.CombinedReward(rewards)
+
+        # reward transformation to TotalBranchLengthLocusReward
+        self.assertEqual(tuple(r.rewards), tuple([pg.TotalBranchLengthLocusReward(1)]))
+
+        rewards = [pg.TreeHeightReward(), pg.LocusReward(2), pg.TreeHeightReward(), pg.TotalBranchLengthReward()]
+        r = pg.CombinedReward(rewards)
+
+        # reward transformation to TotalBranchLengthLocusReward
+        self.assertEqual(
+            set(r.rewards),
+            {pg.TreeHeightReward(), pg.TreeHeightReward(), pg.TotalBranchLengthLocusReward(2)}
+        )

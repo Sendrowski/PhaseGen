@@ -142,6 +142,7 @@ from .rewards import (
     TreeHeightReward,
     TotalTreeHeightReward,
     TotalBranchLengthReward,
+    TotalBranchLengthLocusReward,
     UnfoldedSFSReward,
     FoldedSFSReward,
     LineageReward,
@@ -149,7 +150,8 @@ from .rewards import (
     ProductReward,
     SumReward,
     CombinedReward,
-    DemeReward
+    DemeReward,
+    LocusReward
 )
 
 from .spectrum import (
@@ -219,6 +221,7 @@ __all__ = [
     'TreeHeightReward',
     'TotalTreeHeightReward',
     'TotalBranchLengthReward',
+    'TotalBranchLengthLocusReward',
     'UnfoldedSFSReward',
     'FoldedSFSReward',
     'LineageReward',
@@ -226,6 +229,7 @@ __all__ = [
     'ProductReward',
     'SumReward',
     'DemeReward',
+    'LocusReward',
     'CombinedReward',
     'StateSpace',
     'LineageCountingStateSpace',

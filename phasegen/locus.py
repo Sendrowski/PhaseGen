@@ -57,8 +57,7 @@ class LocusConfig:
 
     def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         """
-        Get initial state vector for the locus configuration.
-        TODO test this
+        Get (not normalized) initial state vector for the locus configuration.
 
         :param s: State space
         :return: Initial state vector

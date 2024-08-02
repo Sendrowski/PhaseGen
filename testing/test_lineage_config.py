@@ -38,3 +38,16 @@ class LineageConfigTestCase(TestCase):
         p = pg.LineageConfig(3)
 
         self.assertDictEqual(p.lineage_dict, {'pop_0': 3})
+
+    def test_equality(self):
+        """
+        Test equality.
+        """
+        self.assertEqual(pg.LineageConfig(3), pg.LineageConfig([3]))
+        self.assertEqual(pg.LineageConfig(3), pg.LineageConfig({'pop_0': 3}))
+        self.assertEqual(pg.LineageConfig([3, 2]), pg.LineageConfig({'pop_0': 3, 'pop_1': 2}))
+
+        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig(4))
+        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig([3, 3]))
+        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig({'pop_1': 3}))
+        self.assertNotEquals(pg.LineageConfig({'pop_0': 3, 'pop_1': 2}), pg.LineageConfig({'pop_0': 3, 'pop1': 3}))

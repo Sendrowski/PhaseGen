@@ -313,3 +313,16 @@ class InferenceTestCase(TestCase):
 
         with self.assertRaises(RuntimeError) as context:
             inf.add_run(run)
+
+    def test_state_state_caching_vs_no_caching(self):
+        """
+        Test state caching vs no caching.
+        """
+        cached = self.get_basic_inference(dict(cache=True))
+        uncached = self.get_basic_inference(dict(cache=False))
+
+        # no apparent performance difference for an inference this simple
+        cached.run()
+        uncached.run()
+
+        self.assertDictEqual(cached.params_inferred, uncached.params_inferred)
