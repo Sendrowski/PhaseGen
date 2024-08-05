@@ -1,0 +1,24 @@
+name: dev-phasegen-v12
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - msprime
+  - graphviz
+  - tensorflow
+  - jax
+  - python-graphviz
+  - r-base
+  - r-reticulate
+  - r-devtools
+  - r-irkernel
+  - jupyterlab
+  - jupyter
+  - pip
+  - pip:
+    - pytest
+    - pytest-xdist
+    - pytest-cov
+    - pytest-sugar
+    - pytest-pycharm
+    - -r requirements_testing.txt
