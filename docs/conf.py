@@ -15,7 +15,7 @@ project = 'PhaseGen'
 year = datetime.datetime.now().year
 copyright = f'{year}, Janek Sendrowski'
 author = 'Janek Sendrowski'
-release = '0.0.11-beta'
+release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
