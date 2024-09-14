@@ -72,8 +72,8 @@ _ = pg.Coalescent(
 
 for n_epochs in [1]:
     for stat_label, stat in {
-        'mean tree height': lambda coal: coal.tree_height.mean,
-        'expected SFS': lambda coal: coal.sfs.mean
+        'tree height': lambda coal: coal.tree_height.mean,
+        'SFS': lambda coal: coal.sfs.mean
     }.items():
 
         # 1 deme
@@ -131,7 +131,7 @@ plot_line(
             recombination_rate=0.1
         )
     ).tree_height.mean,
-    label=f"1 deme, 2 loci, mean tree height"
+    label=f"1 deme, 2 loci, tree height"
 )
 
 ax.set_xlabel("number of lineages")

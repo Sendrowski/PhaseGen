@@ -37,7 +37,12 @@ def get_moment(coal: pg.Coalescent) -> float:
     return coal.moment(k=2, rewards=[pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)])
 
 
-coal = get_coal(N1=1, N2=0.5, t=2)
+
+N1 = 1
+N2 = 0.5
+t = 2
+
+coal = get_coal(N1=N1, N2=N2, t=t)
 
 m12 = coal.moment(k=2, rewards=[pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)], center=False, permute=False)
 m21 = coal.moment(k=2, rewards=[pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(1)], center=False, permute=False)
@@ -51,20 +56,26 @@ m_expected = get_moment(coal)
 
 assert m == m_expected
 
-fig = plt.figure(figsize=(3, 2))
-x = np.linspace(0.01, 2.2, 100)
-plt.plot(x, [get_moment(get_coal(N1=N1, N2=0.5, t=2)) for N1 in x], label='$x=N_1$')
-plt.plot(x, [get_moment(get_coal(N1=1, N2=N2, t=2)) for N2 in x], label='$x=N_2$')
-plt.plot(x, [get_moment(get_coal(N1=1, N2=0.5, t=t)) for t in x], label='$x=\delta_1$')
+t_max = 3
+alpha = 1
+fig = plt.figure(figsize=(3.2, 2.2))
+x = np.linspace(0.01, t_max, 100)
+
+plt.plot(x, [get_moment(get_coal(N1=N1, N2=N2, t=t)) for N1 in x], label='$x=N_1$', alpha=alpha)
+plt.plot(x, [get_moment(get_coal(N1=N1, N2=N2, t=t)) for N2 in x], label='$x=N_2$', alpha=alpha)
+plt.plot(x, [get_moment(get_coal(N1=N1, N2=N2, t=t)) for t in x], label='$x=\delta_1$', alpha=alpha)
 plt.plot(
     x,
     coal.accumulate(k=2, rewards=[pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)], end_times=x),
-    label='$x=\delta_2$'
+    label='$x=t_{max}$',
+    alpha=alpha
 )
 
+plt.plot([0, t_max], [0, 0], linestyle='dashed', lw=0.7, color='black')
 plt.xlabel('x')
 plt.ylabel('$\sigma_{12}$', rotation=0, labelpad=12.5)
 plt.legend(prop={'size': 8})
+plt.title('Singleton/doubleton covariance', fontsize=10)
 plt.tight_layout()
 plt.savefig('scratch/manuscript_cross_moment_example_plot.png', dpi=400)
 plt.show()
