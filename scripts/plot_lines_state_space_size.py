@@ -55,8 +55,8 @@ _ = pg.Coalescent(
 
 for n_epochs in [1]:
     for stat_label, stat in {
-        'mean tree height': lambda coal: coal.lineage_counting_state_space.k,
-        'expected SFS': lambda coal: coal.block_counting_state_space.k
+        'tree height': lambda coal: coal.lineage_counting_state_space.k,
+        'SFS': lambda coal: coal.block_counting_state_space.k
     }.items():
         # 1 deme
         plot_line(
@@ -113,11 +113,11 @@ plot_line(
             recombination_rate=0.1
         )
     ).tree_height.mean,
-    label=f"1 deme, 2 loci, mean tree height"
+    label=f"1 deme, 2 loci, tree height"
 )
 
 ax.set_xlabel("number of lineages")
-ax.set_ylabel("execution time in seconds")
+ax.set_ylabel("state space size")
 
 # log scale on y axis
 ax.set_yscale('log')
