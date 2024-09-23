@@ -94,8 +94,8 @@ configs_suspended = [
     '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
     '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
-    '1_epoch_beta_n_6_alpha_1_999',  # still imprecise in msprime
-    '1_epoch_beta_n_2_alpha_1_999',  # still imprecise in msprime
+    '1_epoch_beta_n_6_alpha_1_999',
+    '1_epoch_beta_n_2_alpha_1_999',
     '1_epoch_beta_2_loci_n_2_r_1_alpha_1_5',  # not implemented
     '1_epoch_beta_2_loci_n_4_r_1_alpha_1_5',  # not implemented
     '1_epoch_beta_2_loci_n_3_r_1_alpha_1_5',  # not implemented

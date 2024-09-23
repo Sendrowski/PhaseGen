@@ -4,7 +4,7 @@ n:
 n_loci: 2
 recombination_rate: 1
 num_replicates: 1000000
-#record_migration: true # problems with MsprimeDistribution when recoding migration with recombination; CDF changes
+#record_migration: true # problems with MsprimeDistribution when recording migration with recombination; CDF changes
 pop_sizes:
   pop_0:
     0: 1
