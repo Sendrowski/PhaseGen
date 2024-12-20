@@ -23,24 +23,24 @@ wildcard_constraints:
 rule all:
     input:
         (
-            #"results/graphs/inference/demography.png",
+            expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=50,n_bootstraps=1000,n_bins=50),
             #"docs/_build"
-            expand("results/comparisons/serialized/{config}.json",config=configs),
-            expand("results/graphs/transitions/{name}.png",name=[
-                'coalescent_4_lineages_lineage_counting',
-                'coalescent_5_lineages_lineage_counting',
-                'coalescent_5_lineages_block_counting',
-                'migration_2_lineages_lineage_counting',
-                'migration_3_lineages_lineage_counting',
-                'migration_3_lineages_block_counting',
-                'recombination_2_lineages',
-                'recombination_3_lineages',
-                'recombination_2_loci_2_pops_3_lineages_lineage_counting',
-                'beta_coalescent_5_lineages_lineage_counting',
-                'beta_coalescent_5_lineages_block_counting',
-                'dirac_coalescent_5_lineages_lineage_counting',
-                'dirac_coalescent_5_lineages_block_counting',
-            ]),
+            #expand("results/comparisons/serialized/{config}.json",config=configs),
+            #expand("results/graphs/transitions/{name}.png",name=[
+            #    'coalescent_4_lineages_lineage_counting',
+            #    'coalescent_5_lineages_lineage_counting',
+            #    'coalescent_5_lineages_block_counting',
+            #    'migration_2_lineages_lineage_counting',
+            #    'migration_3_lineages_lineage_counting',
+            #    'migration_3_lineages_block_counting',
+            #    'recombination_2_lineages',
+            #    'recombination_3_lineages',
+            #    'recombination_2_loci_2_pops_3_lineages_lineage_counting',
+            #    'beta_coalescent_5_lineages_lineage_counting',
+            #    'beta_coalescent_5_lineages_block_counting',
+            #    'dirac_coalescent_5_lineages_lineage_counting',
+            #    'dirac_coalescent_5_lineages_block_counting',
+            #]),
             #"results/graphs/execution_times.png",
             #"results/graphs/state_space_sizes.png",
             #"results/benchmarks/state_space/all.csv",
@@ -338,3 +338,62 @@ rule get_import_times:
         "envs/dev.yaml"
     shell:
         "python -X importtime -c 'import phasegen' 2> {output} || true"
+
+# fit MMC scenario to Kingman coalescent
+rule fit_MMC_Kingman:
+    output:
+        "results/MMC_inference/Kingman.{n}.json"
+    conda:
+        "envs/dev.yaml"
+    params:
+        n=lambda w: int(w.n),
+        parallelize=True,
+    script:
+        "scripts/fit_mmc_kingman.py"
+
+# infer demographic history from MMC SFS using SFS only
+rule infer_MMC_Kingman_SFS:
+    input:
+        "results/MMC_inference/Kingman.{n}.json"
+    output:
+        "results/MMC_inference/Kingman_SFS.{n}.{n_runs}.{n_bootstraps}.json"
+    conda:
+        "envs/dev.yaml"
+    params:
+        n=lambda w: int(w.n),
+        n_runs=lambda w: int(w.n_runs),
+        n_bootstraps=lambda w: int(w.n_bootstraps),
+        parallelize=True,
+    script:
+        "scripts/infer_mmc_kingman_sfs.py"
+
+# infer demographic history from MMC SFS using SFS and 2-SFS
+rule infer_MMC_Kingman_2SFS:
+    input:
+        "results/MMC_inference/Kingman.{n}.json"
+    output:
+        "results/MMC_inference/Kingman_2SFS.{n}.{n_runs}.{n_bootstraps}.json"
+    conda:
+        "envs/dev.yaml"
+    params:
+        n=lambda w: int(w.n),
+        n_runs=lambda w: int(w.n_runs),
+        n_bootstraps=lambda w: int(w.n_bootstraps),
+        parallelize=True,
+    script:
+        "scripts/infer_mmc_kingman_2sfs.py"
+
+# plot MMC inference
+rule plot_MMC_inference:
+    input:
+        inf_kingman="results/MMC_inference/Kingman.{n}.json",
+        fit_sfs="results/MMC_inference/Kingman_SFS.{n}.{n_runs}.{n_bootstraps}.json",
+        fit_2sfs="results/MMC_inference/Kingman_2SFS.{n}.{n_runs}.{n_bootstraps}.json"
+    output:
+        "results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png"
+    conda:
+        "envs/dev.yaml"
+    params:
+        n_bins=lambda w: int(w.n_bins)
+    script:
+        "scripts/plot_mmc_inference.py"
