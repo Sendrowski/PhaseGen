@@ -39,7 +39,7 @@ def get_moment(coal: pg.Coalescent) -> float:
 
 
 N1 = 1
-N2 = 0.5
+N2 = 1
 t = 2
 
 coal = get_coal(N1=N1, N2=N2, t=t)
@@ -58,7 +58,7 @@ assert m == m_expected
 
 t_max = 3
 alpha = 1
-fig = plt.figure(figsize=(3.2, 2.2))
+fig = plt.figure(figsize=(3.7, 2.5))
 x = np.linspace(0.01, t_max, 100)
 
 plt.plot(x, [get_moment(get_coal(N1=N1, N2=N2, t=t)) for N1 in x], label='$x=N_1$', alpha=alpha)
@@ -71,13 +71,13 @@ plt.plot(
     alpha=alpha
 )
 
-plt.plot([0, t_max], [0, 0], linestyle='dashed', lw=0.7, color='black')
+plt.plot([0, t_max], [0, 0], linestyle='dashed', lw=0.7, color='black', alpha=0.8)
 plt.xlabel('x')
 plt.ylabel('$\sigma_{12}$', rotation=0, labelpad=12.5)
 plt.legend(prop={'size': 8})
 plt.title('Singleton/doubleton covariance', fontsize=10)
 plt.tight_layout()
-plt.savefig('scratch/manuscript_cross_moment_example_plot.png', dpi=400)
+plt.savefig('reports/manuscripts/merged/figures/cross_moment_example_plot.png', dpi=400)
 plt.show()
 
 pass
