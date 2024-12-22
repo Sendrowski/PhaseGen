@@ -4,6 +4,7 @@ Inference module.
 
 import copy
 import logging
+from collections import defaultdict
 from functools import cached_property
 from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional
 
@@ -47,7 +48,7 @@ class Inference(Serializable):
             n_runs: int = 10,
             n_bootstraps: int = 100,
             do_bootstrap: bool = False,
-            parallelize: bool = True,
+            parallelize: bool = False,
             pbar: bool = True,
             seed: int = None,
             cache: bool = True,
@@ -77,6 +78,11 @@ class Inference(Serializable):
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
         :param parallelize: Whether to parallelize the computations.
+
+            .. note:: Parallelization can lead to hanging processes due to pickling issues, depending on how the
+                provided callback function is defined. For more scalable parallelization, consider using the
+                :meth:`create_run` and :meth:`create_bootstrap` methods to create new Inference objects that can be run
+                independently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
         :param cache: Whether to cache the state spaces across the given optimization iterations given
@@ -158,7 +164,10 @@ class Inference(Serializable):
         self.dist_inferred: Coalescent | None = None
 
         #: Bootstrap parameters
-        self.bootstraps: pd.DataFrame = pd.DataFrame(columns=list(self.bounds.keys()))
+        self.bootstraps: pd.DataFrame = pd.DataFrame(columns=list(self.bounds.keys()) + ['loss', 'result'])
+
+        #: Initial optimization runs
+        self.runs: pd.DataFrame = self.bootstraps.copy()
 
     def _check_x0_within_bounds(self):
         """
@@ -166,6 +175,13 @@ class Inference(Serializable):
         """
         if not all([self.bounds[key][0] <= value <= self.bounds[key][1] for key, value in self.x0.items()]):
             raise ValueError('Initial parameters must be within the specified bounds.')
+
+    @property
+    def param_names(self) -> List[str]:
+        """
+        Get the names of the parameters.
+        """
+        return list(self.bounds.keys())
 
     @cached_property
     def x0(self) -> Dict[str, float]:
@@ -211,6 +227,7 @@ class Inference(Serializable):
 
         # disable parallelization to avoid problematic double parallelization
         coal.parallelize = False
+        coal.pbar = False
 
         # if state space caching is enabled, replace by cached state space if possible
         if self.cache:
@@ -228,14 +245,20 @@ class Inference(Serializable):
         """
         Lineage-counting state space which only keeps track of the number of lineages present.
         """
-        return self.coal(**self.x0).lineage_counting_state_space
+        s = self.coal(**self.x0).lineage_counting_state_space
+        s.pbar = False
+
+        return s
 
     @cached_property
     def _block_counting_state_space(self) -> BlockCountingStateSpace:
         """
         Block-counting state space which keeps track for the number of lineages that subtend `i` lineages.
         """
-        return self.coal(**self.x0).block_counting_state_space
+        s = self.coal(**self.x0).block_counting_state_space
+        s.pbar = False
+
+        return s
 
     @staticmethod
     def _get_loss_function(
@@ -353,6 +376,7 @@ class Inference(Serializable):
         get_dist = self.get_coal
         get_loss = self.loss
         opts = self.opts
+        logger = self._logger
 
         def run_sample(x0: Dict[str, float]) -> OptimizeResult:
             """
@@ -370,7 +394,7 @@ class Inference(Serializable):
                 get_dist=get_dist,
                 get_loss=get_loss,
                 opts=opts,
-                logger=self._logger
+                logger=logger
             )
 
         results = parallelize(
@@ -402,8 +426,10 @@ class Inference(Serializable):
         # loss of best run
         self.loss_inferred = self.result.fun
 
-        # loss for all runs
-        self.loss_runs = np.array([result.fun for result in results])
+        self.runs = pd.DataFrame(
+            [list(result.x) + [result.fun, str(result)] for result in results],
+            columns=list(self.x0.keys()) + ['loss', 'result']
+        )
 
         # coalescent distribution of best run
         self.dist_inferred = self.get_coal(**self.params_inferred)
@@ -476,11 +502,14 @@ class Inference(Serializable):
 
         if n_success < self.n_bootstraps:
             self._logger.warning(
-                f'Only {n_success} out of {self.n_bootstraps} bootstrap replicates converged.'
+                f'{n_success} out of {self.n_bootstraps} bootstrap replicates converged.'
             )
 
         # store bootstrapped parameters
-        self.bootstraps = pd.DataFrame([result.x for result in results], columns=list(self.x0.keys()))
+        self.bootstraps = pd.DataFrame(
+            [list(result.x) + [result.fun, str(result)] for result in results],
+            columns=list(self.x0.keys()) + ['loss', 'result']
+        )
 
     def plot_bootstraps(
             self,
@@ -517,9 +546,9 @@ class Inference(Serializable):
             kwargs = {'bins': 20} | kwargs
 
         # avoid empty plots
-        plt.close()
+        # plt.close()
 
-        ax = self.bootstraps.plot(
+        ax = self.bootstraps[self.param_names].plot(
             ax=ax,
             kind=kind,
             title='Marginal distributions' if title is None else title,
@@ -693,7 +722,7 @@ class Inference(Serializable):
 
         # plot bootstrapped demography
         if include_bootstraps:
-            for i, row in self.bootstraps.iterrows():
+            for i, row in self.bootstraps[self.param_names].iterrows():
                 plot(self.get_coal(**row.to_dict()).demography, {'color': 'C0', 'alpha': 0.3})
 
         Visualization.show_and_save(show=show, file=file)
@@ -732,7 +761,9 @@ class Inference(Serializable):
             raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
 
         # add the loss of the new run to the list of losses
-        self.loss_runs = np.append(self.loss_runs, inference.loss_runs)
+        self.runs.loc[len(self.runs)] = (
+                inference.params_inferred | dict(loss=inference.loss_inferred, result=str(inference.result))
+        )
 
         # update the result if the loss of the new run is lower
         if self.loss_inferred is None or inference.loss_inferred < self.loss_inferred:
@@ -766,26 +797,20 @@ class Inference(Serializable):
 
         return other
 
-    def add_bootstrap(self, data: 'Inference' | Dict[str, float]):
+    def add_bootstrap(self, bootstrap: 'Inference'):
         """
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
-        :param data: Either an Inference object or a dictionary of inferred parameters.
+        :param bootstrap: Either an Inference object or a dictionary of inferred parameters.
         :raises RuntimeError: If the main optimization has not been run yet.
         """
-        if isinstance(data, dict):
-            # add bootstrap parameters
-            self.bootstraps.loc[len(self.bootstraps)] = data
+        if bootstrap.loss_inferred is None:
+            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
 
-        elif isinstance(data, Inference):
-
-            if data.loss_inferred is None:
-                raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
-
-            self.add_bootstrap(data.params_inferred)
-
-        else:
-            raise ValueError('Invalid data type.')
+        # add bootstrap parameters
+        self.bootstraps.loc[len(self.bootstraps)] = (
+                bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
+        )
 
     def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]):
         """
@@ -795,3 +820,60 @@ class Inference(Serializable):
         """
         for d in data:
             self.add_bootstrap(d)
+
+
+class WeightedLoss:  # pragma: no cover
+    """
+    Weigh components of the loss function based on the average of the observed and modelled values.
+    """
+
+    def __init__(self, weights: Dict[str, float], n_max: int | None = 100):
+        """
+        Initialize the class with the provided parameters.
+
+        :param weights: Dictionary of weights for each component of the loss function.
+        :param n_max: Maximum recent values to consider for the average. Use `None` to consider all values.
+        """
+        #: Weights for each component of the loss function.
+        self.weights: Dict[str, float] = weights
+
+        #: Maximum recent values to consider for the average.
+        self.n_max: int = n_max if n_max is not None else 10 ** 21
+
+        #: Keys of the weights.
+        self.keys: List[str] = list(weights.keys())
+
+        #: Cached values.
+        self.cache: Dict[str, np.ndarray] = defaultdict(lambda: np.array([]))
+
+        #: Logger instance.
+        self._logger = logger.getChild(self.__class__.__name__)
+
+    @property
+    def average(self):
+        """
+        Average of the cached values.
+        """
+        return {key: np.mean(self.cache[key][-self.n_max:]) for key in self.keys}
+
+    def compute(self, loss: Dict[str, float]) -> float:
+        """
+        Compute the weighted loss.
+
+        :param loss: Dictionary of loss values for each component of the loss function.
+        :return: Weighted loss.
+        """
+        for key in self.keys:
+            self.cache[key] = np.append(self.cache[key], loss[key])
+
+        avg = self.average
+        avg = np.array([avg[key] for key in self.keys])
+        weights = np.array([self.weights[key] for key in self.keys])
+
+        adjusted = weights / avg
+        adjusted /= np.sum(adjusted)
+        adjusted_dict = {key: value for key, value in zip(self.keys, adjusted)}
+
+        self._logger.debug(f'loss: {loss}, weights: {adjusted_dict}')
+
+        return np.sum([loss[key] * adjusted_dict[key] for key in self.keys])

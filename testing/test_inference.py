@@ -4,6 +4,7 @@ Test Inference class.
 import os
 from unittest import TestCase
 
+import numpy as np
 import pytest
 
 import phasegen as pg
@@ -69,9 +70,15 @@ class InferenceTestCase(TestCase):
         # create inference object
         inf = self.get_basic_inference(dict(n_runs=3, parallelize=False))
 
+        self.assertEqual(0, len(inf.runs))
+        self.assertEqual(0, len(inf.bootstraps))
+
         inf.run()
 
-    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
+        self.assertEqual(3, len(inf.runs))
+        self.assertEqual(0, len(inf.bootstraps))
+
+    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     def test_basic_inference_3_runs_parallel(self):
         """
         Test basic inference with 3 runs in parallel.
@@ -112,12 +119,13 @@ class InferenceTestCase(TestCase):
 
         inf2 = pg.Inference.from_file('scratch/test_serialize_run_basic_inference.json')
 
+        params = list(inf.params_inferred.keys())
         self.assertAlmostEqual(inf.params_inferred['t'], inf2.params_inferred['t'])
         self.assertAlmostEqual(inf.params_inferred['Ne'], inf2.params_inferred['Ne'])
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
-        self.assertDictEqual(inf.bootstraps.var().to_dict(), inf2.bootstraps.var().to_dict())
+        self.assertDictEqual(inf.bootstraps[params].var().to_dict(), inf2.bootstraps[params].var().to_dict())
 
-    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
+    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     def test_seeded_inference_parallel(self):
         """
         Test seeded inference with parallelization.
@@ -179,9 +187,9 @@ class InferenceTestCase(TestCase):
         self.assertEqual(10, len(inf.bootstraps))
 
         # make sure the bootstraps are different
-        self.assertGreater(inf.bootstraps.var().t, 0)
+        self.assertGreater(inf.bootstraps.t.var(), 0)
 
-    @pytest.mark.skipif(os.getenv("parallel", True), reason="Not running parallel tests.")
+    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     def test_bootstrap_parallel(self):
         """
         Test parallel bootstrap.
@@ -193,7 +201,7 @@ class InferenceTestCase(TestCase):
         self.assertEqual(10, len(inf.bootstraps))
 
         # make sure the bootstraps are different
-        self.assertGreater(inf.bootstraps.var().t, 0)
+        self.assertGreater(inf.bootstraps.t.var(), 0)
 
     def test_manual_bootstrap(self):
         """
@@ -208,7 +216,7 @@ class InferenceTestCase(TestCase):
         [inf.add_bootstrap(bootstrap) for bootstrap in bootstraps]
 
         self.assertEqual(5, len(inf.bootstraps))
-        self.assertGreater(inf.bootstraps.var().t, 0)
+        self.assertGreater(inf.bootstraps.t.var(), 0)
 
         inf.plot_bootstraps()
 
@@ -231,7 +239,7 @@ class InferenceTestCase(TestCase):
         Test plotting inference.
         """
         # create inference object
-        inf = self.get_basic_inference(dict(do_bootstrap=True, n_runs=3, parallelize=True, n_bootstraps=3))
+        inf = self.get_basic_inference(dict(do_bootstrap=True, n_runs=3, parallelize=False, n_bootstraps=3))
         inf.run()
 
         inf.plot_migration()
@@ -326,3 +334,30 @@ class InferenceTestCase(TestCase):
         uncached.run()
 
         self.assertDictEqual(cached.params_inferred, uncached.params_inferred)
+
+    def test_weighted_loss(self):
+        """
+        Test weighted loss.
+        """
+        weighted_loss = pg.inference.WeightedLoss(dict(l1=0.5, l2=0.5))
+
+        self.assertAlmostEqual(1, weighted_loss.compute(dict(l1=1, l2=1)))
+
+        weighted_loss = pg.inference.WeightedLoss(dict(l1=0.5, l2=0.5))
+
+        weighted_loss.compute(dict(l1=1, l2=2))
+        weighted_loss.compute(dict(l1=2, l2=1))
+
+        self.assertAlmostEqual(1, weighted_loss.compute(dict(l1=1, l2=1)))
+
+        weighted_loss = pg.inference.WeightedLoss(dict(l1=0.5, l2=0.5))
+
+        self.assertAlmostEqual(1.5, weighted_loss.compute(dict(l1=3, l2=1)))
+        self.assertAlmostEqual(1.5, weighted_loss.compute(dict(l1=3, l2=1)))
+
+        weighted_loss = pg.inference.WeightedLoss(dict(l1=0.5, l2=0.5))
+
+        for _ in range(100):
+            weighted_loss.compute(dict(l1=np.random.normal(3, 1), l2=np.random.normal(1, 1)))
+
+        self.assertTrue(1.4 < weighted_loss.compute(dict(l1=3, l2=1)) < 1.6)

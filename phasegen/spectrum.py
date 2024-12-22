@@ -238,7 +238,6 @@ class SFS2(Iterable):
             max_abs: float = None,
             log_scale: bool = False,
             cbar_kws: Dict = None,
-            fill_diagonal_entries: bool = False,
             show: bool = True,
     ) -> 'plt.Axes':
         """
@@ -249,7 +248,6 @@ class SFS2(Iterable):
         :param max_abs: Maximum absolute value to plot.
         :param log_scale: Use log scale.
         :param cbar_kws: Keyword arguments for color bar.
-        :param fill_diagonal_entries: Fill diagonal entries.
         :param show: Whether to show the plot.
         :return: Axes.
         """
@@ -264,22 +262,15 @@ class SFS2(Iterable):
         if cbar_kws is None:
             cbar_kws = dict(pad=0.05)
 
-        data = self.data.copy()
+        if max_abs is None:
+            max_abs = self.get_max_abs() or 1
 
-        # remove monomorphic entries
-        data = self._remove_monomorphic(data)
-
-        # mask diagonal entries
-        if fill_diagonal_entries:
-            data = self._fill_diagonals(data)
+        # remove monomorphic sites
+        data = self.data[1:-1, 1:-1]
 
         # truncate data if folded
         if self.is_folded():
             data = data[:self.w - 1, :self.w - 1]
-
-        # determine colorbar bounds if not specified
-        if max_abs is None:
-            max_abs = self._get_max_abs_entry(data)
 
         # plot heatmap using a symmetric log norm
         ax = sns.heatmap(
@@ -328,9 +319,6 @@ class SFS2(Iterable):
             max_abs: float = None,
             vmin: float = None,
             vmax: float = None,
-            fill_diagonal_entries: bool = False,
-            fill_value: float = np.nan,
-            log_scale: bool = False,
             show: bool = True,
     ) -> 'plt.Axes':
         """
@@ -341,9 +329,6 @@ class SFS2(Iterable):
         :param max_abs: Maximum absolute value to plot.
         :param vmin: Minimum value to plot.
         :param vmax: Maximum value to plot.
-        :param fill_diagonal_entries: Fill diagonal entries.
-        :param fill_value: Value to fill diagonal entries with.
-        :param log_scale: Use log scale.
         :param show: Whether to show the plot.
         :return: Axes.
         """
@@ -354,22 +339,15 @@ class SFS2(Iterable):
             logger.warning('Nothing to plot.')
             return plt.gca()
 
-        data = self.data.copy()
+        if max_abs is None:
+            max_abs = self.get_max_abs() or 1
 
-        # remove monomorphic entries
-        data = self._remove_monomorphic(data)
-
-        # mask diagonal entries
-        if fill_diagonal_entries:
-            data = self._fill_diagonals(data, fill_value)
+        # remove monomorphic sites
+        data = self.data[1:-1, 1:-1]
 
         # truncate data if folded
         if self.is_folded():
             data = data[:self.w - 1, :self.w - 1]
-
-        # determine color bar bounds if not specified
-        if max_abs is None:
-            max_abs = self._get_max_abs_entry(data) or 1
 
         x = np.arange(1, data.shape[0] + 1)
         y = np.arange(1, data.shape[0] + 1)
@@ -394,10 +372,6 @@ class SFS2(Iterable):
             )
         )
 
-        # if log_scale:
-        # ax.yaxis.set_scale('log')
-        # ax.set_yscale('log', base=1.001)
-
         if title is not None:
             ax.set_title(title)
 
@@ -406,62 +380,42 @@ class SFS2(Iterable):
 
         return ax
 
-    @staticmethod
-    def _remove_monomorphic(data: np.ndarray) -> np.ndarray:
+    def mask_diagonal(self, fill_value=np.nan) -> 'SFS2':
         """
-        Remove monomorphic sites from given 2-SFS matrix.
+        Mask both the primary and secondary diagonal entries of the 2-SFS matrix.
 
-        :return: The data without monomorphic sites.
+        The primary diagonal runs from the top-left to the bottom-right,
+        and the secondary diagonal runs from the top-right to the bottom-left.
+
+        :param fill_value: The value to fill the diagonal entries with.
+        :return: A new SFS2 object with both diagonals masked.
         """
-        return data[1:-1, 1:-1]
+        data = self.data.copy()
+        np.fill_diagonal(data, fill_value)
 
-    @staticmethod
-    def _fill_diagonals(data: np.ndarray, fill_value=np.nan) -> np.ndarray:
-        """
-        Remote the diagonal entries of the given array.
-
-        :param data: The data to fill.
-        :param fill_value: The value to fill the diagonal with.
-        :return: The filled data.
-        """
-        if len(data) == 0:
-            return data
-
-        if len(data) == 1:
-            return np.array([[fill_value]])
-
+        data = np.fliplr(data)
         np.fill_diagonal(data, fill_value)
         data = np.fliplr(data)
 
-        np.fill_diagonal(data, fill_value)
-        data = np.fliplr(data)
+        return SFS2(data)
 
-        return data
-
-    @classmethod
-    def _mask(cls, data: np.ndarray = None) -> np.ndarray:
+    def get_max_abs(self) -> float:
         """
-        Remove diagonal and monomorphic entries.
+        Get the maximum absolute entry of the 2-SFS matrix.
 
-        :param data: The data to mask.
-        :return: The masked data.
-        """
-        data = data.copy()
-
-        data = cls._fill_diagonals(data)
-
-        data = cls._remove_monomorphic(data)
-
-        return data[~np.isnan(data) & ~np.isinf(data)]
-
-    @classmethod
-    def _get_max_abs_entry(cls, data: np.ndarray) -> float:
-        """
-        Get the maximum absolute entry of the given data.
-
-        :param data: The data.
         :return: The maximum absolute entry.
         """
-        entries = np.abs(cls._mask(data))
+        return np.nanmax(np.abs(self.data))
 
-        return entries.max() if len(entries) > 0 else 1
+    def mask_upper(self, fill_value=np.nan) -> 'SFS2':
+        """
+        Mask the upper triangular entries of the 2-SFS matrix.
+
+        :param fill_value: The value to fill the upper triangular entries with.
+        :return: A new SFS2 object with upper triangular entries masked.
+        """
+        data = self.copy().data
+
+        data[np.tril(np.ones_like(data, dtype=bool), k=-1)] = fill_value
+
+        return SFS2(data)
