@@ -65,7 +65,7 @@ def plot_pdf_msprime(coal: pg.Coalescent):
     :param coal: The coalescent to plot.
     """
 
-    coal._to_msprime(
+    coal.to_msprime(
         num_replicates=1000000
     ).tree_height.plot_pdf(show=False, title='Tree height')
 
