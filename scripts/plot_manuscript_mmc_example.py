@@ -1,8 +1,11 @@
 """
-Plot the MMC example for the manuscript.
+Plot the MMC example used in the manuscript.
 """
+import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
+# code block in the manuscript
 # -------------------------------
 
 import phasegen as pg
@@ -15,9 +18,6 @@ coal = pg.Coalescent(
 
 # -------------------------------
 
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 fig = plt.figure(figsize=(7, 6))
 gs = GridSpec(2, 2, figure=fig, height_ratios=[1.1, 1], width_ratios=[0.9, 1])

@@ -1,5 +1,5 @@
 """
-Run the inference example from the manuscript.
+Run manuscript inference example.
 """
 import fastdfe as fd
 import matplotlib.pyplot as plt
