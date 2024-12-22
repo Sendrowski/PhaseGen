@@ -12,7 +12,7 @@ class Serializable:
 
     def to_file(self, file: str):
         """
-        Save object to file.
+        Save object to file (JSON).
 
         :param file: File path.
         """

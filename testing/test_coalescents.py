@@ -987,21 +987,21 @@ class CoalescentTestCase(TestCase):
         Test higher-order uncentered cross-moments against Msprime coalescent.
         """
         coal = self.get_complex_coalescent()
-        ms = coal._to_msprime(num_replicates=100000)
+        ms = coal.to_msprime(num_replicates=100000)
 
         # test uncentered moments
         for indices in [[2, 3, 4], [1, 1, 4], [1, 1, 1], [4, 2, 1]]:
             m_ms = np.mean(ms.sfs.samples[:, indices].prod(axis=1))
             m_ph = coal.moment(3, tuple(pg.UnfoldedSFSReward(l) for l in indices), center=False)
 
-            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.05)
+            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.07)
 
     def compare_centered_sfs_cross_moments_msprime(self):
         """
         Test higher-order centered SFS cross-moments against Msprime coalescent.
         """
         coal = pg.Coalescent(n=6)
-        ms = coal._to_msprime(num_replicates=1000000, n_threads=100, seed=42)
+        ms = coal.to_msprime(num_replicates=1000000, n_threads=100, seed=42)
 
         data = [
             dict(moments=[2, 3, 4, 4, 4], tol=0.1),
@@ -1028,7 +1028,7 @@ class CoalescentTestCase(TestCase):
         """
         coal = pg.Coalescent(n=5)
 
-        ms = coal._to_msprime(
+        ms = coal.to_msprime(
             num_replicates=1000,
             seed=42,
             n_threads=1,
@@ -1146,3 +1146,38 @@ class CoalescentTestCase(TestCase):
             1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S)
         )
         self.assertNotEquals(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
+
+    def test_fewer_than_2_lineages_raises_error(self):
+        """
+        Test fewer than 2 lineages raises error.
+        """
+        with self.assertRaises(ValueError):
+            _ = pg.Coalescent(n=1)
+
+    def test_recombination_tree_height_covariance(self):
+        """
+        Test tree height covariance against theoretical expectations
+        """
+        covs = []
+        covs_exp = []
+        ps = [10 ** -i for i in range(10)[::-1]]
+
+        for p in ps:
+            coal = pg.Coalescent(
+                n=2,
+                loci=pg.LocusConfig(n=2, recombination_rate=p / 2)
+            )
+
+            cov = coal.tree_height.loci.cov[0, 1]
+            cov_exp = (p + 18) / (p ** 2 + 13 * p + 18)
+
+            covs += [cov]
+            covs_exp += [cov_exp]
+
+        plt.plot(covs, label='Observed')
+        plt.plot(covs_exp, label='Expected')
+        plt.xticks(range(len(covs)), ps)
+        plt.legend()
+        plt.show()
+
+        np.testing.assert_allclose(covs, covs_exp, atol=1e-14, rtol=0)

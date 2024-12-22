@@ -33,15 +33,6 @@ class SpectrumTestCase(TestCase):
         sfs.plot()
         sfs.plot_surface()
 
-    def test_plot_2sfs_fill_diagonal_entries(self):
-        """
-        Test plotting a monomorphic 2D SFS.
-        """
-        sfs = pg.SFS2(np.ones((12, 12)))
-
-        sfs.plot(fill_diagonal_entries=True)
-        sfs.plot_surface(fill_diagonal_entries=True)
-
     def test_plot_2sfs_log_scale(self):
         """
         Test plotting a 2D SFS with a log scale.
@@ -225,3 +216,36 @@ class SpectrumTestCase(TestCase):
         np.testing.assert_array_equal(sfs.data[:, -1], np.zeros(8))
 
         np.testing.assert_array_equal(sfs.data[1:-1, 1:-1], np.ones((6, 6)))
+
+    def test_mask_upper(self):
+        """
+        Test masking the upper triangle of a 2D SFS.
+        """
+        sfs = pg.SFS2(np.random.randint(1, 100, (12, 12)).astype(float))
+
+        sfs = sfs.mask_upper()
+
+        self.assertTrue(np.all(np.isnan(sfs.data[np.tril_indices(12, k=-1)])))
+
+    def test_mask_diagonal(self):
+        """
+        Test masking both diagonals of a 2D SFS and ensure the rest of the matrix is unchanged.
+        """
+        original_data = np.random.randint(1, 100, (12, 12)).astype(float)
+        sfs = pg.SFS2(original_data)
+
+        masked_sfs = sfs.mask_diagonal()
+
+        # Assert primary diagonal is masked
+        self.assertTrue(np.all(np.isnan(masked_sfs.data[np.diag_indices(12)])))
+
+        # Assert secondary diagonal is masked
+        flipped_indices = (np.arange(12), np.arange(12)[::-1])
+        self.assertTrue(np.all(np.isnan(masked_sfs.data[flipped_indices])))
+
+        # Assert rest of the matrix is unchanged
+        diag_mask = np.zeros_like(original_data, dtype=bool)
+        np.fill_diagonal(diag_mask, True)  # Mask primary diagonal
+        diag_mask = np.logical_or(diag_mask, np.fliplr(diag_mask))  # Add secondary diagonal
+        self.assertTrue(np.array_equal(original_data[~diag_mask], masked_sfs.data[~diag_mask]))
+

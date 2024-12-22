@@ -285,7 +285,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
             `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
             highlight=beta+coalescent#msprime.BetaCoalescent>`__. If ``False``, the timescale is set to N.
         """
-        if alpha < 1 or alpha > 2:
+        if not 1 < alpha < 2:
             raise ValueError("Alpha must be between 1 and 2.")
 
         #: Whether to scale coalescence time.

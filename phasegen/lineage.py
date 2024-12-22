@@ -21,6 +21,7 @@ class LineageConfig:
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
+            By default, the populations are named 'pop_0', 'pop_1', etc.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
@@ -42,6 +43,9 @@ class LineageConfig:
 
         #: Total number of lineages.
         self.n: int = sum(list(n_lineages.values()))
+
+        if self.n < 2:
+            raise ValueError("Number of lineages must be at least 2.")
 
         #: Number of populations.
         self.n_pops: int = len(n_lineages)

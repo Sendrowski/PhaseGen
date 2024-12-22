@@ -2367,6 +2367,7 @@ class AbstractCoalescent(ABC):
         """
         self._logger = logger.getChild(self.__class__.__name__)
 
+        # set up default coalescent model
         if model is None:
             model = StandardCoalescent()
 
@@ -2377,6 +2378,7 @@ class AbstractCoalescent(ABC):
             #: Population configuration
             self.lineage_config: LineageConfig = n
 
+        # set up demography
         if demography is None:
             demography = Demography(pop_sizes={p: 1 for p in self.lineage_config.pop_names})
 
@@ -2403,8 +2405,24 @@ class AbstractCoalescent(ABC):
                 PopSizeChanges(initial_sizes)
             )
 
-        # add zero lineage counts to lineage configuration for populations only present in the demography
+            # warn if population names are present in the population configuration but not in the demography
+            self._logger.warning(
+                f"The following population names are present in the population configuration but not "
+                f"in the demography: {list(initial_sizes.keys())}. "
+                f"Adding these populations with population size of 1."
+            )
+
+        # determine population names that are present in the demography but not in the population configuration
         unspecified_lineages = set(demography.pop_names) - set(self.lineage_config.pop_names)
+
+        # warn if population names are present in the demography but not in the population configuration
+        if len(unspecified_lineages) > 0:
+            self._logger.warning(
+                f"The following population names are present in the demography but not "
+                f"in the population configuration: {list(unspecified_lineages)}. "
+                f"Adding these populations with 0 lineages."
+            )
+
         self.lineage_config = LineageConfig(self.lineage_config.lineage_dict | {p: 0 for p in unspecified_lineages})
 
         #: Coalescent model
@@ -2477,7 +2495,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
-        :param pbar: Whether to show a progress bar.
+        :param pbar: Whether to show a progress bar when constructing the state space.
         :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
@@ -2514,7 +2532,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epoch(0)
+            epoch=self.demography.get_epoch(0),
+            pbar=self.pbar
         )
 
     @cached_property
@@ -2526,7 +2545,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epoch(0)
+            epoch=self.demography.get_epoch(0),
+            pbar=self.pbar
         )
 
     @cached_property
@@ -2788,7 +2808,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         return super(self.__class__, other).to_json()
 
-    def _to_msprime(
+    def to_msprime(
             self,
             num_replicates: int = 10000,
             n_threads: int = 10,
@@ -2829,9 +2849,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
 
-class MsprimeCoalescent(AbstractCoalescent):  # pragma: no cover
+class MsprimeCoalescent(AbstractCoalescent):
     """
-    Empirical coalescent distribution based on msprime simulations.
+    Empirical coalescent distribution based on `msprime` simulations.
+    This is used for testing purposes. Note that the results are stochastic.
     """
 
     def __init__(

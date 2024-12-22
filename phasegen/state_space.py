@@ -10,6 +10,7 @@ from itertools import product
 from typing import List, Tuple, Dict, Callable, cast
 
 import numpy as np
+from tqdm import tqdm
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
 from .demography import Epoch
@@ -32,7 +33,8 @@ class StateSpace(ABC):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None,
-            cache: bool = True
+            cache: bool = True,
+            pbar: bool = True
     ):
         """
         Create a rate matrix.
@@ -40,8 +42,9 @@ class StateSpace(ABC):
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
-        :param epoch: Epoch.
+        :param epoch: The epoch.
         :param cache: Whether to cache the rate matrix for different epochs.
+        :param pbar: Whether to show progress bar for the number of transitions.
         """
         if locus_config is None:
             locus_config = LocusConfig()
@@ -72,6 +75,9 @@ class StateSpace(ABC):
 
         #: Cached rate matrices
         self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
+
+        #: Whether to show progress bar for the number of transitions
+        self.pbar: bool = pbar
 
         # time in seconds to compute original rate matrix
         self.time: float | None = None
@@ -111,7 +117,7 @@ class StateSpace(ABC):
         """
         return np.array([s.linked for s in self.states])
 
-    @property
+    @cached_property
     def unlinked(self) -> np.ndarray:
         """
         Unlinked lineages.
@@ -170,7 +176,12 @@ class StateSpace(ABC):
         sources = [self._get_initial()]
         transitions = {}
         visited = []
-        i = 0
+
+        # number of states and transitions
+        i, j = 0, 0
+
+        # backward compatibility
+        pbar = tqdm(desc=f'{self.__class__.__name__}: transitions', disable=not (hasattr(self, 'pbar') and self.pbar))
 
         while True:
 
@@ -192,6 +203,9 @@ class StateSpace(ABC):
                 for target, transition in targets.items():
                     transitions[(source, target)] = transition
 
+                    j += 1
+                    pbar.update(1)
+
                 # add targets to new targets
                 targets_new |= targets
 
@@ -211,6 +225,14 @@ class StateSpace(ABC):
 
             # take new targets as source states
             sources = tuple(targets_new.keys())
+
+        pbar.set_description_str(f'{self.__class__.__name__}: ({i} states, {j} transitions)')
+        pbar.close()
+
+        # warn if state space is large
+        if (k := len(visited)) > 400:
+            self._logger.warning(f'State space is large ({k} states). Note that the computation time '
+                                 f'increases exponentially with the number of states.')
 
         return transitions, visited
 
@@ -249,14 +271,7 @@ class StateSpace(ABC):
         """
         Number of states.
         """
-        k = len(self.states)
-
-        # warn if state space is large
-        if k > 400:
-            self._logger.warning(f'State space is large ({k} states). Note that the computation time '
-                                 f'increases exponentially with the number of states.')
-
-        return k
+        return len(self.states)
 
     @cached_property
     def transition(self) -> 'Transition':
@@ -338,22 +353,24 @@ class StateSpace(ABC):
             if self.cache:
                 self._cache[self.epoch] = (transitions, states)
 
-        return self._graph_to_matrix(transitions)
+        return self._graph_to_matrix(transitions, states)
 
+    @staticmethod
     def _graph_to_matrix(
-            self,
-            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]]
+            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]],
+            states: List['State']
     ) -> np.ndarray:
         """
         Convert transition graph to rate matrix.
 
         :param transitions: Transitions.
+        :param states: States.
         :return: Rate matrix.
         """
-        S = np.zeros((self.k, self.k))
+        S = np.zeros((len(states), len(states)))
 
         # order of original states
-        ordering = {s: i for i, s in enumerate(self.states)}
+        ordering = {s: i for i, s in enumerate(states)}
 
         # fill rate matrix
         for (source, target), transition in transitions.items():
@@ -512,7 +529,8 @@ class BlockCountingStateSpace(StateSpace):
             lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
-            epoch: Epoch = None
+            epoch: Epoch = None,
+            pbar: bool = True
     ):
         """
         Create a rate matrix.
@@ -520,13 +538,20 @@ class BlockCountingStateSpace(StateSpace):
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
-        :param epoch: Epoch.
+        :param epoch: The epoch.
+        :param pbar: Whether to show progress bar for the number of transitions.
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
         if locus_config is not None and locus_config.n > 1:
             raise NotImplementedError('Block-counting state space only supports one locus.')
 
-        super().__init__(lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
+        super().__init__(
+            lineage_config=lineage_config,
+            locus_config=locus_config,
+            model=model,
+            epoch=epoch,
+            pbar=pbar
+        )
 
     def _get_initial(self) -> 'State':
         """

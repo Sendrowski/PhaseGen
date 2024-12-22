@@ -40,9 +40,9 @@ class Demography:
             ``{pop_i: size}`` if the population size is constant, or a single float if there is only one population
             and the population size is constant.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
-            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` at time ``time1`` etc. or
-            alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration rate is constant over
-            time.
+            rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` backwards in time from time
+            ``time1`` etc., or alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration
+            rate is constant over time.
         :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
         """
         if events is None:
@@ -133,7 +133,9 @@ class Demography:
                                        for p in self.pop_names])
         )
 
+        # iterate over epochs
         for epoch in itertools.islice(self.epochs, 1, int(max_epochs) + 1):
+
             # iterate over populations
             for pop in self.pop_names:
                 # add population size changes
@@ -774,7 +776,7 @@ class MigrationRateChanges(DiscreteRateChanges):
 
         :param rates: Migration rates. A dictionary of the form
             `{(pop_i, pop_j): {time1: rate1, time2: rate2}}` of migration from population `pop_i` to population
-            `pop_j` at time `time1` etc.
+            `pop_j` backwards in time with `rate1` from time `time1` etc.
         """
         super().__init__(migration_rates=rates)
 
@@ -791,7 +793,7 @@ class MigrationRateChange(MigrationRateChanges):
         :param source: Source population name.
         :param dest: Destination population name.
         :param time: Time at which the migration rate changes.
-        :param rate: Migration rate.
+        :param rate: Migration rate from the source to the destination population backwards in time.
         """
         super().__init__({(source, dest): {time: rate}})
 

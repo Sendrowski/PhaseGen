@@ -99,15 +99,19 @@ class PoissonLikelihood(Likelihood):
     independent Poisson random variables.
     """
 
-    def compute(self, observed: Iterable, modelled: Iterable) -> float | int:
+    def compute(self, observed: Iterable | float, modelled: Iterable | float) -> float | int:
         """
         Return additive inverse of Poisson log-likelihood assuming independent entries.
         Note that the returned likelihood is a positive value which ought to be minimized.
 
-        :param observed: Observed values.
-        :param modelled: Modelled values.
+        :param observed: Observed value or values.
+        :param modelled: Modelled value or values.
         :return: A numerical value representing the difference between the two values.
         """
+        # special case: single value
+        if not isinstance(observed, Iterable) or not isinstance(modelled, Iterable):
+            return self.compute(observed=[observed], modelled=[modelled])
+
         return - PoissonLikelihoodFastDFE.log_poisson(
             mu=np.array(list(modelled)),
             k=np.array(list(observed))
