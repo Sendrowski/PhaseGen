@@ -1,8 +1,11 @@
 """
-Plot the basic example for the manuscript.
+Plot the basic example used in the manuscript.
 """
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.gridspec import GridSpec
 
+# code block in the manuscript
 # ------------------------------
 import phasegen as pg
 
@@ -15,9 +18,6 @@ sfs = coal.sfs.mean
 sfs2 = coal.sfs.corr
 # ------------------------------
 
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 fig = plt.figure(figsize=(7, 6))
 gs = GridSpec(2, 2, figure=fig, height_ratios=[1.1, 1], width_ratios=[0.9, 1])
@@ -38,4 +38,3 @@ plt.savefig('reports/manuscripts/merged/figures/basic_example.png', dpi=400)
 plt.show()
 
 pass
-

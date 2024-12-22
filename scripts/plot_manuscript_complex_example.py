@@ -1,9 +1,10 @@
 """
-Plot the complex example for the manuscript.
+Plot the complex example used in the manuscript.
 """
 
 import phasegen as pg
 
+# first code block in the manuscript
 # ----------------------------------------------------------
 coal = pg.Coalescent(
     n=pg.LineageConfig({'pop0': 3, 'pop1': 5}),
@@ -21,6 +22,7 @@ coal = pg.Coalescent(
 )
 # ----------------------------------------------------------
 
+# second code block in the manuscript
 # ----------------------------------------------------------
 import numpy as np
 import matplotlib.pyplot as plt

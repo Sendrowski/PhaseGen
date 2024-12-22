@@ -1,10 +1,14 @@
 """
 Plot the recombination example for the manuscript.
 """
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.gridspec import GridSpec
 
 import phasegen as pg
 
+
+# code block in the manuscript
 # noinspection all
 # -------------------------------------------
 def get_cov(r, N1):
@@ -17,6 +21,8 @@ def get_cov(r, N1):
             pop_sizes={'pop0': {0: 1, 1: N1}}
         )
     ).tree_height.loci.cov[0, 1]
+
+
 # -------------------------------------------
 
 def get_coal(r: float, N1: float) -> pg.Coalescent:
@@ -34,9 +40,6 @@ def get_coal(r: float, N1: float) -> pg.Coalescent:
         )
     )
 
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 fig = plt.figure(figsize=(8, 6))
 gs = GridSpec(2, 2, figure=fig, width_ratios=[1, 1], height_ratios=[1, 1])
@@ -56,7 +59,7 @@ axs[0, 1].set_xlabel('Time')
 axs[0, 1].set_ylabel('Density')
 axs[0, 1].set_title('Coalescent time', pad=6)
 axs[0, 1].set_xticks(np.arange(0, 4))
-#axs[0, 1].set_box_aspect(1)
+# axs[0, 1].set_box_aspect(1)
 
 rs = np.logspace(-1, 1, 10)
 for N1 in Ns:
@@ -66,18 +69,19 @@ axs[1, 0].set_ylabel('cov', labelpad=0)
 axs[1, 0].set_xscale('log')
 axs[1, 0].set_yscale('log')
 axs[1, 0].legend(prop={'size': 8})
-#axs[1, 0].set_box_aspect(1)
+# axs[1, 0].set_box_aspect(1)
 axs[1, 0].set_title('Covariance', pad=6)
 
 rs = np.logspace(-1, 1, 10)
 for N1 in Ns:
-    axs[1, 1].plot(rs, [get_coal(r, N1).tree_height.loci.corr[0, 1] for r in rs], label=f'$N_1=${N1:.1f}'.rstrip('0').rstrip('.'))
+    axs[1, 1].plot(rs, [get_coal(r, N1).tree_height.loci.corr[0, 1] for r in rs],
+                   label=f'$N_1=${N1:.1f}'.rstrip('0').rstrip('.'))
 axs[1, 1].set_xlabel('$\\rho$', labelpad=0)
 axs[1, 1].set_ylabel('corr', labelpad=0)
 axs[1, 1].set_xscale('log')
 axs[1, 1].set_yscale('log')
 axs[1, 1].legend(prop={'size': 8})
-#axs[1, 1].set_box_aspect(1)
+# axs[1, 1].set_box_aspect(1)
 axs[1, 1].set_title('Correlation', pad=6)
 
 plt.tight_layout(pad=1)
