@@ -32,7 +32,7 @@ prioritize_installed_packages()
 import phasegen as pg
 
 # register the expm backend
-pg.Backend.register(pg.TensorFlowExpmBackend())
+pg.Backend.register(pg.JaxExpmBackend())
 
 logger = logging.getLogger('phasegen')
 

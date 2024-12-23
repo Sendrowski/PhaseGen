@@ -9,6 +9,7 @@ __date__ = "2024-04-14"
 import time
 
 import numpy as np
+from tqdm import tqdm
 
 import phasegen as pg
 
@@ -30,7 +31,7 @@ def run(backend: pg.ExpmBackend, warm_start: bool = True) -> float:
     start = time.time()
 
     coal = pg.Coalescent(
-        n={'pop_0': 3, 'pop_1': 2},
+        n={'pop_0': 3, 'pop_1': 5},
         model=pg.BetaCoalescent(alpha=1.7),
         demography=pg.Demography(
             pop_sizes={'pop_0': {0: 1, 1.2: 2}, 'pop_1': {0: 2}},
@@ -51,9 +52,10 @@ backends = dict(
     scipy32=pg.SciPyExpmBackend(np.float32),
     scipy16=pg.SciPyExpmBackend(np.float16),
     tensorflow=pg.TensorFlowExpmBackend(),
+    pytorch=pg.PyTorchExpmBackend(),
     jax=pg.JaxExpmBackend()
 )
 
-times = {k: run(v) for k, v in backends.items()}
+times = {k: run(v, True) for k, v in tqdm(backends.items())}
 
 pass
