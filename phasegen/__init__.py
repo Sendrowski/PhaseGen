@@ -181,7 +181,8 @@ from .expm import (
     Backend,
     SciPyExpmBackend,
     TensorFlowExpmBackend,
-    JaxExpmBackend
+    JaxExpmBackend,
+    PyTorchExpmBackend
 )
 
 from .utils import (
@@ -241,5 +242,6 @@ __all__ = [
     'ExpmBackend',
     'SciPyExpmBackend',
     'TensorFlowExpmBackend',
-    'JaxExpmBackend'
+    'JaxExpmBackend',
+    'PyTorchExpmBackend',
 ]

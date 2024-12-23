@@ -5,8 +5,9 @@ dependencies:
   - python=3.10
   - msprime
   - graphviz
-  - tensorflow
+  - pytorch
   - jax
+  - tensorflow
   - python-graphviz
   - r-base
   - r-reticulate

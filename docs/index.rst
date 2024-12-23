@@ -53,3 +53,4 @@ Contents
    modules/state_space
    modules/norms
    modules/spectrum
+   modules/expm

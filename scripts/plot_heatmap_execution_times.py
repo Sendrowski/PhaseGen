@@ -26,7 +26,7 @@ try:
 except NameError:
     # testing
     testing = True
-    out = "scratch/state_space_time.png"
+    out = "reports/manuscripts/merged/figures/execution_times.png"
 
 import phasegen as pg
 

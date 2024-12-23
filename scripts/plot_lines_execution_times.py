@@ -7,7 +7,6 @@ __date__ = "2024-06-26"
 
 import time
 from typing import Callable
-import seaborn as sns
 
 import numpy as np
 from matplotlib import pyplot as plt, ticker
@@ -24,7 +23,7 @@ try:
 except NameError:
     # testing
     testing = True
-    out = "scratch/execution_times_lineplot.png"
+    out = "reports/manuscripts/merged/figures/execution_times_lineplot.png"
 
 import phasegen as pg
 
@@ -61,6 +60,7 @@ def plot_line(
     """
     ax.plot(N, [benchmark(lambda n=n: stat(n)) for n in tqdm(N)], label=label)
 
+
 N = np.arange(2, 10)
 
 fig, ax = plt.subplots(figsize=(9, 3))
@@ -75,7 +75,6 @@ for n_epochs in [1]:
         'tree height': lambda coal: coal.tree_height.mean,
         'SFS': lambda coal: coal.sfs.mean
     }.items():
-
         # 1 deme
         plot_line(
             ax=ax,
