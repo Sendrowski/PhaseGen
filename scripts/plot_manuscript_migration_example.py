@@ -41,6 +41,10 @@ fd.Spectra(dict(total=coal.sfs.mean, pop0=coal.sfs.demes['pop0'].mean, pop1=coal
 
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='SFS correlations', max_abs=1)
 
+# Add labels A, B, C, D to the plots
+for i, ax in enumerate(axs.flat):
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
 plt.tight_layout(pad=0.5)
 plt.savefig('reports/manuscripts/merged/figures/migration_example.png', dpi=400)
 plt.show()
