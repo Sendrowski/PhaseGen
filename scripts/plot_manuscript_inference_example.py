@@ -43,6 +43,10 @@ spectra.plot(ax=axs[0, 0], show=False, title='SFS comparison')
 inf.plot_pop_sizes(ax=axs[0, 1], show=False)
 inf.plot_bootstraps(ax=axs[1], show=False, kwargs={'bins': 30}, title=['Marginal distribution'] * 2)
 
+# Add labels A, B, C, D to the plots
+for i, ax in enumerate(axs.flat):
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
 plt.tight_layout()
 plt.savefig('reports/manuscripts/merged/figures/inference_result.png', dpi=400)
 plt.show()

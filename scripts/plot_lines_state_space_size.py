@@ -22,7 +22,7 @@ try:
 except NameError:
     # testing
     testing = True
-    out = "scratch/state_space_size_lineplot.png"
+    out = "reports/manuscripts/merged/figures/state_space_size_lineplot.png"
 
 import phasegen as pg
 
@@ -117,7 +117,7 @@ plot_line(
 )
 
 ax.set_xlabel("number of lineages")
-ax.set_ylabel("state space size")
+ax.set_ylabel("number of states")
 
 # log scale on y axis
 ax.set_yscale('log')

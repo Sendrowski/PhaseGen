@@ -53,7 +53,7 @@ axs[0, 0].set_title('Python code')
 Ns = np.logspace(-1, 1, 5)
 rs = np.linspace(0, 3, 2000)
 for N1 in Ns:
-    axs[0, 1].plot(rs, get_coal(10, N1).tree_height.pdf(rs), label=f'$N_1=${N1:.1f}'.rstrip('0').rstrip('.'))
+    axs[0, 1].plot(rs, get_coal(10, N1).tree_height.pdf(rs), label=f'$N_1=${N1:.1f}'.rstrip('0').rstrip('.'), alpha=0.6)
 axs[0, 1].legend(prop={'size': 8})
 axs[0, 1].set_xlabel('Time')
 axs[0, 1].set_ylabel('Density')
@@ -83,6 +83,10 @@ axs[1, 1].set_yscale('log')
 axs[1, 1].legend(prop={'size': 8})
 # axs[1, 1].set_box_aspect(1)
 axs[1, 1].set_title('Correlation', pad=6)
+
+# Add labels A, B, C, D to the plots
+for i, ax in enumerate(axs.flat):
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
 
 plt.tight_layout(pad=1)
 plt.savefig('reports/manuscripts/merged/figures/recombination_example.png', dpi=400)

@@ -33,6 +33,10 @@ coal.tree_height.plot_pdf(ax=axs[0, 1], show=False)
 coal.sfs.mean.plot(ax=axs[1, 0], show=False, title='Expected SFS')
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='SFS correlations', max_abs=1)
 
+# Add labels A, B, C, D to the plots
+for i, ax in enumerate(axs.flat):
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
 plt.tight_layout(pad=0.5)
 plt.savefig('reports/manuscripts/merged/figures/basic_example.png', dpi=400)
 plt.show()
