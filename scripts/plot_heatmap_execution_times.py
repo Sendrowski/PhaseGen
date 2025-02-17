@@ -52,7 +52,8 @@ def plot_heatmap(
         D: np.ndarray,
         callback: Callable[[pg.Coalescent], None],
         title: str = "State space time",
-        ax: plt.Axes = None
+        ax: plt.Axes = None,
+        locus_config = pg.LocusConfig()
 ) -> plt.Axes:
     """
     Plot the state space size for different number of configurations.
@@ -62,6 +63,7 @@ def plot_heatmap(
     :param callback: Function to benchmark
     :param title: Title of the plot
     :param ax: Axes to plot on
+    :param locus_config: Locus configuration
     :return: Axes
     """
     if ax is None:
@@ -75,7 +77,8 @@ def plot_heatmap(
         pbar.set_description(f"n={n}, d={d}")
 
         coal = pg.Coalescent(
-            n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)})
+            n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
+            loci=locus_config
         )
 
         sizes[(n, d)] = benchmark(lambda: callback(coal))
@@ -104,7 +107,7 @@ def plot_heatmap(
     ax.set_box_aspect(1)
 
 
-fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+fig, ax = plt.subplots(1, 3, figsize=(12, 4))
 
 # warm start
 _ = pg.Coalescent(
@@ -116,18 +119,27 @@ plot_heatmap(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.tree_height.mean,
-    title="Mean tree height"
+    title="Mean tree height, one locus"
 )
 
 plot_heatmap(
     ax=ax[1],
+    N=np.arange(2, 7, 1),
+    D=np.arange(1, 3),
+    callback=lambda coal: coal.tree_height.mean,
+    title="Mean tree height, two loci",
+    locus_config=pg.LocusConfig(2)
+)
+
+plot_heatmap(
+    ax=ax[2],
     N=np.arange(2, 9, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.sfs.mean,
-    title="Mean SFS"
+    title="Mean SFS, one locus"
 )
 
-fig.tight_layout()
+fig.tight_layout(pad=2)
 
 plt.savefig(out)
 

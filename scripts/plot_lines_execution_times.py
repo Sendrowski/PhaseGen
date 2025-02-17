@@ -138,8 +138,8 @@ ax.set_ylabel("execution time in seconds")
 
 # log scale on y axis
 ax.set_yscale('log')
-ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
-plt.ticklabel_format(axis='y', style='plain')
+#ax.yaxis.set_major_formatter(ticker.LogFormatter())
+#plt.ticklabel_format(axis='y', style='plain')
 
 plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
