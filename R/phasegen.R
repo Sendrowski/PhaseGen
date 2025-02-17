@@ -48,7 +48,7 @@ phasegen_is_installed <- function() {
 #' @examples
 #' \dontrun{
 #' install_phasegen()  # Installs the latest version of phasegen
-#' install_phasegen("1.0.0")  # Installs version 1.0.0 of phasegen
+#' install_phasegen("1.0.1")  # Installs version 1.0.1 of phasegen
 #' install_phasegen(force = TRUE)  # Reinstalls the phasegen module
 #' }
 #' 

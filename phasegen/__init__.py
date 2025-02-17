@@ -6,7 +6,7 @@ __author__ = "Janek Sendrowski"
 __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-04-09"
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 import logging
 import os
