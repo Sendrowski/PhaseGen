@@ -271,7 +271,7 @@ rule plot_state_space_sizes:
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/plot_state_space_sizes.py"
+        "scripts/plot_heatmap_state_space_sizes.py"
 
 # plot state space transitions
 rule plot_transitions:

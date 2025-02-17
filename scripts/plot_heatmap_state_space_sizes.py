@@ -21,7 +21,7 @@ try:
 except NameError:
     # testing
     testing = True
-    out = "scratch/state_space_size.png"
+    out = "reports/manuscripts/merged/figures/state_space_size.png"
 
 import phasegen as pg
 from phasegen.utils import parallelize
@@ -76,7 +76,7 @@ def plot_heatmap(
         data=data,
         ax=ax,
         annot=True,  # Show annotations
-        fmt="d",  # Format for annotations as integers
+        fmt=".0f",  # Format for annotations as integers
         xticklabels=D,
         yticklabels=N,
         cmap='coolwarm',
@@ -97,7 +97,7 @@ fig, ax = plt.subplots(1, 3, figsize=(11, 3.5))
 
 plot_heatmap(
     ax=ax[0],
-    N=np.arange(2, 20, 2),
+    N=np.arange(2, 18, 2),
     D=np.arange(1, 6),
     state_space=lambda coal: coal.lineage_counting_state_space,
     locus_config=pg.LocusConfig(1),
@@ -106,7 +106,7 @@ plot_heatmap(
 
 plot_heatmap(
     ax=ax[1],
-    N=np.arange(2, 8, 1),
+    N=np.arange(2, 7, 1),
     D=np.arange(1, 4),
     state_space=lambda coal: coal.lineage_counting_state_space,
     locus_config=pg.LocusConfig(2),
@@ -115,7 +115,7 @@ plot_heatmap(
 
 plot_heatmap(
     ax=ax[2],
-    N=np.arange(2, 16, 2),
+    N=np.arange(2, 14, 2),
     D=np.arange(1, 4),
     state_space=lambda coal: coal.block_counting_state_space,
     locus_config=pg.LocusConfig(1),
