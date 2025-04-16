@@ -77,3 +77,30 @@ class NormTestCase(unittest.TestCase):
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
 
         self.assertAlmostEqual(-expected_result, actual_result, places=7)
+
+    def test_multinomial_likelihood(self):
+        """
+        Test the Multinomial likelihood.
+        """
+        observed = [10, 20, 30]
+        modelled = [0.2, 0.3, 0.5]
+
+        # Manually compute expected value
+        expected_result = -np.sum(np.array(observed) * np.log(modelled))
+        actual_result = pg.MultinomialLikelihood().compute(observed, modelled)
+
+        self.assertAlmostEqual(expected_result, actual_result, places=7)
+
+    def test_multinomial_likelihood_unnormalized(self):
+        """
+        Test Multinomial likelihood with unnormalized modelled values.
+        """
+        observed = [5, 15, 30]
+        modelled = [2, 3, 5]  # Not normalized
+
+        # Normalize modelled
+        modelled = np.array(modelled) / sum(modelled)
+        expected_result = -np.sum(np.array(observed) * np.log(modelled))
+        actual_result = pg.MultinomialLikelihood().compute(observed, [2, 3, 5])
+
+        self.assertAlmostEqual(expected_result, actual_result, places=7)

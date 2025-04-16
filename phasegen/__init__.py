@@ -171,7 +171,8 @@ from .norms import (
     L1Norm,
     L2Norm,
     LInfNorm,
-    PoissonLikelihood
+    PoissonLikelihood,
+    MultinomialLikelihood
 )
 
 from .state_space_old import StateSpace as OldStateSpace
