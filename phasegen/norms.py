@@ -116,3 +116,29 @@ class PoissonLikelihood(Likelihood):
             mu=np.array(list(modelled)),
             k=np.array(list(observed))
         ).sum()
+
+
+class MultinomialLikelihood(Likelihood):
+    """
+    Class for Multinomial likelihoods. Used when modeling observed counts distributed
+    across categories, given expected probabilities.
+
+    The modelled values are normalized to form a valid probability distribution
+    (i.e., they sum to 1).
+    """
+
+    def compute(self, observed: Iterable, modelled: Iterable) -> float:
+        """
+        Return the additive inverse of the Multinomial log-likelihood.
+        The result is a positive value that should be minimized.
+
+        :param observed: Observed counts per category.
+        :param modelled: Modelled values (will be normalized to probabilities).
+        :return: Negative log-likelihood as a float.
+        """
+        observed = np.array(list(observed))
+        modelled = np.array(list(modelled))
+        modelled = modelled / modelled.sum()
+
+        mask = observed > 0
+        return -np.sum(observed[mask] * np.log(modelled[mask]))
