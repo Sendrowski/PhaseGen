@@ -1,5 +1,5 @@
 """
-Matrix exponential computation.
+Matrix exponentiation backends.
 """
 from abc import ABC, abstractmethod
 from typing import Literal

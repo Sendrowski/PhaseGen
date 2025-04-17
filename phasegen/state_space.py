@@ -1,5 +1,6 @@
 """
-State space.
+State space classes and utilities. The two main state space classes are
+:class:`LineageCountingStateSpace` and :class:`BlockCountingStateSpace`.
 """
 
 import logging

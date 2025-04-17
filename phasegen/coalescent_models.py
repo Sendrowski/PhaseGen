@@ -1,5 +1,6 @@
 """
-Coalescent models.
+Coalescent models for simulating genealogies. Besides the standard Kingman coalescent,
+this module implements the beta coalescent and Dirac coalescent models.
 """
 import itertools
 from abc import ABC, abstractmethod

@@ -1,5 +1,7 @@
 """
-Reward generation.
+Rewards assign weights to states in the state space. They are used behind the scenes
+to calculate different coalescent tree statistics but can also be passed directly to
+:meth:`~phasegen.distributions.Coalescent.moment` to calculate more complex statistics.
 """
 
 from abc import abstractmethod, ABC

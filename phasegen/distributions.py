@@ -2490,7 +2490,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
-             Alternatively, a :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            Alternatively, a :class:`~phasegen.lineage.LineageConfig` object can be passed.
         :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
@@ -2499,7 +2499,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
-            be the time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
+            be the time of almost sure absorption. Note that unnecessarily long end times can lead to numerical errors.
         :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         super().__init__(

@@ -1,5 +1,6 @@
 """
-Norms and likelihoods for comparing two values.
+Norms and likelihood functions for comparing observed and modeled values with
+:class:`~phasegen.inference.Inference`.
 """
 
 from abc import ABC
