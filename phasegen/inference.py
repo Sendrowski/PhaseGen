@@ -52,7 +52,8 @@ class Inference(Serializable):
             pbar: bool = True,
             seed: int = None,
             cache: bool = True,
-            opts: Dict = None
+            opts: Dict = None,
+            method_mle: str = 'L-BFGS-B'
     ):
         """
         Initialize the class with the provided parameters.
@@ -92,6 +93,7 @@ class Inference(Serializable):
             or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
+        :param method_mle: Method to use for optimization. See `scipy.optimize.minimize` for available methods.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
@@ -143,10 +145,12 @@ class Inference(Serializable):
 
         if opts is None:
             #: Optimization options
-            self.opts = self.default_opts
+            self.opts: Dict = self.default_opts
         else:
             #: Optimization options
-            self.opts = self.default_opts | opts
+            self.opts: Dict = self.default_opts | opts
+
+        self.method_mle: str = method_mle
 
         #: Optimization result
         self.result: OptimizeResult | None = None
@@ -321,6 +325,7 @@ class Inference(Serializable):
             get_dist: Callable[..., Coalescent],
             get_loss: Callable[[Coalescent, Any], float],
             opts: dict = None,
+            method_mle: str = 'L-BFGS-B',
             logger: logging.Logger = logger
     ) -> OptimizeResult:
         """
@@ -355,7 +360,7 @@ class Inference(Serializable):
         result: OptimizeResult = opt.minimize(
             fun=loss,
             x0=np.array(list(x0.values())),
-            method='L-BFGS-B',
+            method=method_mle,
             bounds=bounds,
             options=opts
         )
@@ -376,7 +381,10 @@ class Inference(Serializable):
         get_dist = self.get_coal
         get_loss = self.loss
         opts = self.opts
+        method_mle = self.method_mle
         logger = self._logger
+
+        self._logger.debug(f"Using '{method_mle}' optimizer.")
 
         def run_sample(x0: Dict[str, float]) -> OptimizeResult:
             """
@@ -394,6 +402,7 @@ class Inference(Serializable):
                 get_dist=get_dist,
                 get_loss=get_loss,
                 opts=opts,
+                method_mle=method_mle,
                 logger=logger
             )
 
@@ -468,6 +477,8 @@ class Inference(Serializable):
         get_dist = self.get_coal
         get_loss = self.loss
         opts = self.opts
+        method_mle = self.method_mle
+        logger = self._logger
 
         def run_sample(observation: Any) -> OptimizeResult:
             """
@@ -485,7 +496,8 @@ class Inference(Serializable):
                 get_dist=get_dist,
                 get_loss=get_loss,
                 opts=opts,
-                logger=self._logger
+                method_mle=method_mle,
+                logger=logger
             )
 
         results = parallelize(
