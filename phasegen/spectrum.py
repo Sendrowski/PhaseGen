@@ -1,5 +1,5 @@
 """
-SFS and 2-SFS classes.
+Classes for working with the site-frequency spectrum (SFS) and 2-SFS.
 """
 
 import copy

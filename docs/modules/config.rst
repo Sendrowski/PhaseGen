@@ -3,6 +3,8 @@
 Configuration
 -------------
 
+Lineage and locus configuration classes.
+
 .. autoclass:: phasegen.lineage.LineageConfig
    :inherited-members:
    :undoc-members:

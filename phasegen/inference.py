@@ -1,5 +1,6 @@
 """
-Inference module.
+Inference class for gradient-based parameter inference with respect to a specified loss function,
+summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
 """
 
 import copy

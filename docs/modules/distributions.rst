@@ -3,6 +3,8 @@
 Distributions
 -------------
 
+Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class serves as an entry point for accessing all other distributions.
+
 .. autoclass:: phasegen.distributions.Coalescent
    :inherited-members:
    :undoc-members:
