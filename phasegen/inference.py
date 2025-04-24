@@ -79,12 +79,13 @@ class Inference(Serializable):
         :param n_runs: Number of independent optimization runs.
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
-        :param parallelize: Whether to parallelize the computations.
+        :param parallelize: Whether to parallelize the computations across available CPU cores.
 
-            .. note:: Parallelization can lead to hanging processes due to pickling issues, depending on how the
+            .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
+                It can also lead to hanging processes due to pickling issues, depending on how the
                 provided callback function is defined. For more scalable parallelization, consider using the
                 :meth:`create_run` and :meth:`create_bootstrap` methods to create new Inference objects that can be run
-                independently.
+                independently, and whose results merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
         :param cache: Whether to cache the state spaces across the given optimization iterations given
