@@ -1,13 +1,16 @@
 """
 Run manuscript inference example.
 """
-import fastdfe as fd
+import time
+
 import matplotlib.pyplot as plt
 
 import phasegen as pg
 
 # set computation backend
 pg.Backend.register(pg.TensorFlowExpmBackend())
+
+# pg.logger.setLevel(pg.logging.DEBUG)
 
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(
@@ -17,11 +20,15 @@ inf = pg.Inference(
         )
     ),
     observation=pg.SFS(
-        [0, 997, 441, 228, 156, 117, 114, 83, 105, 109, 0]
+        [177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652]
     ),
     loss=lambda coal, obs: pg.PoissonLikelihood().compute(
-        observed=obs.normalize().polymorphic,
-        modelled=coal.sfs.mean.normalize().polymorphic
+        observed=obs.polymorphic,
+        modelled=(
+                coal.sfs.mean.polymorphic /
+                (coal.sfs.mean.theta * coal.sfs.mean.n_sites) *
+                (obs.theta * obs.n_sites)
+        )
     ),
     bounds=dict(t=(0, 4), Ne=(0.1, 10)),
     resample=lambda sfs, _: sfs.resample(),
@@ -29,10 +36,15 @@ inf = pg.Inference(
     parallelize=True
 )
 
+start = time.time()
+
 # perform inference
 inf.run()
 
-spectra = fd.Spectra.from_spectra(dict(
+runtime = time.time() - start
+print(f'Runtime: {runtime:.2f} seconds')
+
+spectra = pg.Spectra.from_spectra(dict(
     fitted=inf.dist_inferred.sfs.mean.normalize() * inf.observation.n_polymorphic,
     observed=inf.observation
 ))
@@ -45,10 +57,11 @@ inf.plot_bootstraps(ax=axs[1], show=False, kwargs={'bins': 30}, title=['Marginal
 
 # Add labels A, B, C, D to the plots
 for i, ax in enumerate(axs.flat):
-    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes, fontsize=16, fontweight='bold', va='top',
+            ha='right')
 
 plt.tight_layout()
-plt.savefig('reports/manuscripts/merged/figures/inference_result.png', dpi=400)
+plt.savefig('reports/manuscripts/figures/inference_result.png', dpi=400)
 plt.show()
 
 inf.to_file('scratch/inference.json')

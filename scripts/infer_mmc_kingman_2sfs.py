@@ -3,7 +3,7 @@ Infer demographic history from MMC SFS using SFS only.
 """
 
 import numpy as np
-
+import time
 import phasegen as pg
 
 try:
@@ -18,13 +18,15 @@ try:
 except NameError:
     # testing
     testing = True
-    inf_kingman = "results/inference/MMC_Kingman.json"
+    inf_kingman = "scratch/inf_kingman.json"
     n = 10
     n_bootstraps = 100
     n_runs = 10
     do_bootstrap = True
     parallelize = True
     out = "scratch/inf_sfs.json"
+
+pg.logger.setLevel(pg.logging.DEBUG)
 
 def get_corr(coal: pg.Coalescent) -> float:
     """
@@ -51,7 +53,7 @@ def loss(coal: pg.Coalescent, obs: (pg.SFS, float)) -> float:
     """
     sfs, m2 = obs
 
-    loss_sfs = pg.PoissonLikelihood().compute(
+    loss_sfs = pg.MultinomialLikelihood().compute(
         observed=sfs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     )
@@ -83,5 +85,10 @@ inf_m12 = pg.Inference(
     parallelize=parallelize
 )
 
+start = time.time()
+
 inf_m12.run()
+
+run_time = time.time() - start
+print(f"Runtime: {run_time:.2f} seconds")
 inf_m12.to_file(out)

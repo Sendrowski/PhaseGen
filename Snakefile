@@ -397,3 +397,27 @@ rule plot_MMC_inference:
         n_bins=lambda w: int(w.n_bins)
     script:
         "scripts/plot_mmc_inference.py"
+
+# run latexdiff for main.tex
+rule run_latexdiff_main:
+    input:
+        old="reports/manuscripts/old/main.tex",
+        new="reports/manuscripts/main/main.tex"
+    output:
+        main="reports/manuscripts/diff/main.tex"
+    conda:
+        "latexdiff"
+    shell:
+        'latexdiff --graphics-markup=none {input.old} {input.new} > {output}'
+
+# run latexdiff for appendix.tex
+rule run_latexdiff_appendix:
+    input:
+        old="reports/manuscripts/old/appendix.tex",
+        new="reports/manuscripts/main/appendix.tex"
+    output:
+        main="reports/manuscripts/diff/appendix.tex"
+    conda:
+        "latexdiff"
+    shell:
+        'latexdiff --graphics-markup=none {input.old} {input.new} > {output}'
