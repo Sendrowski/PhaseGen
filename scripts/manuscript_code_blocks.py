@@ -4,7 +4,7 @@ Code blocks for the manuscript.
 # toggle 'show indent guides'
 
 # noinspection all
-# --------------------------------------------------------
+# ------------------------------------------------------------------
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(
         n=10,
@@ -13,14 +13,19 @@ inf = pg.Inference(
         )
     ),
     observation=pg.SFS(
-        [0, 997, 441, 228, 156, 117, 114, 83, 105, 109, 0]
+        [177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652]
     ),
     loss=lambda coal, obs: pg.PoissonLikelihood().compute(
-        observed=obs.normalize().polymorphic,
-        modelled=coal.sfs.mean.normalize().polymorphic
+        observed=obs.polymorphic,
+        modelled=(
+                coal.sfs.mean.polymorphic /
+                (coal.sfs.mean.theta * coal.sfs.mean.n_sites) *
+                (obs.theta * obs.n_sites)
+        )
     ),
     bounds=dict(t=(0, 4), Ne=(0.1, 10)),
     resample=lambda sfs, _: sfs.resample(),
-    do_bootstrap=True
+    do_bootstrap=True,
+    parallelize=True
 )
-# --------------------------------------------------------
+# ------------------------------------------------------------------

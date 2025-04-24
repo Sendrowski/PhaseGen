@@ -1,5 +1,5 @@
 """
-Plot the basic example used in the manuscript.
+Plot the standard Kingman example used in the manuscript.
 """
 import matplotlib.pyplot as plt
 import numpy as np
