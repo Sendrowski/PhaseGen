@@ -23,7 +23,7 @@ wildcard_constraints:
 rule all:
     input:
         (
-            expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=50,n_bootstraps=1000,n_bins=50),
+            expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=20,n_bootstraps=100,n_bins=30),
             #"docs/_build"
             #expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
@@ -363,7 +363,7 @@ rule infer_MMC_Kingman_SFS:
         n=lambda w: int(w.n),
         n_runs=lambda w: int(w.n_runs),
         n_bootstraps=lambda w: int(w.n_bootstraps),
-        parallelize=True,
+        parallelize=False,
     script:
         "scripts/infer_mmc_kingman_sfs.py"
 
@@ -379,7 +379,7 @@ rule infer_MMC_Kingman_2SFS:
         n=lambda w: int(w.n),
         n_runs=lambda w: int(w.n_runs),
         n_bootstraps=lambda w: int(w.n_bootstraps),
-        parallelize=True,
+        parallelize=False,
     script:
         "scripts/infer_mmc_kingman_2sfs.py"
 

@@ -37,7 +37,7 @@ def loss(coal: pg.Coalescent, observation: pg.SFS) -> float:
     :param observation: Observed SFS
     :return: Loss
     """
-    return pg.PoissonLikelihood().compute(
+    return pg.MultinomialLikelihood().compute(
         observed=observation.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     )

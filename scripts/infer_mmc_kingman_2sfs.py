@@ -20,13 +20,13 @@ except NameError:
     testing = True
     inf_kingman = "scratch/inf_kingman.json"
     n = 10
-    n_bootstraps = 100
+    n_bootstraps = 20
     n_runs = 10
     do_bootstrap = True
-    parallelize = True
+    parallelize = False
     out = "scratch/inf_sfs.json"
 
-pg.logger.setLevel(pg.logging.DEBUG)
+#pg.logger.setLevel(pg.logging.DEBUG)
 
 def get_corr(coal: pg.Coalescent) -> float:
     """
