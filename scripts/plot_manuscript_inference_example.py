@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import phasegen as pg
 
 # set computation backend
-pg.Backend.register(pg.TensorFlowExpmBackend())
+pg.Backend.register(pg.SciPyExpmBackend())
 
 # pg.logger.setLevel(pg.logging.DEBUG)
 
@@ -33,7 +33,7 @@ inf = pg.Inference(
     bounds=dict(t=(0, 4), Ne=(0.1, 10)),
     resample=lambda sfs, _: sfs.resample(),
     do_bootstrap=True,
-    parallelize=True
+    parallelize=False
 )
 
 start = time.time()

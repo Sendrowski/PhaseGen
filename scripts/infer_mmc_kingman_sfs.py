@@ -37,7 +37,7 @@ inf_sfs = pg.Inference(
         model=pg.BetaCoalescent(alpha=alpha, scale_time=False)
     ),
     observation=sfs,
-    loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+    loss=lambda coal, obs: pg.MultinomialLikelihood().compute(
         observed=obs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     ),
