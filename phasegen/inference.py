@@ -152,6 +152,7 @@ class Inference(Serializable):
             #: Optimization options
             self.opts: Dict = self.default_opts | opts
 
+        #: Optimization method
         self.method_mle: str = method_mle
 
         #: Optimization result
@@ -523,6 +524,16 @@ class Inference(Serializable):
         self.bootstraps = pd.DataFrame(
             [list(result.x) + [result.fun, str(result)] for result in results],
             columns=list(self.x0.keys()) + ['loss', 'result']
+        )
+
+        # log mean and std of bootstrapped parameters
+        self._logger.info(
+            f'Bootstrapped parameters: '
+            f'mean: ({", ".join([f"{k}={v:.4f}" for k, v in self.bootstraps[self.param_names].mean().items()])})'
+            + (
+                f', std: ({", ".join([f"{k}={v:.4f}" for k, v in self.bootstraps[self.param_names].std().items()])})'
+                if self.n_bootstraps > 1 else ''
+            )
         )
 
     def plot_bootstraps(
