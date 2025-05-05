@@ -3,7 +3,7 @@ Infer demographic history from MMC SFS using SFS only.
 """
 
 import numpy as np
-import time
+
 import phasegen as pg
 
 try:
@@ -26,7 +26,8 @@ except NameError:
     parallelize = False
     out = "scratch/inf_sfs.json"
 
-#pg.logger.setLevel(pg.logging.DEBUG)
+
+# pg.logger.setLevel(pg.logging.DEBUG)
 
 def get_corr(coal: pg.Coalescent) -> float:
     """
@@ -36,6 +37,7 @@ def get_corr(coal: pg.Coalescent) -> float:
     :return: Correlation coefficient.
     """
     return coal.sfs.get_corr(4, 5)
+
 
 dist_inferred = pg.Coalescent.from_file(inf_kingman)
 sfs = dist_inferred.sfs.mean
@@ -85,10 +87,6 @@ inf_m12 = pg.Inference(
     parallelize=parallelize
 )
 
-start = time.time()
-
 inf_m12.run()
 
-run_time = time.time() - start
-print(f"Runtime: {run_time:.2f} seconds")
 inf_m12.to_file(out)

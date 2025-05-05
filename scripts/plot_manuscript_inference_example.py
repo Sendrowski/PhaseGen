@@ -1,7 +1,7 @@
 """
 Run manuscript inference example.
 """
-import time
+import re
 
 import matplotlib.pyplot as plt
 
@@ -10,7 +10,7 @@ import phasegen as pg
 # set computation backend
 pg.Backend.register(pg.SciPyExpmBackend())
 
-# pg.logger.setLevel(pg.logging.DEBUG)
+#pg.logger.setLevel(pg.logging.DEBUG)
 
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(
@@ -33,19 +33,22 @@ inf = pg.Inference(
     bounds=dict(t=(0, 4), Ne=(0.1, 10)),
     resample=lambda sfs, _: sfs.resample(),
     do_bootstrap=True,
-    parallelize=False
+    parallelize=False,
 )
-
-start = time.time()
 
 # perform inference
 inf.run()
 
-runtime = time.time() - start
-print(f'Runtime: {runtime:.2f} seconds')
+nfev_runs = inf.runs['result'].apply(lambda s: int(re.search(r'nfev:\s(\d+)', s).group(1)))
+nfev_bootstraps = inf.bootstraps['result'].apply(lambda s: int(re.search(r'nfev:\s(\d+)', s).group(1)))
+
+print(f"Mean number of function evaluations (runs): {nfev_runs.mean()}")
+print(f"Mean number of function evaluations (bootstraps): {nfev_bootstraps.mean()}")
 
 spectra = pg.Spectra.from_spectra(dict(
-    fitted=inf.dist_inferred.sfs.mean.normalize() * inf.observation.n_polymorphic,
+    fitted=inf.dist_inferred.sfs.mean /
+           (inf.dist_inferred.sfs.mean.theta * inf.dist_inferred.sfs.mean.n_sites) *
+           (inf.observation.theta * inf.observation.n_sites),
     observed=inf.observation
 ))
 

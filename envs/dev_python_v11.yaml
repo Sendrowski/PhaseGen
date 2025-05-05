@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.11
   - msprime
+  - dadi
   - graphviz
   - tensorflow
   - jax
