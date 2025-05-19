@@ -54,3 +54,9 @@ Contents
    modules/norms
    modules/spectrum
    modules/expm
+
+.. toctree::
+   :caption: Miscellaneous
+   :maxdepth: 1
+
+   modules/citing
