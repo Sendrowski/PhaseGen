@@ -1,0 +1,5 @@
+name: grayskull-phasegen
+channels:
+  - conda-forge
+dependencies:
+  - grayskull
