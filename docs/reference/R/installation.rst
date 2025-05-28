@@ -23,7 +23,7 @@ The ``phasegen`` R package serves as a wrapper around the Python library althoug
 
 ``phasegen`` is compatible with Python 3.10, 3.11 and 3.12.
 
-Alternatively, you can also follow the instructions in the `Python installation guide <../r/installation.html>`_ to install the Python package.
+Alternatively, you can also follow the instructions in the `Python installation guide <../Python/installation.html>`_ to install the Python package.
 
 After installing the Python package, the ``phasegen`` wrapper module can be loaded into your R environment using the following command:
 
