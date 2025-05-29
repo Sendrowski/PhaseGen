@@ -11,7 +11,7 @@ To install the ``phasegen``, you can use pip:
 
    pip install phasegen
 
-phasegen is compatible with Python 3.10 through 3.12.
+``phasegen`` is compatible with Python 3.10 through 3.12.
 
 Conda
 ^^^^^
