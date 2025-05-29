@@ -1,9 +1,6 @@
 # phasegen env as in docs
 name: phasegen
 channels:
-  - defaults
+  - conda-forge
 dependencies:
-  - python>=3.10,<3.13
-  - pip
-  - pip:
-      - phasegen
+  - phasegen
