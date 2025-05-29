@@ -11,7 +11,7 @@ To install the ``phasegen``, you can use pip:
 
    pip install phasegen
 
-phasegen is compatible with Python 3.10, 3.11 and 3.12.
+phasegen is compatible with Python 3.10 through 3.12.
 
 Conda
 ^^^^^
@@ -21,36 +21,26 @@ To do this, you can run
 
 .. code-block:: bash
 
-    mamba create -n phasegen 'python>=3.10,<3.13' pip
+    mamba create -n phasegen -c conda-forge phasegen
     mamba activate phasegen
-    pip install phasegen
 
-Alternative, create a new file called ``environment.yml`` with the following content:
+Alternatively, to ensure reproducibility, you can create a file ``environment.yml``:
 
 .. code-block:: yaml
 
   name: phasegen
   channels:
-    - defaults
+    - conda-forge
   dependencies:
-    - python>=3.10,<3.13
-    - pip
-    - pip:
-        - phasegen
+    - phasegen
 
-Run the following command to create a new `conda` environment using the ``environment.yml`` file:
+Then run the following commands to create and activate the environment:
 
 .. code-block:: bash
 
   mamba env create -f environment.yml
 
 Activate the newly created conda environment:
-
-.. code-block:: bash
-
-  mamba activate phasegen
-
-You are now ready to use the ``phasegen`` package within the isolated conda environment.
 
 .. code-block:: python
 

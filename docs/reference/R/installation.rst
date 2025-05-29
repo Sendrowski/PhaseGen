@@ -21,7 +21,7 @@ The ``phasegen`` R package serves as a wrapper around the Python library althoug
 
    install_phasegen()
 
-``phasegen`` is compatible with Python 3.10, 3.11 and 3.12.
+``phasegen`` is compatible with Python 3.10 through 3.12.
 
 Alternatively, you can also follow the instructions in the `Python installation guide <../Python/installation.html>`_ to install the Python package.
 
