@@ -3,6 +3,7 @@ Compare statistics between PhaseGen and Msprime.
 """
 import itertools
 import logging
+import os
 from functools import cached_property
 from typing import Iterable, Dict, Literal, List
 
@@ -28,6 +29,20 @@ class Comparison(Serializable):
     """
     Class for comparing statistics between PhaseGen and Msprime.
     """
+    # DPI of the saved figure
+    dpi = 300
+
+    # Path to save the figure to
+    figure_path: str = None
+
+    # Whether to assert that the distributions are the same
+    do_assertion: bool = True
+
+    # Whether to visualize the distributions
+    visualize: bool = True
+
+    # Whether to show the title of the plot
+    show_title: bool = True
 
     def __init__(
             self,
@@ -223,15 +238,31 @@ class Comparison(Serializable):
 
         return diff
 
+    def _save_and_show(self, name: str, pad=2):
+        """
+        Save and show the figure if a figure path is set.
+
+        :param name: File name for the saved figure.
+        """
+        plt.tight_layout(pad=pad)
+
+        if self.figure_path is not None:
+            if not os.path.exists(self.figure_path):
+                os.makedirs(self.figure_path)
+
+            plt.savefig(self.figure_path + f'/{name}.png', dpi=self.dpi)
+
+        plt.show()
+        plt.close('all')
+
     def compare_stat(
             self,
             ph: PhaseTypeDistribution,
             ms: PhaseTypeDistribution,
             stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
             tol: float,
-            visualize: bool = True,
             title: str = 'stat',
-            do_assertion: bool = True
+            name: str = ''
     ):
         """
         Compare the given distributions and return their difference.
@@ -240,11 +271,11 @@ class Comparison(Serializable):
         :param ms: Phase-type distribution.
         :param stat: Statistic to compare.
         :param tol: Tolerance.
-        :param visualize: Whether to plot the distributions what is being compared.
         :param title: Title of the plot.
-        :param do_assertion: Whether to assert that the distributions are the same.
+        :param name: Name of the plot.
         """
         title = f"{title}: {stat}"
+        name = f"{name}_{stat}"
 
         with mpl.rc_context({'axes.titlesize': 7}):
 
@@ -274,18 +305,16 @@ class Comparison(Serializable):
                 ph_stat = np.array([x[1] for x in ph_stat])
                 diff = self.rel_diff(ms_stat, ph_stat).mean()
 
-                if visualize:
+                if self.visualize:
                     plt.plot(ph_stat, label='phasegen')
                     plt.plot(ms_stat, label='msprime')
 
                     plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
 
                     plt.legend()
-                    plt.title(title)
+                    if self.show_title: plt.title(title)
 
-                    plt.tight_layout()
-
-                    plt.show()
+                    self._save_and_show(name)
 
             # assume we have an SFS
             elif isinstance(ph_stat, Iterable):
@@ -294,21 +323,32 @@ class Comparison(Serializable):
                 ph_stat = np.array(list(ph_stat))
                 diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                if visualize:
+                if self.visualize:
                     if ph_stat.ndim == 1:
 
-                        s = Spectra.from_spectra(dict(ms=SFS(ms_stat), ph=SFS(ph_stat)))
+                        s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
 
-                        s.plot(title=title)
+                        s.plot(title=title if self.show_title else None, show=False)
+                        plt.legend(fontsize=10)
+
+                        self._save_and_show(name)
 
                     # assume we have a 2-dimensional statistic
                     elif len(ph_stat) > 3:
-                        fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 4))
 
-                        fig.suptitle(title)
+                        plt.close('all')  # avoid empty plots
+                        fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 5))
 
-                        SFS2(ph_stat).plot_surface(ax=axs[0], title='phasegen', show=False)
-                        SFS2(ms_stat).plot_surface(ax=axs[1], title='msprime')
+                        if self.show_title: plt.suptitle(title)
+
+                        axs[0].set_title('phasegen', fontdict={'fontsize': 16})
+                        axs[1].set_title('msprime', fontdict={'fontsize': 16})
+
+                        SFS2(ph_stat).plot_surface(ax=axs[0], show=False)
+                        SFS2(ms_stat).plot_surface(ax=axs[1], show=False)
+
+                        self._save_and_show(name, pad=1.5)
+
 
             # assume we have a PDF or CDF
             elif stat in ['pdf', 'cdf']:
@@ -323,16 +363,15 @@ class Comparison(Serializable):
 
                 y_ph = ph_stat(t)
 
-                if visualize:
-                    plt.plot(t, y_ph, label='phasegen')
-                    plt.plot(t, y_ms, label='msprime')
+                if self.visualize:
+                    plt.plot(t, y_ph, label='phasegen', linewidth=1.5, alpha=0.7)
+                    plt.plot(t, y_ms, label='msprime', linewidth=1.5, alpha=0.7)
+                    plt.xlabel('time')
 
                     plt.legend()
-                    plt.title(title)
+                    if self.show_title: plt.title(title)
 
-                    plt.tight_layout()
-
-                    plt.show()
+                    self._save_and_show(name)
 
                 diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[2:].max()
 
@@ -342,24 +381,21 @@ class Comparison(Serializable):
         if not diff <= tol:
             self.logger.critical(f"{title}: {diff} > {tol}")
 
-            if do_assertion:
+            if self.do_assertion:
                 raise AssertionError(f"Relative difference {diff} exceeds threshold {tol} for {title}.")
         else:
             self.logger.info(f"{title}: {diff} <= {tol}")
 
-        if do_assertion:
+        if self.do_assertion:
             self.n_assertions += 1
-
-        plt.clf()
 
     def _compare_stat_recursively(
             self,
             ph: PhaseTypeDistribution | MarginalDistributions,
             ms: PhaseTypeDistribution | MarginalDistributions,
             data: dict,
-            do_assertion: bool = True,
-            visualize: bool = True,
-            title: str = 'stat'
+            title: str = 'stat',
+            name: str = ''
     ):
         """
         Compare the given statistics recursively.
@@ -367,9 +403,8 @@ class Comparison(Serializable):
         :param ph: Phase-type distribution.
         :param ms: Phase-type distribution.
         :param data: Dictionary of statistics to compare, possibly nested.
-        :param do_assertion: Whether to assert that the distributions are the same.
-        :param visualize: Whether to plot what is being compared.
-        :param title: Title of the plot.
+        :param title: Title prefix for the plot.
+        :param name: Name prefix for the plot.
         """
 
         # statistic, distribution or nested demes dictionary
@@ -396,9 +431,8 @@ class Comparison(Serializable):
                         ms=ms[item],
                         stat=stat,
                         tol=sub,
-                        visualize=visualize,
                         title=f"{title}: {item}",
-                        do_assertion=do_assertion
+                        name=f"{name}_{item}"
                     )
 
             elif stat in ['demes', 'loci']:
@@ -407,9 +441,8 @@ class Comparison(Serializable):
                     ph=getattr(ph, stat),
                     ms=getattr(ms, stat),
                     data=sub,
-                    visualize=visualize,
                     title=f"{title}: {stat}",
-                    do_assertion=do_assertion
+                    name=f"{name}_{stat}"
                 )
 
             else:
@@ -419,29 +452,25 @@ class Comparison(Serializable):
                     ms=ms,
                     stat=stat,
                     tol=sub,
-                    visualize=visualize,
                     title=title,
-                    do_assertion=do_assertion
+                    name=name
                 )
 
-    def compare(self, title: str = '', do_assertion: bool = True, visualize: bool = True):
+    def compare(self, title: str = ''):
         """
         Compare the distributions of the given statistics.
 
-        :param title: Title of the plot.
-        :param do_assertion: Whether to assert that the distributions are the same.
-        :param visualize: Whether to plot what is being compared.
+        :param title: Title prefix for the plots.
         :raises AssertionError: If `do_assertion is True and the distributions differ by more than the given tolerance.
             ValueError: if the type is unknown.
         """
         for dist, data in self.comparisons['tolerance'].items():
             self._compare_stat_recursively(
-                do_assertion=do_assertion,
                 ph=getattr(self.ph, dist),
                 ms=getattr(self.ms, dist),
                 data=data,
-                visualize=visualize,
-                title=f"{title}: {dist}"
+                title=f"{title}: {dist}",
+                name=dist
             )
 
         self.logger.info(f"Number of assertions: {self.n_assertions}")

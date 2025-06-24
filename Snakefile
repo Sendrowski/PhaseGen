@@ -4,7 +4,6 @@ from typing import List
 
 import pandas as pd
 
-
 def get_filenames(path) -> List[str]:
     """
     Get all filenames in a directory.
@@ -13,6 +12,15 @@ def get_filenames(path) -> List[str]:
     :return: Filenames without extension
     """
     return [os.path.splitext(file.name)[0] for file in Path(path).glob('*') if file.is_file()]
+
+def get_dirnames(path) -> List[str]:
+    """
+    Get all directory names in a directory.
+
+    :param path: Path to directory
+    :return: Directory names
+    """
+    return [file.name for file in Path(path).glob('*') if file.is_dir()]
 
 
 configs = get_filenames("resources/configs")
@@ -23,9 +31,10 @@ wildcard_constraints:
 rule all:
     input:
         (
-            expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=20,n_bootstraps=100,n_bins=30),
+            expand("results/graphs/comp/{config}.png", config=get_dirnames("results/graphs/comparisons")),
+            #expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=20,n_bootstraps=100,n_bins=30),
             #"docs/_build"
-            #expand("results/comparisons/serialized/{config}.json",config=configs),
+            expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
             #    'coalescent_4_lineages_lineage_counting',
             #    'coalescent_5_lineages_lineage_counting',
@@ -60,6 +69,7 @@ rule all:
             #    model=['beta.1.25'], replicate=[1,2,3]),
         )
 
+# create comparisons
 rule create_comparison:
     input:
         "resources/configs/{config}.yaml"
@@ -70,6 +80,7 @@ rule create_comparison:
     script:
         "scripts/create_comparison.py"
 
+# benchmark state space creation
 rule benchmark_state_space_creation:
     input:
         "resources/configs/{config}.yaml"
@@ -80,6 +91,7 @@ rule benchmark_state_space_creation:
     script:
         "scripts/benchmark_scenario.py"
 
+# merge benchmarks
 rule merge_benchmarks:
     input:
         expand("results/benchmarks/state_space/{config}.csv",config=configs)
@@ -89,6 +101,29 @@ rule merge_benchmarks:
         "envs/dev.yaml"
     script:
         "scripts/merge_benchmarks.py"
+
+def get_input_combine_plots(w):
+    """
+    Get input files for the combine_plots rule.
+    """
+    return Path(f"results/graphs/comparisons/{w.config}").glob('*')
+
+# combine msprime comparison plots
+rule combine_comparisons:
+    input:
+        get_input_combine_plots
+    output:
+        "results/graphs/comp/{config}.png"
+    conda:
+        "envs/base.yaml"
+    params:
+        dpi=1000,
+        titles=lambda w: [
+            f.replace('sfs', 'SFS').replace('pdf', 'PDF').replace('cdf', 'CDF').replace('_', ' ')
+            for f in get_filenames(f"results/graphs/comparisons/{w.config}")
+        ]
+    script:
+        "scripts/combine_plots.py"
 
 # update dependencies
 rule update_dependencies:

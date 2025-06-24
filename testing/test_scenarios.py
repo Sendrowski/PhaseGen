@@ -5,9 +5,12 @@ Test different demographic scenarios.
 import os
 from pathlib import Path
 from typing import List
-from testing import TestCase
+
+import matplotlib as mpl
+import numpy as np
 
 from phasegen.comparison import Comparison
+from testing import TestCase
 
 # configs = get_filenames("resources/configs")
 
@@ -26,9 +29,9 @@ configs = [
     '2_epoch_2_pops_n_4',
     '1_epoch_n_10',
     '1_epoch_beta_n_2_alpha_1_9',
-    '3_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '7_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '2_epoch_n_5_large_N',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
     '1_epoch_beta_n_6_alpha_1_9',
     '1_epoch_dirac_n_10_psi_0_7_c_50',
     '1_epoch_dirac_n_4_psi_0_7_c_50',
@@ -85,12 +88,13 @@ configs = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
-    '3_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
-    '3_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
+    '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
 ]
 
 configs_suspended = [
+    '7_epoch_beta_migration_disparate_migration_sizes_n_10',  # takes a long time
     '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
     '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
     '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
@@ -132,12 +136,16 @@ def generate_tests(config: str):
         """
         Run test for the given config.
         """
+        mpl.rcParams['figure.figsize'] = np.array([8, 5]) * 0.55
+
         c = Comparison.from_file(f"results/comparisons/serialized/{config}.json")
 
-        c.compare(
-            title=config,
-            do_assertion=ScenariosTestCase.do_assertion
-        )
+        c.do_assertion = ScenariosTestCase.do_assertion
+        c.visualize = True
+        c.figure_path = f"results/graphs/comparisons/{config}"
+        c.show_title = True
+
+        c.compare(title=config)
 
     return run_test
 
