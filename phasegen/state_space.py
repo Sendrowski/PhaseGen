@@ -213,11 +213,11 @@ class StateSpace(ABC):
                 # increment state counter
                 i += 1
 
-                if i in [1000, 10000, 100000]:
-                    levels = {1000: 'slow', 10000: 'very slow', 100000: 'extremely slow'}
+                if i in [1000, 5000, 25000]:
+                    levels = {1000: 'slow', 5000: 'very slow', 25000: 'extremely slow'}
 
                     self._logger.warning(
-                        f'State space size exceeds {i} states. Computation may be {levels[i]}.'
+                        f'State space size exceeds {i} states. Computations may be {levels[i]}.'
                     )
 
             # break if no more targets
