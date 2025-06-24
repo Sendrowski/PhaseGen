@@ -6,12 +6,10 @@ import warnings
 
 import dadi
 import fastdfe as fd
-import phasegen as pg
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
