@@ -6,9 +6,12 @@ import warnings
 
 import dadi
 import fastdfe as fd
+import phasegen as pg
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -108,5 +111,53 @@ bootstraps = pd.DataFrame(
 
 print(runs.mean())
 print(bootstraps.mean())
+
+spectra = fd.Spectra(dict(
+    fitted=best_model * theta,
+    observed=sfs
+))
+
+fig, axs = plt.subplots(2, 2, figsize=(6, 5))
+
+# A: SFS comparison
+spectra.plot(ax=axs[0, 0], show=False, title='SFS comparison')
+
+# B: Demography (steps-post + bootstraps)
+axs[0, 1].set_title('Population size trajectory')
+axs[0, 1].set_xlabel('Time')
+axs[0, 1].set_ylabel('$N_e$')
+t_max = 2.6
+
+# Plot bootstrap trajectories
+for _, row in bootstraps.iterrows():
+    t = row["T"]
+    nu = row["nu"]
+    times = [0, t, t, t_max]
+    sizes = [1, 1, nu, nu]
+    axs[0, 1].plot(times, sizes, drawstyle='steps-post', color='C0', alpha=0.3, linewidth=1)
+
+# Plot best fit
+times = [0, best_params[0], best_params[0], best_params[0] + 1]
+sizes = [1, 1, best_params[1], best_params[1]]
+axs[0, 1].plot(times, sizes, drawstyle='steps-post', color='C0', linewidth=1)
+axs[0, 1].set_xlabel('t')
+
+# C, D: Bootstrap histograms
+bootstraps["T"].hist(ax=axs[1, 0], bins=30, grid=False, range=(0, 0.6), label='t')
+axs[1, 0].set_title('Marginal distribution')
+axs[1, 0].legend()
+
+bootstraps["nu"].hist(ax=axs[1, 1], bins=30, grid=False, range=(0, 0.6), label='Ne', color='C1')
+axs[1, 1].set_title('Marginal distribution')
+axs[1, 1].legend()
+
+# Labels A-D
+for i, ax in enumerate(axs.flat):
+    ax.text(-0.05, 1.125, ['A', 'B', 'C', 'D'][i], transform=ax.transAxes,
+            fontsize=16, fontweight='bold', va='top', ha='right')
+
+plt.tight_layout()
+plt.savefig("reports/manuscripts/main/figures/inference_result_dadi.png", dpi=400)
+plt.show()
 
 pass

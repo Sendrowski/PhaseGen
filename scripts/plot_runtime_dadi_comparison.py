@@ -26,7 +26,8 @@ except NameError:
 # PhaseGen
 import phasegen as pg
 
-pg.Backend.register(pg.JaxExpmBackend())
+pg.Backend.register(pg.SciPyExpmBackend())
+
 
 def time_sfs_phasegen(n, d):
     start = time.time()
@@ -37,9 +38,6 @@ def time_sfs_phasegen(n, d):
     sfs = coal.sfs.mean
     runtime = time.time() - start
     return runtime, sfs
-
-
-# dadi
 
 
 def time_sfs_dadi(n, d):
@@ -57,7 +55,7 @@ def time_sfs_dadi(n, d):
             xx = dadi.Numerics.default_grid(pts)
             phi = dadi.PhiManip.phi_1D(xx)
             phi = dadi.PhiManip.phi_1D_to_2D(xx, phi)
-            phi = dadi.Integration.two_pops(phi, xx, T=T, nu1=nu, nu2=nu, m12=1, m21=1)
+            phi = dadi.Integration.two_pops(phi, xx, T=T, nu1=nu, nu2=nu, m12=10, m21=10)
 
             return dadi.Spectrum.from_phi(phi, ns, (xx,) * d)
 
@@ -99,7 +97,6 @@ fig, ax = plt.subplots(1, 2, figsize=(10, 4))
 
 norm = mpl.colors.LogNorm(vmin=min(data_phasegen.min(), data_dadi.min()),
                           vmax=max(data_phasegen.max(), data_dadi.max()))
-
 
 sns.heatmap(data_phasegen, annot=True, fmt=".3f", xticklabels=D, yticklabels=N,
             cmap='viridis', norm=norm, ax=ax[0], cbar=False)
