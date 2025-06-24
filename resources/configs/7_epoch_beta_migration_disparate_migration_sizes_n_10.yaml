@@ -1,0 +1,56 @@
+n:
+  pop_0: 6
+  pop_1: 4
+num_replicates: 10000000
+#record_migration: true
+migration_rates:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
+    0: 3
+    0.4: 2.5
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 6.6
+    3: 1.5
+pop_sizes:
+  pop_0:
+    0: 1.5
+    0.3: 2.4
+    1.1: 0.3
+  pop_1:
+    0: 0.5
+    0.1: 0.6
+    0.45: 0.7
+model: beta
+alpha: 1.5
+comparisons:
+  tolerance:
+    tree_height:
+      pdf: 0.01
+      cdf: 0.2
+      mean: 0.01
+      m2: 0.01
+      m3: 0.01
+      m4: 0.01
+      var: 0.02
+      #demes:
+      #  mean: 0.01
+    total_branch_length:
+      mean: 0.01
+      m2: 0.01
+      m3: 0.01
+      m4: 0.01
+      var: 0.02
+      #demes:
+      #  mean: 0.01
+    sfs:
+      mean: 0.01
+      m3: 0.02
+      m4: 0.02
+      cov: 0.07
+      corr: 0.07
+      #demes:
+      #  mean: 0.01
+    fsfs:
+      mean: 0.01
+      cov: 0.07
+      #demes:
+      #  mean: 0.01
