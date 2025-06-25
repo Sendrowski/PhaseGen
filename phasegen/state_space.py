@@ -291,7 +291,13 @@ class StateSpace(ABC):
         """
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
-            self.drop_S()
+
+            # update S by rescaling if already cached and we only have one population and locus
+            if self.lineage_config.n_pops == 1 and self.locus_config.n == 1 and hasattr(self, "S"):
+                self.S *= self.epoch.pop_sizes[epoch.pop_names[0]] / epoch.pop_sizes[epoch.pop_names[0]]
+
+            else:
+                self.drop_S()
 
         self.epoch = epoch
 
