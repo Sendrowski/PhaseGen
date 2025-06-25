@@ -6,11 +6,13 @@ import re
 import time
 import warnings
 from typing import Tuple
+import seaborn as sns
 
 import dadi
 import fastdfe as fd
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 import phasegen as pg
@@ -18,6 +20,7 @@ import phasegen as pg
 bounds = dict(t=(0, 4), Ne=(0.1, 10))
 n_runs = 10
 n_bootstraps = 20
+sample_sizes = range(5, 21, 1)
 
 
 def simulate_bottleneck_sfs(n: int) -> pg.SFS:
@@ -122,8 +125,6 @@ def run_phasegen(sfs: pg.SFS) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
     return runs, bootstraps, total_runtime
 
 
-# Main logic
-sample_sizes = [5, 10, 15]
 results = []
 
 for n in sample_sizes:
@@ -149,6 +150,22 @@ for n in sample_sizes:
     })
 
 results = pd.DataFrame(results)
-results.to_csv("inference_comparison.csv", index=False)
+results.to_csv("scratch/inference_comparison.csv", index=False)
+
+metric = "runtime"
+methods = ["dadi", "phasegen"]
+
+data = results[["n"] + [f"{m}.{metric}" for m in methods]].set_index("n")
+data.columns = methods
+
+plt.figure(figsize=(4, 3))
+sns.heatmap(data, annot=True, fmt=".2f", cmap="coolwarm", cbar=False)
+plt.title("Runtime in seconds")
+plt.xlabel("Method")
+plt.ylabel("Sample size")
+plt.gca().set_yticklabels(plt.gca().get_yticklabels(), rotation=0)
+plt.tight_layout()
+plt.savefig("scratch/inference_runtime_comparison.png", dpi=400)
+plt.show()
 
 pass
