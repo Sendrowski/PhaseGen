@@ -232,8 +232,9 @@ class StateSpace(ABC):
 
         # warn if state space is large
         if (k := len(visited)) > 400:
-            self._logger.warning(f'State space is large ({k} states). Note that the computation time '
-                                 f'increases exponentially with the number of states.')
+            self._logger.warning(f'State space is large ({k} states, {len(transitions)} transitions). '
+                                 f'Note that the computation time increases '
+                                 f'exponentially with the number of states.')
 
         return transitions, visited
 
