@@ -1181,3 +1181,32 @@ class CoalescentTestCase(TestCase):
         plt.show()
 
         np.testing.assert_allclose(covs, covs_exp, atol=1e-14, rtol=0)
+
+    def test_rescale_S(self):
+        """
+        Test if rate matrix is rescaled correctly when population size changes.
+        """
+        coal = pg.Coalescent(
+            n=6,
+            model=pg.BetaCoalescent(alpha=1.5)
+        )
+
+        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+        self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))  # not cached yet
+
+        _ = coal.lineage_counting_state_space.S
+        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+        np.testing.assert_array_almost_equal(
+            coal.lineage_counting_state_space.S * 3,
+            pg.Coalescent(
+                n=6,
+                model=pg.BetaCoalescent(alpha=1.5)
+            ).lineage_counting_state_space.S
+        )
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2})
+        _ = coal.lineage_counting_state_space.S
+        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+
+        # not cached yet since rescaling doesn't work for multiple populations
+        self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))

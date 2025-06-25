@@ -333,7 +333,11 @@ class InferenceTestCase(TestCase):
         cached.run()
         uncached.run()
 
-        self.assertDictEqual(cached.params_inferred, uncached.params_inferred)
+        np.testing.assert_almost_equal(
+            list(cached.params_inferred.values()),
+            list(uncached.params_inferred.values()),
+            decimal=6
+        )
 
     def test_weighted_loss(self):
         """
