@@ -1210,3 +1210,30 @@ class CoalescentTestCase(TestCase):
 
         # not cached yet since rescaling doesn't work for multiple populations
         self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))
+
+    def test_flattened_block_counting(self):
+        """
+        Make sure flattening block counting states works correctly.
+        """
+        pg.Backend.register(pg.SciPyExpmBackend())
+        pg.Settings.flatten_block_counting = True
+        times = np.linspace(0, 30, 10)
+        n = 10
+        demography = pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 1: 10}}
+        )
+
+        graph_coal = pg.Coalescent(n=n, demography=demography)
+        graph = np.array([graph_coal.sfs.get_accumulation(1, i, times) for i in range(10)])
+
+        # make sure state probabilities are cached
+        self.assertTrue('_state_probs' in graph_coal.block_counting_state_space.__dict__)
+
+        pg.Settings.flatten_block_counting = False
+        van_loan_coal = pg.Coalescent(n=n, demography=demography)
+        van_loan = np.array([van_loan_coal.sfs.get_accumulation(1, i, times) for i in range(10)])
+
+        # make sure state probabilities are not cached
+        self.assertFalse('_state_probs' in van_loan_coal.block_counting_state_space.__dict__)
+
+        np.testing.assert_array_almost_equal(van_loan, graph, decimal=14)
