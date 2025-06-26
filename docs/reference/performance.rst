@@ -1,4 +1,4 @@
-.. _reference.r.performance:
+.. _reference.performance:
 
 Performance
 ===========

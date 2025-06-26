@@ -22,11 +22,12 @@ from .expm import Backend
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
-    LocusReward, CombinedReward, FoldedSFSReward, SFSReward
+    LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward
 from .serialization import Serializable
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace
 from .utils import parallelize, multiset_permutations
+from .settings import Settings
 
 expm = Backend.expm
 
@@ -783,6 +784,51 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
     @_make_hashable
     @cache
+    def _accumulate_flattened(
+            self,
+            k: int,
+            end_times: Sequence[float],
+            rewards: Sequence[Reward] = None
+    ) -> np.ndarray:
+        """
+        Evaluate the kth (non-central) moment at different end times using the lineage counting state space.
+
+        :param k: The order of the moment.
+        :param end_times: Sequence of end times or end time when to evaluate the moment.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :return: The moment accumulated at the specified times or time.
+        :raises ValueError: If the state space is not a BlockCountingStateSpace, or if k is not 1, or if there are
+            multiple populations or loci or if the model is not the StandardCoalescent.
+        """
+
+        if not isinstance(self.state_space, BlockCountingStateSpace):
+            raise ValueError("Flattened accumulation is only supported for BlockCountingStateSpace.")
+
+        if k != 1:
+            raise ValueError("Flattened accumulation is only supported for k = 1.")
+
+        if self.lineage_config.n_pops != 1 or self.locus_config.n != 1:
+            raise ValueError("Flattened accumulation is only supported for a single population and a single locus.")
+
+        if not isinstance(self.state_space.model, StandardCoalescent):
+            raise ValueError("Flattened accumulation is only supported for StandardCoalescent models.")
+
+        reward = rewards[0] if rewards else self.reward
+        r = reward._get(self.state_space)
+
+        probs = self.state_space._state_probs
+
+        # sum up weights for each state based on the number of lineages
+        weights = np.zeros(self.lineage_config.n)
+        for i, (s, prob) in enumerate(zip(self.state_space.states, probs)):
+            weights[self.lineage_config.n - s.lineages.sum()] += prob * r[i]
+
+        weighted_reward = CustomReward(lambda _: weights)
+
+        return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
+
+    @_make_hashable
+    @cache
     def _accumulate(
             self,
             k: int,
@@ -797,6 +843,16 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         """
+        if (
+                Settings.flatten_block_counting and
+                k == 1 and
+                isinstance(self.state_space, BlockCountingStateSpace) and
+                isinstance(self.state_space.model, StandardCoalescent) and
+                self.lineage_config.n_pops == 1 and
+                self.locus_config.n == 1
+        ):
+            return self._accumulate_flattened(k, end_times, rewards)
+
         end_times = np.array(end_times)
 
         # check for negative values

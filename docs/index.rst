@@ -54,6 +54,7 @@ Contents
    modules/norms
    modules/spectrum
    modules/expm
+   modules/settings
 
 .. toctree::
    :caption: Miscellaneous

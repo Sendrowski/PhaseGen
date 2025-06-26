@@ -191,6 +191,8 @@ from .utils import (
     takewhile_inclusive
 )
 
+from .settings import Settings
+
 __all__ = [
     'PhaseTypeDistribution',
     'Coalescent',
@@ -245,4 +247,5 @@ __all__ = [
     'TensorFlowExpmBackend',
     'JaxExpmBackend',
     'PyTorchExpmBackend',
+    'Settings',
 ]

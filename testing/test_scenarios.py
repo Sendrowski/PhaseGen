@@ -75,6 +75,7 @@ configs = [
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
     '1_epoch_n_2_test_size',
+    '5_epoch_n_30',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
     '4_epoch_up_down_n_2',

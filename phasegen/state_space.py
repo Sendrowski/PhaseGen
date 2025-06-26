@@ -574,6 +574,63 @@ class BlockCountingStateSpace(StateSpace):
 
         return State(data)
 
+    @staticmethod
+    def _traverse(
+            start_state: int,
+            start_p: float,
+            S: np.ndarray,
+            absorbing_states: np.ndarray,
+            lineage_counts: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Calculate the probabilities of being in each state conditioned on the number of lineages.
+
+        :param start_state: Index of the starting state.
+        :param start_p: Probability of starting in the starting state.
+        :param S: Transition matrix.
+        :param absorbing_states: Indices of absorbing states.
+        :param lineage_counts: Number of lineages in each state.
+        :return: State probabilities conditioned on the number of lineages.
+        """
+        probs = np.zeros(S.shape[0])
+        probs[start_state] = start_p
+        state_indices = np.arange(lineage_counts.shape[0])
+
+        # descending lineage counts
+        unique_counts = sorted(set(lineage_counts), reverse=True)
+        for k in unique_counts:
+
+            # iterate over states with k lineages
+            for i in state_indices[lineage_counts == k]:
+                if i in absorbing_states or S[i, i] == 0:
+                    continue
+
+                trans_probs = S[i] / -S[i, i]
+
+                for j in np.where(trans_probs > 0)[0]:
+                    probs[j] += probs[i] * trans_probs[j]
+
+        return probs
+
+    @cached_property
+    def _state_probs(self) -> np.ndarray:
+        """
+        Get state probabilities conditioned on the number of lineages.
+        This can be used to flatten the block-counting state space to a lineage-counting state space by weighting the
+        lineages by the probabilities of being in each of the corresponding block-counting states.
+
+        :return: State probabilities conditioned on the number of lineages.
+        """
+        absorbing_states = np.where([s.is_absorbing() for s in self.states])[0]
+        probs = np.zeros(self.k)
+        lineage_counts = np.array([s.lineages.sum() for s in self.states])
+        state_indices = np.arange(lineage_counts.shape[0])
+
+        for i, p in zip(state_indices[self.alpha > 0], self.alpha[self.alpha > 0]):
+            probs += self._traverse(i, p, self.S, absorbing_states, lineage_counts)
+
+        return probs
+
     def _get_old(self) -> OldBlockCountingStateSpace:
         """
         Get the old state space.
