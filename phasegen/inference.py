@@ -84,8 +84,8 @@ class Inference(Serializable):
             .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
                 It can also lead to hanging processes due to pickling issues, depending on how the
                 provided callback function is defined. For more scalable parallelization, consider using the
-                :meth:`create_run` and :meth:`create_bootstrap` methods to create new Inference objects that can be run
-                independently, and whose results merged subsequently.
+                :meth:`create_run` and :meth:`create_bootstrap` methods to create new `Inference` objects that can be
+                run independently, and whose results can be merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
         :param cache: Whether to cache the state spaces across the given optimization iterations given

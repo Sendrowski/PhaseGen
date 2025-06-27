@@ -689,8 +689,7 @@ class StateSpaceTestCase(TestCase):
         s = pg.state_space.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 2}),
-            cache=True
+            epoch=pg.Epoch(pop_sizes={'pop_0': 2})
         )
 
         # check that the cache is empty
@@ -702,17 +701,20 @@ class StateSpaceTestCase(TestCase):
         # check that the rate matrix is in the cache
         self.assertTrue(s.epoch in s._cache)
 
+        pg.Settings.cache_epochs = False
+
         s = pg.state_space.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 2}),
-            cache=False
+            epoch=pg.Epoch(pop_sizes={'pop_0': 2})
         )
 
         _ = s.S
 
         # check that the rate matrix is not in the cache
         self.assertEqual(s._cache, {})
+
+        pg.Settings.cache_epochs = True
 
     def test_epoch_equality(self):
         """

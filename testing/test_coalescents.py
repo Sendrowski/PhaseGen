@@ -120,12 +120,13 @@ class CoalescentTestCase(TestCase):
         """
         Validate first moments for deme-wise complex coalescent.
         """
+        pg.Settings.parallelize = False
+
         coals = [
             pg.Coalescent(
                 n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
                 model=pg.BetaCoalescent(alpha=1.7),
-                demography=self.get_complex_demography(),
-                parallelize=False
+                demography=self.get_complex_demography()
             ),
             MsprimeCoalescent(
                 n_threads=1,
@@ -158,6 +159,8 @@ class CoalescentTestCase(TestCase):
                 np.sum([coal.sfs.demes[p].mean.data for p in coal.demography.pop_names], axis=0),
                 decimal=8
             )
+
+        pg.Settings.parallelize = True
 
     @pytest.mark.skip(reason="Too slow")
     def test_msprime_complex_coalescent(self):
@@ -1129,17 +1132,23 @@ class CoalescentTestCase(TestCase):
         """
         Test disabling regularization.
         """
-        coal = pg.Coalescent(n=4, regularize=False)
+        pg.Settings.regularize = False
+
+        coal = pg.Coalescent(n=4)
 
         self.assertEqual(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
         self.assertEqual(1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S))
         self.assertEqual(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
 
+        pg.Settings.regularize = True
+
     def test_enable_regularization(self):
         """
         Test enabling regularization.
         """
-        coal = pg.Coalescent(n=4, regularize=True)
+        pg.Settings.regularize = True
+
+        coal = pg.Coalescent(n=4)
 
         self.assertNotEquals(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
         self.assertNotEquals(

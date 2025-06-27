@@ -6,6 +6,8 @@ from matplotlib import pyplot as plt
 
 import phasegen as pg
 
+pg.Settings.regularize = False
+
 
 def get_coal(N1: float, N2: float, t: float) -> pg.Coalescent:
     """
@@ -22,8 +24,7 @@ def get_coal(N1: float, N2: float, t: float) -> pg.Coalescent:
             pop_sizes={
                 'pop_0': {0: N1, t: N2}
             }
-        ),
-        regularize=False
+        )
     )
 
 
