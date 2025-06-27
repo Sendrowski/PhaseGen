@@ -190,7 +190,6 @@ class Comparison(Serializable):
             n=self.n,
             demography=self.get_demography(),
             loci=self.get_locus_config(),
-            parallelize=self.parallelize,
             end_time=self.end_time,
             model=self.model
         )

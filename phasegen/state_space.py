@@ -14,6 +14,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
+from .settings import Settings
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
@@ -33,9 +34,7 @@ class StateSpace(ABC):
             lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
-            epoch: Epoch = None,
-            cache: bool = True,
-            pbar: bool = True
+            epoch: Epoch = None
     ):
         """
         Create a rate matrix.
@@ -44,8 +43,6 @@ class StateSpace(ABC):
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
-        :param cache: Whether to cache the rate matrix for different epochs.
-        :param pbar: Whether to show progress bar for the number of transitions.
         """
         if locus_config is None:
             locus_config = LocusConfig()
@@ -71,14 +68,8 @@ class StateSpace(ABC):
         #: Epoch
         self.epoch: Epoch = epoch
 
-        #: Whether to cache the rate matrix for different epochs.
-        self.cache: bool = cache
-
         #: Cached rate matrices
         self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
-
-        #: Whether to show progress bar for the number of transitions
-        self.pbar: bool = pbar
 
         # time in seconds to compute original rate matrix
         self.time: float | None = None
@@ -97,7 +88,7 @@ class StateSpace(ABC):
         self.time = time.time() - start
 
         # cache rate matrix if specified
-        if self.cache:
+        if Settings.cache_epochs:
             self._cache[self.epoch] = (transitions, states)
 
         return states
@@ -182,7 +173,7 @@ class StateSpace(ABC):
         i, j = 0, 0
 
         # backward compatibility
-        pbar = tqdm(desc=f'{self.__class__.__name__}: transitions', disable=not (hasattr(self, 'pbar') and self.pbar))
+        pbar = tqdm(desc=f'{self.__class__.__name__}: transitions', disable=not Settings.use_pbar)
 
         while True:
 
@@ -350,7 +341,7 @@ class StateSpace(ABC):
         :return: The rate matrix.
         """
         # check if epoch is in cache
-        if self.cache and self.epoch in self._cache:
+        if Settings.cache_epochs and self.epoch in self._cache:
             transitions, states = self._cache[self.epoch]
 
         else:
@@ -358,7 +349,7 @@ class StateSpace(ABC):
             transitions, states = self.get_transitions()
 
             # cache rate matrix if specified
-            if self.cache:
+            if Settings.cache_epochs:
                 self._cache[self.epoch] = (transitions, states)
 
         return self._graph_to_matrix(transitions, states)
@@ -537,8 +528,7 @@ class BlockCountingStateSpace(StateSpace):
             lineage_config: LineageConfig,
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
-            epoch: Epoch = None,
-            pbar: bool = True
+            epoch: Epoch = None
     ):
         """
         Create a rate matrix.
@@ -546,8 +536,7 @@ class BlockCountingStateSpace(StateSpace):
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
-        :param epoch: The epoch.
-        :param pbar: Whether to show progress bar for the number of transitions.
+        :param epoch: The epoch
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
         if locus_config is not None and locus_config.n > 1:
@@ -557,8 +546,7 @@ class BlockCountingStateSpace(StateSpace):
             lineage_config=lineage_config,
             locus_config=locus_config,
             model=model,
-            epoch=epoch,
-            pbar=pbar
+            epoch=epoch
         )
 
     def _get_initial(self) -> 'State':
@@ -621,6 +609,8 @@ class BlockCountingStateSpace(StateSpace):
 
         :return: State probabilities conditioned on the number of lineages.
         """
+        self._logger.debug('Calculating state probabilities conditioned on the number of lineages.')
+
         absorbing_states = np.where([s.is_absorbing() for s in self.states])[0]
         probs = np.zeros(self.k)
         lineage_counts = np.array([s.lineages.sum() for s in self.states])

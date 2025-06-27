@@ -512,8 +512,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             state_space: StateSpace,
             tree_height: 'TreeHeightDistribution',
             demography: Demography = None,
-            reward: Reward = None,
-            regularize: bool = True
+            reward: Reward = None
     ):
         """
         Initialize the distribution.
@@ -522,7 +521,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param tree_height: The tree height distribution.
         :param demography: The demography.
         :param reward: The reward. By default, the tree height reward.
-        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if demography is None:
             demography = Demography()
@@ -540,9 +538,6 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         #: Reward
         self.reward: Reward = reward
-
-        #: Whether to regularize the intensity matrix for numerical stability
-        self.regularize: bool = regularize
 
         #: State space
         self.state_space: StateSpace = state_space
@@ -672,7 +667,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         return m
 
-    def _get_regularization_factor(self, S: np.ndarray) -> float:
+    @staticmethod
+    def _get_regularization_factor(S: np.ndarray) -> float:
         """
         Get the regularization factor for the given intensity matrix. We
         multiply the intensity matrix by this factor to improve numerical
@@ -682,7 +678,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param S: Intensity matrix.
         :return: Regularization factor.
         """
-        if not self.regularize:
+        if not Settings.regularize:
             return 1.0
 
         # obtain positive rates
@@ -1023,8 +1019,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space: LineageCountingStateSpace,
             demography: Demography = None,
             start_time: float = 0,
-            end_time: float = None,
-            regularize: bool = True
+            end_time: float = None
     ):
         """
         Initialize the distribution.
@@ -1033,7 +1028,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param demography: The demography.
         :param start_time: Time when to start accumulating moments.
         :param end_time: Time when to end accumulation of moments. By default, the time until almost sure absorption.
-        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if start_time < 0:
             raise ValueError("Start time must be greater than or equal to 0.")
@@ -1048,8 +1042,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             state_space=state_space,
             tree_height=self,
             demography=demography,
-            reward=TreeHeightReward(),
-            regularize=regularize
+            reward=TreeHeightReward()
         )
 
         #: State space
@@ -1334,10 +1327,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             state_space: BlockCountingStateSpace,
             tree_height: TreeHeightDistribution,
             demography: Demography,
-            pbar: bool = False,
-            parallelize: bool = False,
-            reward: Reward = None,
-            regularize: bool = True
+            reward: Reward = None
     ):
         """
         Initialize the distribution.
@@ -1345,11 +1335,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param state_space: Block-counting state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
-        :param pbar: Whether to show a progress bar.
-        :param parallelize: Use parallelization.
         :param reward: The reward to multiply the SFS reward with. By default, the unit reward is used, which
             has no effect.
-        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         if reward is None:
             reward = UnitReward()
@@ -1358,15 +1345,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             state_space=state_space,
             tree_height=tree_height,
             demography=demography,
-            reward=reward,
-            regularize=regularize
+            reward=reward
         )
-
-        #: Whether to show a progress bar.
-        self.pbar: bool = pbar
-
-        #: Whether to parallelize computations.
-        self.parallelize: bool = parallelize
 
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
@@ -1436,8 +1416,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             func=lambda x: self._moment(*x),
             data=[[k, i, rewards, start_time, end_time, center, permute] for i in self._get_indices()],
             desc=f"Calculating {k}-moments",
-            pbar=self.pbar,
-            parallelize=self.parallelize
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
         )
 
         return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
@@ -1506,8 +1486,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             func=lambda x: self.get_accumulation(*x),
             data=[[k, i, end_times, rewards] for i in indices],
             desc=f"Calculating accumulation of {k}-moments",
-            pbar=self.pbar,
-            parallelize=self.parallelize
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
         )
 
         # pad with zeros
@@ -1641,8 +1621,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             ),
             data=indices,
             desc="Calculating covariance",
-            pbar=self.pbar,
-            parallelize=self.parallelize
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
         )
 
         # re-structure the results to a matrix form
@@ -2535,11 +2515,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography: Demography = None,
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
-            pbar: bool = False,
-            parallelize: bool = True,
             start_time: float = 0,
             end_time: float = None,
-            regularize: bool = True
     ):
         """
         Create object.
@@ -2551,12 +2528,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param demography: Demography.
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
-        :param pbar: Whether to show a progress bar when constructing the state space.
-        :param parallelize: Whether to parallelize computations.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily long end times can lead to numerical errors.
-        :param regularize: Whether to regularize the intensity matrix for numerical stability.
         """
         super().__init__(
             n=n,
@@ -2570,15 +2544,6 @@ class Coalescent(AbstractCoalescent, Serializable):
         #: Time when to start accumulating moments
         self.start_time: float = start_time
 
-        #: Whether to show a progress bar
-        self.pbar: bool = pbar
-
-        #: Whether to parallelize computations
-        self.parallelize: bool = parallelize
-
-        #: Whether to regularize the intensity matrix for numerical stability
-        self.regularize: bool = regularize
-
     @cached_property
     def lineage_counting_state_space(self) -> LineageCountingStateSpace:
         """
@@ -2588,8 +2553,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epoch(0),
-            pbar=self.pbar
+            epoch=self.demography.get_epoch(0)
         )
 
     @cached_property
@@ -2601,8 +2565,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             lineage_config=self.lineage_config,
             locus_config=self.locus_config,
             model=self.model,
-            epoch=self.demography.get_epoch(0),
-            pbar=self.pbar
+            epoch=self.demography.get_epoch(0)
         )
 
     @cached_property
@@ -2614,8 +2577,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             state_space=self.lineage_counting_state_space,
             demography=self.demography,
             start_time=self.start_time,
-            end_time=self.end_time,
-            regularize=self.regularize
+            end_time=self.end_time
         )
 
     @cached_property
@@ -2627,8 +2589,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             reward=TotalBranchLengthReward(),
             tree_height=self.tree_height,
             state_space=self.lineage_counting_state_space,
-            demography=self.demography,
-            regularize=self.regularize
+            demography=self.demography
         )
 
     @cached_property
@@ -2639,8 +2600,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         return UnfoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
-            demography=self.demography,
-            regularize=self.regularize
+            demography=self.demography
         )
 
     @cached_property
@@ -2651,8 +2611,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         return FoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
-            demography=self.demography,
-            regularize=self.regularize
+            demography=self.demography
         )
 
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
@@ -2676,8 +2635,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             reward=UnitReward(),
             tree_height=self.tree_height,
             state_space=state_space,
-            demography=self.demography,
-            regularize=self.regularize
+            demography=self.demography
         )
 
     @_make_hashable
@@ -2883,6 +2841,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
         :param mutation_rate: Mutation rate.
+        :param seed: Random seed.
         :return: msprime coalescent.
         """
         if self.start_time != 0:
