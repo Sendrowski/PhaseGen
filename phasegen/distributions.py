@@ -712,7 +712,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             permute: bool = True
     ) -> np.ndarray:
         """
-        Evaluate the kth (non-central) moment at different end times.
+        Evaluate the kth moment at different end times.
 
         :param k: The order of the moment.
         :param end_times: List of ends times or end time when to evaluate the moment.
@@ -832,7 +832,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             rewards: Sequence[Reward] = None
     ) -> np.ndarray:
         """
-        Evaluate the kth (non-central) conditioned moment at different end times.
+        Evaluate the kth (non-central) moment at different end times.
 
         :param k: The order of the moment.
         :param end_times: Sequence of ends times or end time when to evaluate the moment.
