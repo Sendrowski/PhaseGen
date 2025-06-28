@@ -264,6 +264,37 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
         )
 
 
+class StateReward(Reward):
+    """
+    Reward for a specific state in the state space. This is useful for debugging or testing purposes.
+    """
+
+    def __init__(self, state: int):
+        """
+        Initialize the reward.
+
+        :param state: The state index to reward.
+        """
+        self.state: int = state
+
+    def _get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        """
+        return (np.arange(state_space.k) == self.state).astype(int)
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name and the state index.
+
+        :return: hash
+        """
+        return hash(self.__class__.__name__ + str(self.state))
+
+
 class LineageReward(LineageCountingReward):
     """
     Reward for a specific number of lineages present in across all demes and loci.

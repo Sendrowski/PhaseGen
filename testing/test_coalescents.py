@@ -1,6 +1,7 @@
 """
 Test coalescents.
 """
+import unittest
 from itertools import islice
 from typing import cast
 from unittest import TestCase
@@ -1195,32 +1196,33 @@ class CoalescentTestCase(TestCase):
         """
         Test if rate matrix is rescaled correctly when population size changes.
         """
-        coal = pg.Coalescent(
-            n=6,
-            model=pg.BetaCoalescent(alpha=1.5)
-        )
+        coal = pg.Coalescent(n=6)
 
-        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
-        self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))  # not cached yet
+        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+        self.assertFalse(hasattr(coal.block_counting_state_space.update_epoch, 'S'))  # not cached yet
 
-        _ = coal.lineage_counting_state_space.S
-        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+        _ = coal.block_counting_state_space.S
+        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
         np.testing.assert_array_almost_equal(
-            coal.lineage_counting_state_space.S * 3,
-            pg.Coalescent(
-                n=6,
-                model=pg.BetaCoalescent(alpha=1.5)
-            ).lineage_counting_state_space.S
+            coal.block_counting_state_space.S * 3,
+            pg.Coalescent(n=6).block_counting_state_space.S
         )
+
+        coal = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5))
+        _ = coal.block_counting_state_space.S
+        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+
+        # not cached yet since rescaling doesn't work for multiple populations
+        self.assertFalse(hasattr(coal.block_counting_state_space.update_epoch, 'S'))
 
         coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2})
-        _ = coal.lineage_counting_state_space.S
-        coal.lineage_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+        _ = coal.block_counting_state_space.S
+        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
 
         # not cached yet since rescaling doesn't work for multiple populations
         self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))
 
-    def test_flattened_block_counting(self):
+    def test_flattened_block_counting_standard_coalescent_2_epochs(self):
         """
         Make sure flattening block counting states works correctly.
         """
@@ -1232,17 +1234,160 @@ class CoalescentTestCase(TestCase):
             pop_sizes={'pop_0': {0: 1, 1: 10}}
         )
 
-        graph_coal = pg.Coalescent(n=n, demography=demography)
-        graph = np.array([graph_coal.sfs.get_accumulation(1, i, times) for i in range(10)])
+        coal_flattened = pg.Coalescent(n=n, demography=demography)
+        flattened = np.array([coal_flattened.sfs.get_accumulation(1, i, times) for i in range(10)])
 
         # make sure state probabilities are cached
-        self.assertTrue('_state_probs' in graph_coal.block_counting_state_space.__dict__)
+        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
 
         pg.Settings.flatten_block_counting = False
-        van_loan_coal = pg.Coalescent(n=n, demography=demography)
-        van_loan = np.array([van_loan_coal.sfs.get_accumulation(1, i, times) for i in range(10)])
+        coal_original = pg.Coalescent(n=n, demography=demography)
+        original = np.array([coal_original.sfs.get_accumulation(1, i, times) for i in range(10)])
 
         # make sure state probabilities are not cached
-        self.assertFalse('_state_probs' in van_loan_coal.block_counting_state_space.__dict__)
+        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
 
-        np.testing.assert_array_almost_equal(van_loan, graph, decimal=14)
+        np.testing.assert_array_almost_equal(original, flattened, decimal=14)
+
+    def test_sample_empirical_pdf(self):
+        """
+        Test empirical PDF sampling against exact PDF.
+        """
+        coal = pg.Coalescent(
+            n=10,
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=pg.Demography(
+                pop_sizes={'pop_0': {0: 1, 1: 10}}
+            )
+        )
+
+        exact = coal.moment(1, (pg.UnfoldedSFSReward(2),))
+
+        with pg.Settings.set_pbar():
+            empirical = coal._sample(10000, (pg.UnfoldedSFSReward(2),)).mean()
+
+        rel_diff = np.abs(empirical - exact) / exact
+
+        self.assertLessEqual(rel_diff, 0.05)
+
+    def test_sample_empirical_cdf(self):
+        """
+        Test empirical CDF sampling against exact CDF.
+        """
+        coal = pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': 1, 'pop_1': 1, 'pop_2': 1}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        )
+
+        t = np.linspace(0, coal.tree_height.quantile(0.99), 100)
+        empirical = coal.tree_height._empirical_cdf(n_samples=1000, t=t)
+        exact = coal.tree_height.cdf(t=t)
+        plt.plot(t, empirical, label='Empirical CDF')
+        plt.plot(t, exact, label='Exact CDF')
+        plt.show()
+
+        rel_diff = np.abs(empirical - exact) / exact
+
+        self.assertLess(rel_diff[5:].mean(), 0.05)
+
+    def test_plot_empirical_cdf(self):
+        """
+        Test plotting empirical CDF.
+        """
+        pg.Coalescent(
+            n=pg.LineageConfig({'pop_0': 1, 'pop_1': 1, 'pop_2': 1}),
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=self.get_complex_demography()
+        ).tree_height._plot_empirical_cdf()
+
+    def test_compare_state_reward_flattened(self):
+        """
+        Test that flattened state rewards match the original state rewards.
+        """
+        coal = pg.Coalescent(n=10)
+        k = coal.block_counting_state_space.k
+
+        pg.Settings.flatten_block_counting = True
+        flattened = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in range(k)]
+        self.assertTrue('_state_probs' in coal.block_counting_state_space.__dict__)
+
+        coal = pg.Coalescent(n=10)
+        pg.Settings.flatten_block_counting = False
+        original = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in range(k)]
+        self.assertFalse('_state_probs' in coal.block_counting_state_space.__dict__)
+
+        np.testing.assert_array_almost_equal(flattened, original)
+
+    def test_flattened_block_counting_beta_coalescent_1_epoch(self):
+        """
+        Make sure flattening block counting states works correctly.
+        """
+        pg.Backend.register(pg.SciPyExpmBackend())
+        pg.Settings.flatten_block_counting = True
+        n = 10
+        model = pg.BetaCoalescent(alpha=1.7)
+        demography = pg.Demography(pop_sizes={'pop_0': {0: 1}})
+
+        coal_flattened = pg.Coalescent(n=n, model=model, demography=demography)
+        flattened = coal_flattened.sfs.mean.data
+        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
+
+        pg.Settings.flatten_block_counting = False
+        coal_original = pg.Coalescent(n=n, model=model, demography=demography)
+        original = coal_original.sfs.mean.data
+        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
+
+        np.testing.assert_array_almost_equal(original, flattened, decimal=14)
+
+    @unittest.skip("Flattening block counting states for beta coalescent with two epochs doesn't work.")
+    def test_flattened_block_counting_beta_coalescent_2_epochs(self):
+        """
+        Flattening the block counting states for MMCs with two doesn't work.
+        """
+        pg.Backend.register(pg.SciPyExpmBackend())
+        pg.Settings.flatten_block_counting = True
+        n = 10
+        model = pg.BetaCoalescent(alpha=1.7)
+        demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 10}})
+
+        coal_flattened = pg.Coalescent(n=n, model=model, demography=demography)
+        flattened = coal_flattened.sfs.mean.data
+        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
+
+        pg.Settings.flatten_block_counting = False
+        coal_original = pg.Coalescent(n=n, model=model, demography=demography)
+        original = coal_original.sfs.mean.data
+        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
+
+        self.assertGreater(np.nanmean(np.abs(flattened - original) / original), 0.01)
+
+    def test_not_flattened_block_counting_beta_coalescent_2_epochs(self):
+        """
+        Make sure that not flattening block counting states works correctly.
+        """
+        coal_original = pg.Coalescent(
+            n=3,
+            model=pg.BetaCoalescent(alpha=1.7),
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 10}})
+        )
+        _ = coal_original.sfs.mean.data
+
+        # make sure state probabilities were not accessed
+        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
+
+    def test_beta_coalescent_state_props(self):
+        """
+        Compare state probabilities of beta coalescent with empirical sampling.
+        """
+        coal = pg.Coalescent(
+            n=10,
+            model=pg.BetaCoalescent(1.7),
+            demography=pg.Demography(pop_sizes={'pop_0': 1})
+        )
+
+        samples, probs_empirical = coal.sfs._sample(10000, record_visits=True)
+
+        probs = coal.block_counting_state_space._state_probs
+
+        self.assertLess((np.abs(probs_empirical - probs) / probs).mean(), 0.08)

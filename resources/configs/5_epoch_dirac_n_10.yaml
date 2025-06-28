@@ -1,0 +1,24 @@
+n:
+  pop_0: 10
+num_replicates: 1000000
+pop_sizes:
+  pop_0:
+    0: 2
+    1.1: 0.3
+    3.5: 0.5
+    4.2: 8
+    7.5: 2.3
+model: dirac
+c: 5
+psi: 0.7
+comparisons:
+  tolerance:
+    tree_height:
+      pdf: 0.05
+      mean: 0.01
+      var: 0.05
+    total_branch_length:
+      mean: 0.01
+      var: 0.05
+    sfs:
+      mean: 0.02

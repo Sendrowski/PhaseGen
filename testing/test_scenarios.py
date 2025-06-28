@@ -75,7 +75,6 @@ configs = [
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
     '1_epoch_n_2_test_size',
-    '5_epoch_n_30',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
     '4_epoch_up_down_n_2',
@@ -89,6 +88,11 @@ configs = [
     '1_epoch_dirac_n_5_psi_1_c_50',
     '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
+    '5_epoch_dirac_n_10',
+    '5_epoch_beta_n_10',
+    '1_epoch_beta_n_20',
+    '1_epoch_dirac_n_20',
+    '5_epoch_n_20',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
@@ -143,7 +147,7 @@ def generate_tests(config: str):
 
         c.do_assertion = ScenariosTestCase.do_assertion
         c.visualize = True
-        c.figure_path = f"results/graphs/comparisons/{config}"
+        #c.figure_path = f"results/graphs/comparisons/{config}"
         c.show_title = True
 
         c.compare(title=config)

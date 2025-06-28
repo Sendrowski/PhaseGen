@@ -11,10 +11,12 @@ from collections import defaultdict
 from collections.abc import Mapping
 from functools import cached_property, cache
 from math import factorial
-from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional, Sequence, Set, Type
+from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional, Sequence, Set, \
+    Type, Union
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from tqdm import tqdm
 
 from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from .demography import Demography, PopSizeChanges
@@ -24,10 +26,10 @@ from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
     LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward
 from .serialization import Serializable
+from .settings import Settings
 from .spectrum import SFS, SFS2
 from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace
 from .utils import parallelize, multiset_permutations
-from .settings import Settings
 
 expm = Backend.expm
 
@@ -700,7 +702,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             self._logger.warning(
                 f"Intensity matrix in epoch {epoch} contains rates that differ by more than 10 orders of magnitude: "
                 f"min: {rates.min()}, max: {rates.max()}. "
-                f"This may potentially lead to numerical instability, despite matrix regularization."
+                f"This may lead to numerical instability, despite matrix regularization."
             )
 
     def accumulate(
@@ -794,7 +796,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         :raises ValueError: If the state space is not a BlockCountingStateSpace, or if k is not 1, or if there are
-            multiple populations or loci or if the model is not the StandardCoalescent.
+            multiple populations or loci, or if the coalescent model is not a StandardCoalescent while having
+            multiple epochs.
         """
 
         if not isinstance(self.state_space, BlockCountingStateSpace):
@@ -806,8 +809,10 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         if self.lineage_config.n_pops != 1 or self.locus_config.n != 1:
             raise ValueError("Flattened accumulation is only supported for a single population and a single locus.")
 
-        if not isinstance(self.state_space.model, StandardCoalescent):
-            raise ValueError("Flattened accumulation is only supported for StandardCoalescent models.")
+        if not isinstance(self.state_space.model, StandardCoalescent) and self.demography.has_n_epochs(2):
+            raise ValueError(
+                "Flattened accumulation is only supported for multiple-merge coalescent models with a single epoch."
+            )
 
         reward = rewards[0] if rewards else self.reward
         r = reward._get(self.state_space)
@@ -815,11 +820,19 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         probs = self.state_space._state_probs
 
         # sum up weights for each state based on the number of lineages
-        weights = np.zeros(self.lineage_config.n)
-        for i, (s, prob) in enumerate(zip(self.state_space.states, probs)):
-            weights[self.lineage_config.n - s.lineages.sum()] += prob * r[i]
+        n = self.lineage_config.n
+        weights = np.zeros(n)
+        weights_total = np.zeros(n)
+        for i, s in enumerate(self.state_space.states):
+            weights[n - s.lineages.sum()] += probs[i] * r[i]
+            weights_total[n - s.lineages.sum()] += probs[i]
 
-        weighted_reward = CustomReward(lambda _: weights)
+        # Create a custom reward that returns the weights.
+        # We divide by the total weights to adjust for the probability of reaching the absorbing state
+        # which is already reflected in the sojourn times. This only works for time-homogeneous MMC models
+        # since the probability of reaching the absorbing state changes over time for time-inhomogeneous models.
+        # However, it also works for time-inhomogeneous models under the standard coalescent model
+        weighted_reward = CustomReward(lambda _: weights / weights_total)
 
         return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
 
@@ -843,9 +856,12 @@ class PhaseTypeDistribution(MomentAwareDistribution):
                 Settings.flatten_block_counting and
                 k == 1 and
                 isinstance(self.state_space, BlockCountingStateSpace) and
-                isinstance(self.state_space.model, StandardCoalescent) and
                 self.lineage_config.n_pops == 1 and
-                self.locus_config.n == 1
+                self.locus_config.n == 1 and
+                (
+                        isinstance(self.state_space.model, StandardCoalescent) or
+                        not self.demography.has_n_epochs(2)
+                )
         ):
             return self._accumulate_flattened(k, end_times, rewards)
 
@@ -934,6 +950,107 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             )
 
         return moments
+
+    def _sample(
+            self,
+            n_samples: int,
+            rewards: Sequence[Reward] = None,
+            record_visits: bool = False
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """
+        Generate samples from the mean reward distribution by simulating trajectories.
+
+        :param n_samples: Number of trajectories to simulate.
+        :param rewards: Rewards to sample from. Default is the tree height reward.
+        :param record_visits: Whether to record which states were visited during the sampling.
+        :return: Array of sampled rewards of size (n_samples, len(rewards)),
+                 and optionally an array of probabilities of visiting each state.
+        """
+        if rewards is None:
+            rewards = [self.reward]
+
+        n_rewards = len(rewards)
+        samples = np.zeros((n_samples, n_rewards))
+        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        alpha = self.state_space.alpha
+        states_visited = np.zeros_like(alpha)
+        R = np.array([r._get(self.state_space) for r in rewards])
+
+        # iterate over samples
+        for i in tqdm(range(n_samples), disable=not Settings.use_pbar):
+            mass = np.zeros(n_rewards)
+            t = 0
+            rate = 0
+            state = np.random.choice(len(alpha), p=alpha)
+            epochs = self.demography.epochs
+            traj_probs = [] if record_visits else None
+
+            try:
+                # find first non-zero rate epoch
+                while rate == 0:
+                    epoch = next(epochs)
+                    self.state_space.update_epoch(epoch)
+                    rate = -self.state_space.S[state, state]
+
+                # sample next time step
+                dt = np.random.exponential(1 / rate)
+
+                # iterate over transitions
+                while True:
+
+                    # iterate over epochs
+                    while t + dt >= epoch.end_time:
+                        # reward until epoch boundary
+                        mass += R[:, state] * (epoch.end_time - t)
+                        dt -= (epoch.end_time - t)
+                        t = epoch.end_time
+
+                        # advance epoch
+                        epoch = next(epochs)
+                        self.state_space.update_epoch(epoch)
+
+                        new_rate = -self.state_space.S[state, state]
+                        if new_rate == 0:
+                            t = epoch.end_time
+                            continue
+
+                        # rescale remaining time
+                        dt *= rate / new_rate
+                        rate = new_rate
+
+                    # step completes in current epoch
+                    mass += R[:, state] * dt
+                    t += dt
+
+                    # sample next state
+                    probs = self.state_space.S[state].copy()
+                    probs[state] = 0
+                    state = np.random.choice(len(probs), p=probs / rate)
+
+                    states_visited[state] += 1
+
+                    if absorbing[state]:
+                        raise StopIteration
+
+                    rate = -self.state_space.S[state, state]
+
+                    # if rate is zero, we skip to the next epoch
+                    if rate == 0:
+                        t = epoch.end_time
+                        continue
+
+                    # sample next time step
+                    dt = np.random.exponential(1 / rate)
+
+            except StopIteration:
+                pass
+
+            samples[i] = mass
+
+        # normalize states visited
+        states_visited /= n_samples
+
+        return (samples, states_visited) if record_visits else samples
 
     def plot_accumulation(
             self,
@@ -1315,6 +1432,76 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             )
 
         return t
+
+    def _empirical_cdf(self, n_samples: int, reward: Reward = None, t: float | Sequence[float] = None) -> np.ndarray:
+        """
+        Generate an empirical cumulative distribution function (CDF) by sampling from the distribution.
+
+        :param n_samples: Number of samples to generate.
+        :param reward: Reward function to use for sampling. If not specified,
+            the default reward of the distribution is used.
+        :param t: Values at which to evaluate the CDF. Default to 100 evenly spaced values
+            between 0 and the 99th percentile.
+        :return: Sorted array of sampled total rewards.
+        """
+        if t is None:
+            t = np.linspace(0, self.tree_height.quantile(0.99), 100)
+
+        samples = self._sample(n_samples, reward).reshape(n_samples)
+
+        x = np.sort(samples)
+        y = np.arange(1, n_samples + 1) / n_samples
+
+        if x.ndim == 1:
+            return np.interp(t, x, y)
+
+    def _plot_empirical_cdf(
+            self,
+            n_samples: int = 1000,
+            reward: Reward = None,
+            t: float | Sequence[float] = None,
+            ax: 'plt.Axes' = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = 'Empirical CDF'
+    ) -> 'plt.Axes':
+        """
+        Plot the empirical cumulative distribution function (CDF).
+
+        :param n_samples: Number of samples to generate.
+        :param reward: Reward function to use for sampling. If not specified,
+            the default reward of the distribution is used.
+        :param t: Values at which to evaluate the CDF. Default to 100 evenly spaced values
+            between 0 and the 99th percentile.
+        :param ax: Axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        from .visualization import Visualization
+
+        if t is None:
+            t = np.linspace(0, self.tree_height.quantile(0.99), 100)
+
+        y = self._empirical_cdf(n_samples, reward, t)
+
+        return Visualization.plot(
+            ax=ax,
+            x=t,
+            y=y,
+            xlabel='t',
+            ylabel='F(t)',
+            label=label,
+            file=file,
+            show=show,
+            clear=clear,
+            title=title
+        )
 
 
 class SFSDistribution(PhaseTypeDistribution, ABC):
@@ -2671,6 +2858,27 @@ class Coalescent(AbstractCoalescent, Serializable):
             end_time=end_time,
             center=center,
             permute=permute
+        )
+
+    def _sample(
+            self,
+            n_samples: int,
+            rewards: Sequence[Reward] = None,
+            record_visits: bool = False
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """
+        Generate samples from the mean reward distribution by simulating trajectories.
+
+        :param n_samples: Number of trajectories to simulate.
+        :param rewards: Rewards to sample from. Default is the tree height reward.
+        :param record_visits: Whether to record which states were visited during the sampling.
+        :return: Array of sampled rewards of size (n_samples, len(rewards)),
+                 and optionally an array of probabilities of visiting each state.
+        """
+        return self._get_dist(k=1, rewards=rewards)._sample(
+            n_samples=n_samples,
+            rewards=rewards,
+            record_visits=record_visits
         )
 
     def _raw_moment(

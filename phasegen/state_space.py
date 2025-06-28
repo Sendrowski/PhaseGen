@@ -283,8 +283,14 @@ class StateSpace(ABC):
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
 
-            # update S by rescaling if already cached and we only have one population and locus
-            if self.lineage_config.n_pops == 1 and self.locus_config.n == 1 and hasattr(self, "S"):
+            # update S by rescaling if already cached while having
+            # one population and locus under the standard coalescent
+            if (
+                    self.lineage_config.n_pops == 1 and
+                    self.locus_config.n == 1 and
+                    isinstance(self.model, StandardCoalescent) and
+                    hasattr(self, "S")
+            ):
                 self.S *= self.epoch.pop_sizes[epoch.pop_names[0]] / epoch.pop_sizes[epoch.pop_names[0]]
 
             else:
@@ -606,6 +612,8 @@ class BlockCountingStateSpace(StateSpace):
         Get state probabilities conditioned on the number of lineages.
         This can be used to flatten the block-counting state space to a lineage-counting state space by weighting the
         lineages by the probabilities of being in each of the corresponding block-counting states.
+        This only works for one-population, one-locus state spaces under the standard coalescent, or MMCs provided
+        there is only one epoch.
 
         :return: State probabilities conditioned on the number of lineages.
         """
