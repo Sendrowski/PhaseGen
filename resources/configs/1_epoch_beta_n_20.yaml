@@ -1,14 +1,11 @@
 n:
-  pop_0: 30
+  pop_0: 20
 num_replicates: 1000000
 pop_sizes:
   pop_0:
-    0: 2
-    1.1: 0.3
-    3.5: 0.5
-    4.2: 8
-    7.5: 2.3
-model: standard
+    0: 1
+model: beta
+alpha: 1.5
 comparisons:
   tolerance:
     tree_height:

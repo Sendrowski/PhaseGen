@@ -1,6 +1,7 @@
 """
 Settings for the PhaseGen application.
 """
+from contextlib import contextmanager
 
 
 class Settings:
@@ -23,3 +24,16 @@ class Settings:
 
     #: Whether to cache the rate matrix for different epochs which increases performance.
     cache_epochs: bool = True
+
+    @staticmethod
+    @contextmanager
+    def set_pbar(enabled: bool = True):
+        """
+        Context manager to temporarily enable or disable the progress bar.
+        """
+        prev = Settings.use_pbar
+        Settings.use_pbar = enabled
+        try:
+            yield
+        finally:
+            Settings.use_pbar = prev
