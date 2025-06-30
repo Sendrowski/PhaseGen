@@ -1192,35 +1192,67 @@ class CoalescentTestCase(TestCase):
 
         np.testing.assert_allclose(covs, covs_exp, atol=1e-14, rtol=0)
 
-    def test_rescale_S(self):
+    def test_rescale_S_single_kingman(self):
         """
-        Test if rate matrix is rescaled correctly when population size changes.
+        Test rate matrix rescaling for Kingman coalescent with a single population.
         """
         coal = pg.Coalescent(n=6)
-
-        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
-        self.assertFalse(hasattr(coal.block_counting_state_space.update_epoch, 'S'))  # not cached yet
+        self.assertFalse('S' in coal.block_counting_state_space.__dict__)
 
         _ = coal.block_counting_state_space.S
         coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+
         np.testing.assert_array_almost_equal(
             coal.block_counting_state_space.S * 3,
             pg.Coalescent(n=6).block_counting_state_space.S
         )
+        self.assertTrue('S' in coal.block_counting_state_space.__dict__)
 
-        coal = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5))
-        _ = coal.block_counting_state_space.S
-        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+    def test_rescale_S_beta(self):
+        """
+        Test rate matrix rescaling for Beta coalescent with a single population.
+        """
+        coal1 = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.7))
+        coal2 = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.7),
+                              demography=pg.Demography(pop_sizes={'pop_0': {0: 3}}))
 
-        # not cached yet since rescaling doesn't work for multiple populations
-        self.assertFalse(hasattr(coal.block_counting_state_space.update_epoch, 'S'))
+        r = coal2.block_counting_state_space._get_scaling_factor(
+            epoch_prev=next(coal1.demography.epochs),
+            epoch_next=next(coal2.demography.epochs)
+        )
 
+        np.testing.assert_array_almost_equal(
+            coal1.block_counting_state_space.S * r,
+            coal2.block_counting_state_space.S
+        )
+
+    def test_rescale_S_dirac(self):
+        """
+        Test rate matrix rescaling for Dirac coalescent with a single population.
+        """
+        coal1 = pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=0.4, c=5))
+        coal2 = pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=0.4, c=5),
+                              demography=pg.Demography(pop_sizes={'pop_0': {0: 3}}))
+
+        r = coal2.block_counting_state_space._get_scaling_factor(
+            epoch_prev=next(coal1.demography.epochs),
+            epoch_next=next(coal2.demography.epochs)
+        )
+
+        np.testing.assert_array_almost_equal(
+            coal1.block_counting_state_space.S * r,
+            coal2.block_counting_state_space.S
+        )
+
+    def test_rescale_S_multi_pop(self):
+        """
+        Test that rescaling does not cache S for multiple populations.
+        """
         coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2})
         _ = coal.block_counting_state_space.S
         coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
 
-        # not cached yet since rescaling doesn't work for multiple populations
-        self.assertFalse(hasattr(coal.lineage_counting_state_space.update_epoch, 'S'))
+        self.assertFalse('S' in coal.block_counting_state_space.__dict__)
 
     def test_flattened_block_counting_standard_coalescent_2_epochs(self):
         """
