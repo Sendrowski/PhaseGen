@@ -624,7 +624,7 @@ class BlockCountingStateSpace(StateSpace):
         This can be used to flatten the block-counting state space to a lineage-counting state space by weighting the
         lineages by the probabilities of being in each of the corresponding block-counting states.
         This only works for one-population, one-locus state spaces under the standard coalescent, or MMCs provided
-        there is only one epoch.
+        there is only one epoch, and we accumulate until absorption.
 
         :return: State probabilities conditioned on the number of lineages.
         """

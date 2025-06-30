@@ -796,8 +796,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         :raises ValueError: If the state space is not a BlockCountingStateSpace, or if k is not 1, or if there are
-            multiple populations or loci, or if the coalescent model is not a StandardCoalescent while having
-            multiple epochs.
+            multiple populations or loci or if the coalescent model is not the standard coalescent.
         """
 
         if not isinstance(self.state_space, BlockCountingStateSpace):
@@ -809,10 +808,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         if self.lineage_config.n_pops != 1 or self.locus_config.n != 1:
             raise ValueError("Flattened accumulation is only supported for a single population and a single locus.")
 
-        if not isinstance(self.state_space.model, StandardCoalescent) and self.demography.has_n_epochs(2):
-            raise ValueError(
-                "Flattened accumulation is only supported for multiple-merge coalescent models with a single epoch."
-            )
+        if not isinstance(self.state_space.model, StandardCoalescent):
+            raise ValueError("Flattened accumulation is only supported for standard coalescent.")
 
         reward = rewards[0] if rewards else self.reward
         r = reward._get(self.state_space)
@@ -822,17 +819,11 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # sum up weights for each state based on the number of lineages
         n = self.lineage_config.n
         weights = np.zeros(n)
-        weights_total = np.zeros(n)
         for i, s in enumerate(self.state_space.states):
             weights[n - s.lineages.sum()] += probs[i] * r[i]
-            weights_total[n - s.lineages.sum()] += probs[i]
 
         # Create a custom reward that returns the weights.
-        # We divide by the total weights to adjust for the probability of reaching the absorbing state
-        # which is already reflected in the sojourn times. This only works for time-homogeneous MMC models
-        # since the probability of reaching the absorbing state changes over time for time-inhomogeneous models.
-        # However, it also works for time-inhomogeneous models under the standard coalescent model
-        weighted_reward = CustomReward(lambda _: weights / weights_total)
+        weighted_reward = CustomReward(lambda _: weights)
 
         return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
 
@@ -856,12 +847,9 @@ class PhaseTypeDistribution(MomentAwareDistribution):
                 Settings.flatten_block_counting and
                 k == 1 and
                 isinstance(self.state_space, BlockCountingStateSpace) and
+                isinstance(self.state_space.model, StandardCoalescent) and
                 self.lineage_config.n_pops == 1 and
-                self.locus_config.n == 1 and
-                (
-                        isinstance(self.state_space.model, StandardCoalescent) or
-                        not self.demography.has_n_epochs(2)
-                )
+                self.locus_config.n == 1
         ):
             return self._accumulate_flattened(k, end_times, rewards)
 

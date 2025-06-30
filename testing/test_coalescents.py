@@ -1317,11 +1317,12 @@ class CoalescentTestCase(TestCase):
         exact = coal.tree_height.cdf(t=t)
         plt.plot(t, empirical, label='Empirical CDF')
         plt.plot(t, exact, label='Exact CDF')
+        plt.legend()
         plt.show()
 
         rel_diff = np.abs(empirical - exact) / exact
 
-        self.assertLess(rel_diff[5:].mean(), 0.05)
+        self.assertLess(rel_diff[20:].mean(), 0.01)
 
     def test_plot_empirical_cdf(self):
         """
@@ -1351,27 +1352,6 @@ class CoalescentTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(flattened, original)
 
-    def test_flattened_block_counting_beta_coalescent_1_epoch(self):
-        """
-        Make sure flattening block counting states works correctly.
-        """
-        pg.Backend.register(pg.SciPyExpmBackend())
-        pg.Settings.flatten_block_counting = True
-        n = 10
-        model = pg.BetaCoalescent(alpha=1.7)
-        demography = pg.Demography(pop_sizes={'pop_0': {0: 1}})
-
-        coal_flattened = pg.Coalescent(n=n, model=model, demography=demography)
-        flattened = coal_flattened.sfs.mean.data
-        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
-
-        pg.Settings.flatten_block_counting = False
-        coal_original = pg.Coalescent(n=n, model=model, demography=demography)
-        original = coal_original.sfs.mean.data
-        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
-
-        np.testing.assert_array_almost_equal(original, flattened, decimal=14)
-
     @unittest.skip("Flattening block counting states for beta coalescent with two epochs doesn't work.")
     def test_flattened_block_counting_beta_coalescent_2_epochs(self):
         """
@@ -1394,14 +1374,14 @@ class CoalescentTestCase(TestCase):
 
         self.assertGreater(np.nanmean(np.abs(flattened - original) / original), 0.01)
 
-    def test_not_flattened_block_counting_beta_coalescent_2_epochs(self):
+    def test_not_flattened_block_counting_beta_coalescent(self):
         """
         Make sure that not flattening block counting states works correctly.
         """
         coal_original = pg.Coalescent(
             n=3,
             model=pg.BetaCoalescent(alpha=1.7),
-            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 10}})
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1}})
         )
         _ = coal_original.sfs.mean.data
 
