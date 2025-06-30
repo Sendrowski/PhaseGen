@@ -81,7 +81,7 @@ theta = dadi.Inference.optimal_sfs_scaling(best_model, sfs)
 # plot modelled vs observed SFS
 fd.Spectra(dict(
     observed=sfs,
-    modelled=func_ex(best_params, ns, pts_l) * theta
+    modelled=best_model * theta
 )).plot()
 
 # bootstrap optimization
