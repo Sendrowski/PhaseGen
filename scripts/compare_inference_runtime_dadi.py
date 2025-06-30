@@ -6,21 +6,23 @@ import re
 import time
 import warnings
 from typing import Tuple
-import seaborn as sns
 
 import dadi
 import fastdfe as fd
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 import phasegen as pg
 
+pg.Settings.flatten_block_counting = True
+
 bounds = dict(t=(0, 4), Ne=(0.1, 10))
 n_runs = 10
-n_bootstraps = 20
-sample_sizes = range(5, 21, 1)
+n_bootstraps = 100
+sample_sizes = np.arange(5, 20, 2)
 
 
 def simulate_bottleneck_sfs(n: int) -> pg.SFS:
@@ -28,7 +30,7 @@ def simulate_bottleneck_sfs(n: int) -> pg.SFS:
     Simulate SFS from a 3-epoch bottleneck scenario using PhaseGen.
     """
     demography = pg.Demography(
-        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.0: 1.0}}
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1: 1}}
     )
     coal = pg.Coalescent(n=n, demography=demography)
     return coal.sfs.mean
@@ -68,6 +70,7 @@ def run_dadi(sfs: dadi.Spectrum) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
     runs = pd.DataFrame(runs, columns=["t", "Ne", "loss", "n_it"])
     best_idx = runs["loss"].idxmin()
     best_params = runs.iloc[best_idx, :2].values
+    pg.logger.info(f"Inference parameters: {dict(zip(['t', 'Ne'], best_params))}")
 
     bootstraps = []
     for _ in tqdm(range(n_bootstraps), desc="dadi bootstraps"):
@@ -81,6 +84,12 @@ def run_dadi(sfs: dadi.Spectrum) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
         bootstraps.append((*popt, ll, n_it))
 
     bootstraps = pd.DataFrame(bootstraps, columns=["t", "Ne", "loss", "n_it"])
+    pg.logger.info(
+        f"Bootstrap parameters: "
+        f"mean: {bootstraps[['t', 'Ne']].mean().to_dict()}, "
+        f"std: {bootstraps[['t', 'Ne']].std().to_dict()}"
+    )
+
     return runs, bootstraps, time.time() - start
 
 
@@ -99,9 +108,9 @@ def run_phasegen(sfs: pg.SFS) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
         loss=lambda coal, obs: pg.PoissonLikelihood().compute(
             observed=obs.polymorphic,
             modelled=(
-                coal.sfs.mean.polymorphic /
-                (coal.sfs.mean.theta * coal.sfs.mean.n_sites) *
-                (obs.theta * obs.n_sites)
+                    coal.sfs.mean.polymorphic /
+                    (coal.sfs.mean.theta * coal.sfs.mean.n_sites) *
+                    (obs.theta * obs.n_sites)
             )
         ),
         bounds=bounds,
@@ -128,7 +137,7 @@ def run_phasegen(sfs: pg.SFS) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
 results = []
 
 for n in sample_sizes:
-    print(f"\nSample size = {n}")
+    pg.logger.info(f"\nSample size = {n}")
     sfs_phasegen = simulate_bottleneck_sfs(n)
 
     # dadi
@@ -141,16 +150,18 @@ for n in sample_sizes:
         "phasegen.runtime": time_pg,
         "dadi.n_it": runs_dadi["n_it"].mean(),
         "phasegen.n_it": runs_pg["n_it"].mean(),
-        "dadi.loss": runs_dadi["loss"].mean(),
-        "phasegen.loss": runs_pg["loss"].mean(),
-        "dadi.t": runs_dadi["t"].mean(),
-        "phasegen.t": runs_pg["t"].mean(),
-        "dadi.Ne": runs_dadi["Ne"].mean(),
-        "phasegen.Ne": runs_pg["Ne"].mean(),
+        "dadi.loss": bs_dadi["loss"].mean(),
+        "phasegen.loss": bs_pg["loss"].mean(),
+        "dadi.t": bs_dadi["t"].mean(),
+        "phasegen.t": bs_pg["t"].mean(),
+        "dadi.Ne": bs_dadi["Ne"].mean(),
+        "phasegen.Ne": bs_pg["Ne"].mean(),
     })
 
 results = pd.DataFrame(results)
 results.to_csv("scratch/inference_comparison.csv", index=False)
+
+results = pd.read_csv("scratch/inference_comparison.csv")
 
 metric = "runtime"
 methods = ["dadi", "phasegen"]
@@ -158,7 +169,7 @@ methods = ["dadi", "phasegen"]
 data = results[["n"] + [f"{m}.{metric}" for m in methods]].set_index("n")
 data.columns = methods
 
-plt.figure(figsize=(4, 3))
+plt.figure(figsize=(4, 4))
 sns.heatmap(data, annot=True, fmt=".2f", cmap="coolwarm", cbar=False)
 plt.title("Runtime in seconds")
 plt.xlabel("Method")

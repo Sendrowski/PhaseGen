@@ -64,7 +64,7 @@ for i, ax in enumerate(axs.flat):
             ha='right')
 
 plt.tight_layout()
-plt.savefig('reports/manuscripts/figures/inference_result.png', dpi=400)
+plt.savefig('reports/manuscripts/main/figures/inference_result.png', dpi=400)
 plt.show()
 
 inf.to_file('scratch/inference.json')
