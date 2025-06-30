@@ -1,5 +1,7 @@
 - Discretized methods work in principle, but it's unclear how to discretize the Van Loan matrix, which is required for computing higher-order moments.
 
+- Discretizing first order-moment provides fast results with an error rate lower than 1e-2, but is not suitable for gradient-based optimization.
+
 - Sparse matrix multiplication is efficient when discretizing time.
 
 - Matrix inversion only applies to time-homogeneous cases; the matrix becomes singular when recursions exist (i.e., in models with multiple populations).
@@ -14,4 +16,4 @@
 
 - Sparse matrix exponentiation is generally slow and only outperforms dense exponentiation for extremely large matrices (tens of thousands of states).
 
-- Collapsing the block-counting state space into the lineage-counting state space is feasible for one-population, one-locus Kingman coalescent models and significantly improves computational efficiency. It remains an open question whether this reduction can be extended to multiple-merger coalescent models.
+- Collapsing the block-counting state space into the lineage-counting state space is feasible for one-population, one-locus Kingman coalescent models and significantly improves computational efficiency. It doesn't for MMCs, however.
