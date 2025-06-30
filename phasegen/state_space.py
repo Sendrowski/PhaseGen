@@ -283,20 +283,31 @@ class StateSpace(ABC):
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
 
-            # update S by rescaling if already cached while having
-            # one population and locus under the standard coalescent
+            # update S by rescaling if already cached, provided there is only one population and one locus
             if (
                     self.lineage_config.n_pops == 1 and
                     self.locus_config.n == 1 and
-                    isinstance(self.model, StandardCoalescent) and
-                    hasattr(self, "S")
+                    'S' in self.__dict__
             ):
-                self.S *= self.epoch.pop_sizes[epoch.pop_names[0]] / epoch.pop_sizes[epoch.pop_names[0]]
+                self.S *= self._get_scaling_factor(self.epoch, epoch)
 
             else:
                 self.drop_S()
 
         self.epoch = epoch
+
+    def _get_scaling_factor(self, epoch_prev: Epoch, epoch_next: Epoch) -> float:
+        """
+        Get the scaling factor for the rate matrix when changing epochs.
+
+        :param epoch_prev: Previous epoch.
+        :param epoch_next: Next epoch.
+        :return: Scaling factor.
+        """
+        pop_prev = epoch_prev.pop_sizes[epoch_prev.pop_names[0]]
+        pop_next = epoch_next.pop_sizes[epoch_next.pop_names[0]]
+
+        return self.model._get_timescale(pop_prev) / self.model._get_timescale(pop_next)
 
     def __eq__(self, other):
         """
