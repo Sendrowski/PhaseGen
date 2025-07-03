@@ -34,7 +34,8 @@ def parallelize(
     """
     if parallelize and len(data) > 1:
         # parallelize
-        iterator = Pool().imap(func, data)
+        with Pool() as pool:
+            iterator = pool.imap(func, data)
     else:
         # sequentialize
         iterator = map(func, data)
