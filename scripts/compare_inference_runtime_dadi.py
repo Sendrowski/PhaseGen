@@ -20,9 +20,9 @@ import phasegen as pg
 pg.Settings.flatten_block_counting = True
 
 bounds = dict(t=(0, 4), Ne=(0.1, 10))
-n_runs = 10
-n_bootstraps = 100
-sample_sizes = np.arange(5, 20, 2)
+n_runs = 100
+n_bootstraps = 1
+sample_sizes = np.arange(5, 26, 2)
 
 
 def simulate_bottleneck_sfs(n: int) -> pg.SFS:
@@ -137,12 +137,15 @@ def run_phasegen(sfs: pg.SFS) -> Tuple[pd.DataFrame, pd.DataFrame, float]:
 results = []
 
 for n in sample_sizes:
-    pg.logger.info(f"\nSample size = {n}")
+    pg.logger.info(f"Sample size = {n}")
     sfs_phasegen = simulate_bottleneck_sfs(n)
 
     # dadi
     runs_dadi, bs_dadi, time_dadi = run_dadi(dadi.Spectrum(sfs_phasegen.data))
     runs_pg, bs_pg, time_pg = run_phasegen(sfs_phasegen)
+
+    best_run_dadi = runs_dadi.iloc[runs_dadi.loss.argmin()]
+    best_run_pg = runs_pg.iloc[runs_pg.loss.argmin()]
 
     results.append({
         "n": n,
@@ -150,12 +153,12 @@ for n in sample_sizes:
         "phasegen.runtime": time_pg,
         "dadi.n_it": runs_dadi["n_it"].mean(),
         "phasegen.n_it": runs_pg["n_it"].mean(),
-        "dadi.loss": bs_dadi["loss"].mean(),
-        "phasegen.loss": bs_pg["loss"].mean(),
-        "dadi.t": bs_dadi["t"].mean(),
-        "phasegen.t": bs_pg["t"].mean(),
-        "dadi.Ne": bs_dadi["Ne"].mean(),
-        "phasegen.Ne": bs_pg["Ne"].mean(),
+        "dadi.loss": best_run_dadi.loss,
+        "phasegen.loss": best_run_pg.loss,
+        "dadi.t": best_run_dadi.t,
+        "phasegen.t": best_run_pg.t,
+        "dadi.Ne": best_run_dadi.Ne,
+        "phasegen.Ne": best_run_pg.Ne,
     })
 
 results = pd.DataFrame(results)
