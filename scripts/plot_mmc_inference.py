@@ -20,8 +20,8 @@ except NameError:
     inf_kingman = "results/MMC_inference/Kingman.10.json"
     fit_sfs = "results/MMC_inference/Kingman_SFS.10.50.1000.json"
     fit_2sfs = "results/MMC_inference/Kingman_2SFS.10.50.1000.json"
-    n_bins = 10
-    out = "scratch/MMC_inference.png"
+    n_bins = 30
+    out = "reports/manuscripts/main/figures/2sfs_inference.png"
 
 coal_truth = pg.Coalescent.from_file(inf_kingman)
 
@@ -97,14 +97,14 @@ inf_2sfs.bootstraps.t.hist(ax=axes[5][2], bins=n_bins, grid=False)
 
 # Add ylabel axes
 label_axes = [fig.add_subplot(gs[row, 0]) for row in range(1, 7)]
-row_labels = ['SFS', '2-SFS', '$N_e(t)$', '$\\alpha$', '$N_1$', '$t_1$']
+row_labels = ['SFS', 'SFS corr', '$N_e(t)$', '$\\alpha$', '$N_1$', '$t_1$']
 for ax, label in zip(label_axes, row_labels):
     ax.text(0.5, 0.5, label, fontsize=15, ha='center', va='center', rotation=0)
     ax.axis('off')
 
 # Add xlabel axes
 label_axes = [fig.add_subplot(gs[0, col + 1]) for col in range(3)]
-col_labels = ['ground truth', 'SFS inference', 'SFS + 2-SFS inference']
+col_labels = ['ground truth', 'SFS inference', 'SFS + corr inference']
 for ax, label in zip(label_axes, col_labels):
     ax.text(0.5, 0.5, label, fontsize=20, ha='center', va='center', rotation=0)
     ax.axis('off')
