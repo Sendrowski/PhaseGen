@@ -1151,11 +1151,11 @@ class CoalescentTestCase(TestCase):
 
         coal = pg.Coalescent(n=4)
 
-        self.assertNotEquals(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
-        self.assertNotEquals(
+        self.assertNotEqual(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
+        self.assertNotEqual(
             1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S)
         )
-        self.assertNotEquals(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
+        self.assertNotEqual(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
 
     def test_fewer_than_2_lineages_raises_error(self):
         """
@@ -1280,6 +1280,7 @@ class CoalescentTestCase(TestCase):
         self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
 
         np.testing.assert_array_almost_equal(original, flattened, decimal=14)
+        pg.Settings.flatten_block_counting = True
 
     def test_sample_empirical_pdf(self):
         """
@@ -1351,6 +1352,7 @@ class CoalescentTestCase(TestCase):
         self.assertFalse('_state_probs' in coal.block_counting_state_space.__dict__)
 
         np.testing.assert_array_almost_equal(flattened, original)
+        pg.Settings.flatten_block_counting = True
 
     @unittest.skip("Flattening block counting states for beta coalescent with two epochs doesn't work.")
     def test_flattened_block_counting_beta_coalescent_2_epochs(self):
@@ -1373,6 +1375,7 @@ class CoalescentTestCase(TestCase):
         self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
 
         self.assertGreater(np.nanmean(np.abs(flattened - original) / original), 0.01)
+        pg.Settings.flatten_block_counting = True
 
     def test_not_flattened_block_counting_beta_coalescent(self):
         """
