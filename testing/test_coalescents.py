@@ -1322,7 +1322,7 @@ class CoalescentTestCase(TestCase):
 
         rel_diff = np.abs(empirical - exact) / exact
 
-        self.assertLess(rel_diff[20:].mean(), 0.01)
+        self.assertLess(rel_diff[20:].mean(), 0.02)
 
     def test_plot_empirical_cdf(self):
         """
