@@ -47,7 +47,7 @@ class LineageConfigTestCase(TestCase):
         self.assertEqual(pg.LineageConfig(3), pg.LineageConfig({'pop_0': 3}))
         self.assertEqual(pg.LineageConfig([3, 2]), pg.LineageConfig({'pop_0': 3, 'pop_1': 2}))
 
-        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig(4))
-        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig([3, 3]))
-        self.assertNotEquals(pg.LineageConfig(3), pg.LineageConfig({'pop_1': 3}))
-        self.assertNotEquals(pg.LineageConfig({'pop_0': 3, 'pop_1': 2}), pg.LineageConfig({'pop_0': 3, 'pop1': 3}))
+        self.assertNotEqual(pg.LineageConfig(3), pg.LineageConfig(4))
+        self.assertNotEqual(pg.LineageConfig(3), pg.LineageConfig([3, 3]))
+        self.assertNotEqual(pg.LineageConfig(3), pg.LineageConfig({'pop_1': 3}))
+        self.assertNotEqual(pg.LineageConfig({'pop_0': 3, 'pop_1': 2}), pg.LineageConfig({'pop_0': 3, 'pop1': 3}))
