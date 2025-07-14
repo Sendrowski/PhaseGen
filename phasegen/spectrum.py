@@ -293,8 +293,10 @@ class SFS2(Iterable):
             ax.set_xscale('log', base=1.001)
             ax.set_yscale('log', base=1.001)
 
-        ax.set_xticklabels(range(1, len(data) + 1))
-        ax.set_yticklabels(range(1, len(data) + 1))
+        ax.set_xticks(ax.get_yticks())
+        ax.set_xticklabels([str(int(label + 1)) for label in ax.get_xticks()])
+        ax.set_yticklabels([str(int(label + 1)) for label in ax.get_yticks()])
+
 
         # remove confusing color bar ticks
         ax.collections[0].colorbar.ax.tick_params(size=0)
