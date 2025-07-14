@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "phasegen"
-version = "1.0.1"
+version = "1.0.2"
 description = "Computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios."
 authors = ["Sendrowski <sendrowski.janek@gmail.com>"]
 license = "MIT"

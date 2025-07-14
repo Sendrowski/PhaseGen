@@ -137,6 +137,7 @@ rule update_dependencies:
         "envs/build.yaml"
     shell:
         """
+            poetry self add poetry-plugin-export
             poetry update
             poetry export -f requirements.txt --without-hashes -o {output.base}
             poetry export -f requirements.txt --without-hashes -o {output.base_snakemake}
