@@ -10,7 +10,7 @@ import phasegen as pg
 # set computation backend
 pg.Backend.register(pg.SciPyExpmBackend())
 
-#pg.logger.setLevel(pg.logging.DEBUG)
+# pg.logger.setLevel(pg.logging.DEBUG)
 
 inf = pg.Inference(
     coal=lambda t, Ne: pg.Coalescent(
@@ -25,9 +25,7 @@ inf = pg.Inference(
     loss=lambda coal, obs: pg.PoissonLikelihood().compute(
         observed=obs.polymorphic,
         modelled=(
-                coal.sfs.mean.polymorphic /
-                (coal.sfs.mean.theta * coal.sfs.mean.n_sites) *
-                (obs.theta * obs.n_sites)
+                coal.sfs.mean.polymorphic / coal.sfs.mean.Theta * obs.Theta
         )
     ),
     bounds=dict(t=(0, 4), Ne=(0.1, 10)),
