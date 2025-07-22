@@ -6,7 +6,7 @@
 [![Conda Version](https://img.shields.io/conda/vn/conda-forge/phasegen.svg)](https://anaconda.org/conda-forge/phasegen)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Downloads](https://static.pepy.tech/badge/phasegen)](https://pepy.tech/project/phasegen)
-[![DOI](https://img.shields.io/badge/DOI-10.1101%2F2025.05.13.653888-blue)](https://doi.org/10.1101/2025.05.13.653888)
+[![DOI](https://img.shields.io/badge/DOI-10.1093%2Fgenetics%2Fiyaf135-blue)](https://doi.org/10.1093/genetics/iyaf135)
 
 ``phasegen`` is a package for computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios. ``phasegen`` leverages phase-type theory and supports a wide range of demographic models and coalescent tree statistics.
 
