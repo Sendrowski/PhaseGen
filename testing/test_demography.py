@@ -414,3 +414,28 @@ class DemographyTestCase(TestCase):
 
         # make sure migration rates are not included in the string when only one population is present
         self.assertEqual("Epoch(start_time=0.1667, end_time=2, pop_sizes=(pop_0=1.11)", str(epoch))
+
+    def test_demography_pop_size_input_format(self):
+        """
+        Test Demography pop_sizes input formats.
+        """
+        d = pg.Demography(pop_sizes={0: 1, 2: 2})
+
+        epochs = list(d.epochs)
+        self.assertEqual(epochs[0].pop_sizes['pop_0'], 1)
+        self.assertEqual(epochs[1].pop_sizes['pop_0'], 2)
+
+        d = pg.Demography(pop_sizes=2)
+        self.assertEqual(next(d.epochs).pop_sizes['pop_0'], 2)
+
+        d = pg.Demography(pop_sizes={'pop_A': 3, 'pop_B': 1})
+        epochs = list(d.epochs)
+        self.assertEqual(epochs[0].pop_sizes['pop_A'], 3)
+        self.assertEqual(epochs[0].pop_sizes['pop_B'], 1)
+
+        d = pg.Demography(pop_sizes={'pop_A': {0: 1, 1: 2}, 'pop_B': {1: 3}})
+        epochs = list(d.epochs)
+        self.assertEqual(epochs[0].pop_sizes['pop_A'], 1)
+        self.assertEqual(epochs[0].pop_sizes['pop_B'], 1)
+        self.assertEqual(epochs[1].pop_sizes['pop_A'], 2)
+        self.assertEqual(epochs[1].pop_sizes['pop_B'], 3)

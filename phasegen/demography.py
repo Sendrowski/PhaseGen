@@ -27,7 +27,7 @@ class Demography:
     def __init__(
             self,
             events: List['DemographicEvent'] = None,
-            pop_sizes: Dict[str, Dict[float, float]] | Dict[str, float] | float = None,
+            pop_sizes: Dict[str, Dict[float, float]] | Dict[str, float] | Dict[float, float] | float = None,
             migration_rates: Dict[Tuple[str, str], Dict[float, float]] | Dict[Tuple[str, str], float] = None,
             warn_n_epochs: int = 20
     ):
@@ -38,7 +38,8 @@ class Demography:
         :param pop_sizes: Population sizes. Either a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}``,
             indexed by population name and time at which the population size changes, or a dictionary of the form
             ``{pop_i: size}`` if the population size is constant, or a single float if there is only one population
-            and the population size is constant.
+            and the population size is constant, or a dictionary of the form ``{time1: size1, time2: size2}`` for a
+            single population.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` backwards in time from time
             ``time1`` etc., or alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration
@@ -51,11 +52,15 @@ class Demography:
         if pop_sizes is None:
             pop_sizes = {}
 
-        # wrap population size in dictionary if it is a single float
+        # assuming a single population with constant size if a float is given
         elif isinstance(pop_sizes, (float, int)):
             pop_sizes = {'pop_0': {0: pop_sizes}}
 
-        # wrap population size in dictionary if only one time per population is given
+        # assuming a single population if only a dictionary of time to size is given
+        elif isinstance(pop_sizes, dict) and isinstance(list(pop_sizes.keys())[0], (float, int)):
+            pop_sizes = {'pop_0': pop_sizes}
+
+        # assuming constant population sizes if only a dictionary of population to size is given
         elif isinstance(pop_sizes, dict) and isinstance(list(pop_sizes.values())[0], (float, int)):
             pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
 

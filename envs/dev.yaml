@@ -3,7 +3,6 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
-  - msprime
   - dadi
   - graphviz
   - pytorch
@@ -18,6 +17,7 @@ dependencies:
   - jupyter
   - pip
   - pip:
+    - msprime
     - pytest
     - pytest-xdist
     - pytest-cov
