@@ -76,7 +76,7 @@ class ProbabilityDistribution(ABC):
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self, **kwargs):
+    def touch(self, **kwargs: dict):
         """
         Touch all cached properties.
 
@@ -407,7 +407,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         pass
 
     @abstractmethod
-    def pdf(self, t: float | Sequence[float], **kwargs) -> float | np.ndarray:
+    def pdf(self, t: float | Sequence[float], **kwargs: dict) -> float | np.ndarray:
         """
         Density function.
 
@@ -2229,7 +2229,8 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             t: float | np.ndarray,
             n_bins: int = 10000,
             sigma: float = None,
-            samples: np.ndarray = None
+            samples: np.ndarray = None,
+            **kwargs: dict
     ) -> float | np.ndarray:
         """
         Density function.
@@ -3327,7 +3328,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return np.linspace(0, t_max, 100)
 
-    def touch(self, **kwargs):
+    def touch(self, **kwargs: dict):
         """
         Touch cached properties.
 
