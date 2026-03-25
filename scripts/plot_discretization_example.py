@@ -15,15 +15,14 @@ def plot_population_growth(x, y, plot_type='line'):
     :param plot_type:
     :return:
     """
-    plt.figure(figsize=(1.5, 1.5))
+    plt.figure(figsize=(2, 1.3), dpi=400)
     if plot_type == 'line':
-        plt.plot(x, y, linewidth=3)
+        plt.plot(x, y, linewidth=2)
     elif plot_type == 'step':
-        plt.step(x, y, linewidth=3)
+        plt.step(x, y, linewidth=2)
     plt.xlabel('t')
     plt.xticks([])
     plt.yticks([])
-    plt.title('Demography')
     plt.tight_layout()
     plt.show()
 
