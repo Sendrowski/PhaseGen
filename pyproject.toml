@@ -3,7 +3,7 @@ name = "phasegen"
 version = "1.0.2"
 description = "Computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios."
 authors = ["Sendrowski <sendrowski.janek@gmail.com>"]
-license = "MIT"
+license = "GPL-3.0-or-later"
 readme = "README.md"
 
 [tool.poetry.dependencies]
