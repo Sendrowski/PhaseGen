@@ -3627,6 +3627,25 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
 
+class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
+    """
+    Empirical (msprime-based) two-locus SFS, exposing the same ``mean`` interface as
+    :class:`TwoLocusSFSDistribution` (a :class:`~phasegen.spectrum.TwoLocusSFS`) so the two can be compared by
+    :class:`~phasegen.comparison.Comparison`.
+    """
+
+    def __init__(self, mean: np.ndarray):
+        """
+        :param mean: The simulated mean two-locus SFS array.
+        """
+        self._mean = np.asarray(mean)
+
+    @property
+    def mean(self) -> TwoLocusSFS:
+        """Mean two-locus SFS."""
+        return TwoLocusSFS(self._mean)
+
+
 class MsprimeCoalescent(AbstractCoalescent):
     """
     Empirical coalescent distribution based on `msprime` simulations.
@@ -4082,6 +4101,47 @@ class MsprimeCoalescent(AbstractCoalescent):
             )
 
         return EmpiricalJointSFSDistribution(moments=self.jsfs_moments)
+
+    @cached_property
+    def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
+        """
+        Two-locus SFS ground truth, simulated with msprime: two sites at recombination distance ``r`` (the two loci),
+        the per-bin branch-length cross product averaged over replicates. Only available for two-locus, single-locus-
+        sample scenarios. Returns an :class:`EmpiricalTwoLocusSFSDistribution` exposing ``mean`` as a
+        :class:`~phasegen.spectrum.TwoLocusSFS`, matching :class:`TwoLocusSFSDistribution`.
+        """
+        import msprime as ms
+
+        if self.locus_config.n != 2:
+            raise NotImplementedError("The two-locus SFS is only available for two-locus scenarios.")
+
+        n = self.lineage_config.n
+        demography = self.demography.to_msprime()
+        model = self.get_coalescent_model()
+
+        out = np.zeros((n + 1, n + 1))
+        for ts in ms.sim_ancestry(
+                samples=self.lineage_config.lineage_dict,
+                sequence_length=2,
+                recombination_rate=self.locus_config.recombination_rate,
+                demography=demography,
+                model=model,
+                ploidy=1,
+                num_replicates=self.num_replicates,
+                random_seed=self.seed,
+        ):
+            t0, t1 = ts.at(0.5), ts.at(1.5)
+            left = np.zeros(n + 1)
+            right = np.zeros(n + 1)
+            for nd in t0.nodes():
+                if t0.parent(nd) != -1:
+                    left[t0.num_samples(nd)] += t0.branch_length(nd)
+            for nd in t1.nodes():
+                if t1.parent(nd) != -1:
+                    right[t1.num_samples(nd)] += t1.branch_length(nd)
+            out += np.outer(left, right)
+
+        return EmpiricalTwoLocusSFSDistribution(out / self.num_replicates)
 
     def to_phasegen(self) -> Coalescent:
         """

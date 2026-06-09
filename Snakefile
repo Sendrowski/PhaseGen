@@ -94,6 +94,20 @@ rule create_jsfs_comparison:
 # prefer the jsfs-specific rule for *_jsfs fixtures (both rules match the same output)
 ruleorder: create_jsfs_comparison > create_comparison
 
+# create two-locus-SFS comparisons (the sfs2-specific caching that create_comparison cannot handle)
+rule create_2locus_comparison:
+    input:
+        "resources/configs/{config}_2_locus_sfs.yaml"
+    output:
+        "results/comparisons/serialized/{config}_2_locus_sfs.json"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/generate_2locus_fixtures.py"
+
+# prefer the two-locus-specific rule for *_2_locus_sfs fixtures (both rules match the same output)
+ruleorder: create_2locus_comparison > create_comparison
+
 # generate an independent joint-SFS reference using the moments package (runs in the dev env which provides moments)
 rule generate_jsfs_reference:
     input:

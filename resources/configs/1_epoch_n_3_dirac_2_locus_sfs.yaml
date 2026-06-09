@@ -1,0 +1,16 @@
+n:
+  pop_0: 3
+n_loci: 2
+recombination_rate: 1.0
+num_replicates: 200000
+seed: 46
+pop_sizes:
+  pop_0:
+    0: 1
+model: dirac
+psi: 0.5
+c: 1
+comparisons:
+  tolerance:
+    sfs2:
+      mean: 0.06

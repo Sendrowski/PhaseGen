@@ -16,6 +16,14 @@ from testing import TestCase
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_n_3_2_locus_sfs',
+    '1_epoch_n_4_2_locus_sfs',
+    '2_epoch_n_3_2_locus_sfs',
+    '3_epoch_n_3_2_locus_sfs',
+    '1_epoch_n_3_beta_2_locus_sfs',
+    '1_epoch_n_3_dirac_2_locus_sfs',
+    '1_epoch_n_3_r_0_2_locus_sfs',
+    '1_epoch_n_3_large_r_2_locus_sfs',
     '1_epoch_n_4_mu_1',
     '1_epoch_3_pops_n_7_mu_0_1',
     '1_epoch_2_pops_n_4_mu_1',
@@ -169,6 +177,14 @@ def generate_tests(config: str):
 # scenarios that take several seconds to run. Unlike ``configs_suspended`` (which are not run at all), these are
 # still collected but marked ``slow`` so they can be deselected with ``-m "not slow"`` to keep the regular suite fast.
 slow_configs = [
+    '1_epoch_n_3_2_locus_sfs',
+    '1_epoch_n_4_2_locus_sfs',
+    '2_epoch_n_3_2_locus_sfs',
+    '3_epoch_n_3_2_locus_sfs',
+    '1_epoch_n_3_beta_2_locus_sfs',
+    '1_epoch_n_3_dirac_2_locus_sfs',
+    '1_epoch_n_3_r_0_2_locus_sfs',
+    '1_epoch_n_3_large_r_2_locus_sfs',
     '1_epoch_2_pops_n_8_jsfs',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
