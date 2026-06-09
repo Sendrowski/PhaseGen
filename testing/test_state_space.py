@@ -439,7 +439,9 @@ class StateSpaceTestCase(TestCase):
         testing.assert_array_equal(state_space.lineages.astype(int), state_space_old.states[ordering])
         testing.assert_array_equal(state_space.linked.astype(int), state_space_old.linked[ordering])
 
-        testing.assert_array_almost_equal(state_space.S, state_space_old.S[ordering][:, ordering], decimal=14)
+        # decimal=12 (rather than 14) accommodates the numba beta-coalescent rates, which use a log-gamma based
+        # beta function that differs from scipy's by a few ULP; standard/dirac rates remain effectively exact
+        testing.assert_array_almost_equal(state_space.S, state_space_old.S[ordering][:, ordering], decimal=12)
         print(f"graph: {state_space.time}, matrix: {state_space_old.time}")
 
     def test_equivalence_lineage_counting_state_space_standard_coalescent(self):
@@ -687,37 +689,44 @@ class StateSpaceTestCase(TestCase):
 
     def test_state_space_caching(self):
         """
-        Test that the state space is cached.
+        Test that the state space is cached. The ``_cache`` epoch cache is a property of the pure-Python construction
+        path (the numba path caches the rate matrix via the ``S`` cached-property instead), so this exercises the
+        Python path explicitly.
         """
-        s = pg.state_space.LineageCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 2})
-        )
+        pg.Settings.use_numba = False
 
-        # check that the cache is empty
-        self.assertEqual(s._cache, {})
+        try:
+            s = pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=4),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 2})
+            )
 
-        # compute rate matrix
-        _ = s.S
+            # check that the cache is empty
+            self.assertEqual(s._cache, {})
 
-        # check that the rate matrix is in the cache
-        self.assertTrue(s.epoch in s._cache)
+            # compute rate matrix
+            _ = s.S
 
-        pg.Settings.cache_epochs = False
+            # check that the rate matrix is in the cache
+            self.assertTrue(s.epoch in s._cache)
 
-        s = pg.state_space.LineageCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 2})
-        )
+            pg.Settings.cache_epochs = False
 
-        _ = s.S
+            s = pg.state_space.LineageCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=4),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 2})
+            )
 
-        # check that the rate matrix is not in the cache
-        self.assertEqual(s._cache, {})
+            _ = s.S
 
-        pg.Settings.cache_epochs = True
+            # check that the rate matrix is not in the cache
+            self.assertEqual(s._cache, {})
+
+            pg.Settings.cache_epochs = True
+        finally:
+            pg.Settings.use_numba = True
 
     def test_epoch_equality(self):
         """

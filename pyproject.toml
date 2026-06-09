@@ -19,6 +19,7 @@ pyyaml = "^6.0.1"
 tqdm = "^4.66.2"
 scipy = "^1.13.0"
 fastdfe = ">=1.1.5"
+numba = ">=0.59"
 
 # problems installing msprime with poetry
 [tool.poetry.group.dev.dependencies]
