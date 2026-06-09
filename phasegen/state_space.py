@@ -652,6 +652,120 @@ class BlockCountingStateSpace(StateSpace):
         )
 
 
+class JointBlockCountingStateSpace(StateSpace):
+    r"""
+    Rate matrix for the joint (multi-population) site-frequency spectrum.
+
+    This is a generalization of :class:`BlockCountingStateSpace`. In the block-counting state space a block is a
+    single *size class* ``i`` (the number of sampled lineages a lineage subtends), which discards the information of
+    *which* population those descendants came from. The joint SFS bins mutations by their allele frequency in each
+    population simultaneously, so each block must instead be the **descendant vector**
+
+        .. math::
+            v = (v_0, \dots, v_{P-1}), \quad 0 \le v_p \le n_p, \quad 1 \le \sum_p v_p \le n,
+
+    i.e. the number of descendants a lineage subtends from each population ``p`` (its "deme of origin"
+    composition). A state then counts, per locus and per *current* deme of residence, how many lineages carry each
+    descendant vector.
+
+    .. note::
+        Splitting each size class by deme of origin both enlarges the block axis
+        (``n_blocks = prod(n_p + 1) - 1``) and grows the number of reachable states combinatorially, much faster
+        than the single-population block-counting space. This state space is therefore only practical for small
+        per-population sample sizes. Only one locus is supported.
+    """
+
+    def __init__(
+            self,
+            lineage_config: LineageConfig,
+            locus_config: LocusConfig = None,
+            model: CoalescentModel = None,
+            epoch: Epoch = None
+    ):
+        """
+        Create a rate matrix.
+
+        :param lineage_config: Population configuration.
+        :param locus_config: Locus configuration. One locus is used by default.
+        :param model: Coalescent model. By default, the standard coalescent is used.
+        :param epoch: The epoch.
+        """
+        # the joint state space tracks descendant vectors which do not extend to multiple loci
+        if locus_config is not None and locus_config.n > 1:
+            raise NotImplementedError('Joint block-counting state space only supports one locus.')
+
+        super().__init__(
+            lineage_config=lineage_config,
+            locus_config=locus_config,
+            model=model,
+            epoch=epoch
+        )
+
+    @cached_property
+    def block_configs(self) -> List[Tuple[int, ...]]:
+        """
+        Ordered list of all descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has
+        ``0 <= v_p <= n_p`` and at least one non-zero entry.
+        """
+        sizes = [int(n_p) for n_p in self.lineage_config.lineages]
+
+        return [c for c in product(*[range(s + 1) for s in sizes]) if sum(c) >= 1]
+
+    @cached_property
+    def block_index(self) -> Dict[Tuple[int, ...], int]:
+        """
+        Mapping from descendant vector to its block index.
+        """
+        return {c: i for i, c in enumerate(self.block_configs)}
+
+    @cached_property
+    def block_vectors(self) -> np.ndarray:
+        """
+        Descendant vectors as an integer array of shape ``(n_blocks, n_pops)``.
+        """
+        return np.array(self.block_configs, dtype=int)
+
+    @cached_property
+    def n_blocks(self) -> int:
+        """
+        Number of block types (descendant vectors).
+        """
+        return len(self.block_configs)
+
+    def _get_initial(self) -> 'State':
+        """
+        Get the initial state. Each of the ``n_p`` lineages sampled from population ``p`` starts in deme ``p`` with
+        descendant vector ``e_p`` (the unit vector subtending a single sample from population ``p``).
+        """
+        data = tuple(
+            np.zeros((self.locus_config.n, self.lineage_config.n_pops, self.n_blocks), dtype=int)
+            for _ in range(2)
+        )
+
+        for p in range(self.lineage_config.n_pops):
+            if self.lineage_config.lineages[p] > 0:
+                e_p = tuple(1 if q == p else 0 for q in range(self.lineage_config.n_pops))
+                data[0][0, p, self.block_index[e_p]] = self.lineage_config.lineages[p]
+
+        return State(data)
+
+    @cached_property
+    def alpha(self) -> np.ndarray:
+        """
+        Initial state vector. There is a single, origin-aware initial state (see :meth:`_get_initial`), so this is
+        its indicator vector.
+        """
+        initial = self._get_initial()
+
+        return np.array([s == initial for s in self.states], dtype=float)
+
+    def _get_old(self) -> OldStateSpace:
+        """
+        The joint block-counting state space has no legacy equivalent.
+        """
+        raise NotImplementedError('The joint block-counting state space has no legacy equivalent.')
+
+
 class Transition:
     """
     Class representing a transition between two states.
@@ -727,6 +841,9 @@ class Transition:
         :param source: Source state.
         :return: All possible coalescent transitions from the given state.
         """
+        if isinstance(self.state_space, JointBlockCountingStateSpace):
+            return self._coalesce_joint(source)
+
         targets: Dict['State', Tuple[float, str]] = {}
         pop_sizes = [self.state_space.epoch.pop_sizes[pop] for pop in self.state_space.lineage_config.pop_names]
 
@@ -829,6 +946,62 @@ class Transition:
             return targets
 
         raise NotImplementedError('Coalescence is not implemented for more than 2 loci.')
+
+    def _coalesce_joint(self, source: 'State') -> Dict['State', Tuple[float, str]]:
+        """
+        Get all possible coalescent transitions for the joint block-counting state space. Lineages residing in the
+        same deme coalesce; the descendant vector of the merged lineage is the (vector) sum of the descendant vectors
+        of the merging lineages. Rates are obtained from the coalescent model in the same way as for the
+        block-counting state space, so this works for the standard coalescent as well as multiple-merger models
+        (combinations the model does not support simply have rate zero and are skipped).
+
+        :param source: Source state.
+        :return: All possible coalescent transitions from the given state.
+        """
+        targets: Dict['State', Tuple[float, str]] = {}
+        model = self.state_space.model
+        pop_sizes = [self.state_space.epoch.pop_sizes[pop] for pop in self.state_space.lineage_config.pop_names]
+        block_vectors = self.state_space.block_vectors
+        block_index = self.state_space.block_index
+        locus = 0
+
+        for deme in range(source.n_demes):
+            counts = source.lineages[locus, deme]
+            deme_total = int(counts.sum())
+
+            # we need at least two lineages in a deme to coalesce
+            if deme_total < 2:
+                continue
+
+            present = np.where(counts > 0)[0]
+            time_scale = model._get_timescale(pop_sizes[deme])
+
+            # enumerate how many lineages to merge from each present block
+            for comb in product(*[range(int(counts[b]) + 1) for b in present]):
+                comb = np.array(comb)
+
+                # at least two lineages have to merge
+                if comb.sum() < 2:
+                    continue
+
+                mask = comb > 0
+                rate = model._get_rate_block_counting(n=deme_total, b=counts[present][mask], k=comb[mask])
+
+                # skip combinations the model does not support (e.g. multiple mergers under the standard coalescent)
+                if rate == 0:
+                    continue
+
+                # descendant vector of the merged lineage is the sum of the merging descendant vectors
+                merged = (comb[:, None] * block_vectors[present]).sum(axis=0)
+                merged_idx = block_index[tuple(int(x) for x in merged)]
+
+                target = source.copy()
+                target.lineages[locus, deme, present] -= comb
+                target.lineages[locus, deme, merged_idx] += 1
+
+                self.add_target(targets, target, rate / time_scale, 'coalescence')
+
+        return targets
 
     def migrate(self, source: 'State') -> Dict['State', Tuple[float, str]]:
         """

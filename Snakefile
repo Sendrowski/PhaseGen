@@ -80,6 +80,31 @@ rule create_comparison:
     script:
         "scripts/create_comparison.py"
 
+# create joint-SFS comparisons (the jsfs-specific caching that create_comparison cannot handle)
+rule create_jsfs_comparison:
+    input:
+        "resources/configs/{config}_jsfs.yaml"
+    output:
+        "results/comparisons/serialized/{config}_jsfs.json"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/generate_jsfs_fixtures.py"
+
+# prefer the jsfs-specific rule for *_jsfs fixtures (both rules match the same output)
+ruleorder: create_jsfs_comparison > create_comparison
+
+# generate an independent joint-SFS reference using the moments package (runs in the dev env which provides moments)
+rule generate_jsfs_reference:
+    input:
+        "resources/configs/{config}.yaml"
+    output:
+        "results/jsfs_reference/{config}.json"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/generate_jsfs_reference.py"
+
 # benchmark state space creation
 rule benchmark_state_space_creation:
     input:
@@ -319,6 +344,38 @@ rule plot_transitions:
         "envs/dev.yaml"
     script:
         "scripts/plot_transitions.py"
+
+# documentation notebooks to re-execute (embedding fresh cell outputs)
+python_notebooks = [p.stem for p in Path("docs/reference/Python").glob("*.ipynb")]
+r_notebooks = [p.stem for p in Path("docs/reference/R").glob("*.ipynb")]
+
+# re-execute a Python documentation notebook in place
+rule reexecute_python_notebook:
+    input:
+        "docs/reference/Python/{name}.ipynb"
+    output:
+        touch("results/notebooks/Python/{name}.executed")
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+
+# re-execute an R documentation notebook in place (uses the r-irkernel kernel from the R env)
+rule reexecute_r_notebook:
+    input:
+        "docs/reference/R/{name}.ipynb"
+    output:
+        touch("results/notebooks/R/{name}.executed")
+    conda:
+        "envs/r.yaml"
+    shell:
+        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+
+# re-execute all documentation notebooks
+rule reexecute_notebooks:
+    input:
+        expand("results/notebooks/Python/{name}.executed", name=python_notebooks),
+        expand("results/notebooks/R/{name}.executed", name=r_notebooks)
 
 # update the documentation
 rule update_docs:

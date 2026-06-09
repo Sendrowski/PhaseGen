@@ -30,6 +30,11 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: phasegen.distributions.JointSFSDistribution
+   :inherited-members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: phasegen.distributions.MarginalLocusDistributions
    :inherited-members:
    :undoc-members:

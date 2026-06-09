@@ -8,6 +8,7 @@ from typing import List
 
 import matplotlib as mpl
 import numpy as np
+import pytest
 
 from phasegen.comparison import Comparison
 from testing import TestCase
@@ -96,6 +97,16 @@ configs = [
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+    '1_epoch_2_pops_n_4_jsfs',
+    '3_epoch_2_pops_n_4_jsfs',
+    '1_epoch_3_pops_n_3_jsfs',
+    '1_epoch_2_pops_n_6_jsfs',
+    '1_epoch_2_pops_n_6_asym_jsfs',
+    '1_epoch_beta_2_pops_n_4_jsfs',
+    '1_epoch_dirac_2_pops_n_4_jsfs',
+    '1_epoch_2_pops_n_4_moments_jsfs',
+    '1_epoch_2_pops_n_8_jsfs',
+    '3_epoch_3_pops_n_5_jsfs',
 ]
 
 configs_suspended = [
@@ -155,5 +166,25 @@ def generate_tests(config: str):
     return run_test
 
 
+# scenarios that take more than ~10 seconds to run. Unlike ``configs_suspended`` (which are not run at all), these
+# are still collected but marked ``slow`` so they can be deselected with ``-m "not slow"``.
+slow_configs = [
+    '1_epoch_2_pops_n_8_jsfs',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
+    '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
+    '3_epoch_3_pops_n_5_jsfs',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
+    '7_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '1_epoch_dirac_n_20',
+    '1_epoch_beta_n_20',
+    '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
+]
+
 for config in configs:
-    setattr(ScenariosTestCase, f'test_{config}', generate_tests(config))
+    test = generate_tests(config)
+
+    if config in slow_configs:
+        test = pytest.mark.slow(test)
+
+    setattr(ScenariosTestCase, f'test_{config}', test)

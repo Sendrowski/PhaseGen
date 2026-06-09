@@ -4,7 +4,7 @@ Test StateSpace class.
 import itertools
 import sys
 from collections import defaultdict
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 import pytest
@@ -252,6 +252,9 @@ class StateSpaceTestCase(TestCase):
         """
         Test plot rates.
         """
+        # graphviz is an optional dependency (Python package and the ``dot`` binary)
+        pytest.importorskip('graphviz')
+
         s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             model=pg.StandardCoalescent(),

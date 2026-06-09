@@ -30,6 +30,12 @@ myst-nb = "^1.1.0"
 sphinx = "^7.3.7"
 pygments = "^2.15.1"
 
+[tool.pytest.ini_options]
+testpaths = ["testing"]
+markers = [
+    "slow: marks tests as slow, e.g. msprime comparisons or large state spaces (deselect with '-m \"not slow\"')",
+]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

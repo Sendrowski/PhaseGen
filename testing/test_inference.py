@@ -2,7 +2,7 @@
 Test Inference class.
 """
 import os
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 import pytest
@@ -48,6 +48,7 @@ class InferenceTestCase(TestCase):
 
         return pg.Inference(**kwargs)
 
+    @pytest.mark.slow
     def test_basic_inference(self):
         """
         Test basic inference.
@@ -63,6 +64,7 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(0.48, inf.params_inferred['Ne'], places=2)
         self.assertAlmostEqual(2.37838, inf.loss_inferred, places=5)
 
+    @pytest.mark.slow
     def test_basic_inference_3_runs_sequential(self):
         """
         Test basic inference with 3 runs in sequence.
@@ -79,6 +81,7 @@ class InferenceTestCase(TestCase):
         self.assertEqual(0, len(inf.bootstraps))
 
     @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
+    @pytest.mark.slow
     def test_basic_inference_3_runs_parallel(self):
         """
         Test basic inference with 3 runs in parallel.
@@ -88,6 +91,7 @@ class InferenceTestCase(TestCase):
 
         inf.run()
 
+    @pytest.mark.slow
     def test_serialize_basic_inference_before_running(self):
         """
         Test serialization of basic inference.
@@ -106,6 +110,7 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(inf.params_inferred['Ne'], inf2.params_inferred['Ne'])
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
 
+    @pytest.mark.slow
     def test_serialize_basic_inference_after_running(self):
         """
         Test serialization of basic inference.
@@ -126,6 +131,7 @@ class InferenceTestCase(TestCase):
         self.assertDictEqual(inf.bootstraps[params].var().to_dict(), inf2.bootstraps[params].var().to_dict())
 
     @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
+    @pytest.mark.slow
     def test_seeded_inference_parallel(self):
         """
         Test seeded inference with parallelization.
@@ -143,6 +149,7 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
         self.assertDictEqual(inf.bootstraps.var().to_dict(), inf2.bootstraps.var().to_dict())
 
+    @pytest.mark.slow
     def test_unseeded_inference_yields_different_results(self):
         """
         Test unseeded inference yields different results.
@@ -176,6 +183,7 @@ class InferenceTestCase(TestCase):
 
         print(context.exception)
 
+    @pytest.mark.slow
     def test_bootstrap_sequential(self):
         """
         Test sequential bootstrap.
@@ -190,6 +198,7 @@ class InferenceTestCase(TestCase):
         self.assertGreater(inf.bootstraps.t.var(), 0)
 
     @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
+    @pytest.mark.slow
     def test_bootstrap_parallel(self):
         """
         Test parallel bootstrap.
@@ -203,6 +212,7 @@ class InferenceTestCase(TestCase):
         # make sure the bootstraps are different
         self.assertGreater(inf.bootstraps.t.var(), 0)
 
+    @pytest.mark.slow
     def test_manual_bootstrap(self):
         """
         Test manual bootstrap.
@@ -221,6 +231,7 @@ class InferenceTestCase(TestCase):
         inf.plot_bootstraps()
 
     @pytest.mark.skip("Not working yet.")
+    @pytest.mark.slow
     def test_manual_bootstrap_serialize_twice(self):
         """
         Test manual bootstrap serialization.
@@ -234,6 +245,7 @@ class InferenceTestCase(TestCase):
         inf.to_file('scratch/test_manual_bootstrap_serialization2.json')
         pg.Inference.from_file('scratch/test_manual_bootstrap_serialization2.json')
 
+    @pytest.mark.slow
     def test_plot_inference(self):
         """
         Test plotting inference.
@@ -248,6 +260,7 @@ class InferenceTestCase(TestCase):
         inf.plot_bootstraps(kind='hist')
         inf.plot_bootstraps(kind='kde')
 
+    @pytest.mark.slow
     def test_manual_runs_unseeded(self):
         """
         Test unseeded manual runs.
@@ -270,6 +283,7 @@ class InferenceTestCase(TestCase):
 
         self.assertEqual(inf.loss_inferred, min([inf.loss_inferred, run2.loss_inferred, run3.loss_inferred]))
 
+    @pytest.mark.slow
     def test_manual_runs_seeded(self):
         """
         Test seeded manual runs.
@@ -296,6 +310,7 @@ class InferenceTestCase(TestCase):
         self.assertNotEqual(inf.seed, run2.seed)
         self.assertNotEqual(inf.seed, run3.seed)
 
+    @pytest.mark.slow
     def test_add_run_without_run_itself(self):
         """
         Test adding a run without running it.
@@ -322,6 +337,7 @@ class InferenceTestCase(TestCase):
         with self.assertRaises(RuntimeError) as context:
             inf.add_run(run)
 
+    @pytest.mark.slow
     def test_state_state_caching_vs_no_caching(self):
         """
         Test state caching vs no caching.
@@ -338,6 +354,71 @@ class InferenceTestCase(TestCase):
             list(uncached.params_inferred.values()),
             decimal=6
         )
+
+    def get_joint_sfs_inference(self, kwargs: dict = {}):
+        """
+        Get an inference whose loss is based on the joint (multi-population) site-frequency spectrum, exercising the
+        joint block-counting state space.
+
+        :param kwargs: Additional keyword arguments.
+        """
+        def coal(m):
+            return pg.Coalescent(
+                n={'pop_0': 2, 'pop_1': 2},
+                demography=pg.Demography(
+                    pop_sizes={'pop_0': 1, 'pop_1': 1},
+                    migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): m}
+                )
+            )
+
+        # observation generated from the model at a known migration rate
+        observation = coal(0.7).jsfs.mean
+
+        kwargs = dict(
+            x0=dict(m=0.4),
+            bounds=dict(m=(0.1, 2)),
+            observation=observation,
+            parallelize=False,
+            n_runs=1,
+            seed=42,
+            do_bootstrap=False,
+            cache=True,
+            coal=coal,
+            loss=lambda coal, observation: float(np.sum((coal.jsfs.mean - observation) ** 2)),
+            resample=lambda obs, rng: obs
+        ) | kwargs
+
+        return pg.Inference(**kwargs)
+
+    @pytest.mark.slow
+    def test_joint_sfs_inference_runs_with_state_space_caching(self):
+        """
+        Inference using the joint SFS must run with state-space caching enabled (the joint block-counting state space
+        is built once and reused across loss evaluations).
+        """
+        inf = self.get_joint_sfs_inference()
+
+        inf.run()
+
+        # the migration rate should be recovered reasonably well
+        self.assertAlmostEqual(0.7, inf.params_inferred['m'], places=1)
+
+    @pytest.mark.slow
+    def test_joint_sfs_inference_serialization(self):
+        """
+        Inference using the joint SFS must serialize and deserialize (the cached joint state space is pickled via the
+        ``__getstate__``/``__setstate__`` plumbing), yielding identical results.
+        """
+        inf = self.get_joint_sfs_inference()
+
+        inf.to_file('scratch/test_joint_sfs_inference.json')
+        inf2 = pg.Inference.from_file('scratch/test_joint_sfs_inference.json')
+
+        inf.run()
+        inf2.run()
+
+        self.assertAlmostEqual(inf.params_inferred['m'], inf2.params_inferred['m'])
+        self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
 
     def test_weighted_loss(self):
         """

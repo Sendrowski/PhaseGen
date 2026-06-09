@@ -19,7 +19,7 @@ from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution,
     MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
-from .spectrum import SFS, SFS2
+from .spectrum import SFS, SFS2, JointSFS
 from .utils import takewhile_inclusive
 
 logger = logging.getLogger('phasegen')
@@ -318,12 +318,32 @@ class Comparison(Serializable):
             # assume we have an SFS
             elif isinstance(ph_stat, Iterable):
 
+                # whether this is a joint (multi-population) SFS, which may be rectangular or higher-dimensional
+                is_joint = isinstance(ph_stat, JointSFS)
+
                 ms_stat = np.array(list(ms_stat))
                 ph_stat = np.array(list(ph_stat))
                 diff = self.rel_diff(ms_stat, ph_stat).max()
 
                 if self.visualize:
-                    if ph_stat.ndim == 1:
+                    if is_joint:
+
+                        # plot the joint SFS as side-by-side heatmaps, but only when it is 2-dimensional
+                        if ph_stat.ndim == 2:
+                            plt.close('all')  # avoid empty plots
+                            fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
+
+                            if self.show_title: plt.suptitle(title)
+
+                            axs[0].set_title('phasegen')
+                            axs[1].set_title('msprime')
+
+                            JointSFS(ph_stat).plot(ax=axs[0], show=False)
+                            JointSFS(ms_stat).plot(ax=axs[1], show=False)
+
+                            self._save_and_show(name, pad=1.5)
+
+                    elif ph_stat.ndim == 1:
 
                         s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
 
@@ -332,8 +352,8 @@ class Comparison(Serializable):
 
                         self._save_and_show(name)
 
-                    # assume we have a 2-dimensional statistic
-                    elif len(ph_stat) > 3:
+                    # assume we have a square 2-dimensional statistic (e.g. a 2-SFS)
+                    elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 3:
 
                         plt.close('all')  # avoid empty plots
                         fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 5))
@@ -347,7 +367,6 @@ class Comparison(Serializable):
                         SFS2(ms_stat).plot_surface(ax=axs[1], show=False)
 
                         self._save_and_show(name, pad=1.5)
-
 
             # assume we have a PDF or CDF
             elif stat in ['pdf', 'cdf']:

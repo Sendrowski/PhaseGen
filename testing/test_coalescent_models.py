@@ -2,7 +2,7 @@
 Test coalescent models.
 """
 from math import comb
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 from scipy.special import betaln

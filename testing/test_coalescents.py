@@ -4,7 +4,7 @@ Test coalescents.
 import unittest
 from itertools import islice
 from typing import cast
-from unittest import TestCase
+from testing import TestCase
 from unittest.mock import patch
 
 import numpy as np
@@ -117,6 +117,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertAlmostEqual(m, 5.91979, delta=5)
 
+    @pytest.mark.slow
     def test_demes_complex_coalescent(self):
         """
         Validate first moments for deme-wise complex coalescent.
@@ -182,6 +183,7 @@ class CoalescentTestCase(TestCase):
 
         pass
 
+    @pytest.mark.slow
     def test_msprime_coalescent_two_loci(self):
         """
         Test msprime coalescent.
@@ -773,9 +775,8 @@ class CoalescentTestCase(TestCase):
             )
         )
 
-        _ = coal.tree_height.mean
-
-        self.assertNoLogs(level='CRITICAL', logger=coal._logger)
+        with self.assertRaises(ValueError):
+            _ = coal.tree_height.mean
 
     def test_value_error_large_imprecision(self):
         """
@@ -986,6 +987,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertAlmostEqual(moment, moment_raw)
 
+    @pytest.mark.slow
     def test_uncentered_cross_moments_msprime(self):
         """
         Test higher-order uncentered cross-moments against Msprime coalescent.
@@ -1026,6 +1028,7 @@ class CoalescentTestCase(TestCase):
 
             self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), tol)
 
+    @pytest.mark.slow
     def test_mutation_configuration_probability_mass_close_to_one(self):
         """
         Test mutation configuration probability mass is close to one.
