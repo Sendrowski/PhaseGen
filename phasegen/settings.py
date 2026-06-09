@@ -29,6 +29,12 @@ class Settings:
     #: force the pure-Python construction path.
     use_numba: bool = True
 
+    #: Van Loan matrix dimension (``(k + 1) * n_states``) at or above which moments are computed via the sparse
+    #: matrix-exponential action (Krylov/Taylor) instead of forming the dense propagator. The action exploits the
+    #: sparsity of the rate matrix and is much faster for large state spaces, but slower for small ones. Set to a
+    #: very large value to always use the dense path, or to 0 to always use the action.
+    expm_action_min_dim: int = 1500
+
     @staticmethod
     @contextmanager
     def set_pbar(enabled: bool = True):
