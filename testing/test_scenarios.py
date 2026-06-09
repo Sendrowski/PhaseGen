@@ -24,6 +24,7 @@ configs = [
     '1_epoch_n_3_beta_2_locus_sfs',
     '1_epoch_n_3_dirac_2_locus_sfs',
     '1_epoch_n_3_r_0_2_locus_sfs',
+    '1_epoch_n_3_small_r_2_locus_sfs',
     '1_epoch_n_3_large_r_2_locus_sfs',
     '1_epoch_n_5_2_locus_sfs',
     '1_epoch_n_6_2_locus_sfs',

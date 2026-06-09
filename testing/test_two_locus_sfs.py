@@ -71,6 +71,25 @@ def test_r_zero_equals_single_locus_cross_moment(name, model, n):
     np.testing.assert_allclose(two[s, s], ref[s, s], atol=1e-10, err_msg=f"{name} n={n}")
 
 
+def test_small_r_converges_to_r_zero_first_order():
+    """Tightly linked loci (small nonzero ``r``, a common regime) are handled stably: the two-locus SFS converges
+    monotonically to the ``r = 0`` cross-moment as ``r -> 0``, with first-order ``O(r)`` deviation (no blow-up)."""
+    n = 4
+    ref = _single_locus_cross_moment(n)  # the r=0 limit
+    s = slice(1, n)
+
+    rs = [0.1, 0.01, 0.001]
+    devs = [np.abs(_two_sfs(n, r)[s, s] - ref[s, s]).max() for r in rs]
+
+    # distinct from the r=0 limit at small r, but converging monotonically as r shrinks
+    assert devs[0] > 1e-3
+    assert devs[0] > devs[1] > devs[2] > 0
+
+    # first-order: deviation scales ~linearly with r, so a 10x smaller r gives a ~10x smaller deviation
+    for d_coarse, d_fine in zip(devs[:-1], devs[1:]):
+        assert d_fine / d_coarse == pytest.approx(0.1, rel=0.15)
+
+
 def _two_locus_third_cross_moment(n, i, j, k, r, model=None):
     """Two-locus third cross-moment ``E[L^0_i · L^0_j · L^1_k]`` (two rewards at locus 0, one at locus 1)."""
     from phasegen.distributions import PhaseTypeDistribution
