@@ -368,24 +368,47 @@ class StateSpace(ABC):
         """
         pass
 
+    def _is_absorbing(self, state: 'State') -> bool:
+        """
+        Whether the given state is absorbing. By default this is the single-process absorbing condition (a single
+        remaining lineage); state spaces with a different notion of absorption (e.g. two loci, which are absorbed
+        once both have reached their MRCA) override this.
+
+        :param state: State.
+        :return: Whether the state is absorbing.
+        """
+        return state.is_absorbing()
+
     def _use_numba(self) -> bool:
         """
         Whether numba-accelerated construction applies: numba is available and enabled, there is a single locus, and
         the state space is one of the supported types (the 2-locus recombination path stays on the Python
         construction).
         """
-        return (
-            HAS_NUMBA
-            and Settings.use_numba
-            and self.locus_config.n == 1
-            and type(self) in (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)
-        )
+        if not (HAS_NUMBA and Settings.use_numba):
+            return False
+
+        # the single-locus state spaces (numbered 0/1); the two-locus space is handled separately below
+        if self.locus_config.n == 1 and type(self) in (
+                LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace):
+            return True
+
+        # the two-locus block-counting state space (recombination)
+        return type(self) is TwoLocusBlockCountingStateSpace
 
     def _numba_kind(self) -> int:
         """
-        Kernel selector: 0 lineage-counting, 1 block-/joint-counting.
+        Kernel selector: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting.
         """
         return 1
+
+    def _numba_recombination(self) -> Tuple[float, np.ndarray, np.ndarray]:
+        """
+        Recombination parameters for the kernel: ``(recombination_rate, recomb0, recomb1)`` where ``recomb_l[b]`` is
+        the block index that block ``b`` contributes to locus ``l`` when it recombines. Only the two-locus state
+        space uses these; by default there is no recombination.
+        """
+        return 0.0, None, None
 
     def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
         """
@@ -413,6 +436,7 @@ class StateSpace(ABC):
 
         timescales = np.array([self.model._get_timescale(self.epoch.pop_sizes[p]) for p in pops])
         model_id, alpha, psi, c = _numba_model_params(self.model)
+        recomb_rate, recomb0, recomb1 = self._numba_recombination()
 
         rows, S = build_rate_matrix(
             initial=init.lineages.reshape(-1),
@@ -426,6 +450,9 @@ class StateSpace(ABC):
             psi=psi,
             c=c,
             block_vectors=self._numba_block_vectors(n_blocks),
+            recomb_rate=recomb_rate,
+            recomb0=recomb0,
+            recomb1=recomb1,
         )
 
         lin_shape = init.lineages.shape
@@ -877,6 +904,113 @@ class JointBlockCountingStateSpace(StateSpace):
         raise NotImplementedError('The joint block-counting state space has no legacy equivalent.')
 
 
+class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
+    r"""
+    Block-counting state space for two loci separated by recombination, used to compute the two-locus SFS.
+
+    Each physical ancestral lineage is described by a vector ``(a_0, a_1)`` giving the number of sampled lineages it
+    subtends at locus 0 and locus 1 (``a_l = 0`` meaning it is not ancestral at locus ``l``). This is the same
+    representation as the joint (multi-population) state space, with **locus** playing the role of **population**, so
+    coalescence is again vector addition (and reuses the model-agnostic merger rates, supporting Beta/Dirac too).
+    The new ingredient is **recombination**: a linked lineage ``(a_0, a_1)`` with ``a_0 > 0`` and ``a_1 > 0`` splits
+    into ``(a_0, 0)`` and ``(0, a_1)`` at rate ``r`` per linked lineage. The process is absorbed once both loci have
+    reached their MRCA.
+
+    A single population is currently supported (no migration), so the state shape collapses to ``(1, 1, n_blocks)``;
+    linkage is encoded in the block vector itself, so the ``linked`` array is unused.
+
+    .. note::
+        ``n_blocks = (n + 1)^2 - 1`` and the number of reachable states grows quickly, so this is only practical for
+        small sample sizes.
+    """
+
+    def __init__(
+            self,
+            lineage_config: LineageConfig,
+            locus_config: LocusConfig = None,
+            model: CoalescentModel = None,
+            epoch: Epoch = None
+    ):
+        """
+        Create the two-locus block-counting state space.
+
+        :param lineage_config: Population configuration (a single population is currently supported).
+        :param locus_config: Locus configuration; must specify exactly two loci.
+        :param model: Coalescent model. By default, the standard coalescent is used.
+        :param epoch: The epoch.
+        """
+        if locus_config is None or locus_config.n != 2:
+            raise ValueError('The two-locus block-counting state space requires exactly two loci.')
+
+        if lineage_config.n_pops != 1:
+            raise NotImplementedError('The two-locus block-counting state space currently supports a single '
+                                      'population (no migration).')
+
+        # bypass JointBlockCountingStateSpace.__init__ (which rejects more than one locus)
+        StateSpace.__init__(self, lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
+
+    @cached_property
+    def block_configs(self) -> List[Tuple[int, ...]]:
+        """
+        Ordered list of all two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n`` and at least one
+        non-zero entry.
+        """
+        n = int(self.lineage_config.n)
+
+        return [c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1]
+
+    def _get_initial(self) -> 'State':
+        """
+        Get the initial state: ``n - n_unlinked`` lineages of type ``(1, 1)`` (linked across both loci) plus, for
+        each of the ``n_unlinked`` initially unlinked samples, a ``(1, 0)`` and a ``(0, 1)`` lineage.
+        """
+        n = int(self.lineage_config.n)
+        n_unlinked = int(self.locus_config.n_unlinked)
+        n_linked = max(n - n_unlinked, 0)
+
+        data = tuple(np.zeros((1, 1, self.n_blocks), dtype=int) for _ in range(2))
+
+        if n_linked > 0:
+            data[0][0, 0, self.block_index[(1, 1)]] = n_linked
+
+        if n_unlinked > 0:
+            data[0][0, 0, self.block_index[(1, 0)]] += n_unlinked
+            data[0][0, 0, self.block_index[(0, 1)]] += n_unlinked
+
+        return State(data)
+
+    def _is_absorbing(self, state: 'State') -> bool:
+        """
+        A two-locus state is absorbing once both loci have reached their MRCA, i.e. exactly one lineage carries
+        ancestral material at locus 0 and exactly one carries it at locus 1 (covering both the single linked
+        grand-MRCA ``(n, n)`` and the unlinked pair ``(n, 0) + (0, n)``).
+        """
+        lineages = state.lineages[0, 0]
+
+        return all(int(lineages[self.block_vectors[:, locus] > 0].sum()) == 1 for locus in range(2))
+
+    def _numba_kind(self) -> int:
+        """
+        Two-locus block-counting kernel.
+        """
+        return 2
+
+    def _numba_recombination(self) -> Tuple[float, np.ndarray, np.ndarray]:
+        """
+        Recombination split maps: for each linked block ``(a_0, a_1)`` the indices of ``(a_0, 0)`` and ``(0, a_1)``.
+        """
+        recomb0 = np.zeros(self.n_blocks, dtype=np.int64)
+        recomb1 = np.zeros(self.n_blocks, dtype=np.int64)
+
+        for b in range(self.n_blocks):
+            a0, a1 = int(self.block_vectors[b, 0]), int(self.block_vectors[b, 1])
+            if a0 > 0 and a1 > 0:
+                recomb0[b] = self.block_index[(a0, 0)]
+                recomb1[b] = self.block_index[(0, a1)]
+
+        return self.locus_config.recombination_rate, recomb0, recomb1
+
+
 class Transition:
     """
     Class representing a transition between two states.
@@ -921,7 +1055,7 @@ class Transition:
 
         targets |= self.migrate(source)
 
-        if source.is_absorbing():
+        if self.state_space._is_absorbing(source):
             return targets
 
         targets |= self.coalesce(source)
@@ -1221,6 +1355,26 @@ class Transition:
                     rate = r * state.linked[0, deme, 0]
 
                     self.add_target(targets, target, cast(float, rate), 'recombination')
+
+            return targets
+
+        if isinstance(self.state_space, TwoLocusBlockCountingStateSpace):
+
+            block_vectors = self.state_space.block_vectors
+            block_index = self.state_space.block_index
+            lineages = state.lineages[0, 0]
+
+            # each linked lineage (a_0, a_1) with both components > 0 splits into (a_0, 0) and (0, a_1)
+            for block in range(self.state_space.n_blocks):
+                a0, a1 = int(block_vectors[block, 0]), int(block_vectors[block, 1])
+
+                if lineages[block] > 0 and a0 > 0 and a1 > 0:
+                    target = state.copy()
+                    target.lineages[0, 0, block] -= 1
+                    target.lineages[0, 0, block_index[(a0, 0)]] += 1
+                    target.lineages[0, 0, block_index[(0, a1)]] += 1
+
+                    self.add_target(targets, target, r * int(lineages[block]), 'recombination')
 
             return targets
 
