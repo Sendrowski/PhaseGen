@@ -62,3 +62,65 @@ def test_fst_matches_msprime(m):
     ana = pg.Coalescent(n={'pop_0': 10, 'pop_1': 10}, demography=demo).fst
     ms = MsprimeCoalescent(n={'pop_0': 10, 'pop_1': 10}, demography=demo, num_replicates=20000, seed=42).fst
     assert ana == pytest.approx(ms, abs=0.01)
+
+
+# ---- Patterson's f-statistics (linear combinations of pairwise coalescence times) ----
+
+def _island4(sizes, m) -> pg.Demography:
+    """Fully-connected four-deme island model (all pairs migrate, so all lineages coalesce)."""
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+    return pg.Demography(
+        pop_sizes={p: s for p, s in zip(pops, sizes)},
+        migration_rates={(a, b): m for a in pops for b in pops if a != b},
+    )
+
+
+def test_f4_zero_for_symmetric_model():
+    """For a fully symmetric island model there is no treeness, so f4(A,B;C,D) = 0 exactly."""
+    coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0] * 4, 0.5))
+    assert coal.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(0.0, abs=1e-9)
+
+
+def test_f2_symmetric_and_positive():
+    """f2 is symmetric in its arguments and positive between distinct populations."""
+    coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0, 1.5, 0.7, 1.2], 0.4))
+    assert coal.f2('pop_0', 'pop_1') == pytest.approx(coal.f2('pop_1', 'pop_0'), abs=1e-12)
+    assert coal.f2('pop_0', 'pop_1') > 0
+
+
+def test_f_statistics_unknown_population_raises():
+    """Referencing a population that does not exist raises a clear error."""
+    coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0] * 4, 0.5))
+    with pytest.raises(ValueError, match="Unknown population"):
+        coal.f3('pop_9', 'pop_0', 'pop_1')
+
+
+@pytest.mark.slow
+def test_f_statistics_match_tskit_branch_mode():
+    """Analytical f2/f3/f4 match tskit branch-mode f-statistics (which use the same 2x coalescence convention)."""
+    import msprime as ms
+
+    sizes = [1.0, 1.5, 0.7, 1.2]
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+    m = 0.4
+    coal = pg.Coalescent(n={p: 2 for p in pops}, demography=_island4(sizes, m))
+
+    d = ms.Demography()
+    for p, s in zip(pops, sizes):
+        d.add_population(name=p, initial_size=s)
+    for a in pops:
+        for b in pops:
+            if a != b:
+                d.set_migration_rate(a, b, m)
+
+    f2, f3, f4 = [], [], []
+    for ts in ms.sim_ancestry(samples={p: 6 for p in pops}, demography=d, ploidy=1, sequence_length=1,
+                              random_seed=7, num_replicates=20000):
+        s = [ts.samples(population=i) for i in range(4)]
+        f2.append(ts.f2([s[0], s[1]], mode='branch'))
+        f3.append(ts.f3([s[2], s[0], s[1]], mode='branch'))
+        f4.append(ts.f4([s[0], s[1], s[2], s[3]], mode='branch'))
+
+    assert coal.f2('pop_0', 'pop_1') == pytest.approx(np.mean(f2), abs=0.05)
+    assert coal.f3('pop_2', 'pop_0', 'pop_1') == pytest.approx(np.mean(f3), abs=0.05)
+    assert coal.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(np.mean(f4), abs=0.05)
