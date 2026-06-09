@@ -1,0 +1,14 @@
+n:
+  pop_0: 6
+n_loci: 2
+recombination_rate: 1.0
+num_replicates: 200000
+seed: 51
+pop_sizes:
+  pop_0:
+    0: 1
+model: standard
+comparisons:
+  tolerance:
+    sfs2:
+      mean: 0.08
