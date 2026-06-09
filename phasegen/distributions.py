@@ -2141,6 +2141,68 @@ class UnfoldedSFSDistribution(SFSDistribution):
         """
         return np.arange(1, self.lineage_config.n)
 
+    @cached_property
+    def _tajima_weights(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-bin weights for the two diversity estimators: pairwise diversity ``pi`` and Watterson's ``theta_W``."""
+        n = self.lineage_config.n
+        i = np.arange(1, n)
+        w_pi = 2 * i * (n - i) / (n * (n - 1))
+        w_w = np.full(n - 1, 1 / np.sum(1 / i))
+
+        return w_pi, w_w
+
+    @cached_property
+    def theta_pi(self) -> float:
+        r"""
+        Mean pairwise diversity :math:`\pi = \sum_i \frac{2 i (n - i)}{n (n - 1)} \mathbb{E}[L_i]`, the branch-length
+        estimator of :math:`\theta` based on the expected number of pairwise differences.
+        """
+        w_pi, _ = self._tajima_weights
+        n = self.lineage_config.n
+
+        return float(w_pi @ np.asarray(self.mean.data)[1:n])
+
+    @cached_property
+    def theta_w(self) -> float:
+        r"""
+        Watterson's estimator :math:`\theta_W = L_\text{total} / a_n` with :math:`a_n = \sum_{k=1}^{n-1} 1/k`, the
+        branch-length estimator of :math:`\theta` based on the total branch length (expected number of segregating
+        sites per unit mutation rate).
+        """
+        _, w_w = self._tajima_weights
+        n = self.lineage_config.n
+
+        return float(w_w @ np.asarray(self.mean.data)[1:n])
+
+    @cached_property
+    def tajimas_d(self) -> float:
+        r"""
+        Tajima's :math:`D` in branch form: the difference of the two :math:`\theta` estimators
+        :math:`\pi - \theta_W` standardized by its standard deviation, computed from the SFS covariance,
+        :math:`D = (\pi - \theta_W) / \sqrt{c^\top \, \mathrm{Cov}[L] \, c}` with weights
+        :math:`c_i = \frac{2 i (n - i)}{n (n - 1)} - 1/a_n`.
+
+        It is ``0`` under the standard neutral constant-size model (where :math:`\mathbb{E}[\pi] = \mathbb{E}[\theta_W]`),
+        negative under population growth / purifying selection (excess of low-frequency variants) and positive under
+        population contraction / balancing selection (excess of intermediate-frequency variants). Note that the
+        normalization uses the branch-length covariance rather than the mutation-based variance of the classical
+        sample estimator.
+        """
+        n = self.lineage_config.n
+        w_pi, w_w = self._tajima_weights
+        c = w_pi - w_w
+
+        mean = np.asarray(self.mean.data)[1:n]
+        cov = np.asarray(self.cov.data)[1:n, 1:n]
+
+        num = c @ mean
+        var = c @ cov @ c
+
+        if var <= 0:
+            return 0.0
+
+        return float(num / np.sqrt(var))
+
     @staticmethod
     def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
         """
