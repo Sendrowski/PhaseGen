@@ -2,7 +2,7 @@
 Test comparison.
 """
 
-from unittest import TestCase
+from testing import TestCase
 
 from phasegen.comparison import Comparison
 

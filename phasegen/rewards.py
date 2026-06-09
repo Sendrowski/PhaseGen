@@ -9,7 +9,7 @@ from typing import List, Callable, Tuple, Dict, Iterable, Type
 
 import numpy as np
 
-from .state_space import StateSpace, LineageCountingStateSpace, BlockCountingStateSpace
+from .state_space import StateSpace, LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace
 
 
 class Reward(ABC):
@@ -76,6 +76,9 @@ class Reward(ABC):
         if state_space is BlockCountingStateSpace:
             return isinstance(self, BlockCountingReward)
 
+        if state_space is JointBlockCountingStateSpace:
+            return isinstance(self, JointBlockCountingReward)
+
     @staticmethod
     def support(state_space: Type[StateSpace], rewards: Iterable['Reward']) -> bool:
         """
@@ -86,6 +89,29 @@ class Reward(ABC):
         :return: True if the rewards support the state space, False otherwise
         """
         return all([reward.supports(state_space) for reward in rewards])
+
+    @staticmethod
+    def requires_joint_state_space(rewards: Iterable['Reward']) -> bool:
+        """
+        Check whether any (possibly nested) reward can only be evaluated on the joint block-counting state space,
+        i.e. supports it but neither the lineage- nor the block-counting state space (e.g. ``JointSFSReward``).
+
+        :param rewards: rewards
+        :return: True if some reward requires the joint state space
+        """
+        for reward in rewards:
+            # recurse into composite rewards
+            if isinstance(reward, CompositeReward):
+                if Reward.requires_joint_state_space(reward.rewards):
+                    return True
+            elif (
+                    reward.supports(JointBlockCountingStateSpace)
+                    and not reward.supports(BlockCountingStateSpace)
+                    and not reward.supports(LineageCountingStateSpace)
+            ):
+                return True
+
+        return False
 
 
 class LineageCountingReward(Reward, ABC):
@@ -104,7 +130,57 @@ class BlockCountingReward(Reward, ABC):
     pass
 
 
-class TreeHeightReward(LineageCountingReward, BlockCountingReward):
+class JointBlockCountingReward(Reward, ABC):
+    """
+    Base class for rewards that are compatible with
+    :class:`~phasegen.state_space.JointBlockCountingStateSpace`.
+    """
+    pass
+
+
+class JointSFSReward(JointBlockCountingReward):
+    """
+    Reward for a single bin of the joint (multi-population) site-frequency spectrum. The bin is identified by a
+    descendant vector ``config = (k_0,...,k_{P-1})``, and the reward of a state is the number of lineages (across
+    all demes of residence and loci) whose descendant vector equals ``config``.
+    """
+
+    def __init__(self, config: Tuple[int, ...]):
+        """
+        Initialize the reward.
+
+        :param config: The descendant vector identifying the joint SFS bin, i.e. the number of descendants subtended
+            from each population.
+        """
+        self.config: Tuple[int, ...] = tuple(int(c) for c in config)
+
+    def _get(self, state_space: JointBlockCountingStateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, JointBlockCountingStateSpace):
+            # sum over demes and loci, and select the block corresponding to the descendant vector
+            index = state_space.block_index[self.config]
+            return state_space.lineages[:, :, :, index].sum(axis=(1, 2))
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name and the descendant vector.
+
+        :return: hash
+        """
+        return hash(self.__class__.__name__ + str(self.config))
+
+
+class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward for tree height. Note that when using multiple loci, this will provide the
     height of the locus with the highest tree.
@@ -118,7 +194,7 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
             return np.any(state_space.lineages.sum(axis=(2, 3)) > 1, axis=1).astype(int)
 
@@ -129,7 +205,7 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward):
 
 class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
     """
-    Reward based on tree height. When using multiple loci, this will provide the sum of the tree 
+    Reward based on tree height. When using multiple loci, this will provide the sum of the tree
     heights over all loci, regardless of whether they are linked or not.
     """
 
@@ -149,7 +225,7 @@ class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
         )
 
 
-class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward):
+class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward for total branch length. When using multiple loci, this will provide the sum of the
     total branch lengths over all loci, regardless of whether they are linked or not. Note that due to
@@ -165,7 +241,7 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             # sum over demes and blocks
             loci = state_space.lineages.sum(axis=(2, 3))
 
@@ -295,7 +371,7 @@ class StateReward(Reward):
         return hash(self.__class__.__name__ + str(self.state))
 
 
-class LineageReward(LineageCountingReward):
+class LineageReward(LineageCountingReward, JointBlockCountingReward):
     """
     Reward for a specific number of lineages present in across all demes and loci.
     This reward can be used to, for example, track the individual coalescent times.
@@ -320,7 +396,7 @@ class LineageReward(LineageCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             return (state_space.lineages.sum(axis=(1, 2, 3)) == self.n).astype(int)
 
         raise NotImplementedError(
@@ -336,7 +412,7 @@ class LineageReward(LineageCountingReward):
         return hash(self.__class__.__name__ + str(self.n))
 
 
-class DemeReward(LineageCountingReward, BlockCountingReward):
+class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward fraction of lineages in a specific deme. Taking the product of this reward with another reward
     will result in a reward that only considers the specified deme. Use :class:`SumReward` to marginalize over
@@ -359,7 +435,7 @@ class DemeReward(LineageCountingReward, BlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             # get the index of the population
             pop_index: int = state_space.epoch.pop_names.index(self.pop)
 
@@ -419,7 +495,7 @@ class LocusReward(LineageCountingReward):
         return hash(self.__class__.__name__ + str(self.locus))
 
 
-class UnitReward(LineageCountingReward, BlockCountingReward):
+class UnitReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward all states with 1 (including absorbing states).
     """

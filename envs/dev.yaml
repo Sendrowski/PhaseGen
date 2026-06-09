@@ -18,6 +18,7 @@ dependencies:
   - pip
   - pip:
     - msprime
+    - moments-popgen
     - pytest
     - pytest-xdist
     - pytest-cov

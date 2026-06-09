@@ -134,7 +134,8 @@ from .coalescent_models import (
 from .state_space import (
     StateSpace,
     LineageCountingStateSpace,
-    BlockCountingStateSpace
+    BlockCountingStateSpace,
+    JointBlockCountingStateSpace
 )
 
 from .rewards import (
@@ -145,6 +146,7 @@ from .rewards import (
     TotalBranchLengthLocusReward,
     UnfoldedSFSReward,
     FoldedSFSReward,
+    JointSFSReward,
     StateReward,
     LineageReward,
     CustomReward,
@@ -158,7 +160,8 @@ from .rewards import (
 from .spectrum import (
     SFS,
     Spectra,
-    SFS2
+    SFS2,
+    JointSFS
 )
 
 from .inference import Inference
@@ -215,6 +218,7 @@ __all__ = [
     'DiracCoalescent',
     'SFS2',
     'SFS',
+    'JointSFS',
     'Spectra',
     'Inference',
     'LNorm',
@@ -229,6 +233,7 @@ __all__ = [
     'TotalBranchLengthLocusReward',
     'UnfoldedSFSReward',
     'FoldedSFSReward',
+    'JointSFSReward',
     'StateReward',
     'LineageReward',
     'CustomReward',
@@ -240,6 +245,7 @@ __all__ = [
     'StateSpace',
     'LineageCountingStateSpace',
     'BlockCountingStateSpace',
+    'JointBlockCountingStateSpace',
     'CoalescentModel',
     'LineageConfig',
     'LocusConfig',

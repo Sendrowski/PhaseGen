@@ -1,7 +1,9 @@
 """
 Test matrix exponentiation.
 """
-from unittest import TestCase
+import importlib.util
+
+from testing import TestCase
 
 import numpy as np
 
@@ -15,18 +17,23 @@ class ExpmTestCase(TestCase):
 
     def test_expm_different_backends(self):
         """
-        Test matrix exponential for medium-sized matrix.
+        Test that the available matrix exponentiation backends agree on a medium-sized matrix. The optional backends
+        (TensorFlow, Jax, PyTorch) are only checked if their underlying package is installed.
         """
+        S = pg.Coalescent(n=10).block_counting_state_space.S
 
-        coal = pg.Coalescent(n=10)
+        # SciPy is always available and serves as the reference
+        reference = pg.SciPyExpmBackend().compute(S)
 
-        A = pg.TensorFlowExpmBackend().compute(coal.block_counting_state_space.S)
-        B = pg.SciPyExpmBackend().compute(coal.block_counting_state_space.S)
-        C = pg.JaxExpmBackend().compute(coal.block_counting_state_space.S)
-        D = pg.expm.PyTorchExpmBackend().compute(coal.block_counting_state_space.S)
+        # optional backends, keyed by the module they require
+        optional_backends = {
+            'tensorflow': pg.TensorFlowExpmBackend,
+            'jax': pg.JaxExpmBackend,
+            'torch': pg.expm.PyTorchExpmBackend,
+        }
 
-        np.testing.assert_array_almost_equal(A, B)
-        np.testing.assert_array_almost_equal(A, C)
-        np.testing.assert_array_almost_equal(A, D)
+        for module, backend in optional_backends.items():
+            if importlib.util.find_spec(module) is None:
+                continue
 
-        pass
+            np.testing.assert_array_almost_equal(backend().compute(S), reference)

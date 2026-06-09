@@ -2,7 +2,7 @@
 Test LineageConfig class.
 """
 
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 from numpy import testing

@@ -3,7 +3,7 @@ Test Demography class.
 """
 
 from itertools import islice
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 import pytest

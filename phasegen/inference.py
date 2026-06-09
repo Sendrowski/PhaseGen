@@ -19,7 +19,7 @@ from tqdm import tqdm
 from .demography import Demography
 from .distributions import Coalescent
 from .serialization import Serializable
-from .state_space import BlockCountingStateSpace, LineageCountingStateSpace
+from .state_space import StateSpace
 from .utils import parallelize
 
 logger = logging.getLogger('phasegen')
@@ -236,36 +236,38 @@ class Inference(Serializable):
         coal.parallelize = False
         coal.pbar = False
 
-        # if state space caching is enabled, replace by cached state space if possible
+        # if state space caching is enabled, replace each state space by the cached one if it matches
         if self.cache:
 
-            if coal.lineage_counting_state_space == self._lineage_counting_state_space:
-                coal.__dict__['lineage_counting_state_space'] = self._lineage_counting_state_space
-
-            if coal.block_counting_state_space == self._block_counting_state_space:
-                coal.__dict__['block_counting_state_space'] = self._block_counting_state_space
+            for name, cached in self._state_spaces.items():
+                if getattr(coal, name) == cached:
+                    coal.__dict__[name] = cached
 
         return coal
 
-    @cached_property
-    def _lineage_counting_state_space(self) -> LineageCountingStateSpace:
-        """
-        Lineage-counting state space which only keeps track of the number of lineages present.
-        """
-        s = self.coal(**self.x0).lineage_counting_state_space
-        s.pbar = False
-
-        return s
+    #: The coalescent state spaces to cache and reuse across loss evaluations, by attribute name on the coalescent.
+    _state_space_names: Tuple[str, ...] = (
+        'lineage_counting_state_space',
+        'block_counting_state_space',
+        'joint_block_counting_state_space',
+    )
 
     @cached_property
-    def _block_counting_state_space(self) -> BlockCountingStateSpace:
+    def _state_spaces(self) -> Dict[str, StateSpace]:
         """
-        Block-counting state space which keeps track for the number of lineages that subtend `i` lineages.
+        The coalescent state spaces (built once from ``x0``) that are reused across loss evaluations when caching is
+        enabled. Keyed by their attribute name on the coalescent. The (config-dependent) state and transition
+        structure is reused; only the (epoch-dependent) rate matrix is recomputed per evaluation.
         """
-        s = self.coal(**self.x0).block_counting_state_space
-        s.pbar = False
+        coal = self.coal(**self.x0)
 
-        return s
+        spaces = {}
+        for name in self._state_space_names:
+            s = getattr(coal, name)
+            s.pbar = False
+            spaces[name] = s
+
+        return spaces
 
     @staticmethod
     def _get_loss_function(

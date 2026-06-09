@@ -1,0 +1,198 @@
+{
+    "py/object": "phasegen.comparison.Comparison",
+    "logger": {
+        "py/reduce": [
+            {
+                "py/function": "logging.getLogger"
+            },
+            {
+                "py/tuple": [
+                    "phasegen.Comparison"
+                ]
+            }
+        ]
+    },
+    "comparisons": {
+        "tolerance": {
+            "jsfs": {
+                "mean": 0.02,
+                "var": 0.05
+            }
+        }
+    },
+    "n": {
+        "pop_0": 2,
+        "pop_1": 2
+    },
+    "pop_sizes": {
+        "pop_0": {
+            "json://0": 1
+        },
+        "pop_1": {
+            "json://0": 1.5
+        }
+    },
+    "migration_rates": {
+        "json://{\"py/tuple\": [\"pop_0\", \"pop_1\"]}": {
+            "json://0": 0.75
+        },
+        "json://{\"py/tuple\": [\"pop_1\", \"pop_0\"]}": {
+            "json://0": 0.75
+        }
+    },
+    "n_loci": 1,
+    "recombination_rate": 0,
+    "num_replicates": 500000,
+    "mutation_rate": null,
+    "record_migration": false,
+    "simulate_mutations": false,
+    "mass_threshold": 0.9,
+    "end_time": null,
+    "n_threads": 1,
+    "parallelize": false,
+    "seed": 42,
+    "alpha": 1.5,
+    "psi": 0.5,
+    "c": 1,
+    "model": {
+        "py/object": "phasegen.coalescent_models.StandardCoalescent"
+    },
+    "n_assertions": 0,
+    "ms": {
+        "py/object": "phasegen.distributions.MsprimeCoalescent",
+        "_logger": {
+            "py/reduce": [
+                {
+                    "py/function": "logging.getLogger"
+                },
+                {
+                    "py/tuple": [
+                        "phasegen.MsprimeCoalescent"
+                    ]
+                }
+            ]
+        },
+        "lineage_config": {
+            "py/object": "phasegen.lineage.LineageConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LineageConfig"
+                        ]
+                    }
+                ]
+            },
+            "lineages": {
+                "py/object": "numpy.ndarray",
+                "data": [
+                    2,
+                    2
+                ]
+            },
+            "n": 4,
+            "n_pops": 2,
+            "pop_names": [
+                "pop_0",
+                "pop_1"
+            ]
+        },
+        "locus_config": {
+            "py/object": "phasegen.locus.LocusConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LocusConfig"
+                        ]
+                    }
+                ]
+            },
+            "n": 1,
+            "n_unlinked": 0,
+            "recombination_rate": 0,
+            "_allow_coalescence": true
+        },
+        "model": {
+            "py/id": 12
+        },
+        "demography": null,
+        "end_time": null,
+        "sfs_lengths": null,
+        "total_branch_lengths": null,
+        "heights": null,
+        "mutations": null,
+        "num_replicates": 500000,
+        "mutation_rate": null,
+        "n_threads": 1,
+        "parallelize": false,
+        "record_migration": false,
+        "simulate_mutations": false,
+        "seed": 42,
+        "jsfs": {
+            "py/object": "phasegen.distributions.EmpiricalJointSFSDistribution",
+            "_moments": {
+                "py/object": "numpy.ndarray",
+                "data": [
+                    [
+                        [
+                            0.0,
+                            3.028732921501398,
+                            0.9088688458877198
+                        ],
+                        [
+                            2.587084183203619,
+                            1.1603761095744385,
+                            0.7744196458527408
+                        ],
+                        [
+                            1.0075232269428338,
+                            1.018759622040331,
+                            0.0
+                        ]
+                    ],
+                    [
+                        [
+                            0.0,
+                            17.619880461288197,
+                            4.7678889990995375
+                        ],
+                        [
+                            14.187854039789732,
+                            10.83983514087012,
+                            4.356724157303475
+                        ],
+                        [
+                            5.121019902235978,
+                            5.725224892902664,
+                            0.0
+                        ]
+                    ],
+                    [
+                        [
+                            0.0,
+                            152.88861118824008,
+                            39.25330783545618
+                        ],
+                        [
+                            120.06308308080362,
+                            177.71978576453955,
+                            36.85142870460128
+                        ],
+                        [
+                            41.72914981191485,
+                            48.26141049618981,
+                            0.0
+                        ]
+                    ]
+                ]
+            }
+        }
+    }
+}

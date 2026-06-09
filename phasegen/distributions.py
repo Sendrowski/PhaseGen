@@ -24,11 +24,11 @@ from .expm import Backend
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
-    LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward
+    LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward, JointSFSReward
 from .serialization import Serializable
 from .settings import Settings
-from .spectrum import SFS, SFS2
-from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace
+from .spectrum import SFS, SFS2, JointSFS
+from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace, JointBlockCountingStateSpace
 from .utils import parallelize, multiset_permutations
 
 expm = Backend.expm
@@ -1389,6 +1389,24 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         i = 0
         T = np.eye(self.state_space.k)
         epoch = self.demography.get_epoch(0)
+
+        # An extreme demography (population sizes or migration rates differing by more than ~double precision) makes
+        # the absorption-time matrix exponential numerically unreliable. Because scipy's ``expm`` estimates the
+        # matrix one-norm with randomised power iteration, it then becomes intermittently prohibitively slow
+        # (appearing to hang). Detect this up front from the demography (not the rate matrix, whose range can also be
+        # widened by the coalescent model, e.g. multiple-merger models) and fail fast with a clear error.
+        # coalescence rates scale as 1 / pop_size, migration enters at its own rate
+        scales = [1 / v for v in epoch.pop_sizes.values() if v > 0]
+        scales += [v for v in epoch.migration_rates.values() if v > 0]
+        ratio = max(scales) / min(scales) if scales else 1
+
+        if ratio > 1e16:
+            raise ValueError(
+                "The demography is too ill-conditioned to reliably compute the time of almost sure absorption: its "
+                f"population sizes and migration rates differ by a factor of {ratio:.1e}. Use less extreme "
+                "parameters, or set the end time manually (see ``Coalescent.end_time``)."
+            )
+
         t = 2 ** int(np.log2(np.mean(list(epoch.pop_sizes.values()))))
         expansion_factor = 2
 
@@ -2101,6 +2119,312 @@ class FoldedSFSDistribution(SFSDistribution):
         return set(tuple(u) for u in unfolded)
 
 
+class JointSFSDistribution(PhaseTypeDistribution):
+    """
+    Joint (multi-population) site-frequency spectrum distribution.
+
+    Moments are returned as a multi-dimensional array of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, where ``n_p`` is the
+    sample size of population ``p``. The entry at index ``(k_0, ..., k_{P-1})`` is the moment for branches subtending
+    exactly ``k_p`` samples from population ``p``. The monomorphic bins (the all-zero and the full
+    ``(n_0,...,n_{P-1})`` configuration) are zero by convention.
+    """
+
+    def __init__(
+            self,
+            state_space: JointBlockCountingStateSpace,
+            tree_height: 'TreeHeightDistribution',
+            demography: Demography,
+            reward: Reward = None
+    ):
+        """
+        Initialize the distribution.
+
+        :param state_space: Joint block-counting state space.
+        :param tree_height: The tree height distribution.
+        :param demography: The demography.
+        :param reward: The reward to multiply the joint SFS reward with. By default, the unit reward is used, which
+            has no effect.
+        """
+        if reward is None:
+            reward = UnitReward()
+
+        super().__init__(
+            state_space=state_space,
+            tree_height=tree_height,
+            demography=demography,
+            reward=reward
+        )
+
+    @cached_property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the joint SFS array, ``(n_0 + 1, ..., n_{P-1} + 1)``.
+        """
+        return tuple(int(n_p) + 1 for n_p in self.lineage_config.lineages)
+
+    def _get_configs(self) -> List[Tuple[int, ...]]:
+        """
+        Get the descendant vectors corresponding to (polymorphic) joint SFS bins, i.e. all block configurations
+        except the full-sample configuration (which corresponds to the monomorphic, fixed sites).
+
+        :return: List of descendant vectors.
+        """
+        full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
+
+        return [c for c in self.state_space.block_configs if c != full]
+
+    def moment(
+            self,
+            k: int,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> np.ndarray:
+        """
+        Get the kth moments of the joint site-frequency spectrum.
+
+        :param k: The order of the moment.
+        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
+            initializing the distribution.
+        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
+            initializing the distribution or the time until almost sure absorption.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :return: An array of shape :attr:`shape` holding the kth moment of each joint SFS bin.
+        """
+        # like the base distribution, a moment is the accumulation over the [start_time, end_time] window
+        if start_time is None:
+            start_time = self.tree_height.start_time
+
+        if end_time is None:
+            end_time = self.tree_height.t_max
+
+        if start_time > 0:
+            acc = self.accumulate(k, [start_time, end_time], center=center, permute=permute)
+            out = acc[..., 1] - acc[..., 0]
+        else:
+            out = self.accumulate(k, [end_time], center=center, permute=permute)[..., 0]
+
+        if np.isnan(out).any():
+            raise ValueError(
+                "NaN value encountered when computing moment. "
+                "This is likely due to an ill-conditioned rate matrix."
+            )
+
+        return JointSFS(out)
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            permute: bool = True
+    ) -> np.ndarray:
+        """
+        Evaluate the kth moments of the joint site-frequency spectrum at different end times.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moments.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :return: Array of shape :attr:`shape` ``+ (len(end_times),)`` with each bin's kth moment over time.
+        """
+        k = int(k)
+        configs = self._get_configs()
+        end_times = np.array(list(end_times))
+
+        accumulation = parallelize(
+            func=lambda config: PhaseTypeDistribution.accumulate(
+                self,
+                k=k,
+                end_times=end_times,
+                rewards=tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k)),
+                center=center,
+                permute=permute
+            ),
+            data=configs,
+            desc=f"Calculating accumulation of {k}-moments",
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
+        )
+
+        out = np.zeros(self.shape + (len(end_times),))
+        for config, acc in zip(configs, accumulation):
+            out[config] = acc
+
+        return out
+
+    def plot_accumulation(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            center: bool = True,
+            permute: bool = True,
+            ax: 'plt.Axes' = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = None
+    ) -> 'plt.Axes':
+        """
+        Plot accumulation of joint SFS moments over time, one curve per (polymorphic) bin.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. Defaults to 200 points up to the 99th percentile.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :param ax: The axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        import matplotlib.pyplot as plt
+        from .visualization import Visualization
+
+        k = int(k)
+
+        if ax is None:
+            ax = plt.gca()
+
+        if end_times is None:
+            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
+
+        end_times = np.asarray(list(end_times))
+
+        if title is None:
+            title = f"Joint SFS moment accumulation (order {k})"
+
+        configs = self._get_configs()
+        accumulation = self.accumulate(k, end_times, center=center, permute=permute)
+
+        for i, config in enumerate(configs):
+            Visualization.plot(
+                ax=ax,
+                x=end_times,
+                y=accumulation[config],
+                xlabel='t',
+                ylabel='moment',
+                label=str(config),
+                file=file,
+                show=(i == len(configs) - 1) and show,
+                clear=clear,
+                title=title
+            )
+
+        return ax
+
+    @cached_property
+    def mean(self) -> JointSFS:
+        """
+        Mean of the joint site-frequency spectrum, i.e. the expected branch length subtending each descendant
+        configuration.
+        """
+        return self.moment(k=1)
+
+    @cached_property
+    def var(self) -> JointSFS:
+        """
+        Variance of the joint site-frequency spectrum.
+        """
+        return self.moment(k=2, center=True)
+
+    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+        """
+        Get the covariance between the branch lengths subtending two descendant configurations.
+
+        :param config_a: First descendant configuration.
+        :param config_b: Second descendant configuration.
+        :return: The covariance.
+        """
+        return PhaseTypeDistribution.moment(
+            self,
+            k=2,
+            center=True,
+            rewards=tuple(CombinedReward([self.reward, JointSFSReward(c)]) for c in (config_a, config_b))
+        )
+
+    @cached_property
+    def cov(self) -> np.ndarray:
+        """
+        Covariance between the branch lengths of all pairs of (polymorphic) joint SFS bins. Returned as an array of
+        shape :attr:`shape` ``+`` :attr:`shape`, where ``cov[a_0, ..., a_{P-1}, b_0, ..., b_{P-1}]`` is the covariance
+        between bins ``(a_0, ..., a_{P-1})`` and ``(b_0, ..., b_{P-1})``.
+        """
+        configs = self._get_configs()
+        pairs = [(a, b) for a in configs for b in configs]
+
+        results = parallelize(
+            func=lambda ab: self.get_cov(*ab),
+            data=pairs,
+            desc="Calculating covariance",
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
+        )
+
+        out = np.zeros(self.shape + self.shape)
+        for (a, b), result in zip(pairs, results):
+            out[tuple(a) + tuple(b)] = result
+
+        return out
+
+
+class EmpiricalJointSFSDistribution:  # pragma: no cover
+    """
+    Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
+    interface as :class:`JointSFSDistribution` so that the two can be compared by
+    :class:`~phasegen.comparison.Comparison`. The moments are pre-computed arrays (so the object can be serialized
+    as cached ground truth).
+    """
+
+    def __init__(self, moments: np.ndarray):
+        """
+        Initialize the distribution.
+
+        :param moments: Per-configuration (non-central) moments of orders ``1, 2, ...``, stacked along the first
+            axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
+        """
+        #: Non-central moments per descendant configuration, indexed by order minus one.
+        self._moments: np.ndarray = np.asarray(moments)
+
+    @property
+    def mean(self) -> JointSFS:
+        """
+        Mean of the joint site-frequency spectrum.
+        """
+        return JointSFS(self._moments[0])
+
+    @property
+    def m2(self) -> JointSFS:
+        """
+        Second (non-central) moment of the joint site-frequency spectrum.
+        """
+        return JointSFS(self._moments[1])
+
+    @property
+    def m3(self) -> JointSFS:
+        """
+        Third (non-central) moment of the joint site-frequency spectrum.
+        """
+        return JointSFS(self._moments[2])
+
+    @property
+    def var(self) -> JointSFS:
+        """
+        Variance of the joint site-frequency spectrum.
+        """
+        return JointSFS(self._moments[1] - self._moments[0] ** 2)
+
+    @property
+    def data(self) -> np.ndarray:
+        """
+        The mean joint site-frequency spectrum array.
+        """
+        return self._moments[0]
+
+
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
     Probability distribution based on realisations.
@@ -2745,6 +3069,18 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
     @cached_property
+    def joint_block_counting_state_space(self) -> JointBlockCountingStateSpace:
+        """
+        The joint block-counting state space (tracks the deme-of-origin composition of each lineage).
+        """
+        return JointBlockCountingStateSpace(
+            lineage_config=self.lineage_config,
+            locus_config=self.locus_config,
+            model=self.model,
+            epoch=self.demography.get_epoch(0)
+        )
+
+    @cached_property
     def tree_height(self) -> TreeHeightDistribution:
         """
         Tree height distribution.
@@ -2790,6 +3126,22 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    @cached_property
+    def jsfs(self) -> JointSFSDistribution:
+        """
+        Joint (multi-population) site-frequency spectrum distribution. Moments are returned as a multi-dimensional
+        array of shape ``(n_0 + 1, ..., n_{P-1} + 1)``.
+
+        .. note::
+            The joint state space grows combinatorially with the per-population sample sizes, so this is only
+            practical for small samples.
+        """
+        return JointSFSDistribution(
+            state_space=self.joint_block_counting_state_space,
+            tree_height=self.tree_height,
+            demography=self.demography
+        )
+
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """
         Get the kth-order phase-type distribution with state space inferred from the rewards.
@@ -2802,7 +3154,16 @@ class Coalescent(AbstractCoalescent, Serializable):
         if rewards is None:
             rewards = [TreeHeightReward()] * k
 
-        if Reward.support(LineageCountingStateSpace, rewards):
+        # only route to the (expensive) joint state space when a reward requires it; then all rewards must support it
+        if Reward.requires_joint_state_space(rewards):
+            if not Reward.support(JointBlockCountingStateSpace, rewards):
+                raise ValueError(
+                    "The given rewards are not jointly compatible with any single state space: "
+                    f"{[r.__class__.__name__ for r in rewards]}. A joint-SFS reward can only be combined with "
+                    "rewards that also support the joint state space."
+                )
+            state_space = self.joint_block_counting_state_space
+        elif Reward.support(LineageCountingStateSpace, rewards):
             state_space = self.lineage_counting_state_space
         else:
             state_space = self.block_counting_state_space
@@ -3124,6 +3485,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Mutations per locus, deme and replicate.
         self.mutations: np.ndarray | None = None
 
+        #: Joint SFS (non-central) moments per descendant configuration, of orders 1, ..., ``_jsfs_max_order``.
+        self.jsfs_moments: np.ndarray | None = None
+
         #: Number of replicates.
         self.num_replicates: int = num_replicates
 
@@ -3176,7 +3540,15 @@ class MsprimeCoalescent(AbstractCoalescent):
         n_pops = self.demography.n_pops
         sample_size = self.lineage_config.n
 
-        def simulate_batch(seed: Optional[int]) -> (np.ndarray, np.ndarray, np.ndarray):
+        # joint SFS is accumulated from the same trees, but only for multi-population, single-locus scenarios where
+        # it is meaningful (the descendant configuration is by deme of origin)
+        compute_jsfs = self.lineage_config.n_pops > 1 and self.locus_config.n == 1
+        jsfs_max_order = self._jsfs_max_order
+        jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
+        name_to_index = {name: i for i, name in enumerate(self.demography.pop_names)}
+        n_total = num_replicates * self.n_threads
+
+        def simulate_batch(seed: Optional[int]) -> dict:
             """
             Simulate statistics.
 
@@ -3206,9 +3578,19 @@ class MsprimeCoalescent(AbstractCoalescent):
             sfs = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=float)
             mutations = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=int)
 
+            # joint SFS moment accumulator (non-central moments of orders 1, ..., jsfs_max_order)
+            jsfs_acc = np.zeros((jsfs_max_order,) + jsfs_shape)
+
             # iterate over trees and compute statistics
             ts: tskit.TreeSequence
             for i, ts in enumerate(g):
+
+                # map each sample to the index of its sampling population (deme of origin) for the joint SFS
+                if compute_jsfs:
+                    pop_of_leaf = {
+                        u: name_to_index[ts.population(ts.node(u).population).metadata['name']]
+                        for u in ts.samples()
+                    }
 
                 tree: tskit.Tree
                 for j, tree in enumerate(self._expand_trees(ts)):
@@ -3281,6 +3663,27 @@ class MsprimeCoalescent(AbstractCoalescent):
 
                             sfs[j, 0, i, n] += t
 
+                    # accumulate the joint SFS from the same tree (single locus only)
+                    if compute_jsfs and j == 0:
+                        jsfs_rep = np.zeros(jsfs_shape)
+
+                        for node in tree.nodes():
+
+                            # the root subtends all samples (monomorphic) and is skipped
+                            if tree.parent(node) == -1:
+                                continue
+
+                            # count descendant samples by population (deme of origin)
+                            vec = [0] * len(jsfs_shape)
+                            for leaf in tree.leaves(node):
+                                vec[pop_of_leaf[leaf]] += 1
+
+                            if sum(vec) > 0:
+                                jsfs_rep[tuple(vec)] += tree.get_branch_length(node)
+
+                        for order in range(jsfs_max_order):
+                            jsfs_acc[order] += jsfs_rep ** (order + 1)
+
                 # simulate mutations if specified
                 if self.simulate_mutations:
 
@@ -3290,22 +3693,32 @@ class MsprimeCoalescent(AbstractCoalescent):
                     for node in mts.mutations_node:
                         mutations[0, 0, i, tree.get_num_leaves(node)] += 1
 
-            return np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T, mutations.T])
+            return dict(
+                main=np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T, mutations.T]),
+                jsfs=jsfs_acc
+            )
 
-        # parallelize and add up results
-        res = np.hstack(parallelize(
+        # parallelize over threads
+        batches = parallelize(
             func=simulate_batch,
             data=[self.seed + i if self.seed is not None else None for i in range(self.n_threads)],
             parallelize=self.parallelize,
             batch_size=num_replicates,
-            desc="Simulating trees"
-        ))
+            desc="Simulating trees",
+            dtype=object
+        )
+
+        # combine the per-replicate statistics across threads
+        res = np.hstack([b['main'] for b in batches])
 
         # store results
         self.heights = res[0].T
         self.total_branch_lengths = res[1].T
         self.sfs_lengths = res[2:sample_size + 3].T
         self.mutations = res[sample_size + 3:].T.astype(int)
+
+        # combine the joint SFS moments (summed over replicates) across threads and normalize to moments
+        self.jsfs_moments = np.sum([b['jsfs'] for b in batches], axis=0) / n_total if compute_jsfs else None
 
     @staticmethod
     def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:
@@ -3344,6 +3757,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.sfs.touch(t)
         self.fsfs.touch(t)
 
+        # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for
+        # multi-population, single-locus scenarios, so it is serialized along with the comparison
+        if self.lineage_config.n_pops > 1 and self.locus_config.n == 1:
+            # noinspection PyStatementEffect
+            self.jsfs
+
     def drop(self):
         """
         Drop simulated data.
@@ -3352,6 +3771,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_branch_lengths = None
         self.sfs_lengths = None
         self.mutations = None
+
+        # the moments are retained by the cached jsfs distribution (referenced before drop), so this only removes
+        # the duplicate reference held on the coalescent
+        self.jsfs_moments = None
 
         self.tree_height.drop()
         self.total_tree_height.drop()
@@ -3432,6 +3855,28 @@ class MsprimeCoalescent(AbstractCoalescent):
             pops=self.demography.pop_names,
             sfs_dist=FoldedSFSDistribution
         )
+
+    #: Highest moment order computed for the empirical joint SFS ground truth.
+    _jsfs_max_order: int = 3
+
+    @cached_property
+    def jsfs(self) -> 'EmpiricalJointSFSDistribution':
+        """
+        Joint (multi-population) site-frequency spectrum ground truth, accumulated from the same simulated trees as
+        the other statistics (see :meth:`simulate`). Returns an :class:`EmpiricalJointSFSDistribution` exposing
+        ``mean``, ``m2``, ``m3`` and ``var`` as arrays of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, matching
+        :class:`JointSFSDistribution`. The descendant configuration of a branch is the number of its sample
+        descendants from each population (its deme of origin). Only available for multi-population, single-locus
+        scenarios.
+        """
+        self.simulate()
+
+        if self.jsfs_moments is None:
+            raise NotImplementedError(
+                "The joint SFS is only available for multi-population, single-locus scenarios."
+            )
+
+        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments)
 
     def to_phasegen(self) -> Coalescent:
         """

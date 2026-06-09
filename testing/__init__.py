@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 from unittest import TestCase as BaseTestCase
 
-import pytest
-from matplotlib import pyplot as plt
+import matplotlib
+
+# use a non-interactive backend so plots don't pop open during tests
+matplotlib.use('Agg')
 
 
 def prioritize_installed_packages():
@@ -31,8 +33,10 @@ prioritize_installed_packages()
 
 import phasegen as pg
 
-# register the expm backend
-pg.Backend.register(pg.JaxExpmBackend())
+# register the expm backend. The coalescent statistics issue many small expm calls (e.g. one per SFS bin), for
+# which SciPy is fastest (TensorFlow's and Jax's per-call overhead makes them slower despite being better for
+# large matrices / GPUs).
+pg.Backend.register(pg.SciPyExpmBackend())
 
 logger = logging.getLogger('phasegen')
 
@@ -47,7 +51,7 @@ if not os.path.exists('scratch'):
 
 
 class TestCase(BaseTestCase):
-    @pytest.fixture(autouse=True)
-    def cleanup(self):
-        yield
-        plt.close('all')
+    """
+    Common base class for all test cases
+    """
+    pass

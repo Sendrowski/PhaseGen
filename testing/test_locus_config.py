@@ -2,7 +2,7 @@
 Test LocusConfig class.
 """
 
-from unittest import TestCase
+from testing import TestCase
 
 import numpy as np
 

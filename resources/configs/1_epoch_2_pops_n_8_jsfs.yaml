@@ -1,0 +1,20 @@
+n:
+  pop_0: 4
+  pop_1: 4
+num_replicates: 500000
+seed: 105
+pop_sizes:
+  pop_0:
+    0: 1
+  pop_1:
+    0: 1.5
+migration_rates:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
+    0: 0.75
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 0.75
+model: standard
+comparisons:
+  tolerance:
+    jsfs:
+      mean: 0.06
