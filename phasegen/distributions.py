@@ -2024,13 +2024,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if self.demography.has_n_epochs(2):
             raise NotImplementedError("Sampling not implemented for more than one epoch.")
 
-        # mutational configurations are a single-locus (infinite-sites) quantity; recombination is not supported
-        if self.locus_config.n != 1:
-            raise NotImplementedError(
-                "Mutational configurations are not supported under recombination "
-                f"(got {self.locus_config.n} loci); they are defined for a single locus only."
-            )
-
         # make sure theta is non-negative
         if theta < 0:
             raise ValueError("Theta must be greater than or equal to 0.")
