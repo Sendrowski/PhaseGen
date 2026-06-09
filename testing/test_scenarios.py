@@ -16,6 +16,7 @@ from testing import TestCase
 # configs = get_filenames("resources/configs")
 
 configs = [
+    '1_epoch_n_2_2_locus_sfs',
     '1_epoch_n_3_2_locus_sfs',
     '1_epoch_n_4_2_locus_sfs',
     '2_epoch_n_3_2_locus_sfs',
