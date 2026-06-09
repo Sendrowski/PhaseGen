@@ -1,0 +1,17 @@
+n:
+  pop_0: 5
+n_loci: 2
+recombination_rate: 1.0
+num_replicates: 200000
+seed: 53
+pop_sizes:
+  pop_0:
+    0: 1
+    0.5: 0.3
+    1.5: 2.0
+model: beta
+alpha: 1.5
+comparisons:
+  tolerance:
+    sfs2:
+      mean: 0.05
