@@ -352,8 +352,9 @@ class Comparison(Serializable):
 
                         self._save_and_show(name)
 
-                    # assume we have a square 2-dimensional statistic (e.g. a 2-SFS)
-                    elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 3:
+                    # assume we have a square 2-dimensional statistic (e.g. a 2-SFS); ``n = 2`` (a 3x3 matrix with a
+                    # single polymorphic bin) is a legitimate two-locus SFS and surface-plots fine
+                    elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
 
                         plt.close('all')  # avoid empty plots
                         fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 5))
