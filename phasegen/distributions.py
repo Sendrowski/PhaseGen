@@ -3082,11 +3082,12 @@ class AbstractCoalescent(ABC):
         if demography is None:
             demography = Demography(pop_sizes={p: 1 for p in self.lineage_config.pop_names})
 
-        # set up locus configuration
-        if isinstance(loci, int):
+        # set up locus configuration (accept a numeric number of loci, including the float that reticulate passes
+        # from R, or a LocusConfig)
+        if isinstance(loci, (int, float)):
             #: Locus configuration
             self.locus_config: LocusConfig = LocusConfig(
-                n=loci,
+                n=int(loci),
                 recombination_rate=recombination_rate if recombination_rate is not None else 0
             )
         else:

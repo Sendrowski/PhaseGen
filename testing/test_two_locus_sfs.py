@@ -100,6 +100,32 @@ def test_mmc_stays_correlated_at_large_r(name, model):
     assert two[1, 1] > outer[1, 1] * 1.02
 
 
+@pytest.mark.parametrize("n_unlinked", [0, 1, 2])
+def test_starting_config_n_unlinked(n_unlinked):
+    """Different starting linkage (``n_unlinked`` lineages start unlinked across the loci) is supported and gives
+    numba/Python-consistent results; starting more lineages unlinked reduces the inter-locus correlation."""
+    n, r = 4, 0.75
+
+    def two(use_numba):
+        Settings.use_numba = use_numba
+        coal = pg.Coalescent(n=n, loci=pg.LocusConfig(n=2, n_unlinked=n_unlinked, recombination_rate=r))
+        return np.asarray(coal.sfs2.mean.data)
+
+    numba = two(True)
+    python = two(False)
+    np.testing.assert_allclose(numba, python, atol=1e-10)
+
+
+def test_more_unlinked_reduces_correlation():
+    """Starting more lineages unlinked moves the off-diagonal of the 2-SFS toward the independent (smaller) value."""
+    n, r = 4, 0.75
+    off = [
+        np.asarray(pg.Coalescent(n=n, loci=pg.LocusConfig(n=2, n_unlinked=u, recombination_rate=r)).sfs2.mean.data)[1, 1]
+        for u in (0, 1, 2)
+    ]
+    assert off[0] > off[1] > off[2]
+
+
 def test_symmetric():
     """The two-locus SFS is symmetric (the two loci are exchangeable)."""
     two = _two_sfs(4, 1.0)
@@ -158,13 +184,19 @@ def test_requires_two_loci_single_population():
         ).sfs2.mean  # multiple populations
 
 
-def _msprime_two_locus_sfs(n, r, ms_model, reps, seed):
+def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
     """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product."""
     import msprime as ms
 
+    sim_kwargs = dict(samples=n, sequence_length=2, recombination_rate=r, ploidy=1, model=ms_model,
+                      num_replicates=reps, random_seed=seed)
+    if ms_demography is None:
+        sim_kwargs['population_size'] = 1
+    else:
+        sim_kwargs['demography'] = ms_demography
+
     out = np.zeros((n + 1, n + 1))
-    for ts in ms.sim_ancestry(samples=n, sequence_length=2, recombination_rate=r, ploidy=1,
-                              population_size=1, model=ms_model, num_replicates=reps, random_seed=seed):
+    for ts in ms.sim_ancestry(**sim_kwargs):
         t0, t1 = ts.at(0.5), ts.at(1.5)
         left = np.zeros(n + 1)
         right = np.zeros(n + 1)
@@ -179,23 +211,53 @@ def _msprime_two_locus_sfs(n, r, ms_model, reps, seed):
     return out / reps
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("name, model, ms_model", [
-    ("standard", pg.StandardCoalescent(), "standard"),
-    ("beta", pg.BetaCoalescent(alpha=1.5), "beta"),
-    ("dirac", pg.DiracCoalescent(psi=0.5, c=1.0), "dirac"),
-], ids=["standard", "beta", "dirac"])
-def test_msprime_two_locus_sfs(name, model, ms_model):
-    """The analytical two-locus SFS matches msprime two-locus simulations (standard and multiple-merger models, with
-    recombination mapping directly between the two)."""
+def _ms_model(name):
     import msprime as ms
+    return {"standard": ms.StandardCoalescent(), "beta": ms.BetaCoalescent(alpha=1.5),
+            "dirac": ms.DiracCoalescent(psi=0.5, c=1.0)}[name]
 
-    ms_models = {"standard": ms.StandardCoalescent(), "beta": ms.BetaCoalescent(alpha=1.5),
-                 "dirac": ms.DiracCoalescent(psi=0.5, c=1.0)}
 
-    n, r = 3, 1.0
+# (name, phasegen model, msprime model name, n, r) — varying coalescent model and number of lineages
+MSPRIME_CASES = [
+    ("standard n=3", pg.StandardCoalescent(), "standard", 3, 1.0),
+    ("standard n=4", pg.StandardCoalescent(), "standard", 4, 0.5),
+    ("beta n=3", pg.BetaCoalescent(alpha=1.5), "beta", 3, 1.0),
+    ("dirac n=3", pg.DiracCoalescent(psi=0.5, c=1.0), "dirac", 3, 1.0),
+]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name, model, ms_model, n, r", MSPRIME_CASES, ids=[c[0] for c in MSPRIME_CASES])
+def test_msprime_two_locus_sfs(name, model, ms_model, n, r):
+    """The analytical two-locus SFS matches msprime two-locus simulations across models and sample sizes, with
+    recombination mapping directly between the two."""
     ana = _two_sfs(n, r, model)
-    sim = _msprime_two_locus_sfs(n, r, ms_models[ms_model], reps=200000, seed=42)
+    sim = _msprime_two_locus_sfs(n, r, _ms_model(ms_model), reps=200000, seed=42)
 
     s = slice(1, n)
     np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05, err_msg=name)
+
+
+@pytest.mark.slow
+def test_msprime_two_locus_sfs_two_epoch():
+    """The two-locus SFS matches msprime under a two-epoch (time-varying population size) demography."""
+    import msprime as ms
+
+    n, r = 3, 1.0
+    # population halves at time 1.0
+    ana = _two_sfs_demography(n, r)
+
+    dem = ms.Demography()
+    dem.add_population(initial_size=1.0)
+    dem.add_population_parameters_change(time=1.0, initial_size=0.5)
+    sim = _msprime_two_locus_sfs(n, r, ms.StandardCoalescent(), reps=200000, seed=43, ms_demography=dem)
+
+    s = slice(1, n)
+    np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05)
+
+
+def _two_sfs_demography(n, r):
+    """Analytical two-locus SFS under a two-epoch demography (size halves at t=1)."""
+    coal = pg.Coalescent(n=n, loci=2, recombination_rate=r,
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1.0: 0.5}}))
+    return np.asarray(coal.sfs2.mean.data)
