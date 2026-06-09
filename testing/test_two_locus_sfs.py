@@ -237,6 +237,42 @@ def test_requires_two_loci_single_population():
         ).sfs2.mean  # multiple populations
 
 
+def test_reward_state_space_guards():
+    """The two-locus rewards declare support for exactly the two-locus state space (mirroring the joint-SFS guards),
+    and incompatible reward/state-space combinations raise rather than silently computing the wrong thing. This
+    matters because the two-locus state space subclasses the joint one, so without explicit guards a joint-SFS reward
+    would evaluate on it (and vice versa)."""
+    from phasegen.state_space import (BlockCountingStateSpace, JointBlockCountingStateSpace,
+                                       TwoLocusBlockCountingStateSpace, LineageCountingStateSpace)
+
+    two = pg.TwoLocusSFSReward(0, 1)
+    joint = pg.JointSFSReward((1, 1))
+
+    # supports() is a clean diagonal: each reward supports only its own state space
+    assert two.supports(TwoLocusBlockCountingStateSpace)
+    assert not two.supports(JointBlockCountingStateSpace)
+    assert not two.supports(BlockCountingStateSpace)
+    assert not joint.supports(TwoLocusBlockCountingStateSpace)
+
+    # a two-locus reward no longer masquerades as one requiring the (population) joint state space
+    assert not pg.Reward.requires_joint_state_space([two])
+
+    ss = TwoLocusBlockCountingStateSpace(
+        lineage_config=pg.LineageConfig(3),
+        locus_config=pg.LocusConfig(n=2, recombination_rate=1.0),
+        epoch=pg.Epoch(),
+    )
+
+    # a joint-SFS reward must NOT silently evaluate on the two-locus space (it subclasses the joint one)
+    with pytest.raises(NotImplementedError):
+        joint._get(ss)
+
+    # and a two-locus reward must reject a non-two-locus space
+    single = pg.Coalescent(n=3).block_counting_state_space
+    with pytest.raises(NotImplementedError):
+        two._get(single)
+
+
 def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
     """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product."""
     import msprime as ms

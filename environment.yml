@@ -1,0 +1,29 @@
+# Conda environment for building the documentation and (re-)executing the reference notebooks.
+#
+# The docs are built with ``nb_execution_mode = 'off'`` (see docs/conf.py): the notebooks under
+# docs/reference/{Python,R} are executed ahead of time and their rendered outputs are committed. This environment
+# provides the toolchain to regenerate them — nbconvert/nbclient to run the notebooks, an R kernel + reticulate so
+# the R reference notebooks can be executed, and msprime (awkward to install via poetry/pip) for the
+# simulation-based examples — on top of the pinned Sphinx/myst-nb stack in docs/requirements.txt.
+#
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate phasegen-docs
+#   jupyter nbconvert --to notebook --execute --inplace docs/reference/Python/coalescent.ipynb
+#   jupyter nbconvert --to notebook --execute --inplace docs/reference/R/coalescent.ipynb
+#   sphinx-build -b html docs docs/_build/html
+name: phasegen-docs
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11            # matches the Read the Docs build (.readthedocs.yaml)
+  - pip
+  - nbconvert              # the notebook-execution CLI that docs/requirements.txt lacks
+  - msprime                # simulation backend for the example notebooks (problematic via poetry/pip)
+  # R kernel and Python<->R bridge so docs/reference/R/*.ipynb can be re-executed
+  - r-base
+  - r-irkernel
+  - r-reticulate
+  - pip:
+      - -r docs/requirements.txt   # pinned sphinx / myst-nb / nbclient / ipykernel stack
+      - -e .                       # phasegen itself, editable
