@@ -2499,6 +2499,14 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
         super().__init__(state_space=state_space, tree_height=tree_height, demography=demography, reward=reward)
 
+    @cached_property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the two-locus SFS array, ``(n + 1, n + 1)`` (one axis per locus).
+        """
+        n = int(self.lineage_config.n)
+        return n + 1, n + 1
+
     def _get_indices(self) -> List[int]:
         """
         Polymorphic SFS bins ``1, ..., n - 1`` (the monomorphic ``0`` and ``n`` bins carry no information).

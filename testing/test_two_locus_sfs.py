@@ -216,10 +216,11 @@ def test_container_and_entry_point():
     matplotlib.use('Agg')
 
     coal = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    assert coal.sfs2.shape == (4, 4)  # (n + 1, n + 1), mirroring JointSFSDistribution.shape
     sfs2 = coal.sfs2.mean
 
     assert isinstance(sfs2, pg.TwoLocusSFS)
-    assert sfs2.data.shape == (4, 4)
+    assert sfs2.data.shape == coal.sfs2.shape
     assert np.all(sfs2.data >= 0)
     sfs2.plot(show=False)
 
