@@ -166,8 +166,8 @@ def generate_tests(config: str):
     return run_test
 
 
-# scenarios that take more than ~10 seconds to run. Unlike ``configs_suspended`` (which are not run at all), these
-# are still collected but marked ``slow`` so they can be deselected with ``-m "not slow"``.
+# scenarios that take several seconds to run. Unlike ``configs_suspended`` (which are not run at all), these are
+# still collected but marked ``slow`` so they can be deselected with ``-m "not slow"`` to keep the regular suite fast.
 slow_configs = [
     '1_epoch_2_pops_n_8_jsfs',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
@@ -188,3 +188,6 @@ for config in configs:
         test = pytest.mark.slow(test)
 
     setattr(ScenariosTestCase, f'test_{config}', test)
+
+# remove the loop variables so the leftover ``test`` global is not collected by pytest as a stray test
+del config, test
