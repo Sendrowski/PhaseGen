@@ -2024,6 +2024,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if self.demography.has_n_epochs(2):
             raise NotImplementedError("Sampling not implemented for more than one epoch.")
 
+        # mutational configurations are a single-locus (infinite-sites) quantity; recombination is not supported
+        if self.locus_config.n != 1:
+            raise NotImplementedError(
+                "Mutational configurations are not supported under recombination "
+                f"(got {self.locus_config.n} loci); they are defined for a single locus only."
+            )
+
         # make sure theta is non-negative
         if theta < 0:
             raise ValueError("Theta must be greater than or equal to 0.")
@@ -3375,6 +3382,46 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    @cached_property
+    def fst(self) -> float:
+        r"""
+        Hudson's fixation index :math:`F_{ST} = 1 - \mathbb{E}[T_S] / \mathbb{E}[T_B]`, based on pairwise
+        coalescence times: :math:`T_S` is the coalescence time of two lineages sampled within the same population
+        (averaged over populations) and :math:`T_B` of two lineages from different populations (averaged over
+        population pairs). Requires at least two populations.
+
+        Since :math:`F_{ST}` is a pairwise, single-locus quantity, it is computed from two-lineage sub-coalescents
+        under the same (possibly time-varying, migrating) demography and coalescent model, and so does not depend on
+        the configured sample sizes or number of loci.
+
+        :return: Hudson's :math:`F_{ST}`.
+        :raises ValueError: if fewer than two populations are configured.
+        """
+        pops = self.demography.pop_names
+
+        if len(pops) < 2:
+            raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
+
+        def pairwise_time(counts: Dict[str, int]) -> float:
+            """Expected coalescence time of the two lineages placed by ``counts`` under this demography."""
+            return Coalescent(
+                n=counts,
+                demography=self.demography,
+                model=self.model,
+                end_time=self.end_time
+            ).tree_height.mean
+
+        # within-population pairwise times (both lineages in the same population)
+        t_within = [pairwise_time({p: (2 if p == q else 0) for p in pops}) for q in pops]
+
+        # between-population pairwise times (one lineage in each of two distinct populations)
+        t_between = [
+            pairwise_time({p: (1 if p in (a, b) else 0) for p in pops})
+            for i, a in enumerate(pops) for b in pops[i + 1:]
+        ]
+
+        return float(1 - np.mean(t_within) / np.mean(t_between))
+
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """
         Get the kth-order phase-type distribution with state space inferred from the rewards.
@@ -4170,6 +4217,46 @@ class MsprimeCoalescent(AbstractCoalescent):
             out += np.outer(left, right)
 
         return EmpiricalTwoLocusSFSDistribution(out / self.num_replicates)
+
+    @cached_property
+    def fst(self) -> float:
+        r"""
+        Hudson's :math:`F_{ST}` ground truth, simulated with msprime: ``1 - mean within-population branch diversity /
+        mean between-population branch divergence``, averaged over replicate trees. Requires at least two populations,
+        each with at least two sampled lineages. Matches :meth:`Coalescent.fst`.
+        """
+        import msprime as ms
+
+        pops = self.demography.pop_names
+
+        if len(pops) < 2:
+            raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
+
+        within = np.zeros(self.num_replicates)
+        between = np.zeros(self.num_replicates)
+
+        for k, ts in enumerate(ms.sim_ancestry(
+                samples=self.lineage_config.lineage_dict,
+                sequence_length=1,
+                demography=self.demography.to_msprime(),
+                model=self.get_coalescent_model(),
+                ploidy=1,
+                num_replicates=self.num_replicates,
+                random_seed=self.seed,
+        )):
+            sample_sets = [ts.samples(population=i) for i in range(len(pops))]
+
+            # within-population diversity (only populations with at least two samples are informative)
+            w = [ts.diversity(s, mode='branch') for s in sample_sets if len(s) >= 2]
+            # between-population divergence over distinct population pairs
+            b = [ts.divergence([sample_sets[i], sample_sets[j]], mode='branch')
+                 for i in range(len(pops)) for j in range(i + 1, len(pops))
+                 if len(sample_sets[i]) and len(sample_sets[j])]
+
+            within[k] = np.mean(w)
+            between[k] = np.mean(b)
+
+        return float(1 - within.mean() / between.mean())
 
     def to_phasegen(self) -> Coalescent:
         """
