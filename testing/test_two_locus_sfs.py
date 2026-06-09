@@ -71,6 +71,59 @@ def test_r_zero_equals_single_locus_cross_moment(name, model, n):
     np.testing.assert_allclose(two[s, s], ref[s, s], atol=1e-10, err_msg=f"{name} n={n}")
 
 
+def _two_locus_third_cross_moment(n, i, j, k, r, model=None):
+    """Two-locus third cross-moment ``E[L^0_i · L^0_j · L^1_k]`` (two rewards at locus 0, one at locus 1)."""
+    from phasegen.distributions import PhaseTypeDistribution
+    from phasegen.rewards import CombinedReward
+
+    kwargs = {} if model is None else dict(model=model)
+    dist = pg.Coalescent(n=n, loci=2, recombination_rate=r, **kwargs).sfs2
+    return PhaseTypeDistribution.moment(
+        dist, k=3, permute=False, center=False,
+        rewards=(
+            CombinedReward([dist.reward, pg.TwoLocusSFSReward(0, i)]),
+            CombinedReward([dist.reward, pg.TwoLocusSFSReward(0, j)]),
+            CombinedReward([dist.reward, pg.TwoLocusSFSReward(1, k)]),
+        )
+    )
+
+
+def _single_locus_third_cross_moment(n, i, j, k, model=None):
+    """Single-locus third cross-moment ``E[L_i · L_j · L_k]`` on the single-locus block-counting space."""
+    from phasegen.distributions import PhaseTypeDistribution
+    from phasegen.rewards import CombinedReward
+
+    kwargs = {} if model is None else dict(model=model)
+    dist = pg.Coalescent(n=n, **kwargs).sfs
+    return PhaseTypeDistribution.moment(
+        dist, k=3, permute=False, center=False,
+        rewards=tuple(CombinedReward([dist.reward, dist._get_sfs_reward(b)]) for b in (i, j, k))
+    )
+
+
+@pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
+def test_higher_order_moment_r_zero_equals_single_locus(name, model):
+    """Beyond the (second-moment) 2-SFS, a genuine third cross-moment ``E[L^0_i L^0_j L^1_k]`` at ``r = 0`` (fully
+    linked, both loci share one tree) must equal the single-locus third cross-moment ``E[L_i L_j L_k]``."""
+    n = 3
+    for i in (1, 2):
+        for j in (1, 2):
+            for k in (1, 2):
+                two = _two_locus_third_cross_moment(n, i, j, k, 0.0, model)
+                ref = _single_locus_third_cross_moment(n, i, j, k, model)
+                assert two == pytest.approx(ref, abs=1e-10), f"{name} ({i},{j},{k})"
+
+
+def test_higher_order_moment_numba_python_parity():
+    """The third cross-moment is identical whether the two-locus state space is built with numba or pure Python."""
+    n, r = 3, 1.0
+    Settings.use_numba = True
+    numba = _two_locus_third_cross_moment(n, 1, 2, 2, r)
+    Settings.use_numba = False
+    python = _two_locus_third_cross_moment(n, 1, 2, 2, r)
+    assert numba == pytest.approx(python, abs=1e-12)
+
+
 def test_large_r_approaches_independent_standard():
     """For the standard coalescent, as ``r -> inf`` the two loci become independent and the 2-SFS approaches the
     outer product of the marginal SFS. (This factorization does NOT hold for multiple-merger models, where a single
