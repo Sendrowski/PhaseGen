@@ -16,7 +16,7 @@ Constructing the state space (enumerating the states and assembling the rate mat
 
 Runtime
 -------
-To obtain moments we need to exponentiate matrices whose size equals the state space size times ``k+1`` where ``k`` is the order of the moment. Matrix exponentiation in general has a cubic runtime (depending on the state space's sparseness), which makes the runtime very sensitive to the size of the state space. In addition, the runtime is linear in the number of epochs introduced. Below we can see the total runtime in seconds for computing the tree mean height and mean SFS under a 1-epoch standard coalescent over a range of different numbers of lineages and loci.
+To obtain moments we need to exponentiate matrices whose size equals the state space size times ``k+1`` where ``k`` is the order of the moment. Matrix exponentiation in general has a cubic runtime (depending on the state space's sparseness), which makes the runtime very sensitive to the size of the state space. In addition, the runtime is linear in the number of epochs introduced. For large state spaces the moments are instead obtained from the *action* of the matrix exponential on a vector (threaded through the epochs), which exploits the sparsity of the rate matrix and avoids forming the dense exponential, giving a substantial speedup for large/high-order/multi-epoch computations (the threshold is controlled by :attr:`~phasegen.settings.Settings.expm_action_min_dim`). Below we can see the total runtime in seconds for computing the tree mean height and mean SFS under a 1-epoch standard coalescent over a range of different numbers of lineages and loci.
 
 .. image:: https://github.com/Sendrowski/PhaseGen/blob/master/docs/images/execution_times.png?raw=true
    :alt: Execution times

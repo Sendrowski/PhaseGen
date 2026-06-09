@@ -15,6 +15,7 @@ from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable,
     Type, Union
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
@@ -566,6 +567,26 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # create compound matrix
         return np.block([[S if i == j else R[i] if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)])
 
+    @staticmethod
+    def _get_van_loan_matrix_sparse(R: List[np.ndarray], S: 'sp.spmatrix', k: int = 1) -> 'sp.spmatrix':
+        """
+        Sparse, block-bidiagonal Van Loan matrix: the (sparse) intensity matrix ``S`` on the diagonal and the
+        (diagonal) reward matrices on the super-diagonal. Built directly as a sparse matrix to avoid materializing
+        the dense ``(k + 1) * n`` block matrix.
+
+        :param R: List of length k of reward vectors (the diagonals of the reward matrices).
+        :param S: Sparse intensity matrix.
+        :param k: The order of the moment.
+        :return: Sparse Van Loan matrix of size ``(k + 1) * (k + 1)`` blocks.
+        """
+        blocks = [[None] * (k + 1) for _ in range(k + 1)]
+        for i in range(k + 1):
+            blocks[i][i] = S
+            if i < k:
+                blocks[i][i + 1] = sp.diags(R[i])
+
+        return sp.bmat(blocks, format='csr')
+
     @cached_property
     def mean(self) -> float | SFS:
         """
@@ -878,6 +899,11 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # number of states
         n_states = self.state_space.k
 
+        # for large (sparse) state spaces, compute the moment via the action of the matrix exponential on a vector
+        # (threading through the epochs) instead of forming the dense Van Loan propagator
+        if (k + 1) * n_states >= Settings.expm_action_min_dim:
+            return self._accumulate_action(k, end_times, t_sorted, rewards)
+
         # initialize block matrix holding (rewarded) moments
         Q = np.eye(n_states * (k + 1))
         u_prev = 0
@@ -933,6 +959,77 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         if np.isnan(moments).any():
             self._logger.warning(
                 "NaN values encountered when computing moments. "
+                f"Epoch: {i_epoch} at time: {epoch.start_time}. "
+                "This is likely due to an ill-conditioned rate matrix."
+            )
+
+        return moments
+
+    def _accumulate_action(
+            self,
+            k: int,
+            end_times: np.ndarray,
+            t_sorted: np.ndarray,
+            rewards: Sequence[Reward]
+    ) -> np.ndarray:
+        """
+        Sparse-action variant of :meth:`_accumulate` for large state spaces. Instead of forming the dense Van Loan
+        propagator ``Q = prod_i exp(V_i tau_i)`` and reading off ``alpha @ Q[:n, -n:] @ e``, this threads the vector
+        ``w = alpha_ext`` through the epochs via the action of the matrix exponential on the (sparse) Van Loan
+        matrix (``scipy.sparse.linalg.expm_multiply``), reading off ``w @ e_ext`` at each end time. This is exact
+        (a product applied to a vector is a sequence of matrix-vector actions) and exploits the rate matrix sparsity.
+
+        :param k: The order of the moment.
+        :param end_times: The (unsorted) end times, used to restore the original order.
+        :param t_sorted: The sorted end times.
+        :param rewards: Sequence of k rewards.
+        :return: The moment accumulated at the specified times.
+        """
+        epochs = enumerate(self.demography.epochs)
+        i_epoch, epoch = next(epochs)
+        self.state_space.update_epoch(epoch)
+
+        n = self.state_space.k
+        lamb = self._get_regularization_factor(self.state_space.S)
+
+        def transposed_van_loan() -> 'sp.spmatrix':
+            """Transposed sparse Van Loan matrix for the current epoch (transposed for the left vector action)."""
+            S = self.state_space.S * lamb
+            self._check_numerical_stability(S, i_epoch)
+            r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
+            return self._get_van_loan_matrix_sparse(R=r_vecs, S=sp.csr_matrix(S), k=k).T.tocsr()
+
+        Vt = transposed_van_loan()
+
+        # w = alpha_ext (alpha in the first block); e_ext = e in the last block, so w @ Q @ e_ext = alpha @ Q[:n,-n:] @ e
+        w = np.zeros((k + 1) * n)
+        w[:n] = self.state_space.alpha
+        e_ext = np.zeros((k + 1) * n)
+        e_ext[-n:] = self.state_space.e
+
+        moments = np.zeros_like(t_sorted, dtype=float)
+        u_prev = 0.0
+
+        for i, u in enumerate(t_sorted):
+
+            # advance through whole epochs between u_prev and u
+            while u > epoch.end_time:
+                w = Backend.expm_multiply(Vt * ((epoch.end_time - u_prev) / lamb), w)
+                u_prev = epoch.end_time
+                i_epoch, epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
+                Vt = transposed_van_loan()
+
+            # remaining time in the current epoch
+            w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
+            moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
+            u_prev = u
+
+        moments = moments[np.argsort(end_times)]
+
+        if np.isnan(moments).any():
+            self._logger.warning(
+                "NaN values encountered when computing moments via the matrix-exponential action. "
                 f"Epoch: {i_epoch} at time: {epoch.start_time}. "
                 "This is likely due to an ill-conditioned rate matrix."
             )

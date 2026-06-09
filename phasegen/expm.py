@@ -22,6 +22,20 @@ class ExpmBackend(ABC):
         """
         pass
 
+    def compute_action(self, a, b: np.ndarray) -> np.ndarray:
+        """
+        Compute the action of the matrix exponential on a vector (or thin matrix), ``exp(a) @ b``, without forming
+        the dense exponential. The default uses scipy's sparse Krylov/Taylor implementation, which exploits the
+        sparsity of ``a``; backends may override this (e.g. with a GPU Krylov method).
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :return: ``exp(a) @ b``.
+        """
+        from scipy.sparse.linalg import expm_multiply
+
+        return expm_multiply(a, b)
+
 
 class TensorFlowExpmBackend(ExpmBackend):
     """
@@ -146,6 +160,14 @@ class Backend(ABC):
         Compute the matrix exponential.
         """
         return cls.backend.compute(m)
+
+    @classmethod
+    def expm_multiply(cls, a, b: np.ndarray) -> np.ndarray:
+        """
+        Compute the action of the matrix exponential, ``exp(a) @ b``, via the active backend without forming the
+        dense exponential.
+        """
+        return cls.backend.compute_action(a, b)
 
     @classmethod
     def register(cls, backend: ExpmBackend):
