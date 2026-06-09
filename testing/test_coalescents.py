@@ -343,17 +343,17 @@ class CoalescentTestCase(TestCase):
 
         pass
 
-    def test_2_loci_sfs_raises_not_implemented_error(self):
+    def test_2_loci_sfs_raises(self):
         """
-        Test two loci SFS raises NotImplementedError.
+        Test that the single-locus SFS raises a clear error when two loci are configured (use ``sfs2`` instead).
         """
-        with self.assertRaises(NotImplementedError):
-            coal = pg.Coalescent(
-                n=pg.LineageConfig(4),
-                loci=pg.LocusConfig(2)
-            )
+        coal = pg.Coalescent(
+            n=pg.LineageConfig(4),
+            loci=pg.LocusConfig(2)
+        )
 
-            _ = coal.sfs
+        with self.assertRaises(ValueError):
+            _ = coal.sfs.mean
 
     @pytest.mark.skip(reason="not needed")
     def test_n_2_2_loci_lineage_counting_state_space_unlinked(self):
