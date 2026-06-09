@@ -3269,11 +3269,28 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
+    def _require_single_locus(self, name: str):
+        """
+        Raise a clear error if more than one locus is configured for a single-locus SFS statistic.
+
+        :param name: Name of the statistic, used in the error message.
+        :raises ValueError: if more than one locus is configured.
+        """
+        if self.locus_config.n != 1:
+            raise ValueError(
+                f"`{name}` is the single-locus site-frequency spectrum and is defined for one locus only "
+                f"(got {self.locus_config.n}). For two loci under recombination use `sfs2` (the two-locus SFS); "
+                f"the single-locus marginal is recombination-invariant, so drop the extra locus to obtain it."
+            )
+
     @cached_property
     def sfs(self) -> UnfoldedSFSDistribution:
         """
-        Unfolded site-frequency spectrum distribution.
+        Unfolded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
+        use :meth:`sfs2`.
         """
+        self._require_single_locus('sfs')
+
         return UnfoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,
@@ -3283,8 +3300,11 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fsfs(self) -> FoldedSFSDistribution:
         """
-        Folded site-frequency spectrum distribution.
+        Folded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
+        use :meth:`sfs2`.
         """
+        self._require_single_locus('fsfs')
+
         return FoldedSFSDistribution(
             state_space=self.block_counting_state_space,
             tree_height=self.tree_height,

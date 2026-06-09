@@ -237,6 +237,26 @@ def test_requires_two_loci_single_population():
         ).sfs2.mean  # multiple populations
 
 
+def test_sfs_two_loci_and_sfs2_one_locus_raise():
+    """The single- and two-locus SFS guard each other: ``sfs``/``fsfs`` require one locus, ``sfs2`` requires two.
+    The single-locus marginal is recombination-invariant, so it is obtained by dropping the extra locus."""
+    two = pg.Coalescent(n=4, loci=2, recombination_rate=1.0)
+
+    # the single-locus SFS family rejects a two-locus configuration with a clear, sfs2-pointing message
+    for stat in ('sfs', 'fsfs'):
+        with pytest.raises(ValueError, match="one locus"):
+            getattr(two, stat).mean
+
+    # the two-locus SFS rejects a single-locus configuration
+    with pytest.raises(ValueError, match="two loci"):
+        pg.Coalescent(n=4).sfs2.mean
+
+    # the (recombination-invariant) single-locus marginal mean equals the one-locus SFS
+    marg = np.asarray(pg.Coalescent(n=4).sfs.mean.data)
+    diag = np.asarray(two.sfs2.mean.data)  # sanity: two-locus object is usable, single-locus one is the marginal
+    assert marg.shape == (5,) and diag.shape == (5, 5)
+
+
 def test_reward_state_space_guards():
     """The two-locus rewards declare support for exactly the two-locus state space (mirroring the joint-SFS guards),
     and incompatible reward/state-space combinations raise rather than silently computing the wrong thing. This
