@@ -80,6 +80,9 @@ class Reward(ABC):
         if state_space is JointBlockCountingStateSpace:
             return isinstance(self, JointBlockCountingReward)
 
+        if state_space is TwoLocusBlockCountingStateSpace:
+            return isinstance(self, TwoLocusBlockCountingReward)
+
     @staticmethod
     def support(state_space: Type[StateSpace], rewards: Iterable['Reward']) -> bool:
         """
@@ -139,6 +142,17 @@ class JointBlockCountingReward(Reward, ABC):
     pass
 
 
+class TwoLocusBlockCountingReward(Reward, ABC):
+    """
+    Base class for rewards that are compatible with
+    :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`. This is deliberately *not* a
+    :class:`JointBlockCountingReward`: although the two-locus state space subclasses the joint one, its block axis
+    encodes loci rather than populations, so generic joint-SFS rewards must not silently evaluate on it (and vice
+    versa).
+    """
+    pass
+
+
 class JointSFSReward(JointBlockCountingReward):
     """
     Reward for a single bin of the joint (multi-population) site-frequency spectrum. The bin is identified by a
@@ -163,7 +177,9 @@ class JointSFSReward(JointBlockCountingReward):
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, JointBlockCountingStateSpace):
+        # the two-locus space subclasses the joint one but its block axis encodes loci, not populations, so reject it
+        if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
+                state_space, TwoLocusBlockCountingStateSpace):
             # sum over demes and loci, and select the block corresponding to the descendant vector
             index = state_space.block_index[self.config]
             return state_space.lineages[:, :, :, index].sum(axis=(1, 2))
@@ -181,7 +197,7 @@ class JointSFSReward(JointBlockCountingReward):
         return hash(self.__class__.__name__ + str(self.config))
 
 
-class TwoLocusSFSReward(JointBlockCountingReward):
+class TwoLocusSFSReward(TwoLocusBlockCountingReward):
     """
     Reward for one bin of the marginal site-frequency spectrum at a single locus in the two-locus block-counting
     state space. The reward of a state is the number of lineages that subtend exactly ``count`` samples at the given
