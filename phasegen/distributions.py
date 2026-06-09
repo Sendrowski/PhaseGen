@@ -3395,25 +3395,86 @@ class Coalescent(AbstractCoalescent, Serializable):
         if len(pops) < 2:
             raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
 
-        def pairwise_time(counts: Dict[str, int]) -> float:
-            """Expected coalescence time of the two lineages placed by ``counts`` under this demography."""
-            return Coalescent(
-                n=counts,
-                demography=self.demography,
-                model=self.model,
-                end_time=self.end_time
-            ).tree_height.mean
-
         # within-population pairwise times (both lineages in the same population)
-        t_within = [pairwise_time({p: (2 if p == q else 0) for p in pops}) for q in pops]
+        t_within = [self._pairwise_coalescence_time(q, q) for q in pops]
 
         # between-population pairwise times (one lineage in each of two distinct populations)
         t_between = [
-            pairwise_time({p: (1 if p in (a, b) else 0) for p in pops})
+            self._pairwise_coalescence_time(a, b)
             for i, a in enumerate(pops) for b in pops[i + 1:]
         ]
 
         return float(1 - np.mean(t_within) / np.mean(t_between))
+
+    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+        """
+        Expected coalescence time of two lineages, one sampled in ``pop_i`` and one in ``pop_j`` (or both in the same
+        population when ``pop_i == pop_j``), under this demography and coalescent model. Computed from a two-lineage
+        sub-coalescent, so it is independent of the configured sample sizes and number of loci.
+
+        :param pop_i: Name of the first population.
+        :param pop_j: Name of the second population.
+        :return: Expected pairwise coalescence time ``T_{ij}``.
+        """
+        pops = self.demography.pop_names
+
+        for p in (pop_i, pop_j):
+            if p not in pops:
+                raise ValueError(f"Unknown population {p!r}; available: {pops}.")
+
+        if pop_i == pop_j:
+            counts = {p: (2 if p == pop_i else 0) for p in pops}
+        else:
+            counts = {p: (1 if p in (pop_i, pop_j) else 0) for p in pops}
+
+        return Coalescent(
+            n=counts,
+            demography=self.demography,
+            model=self.model,
+            end_time=self.end_time
+        ).tree_height.mean
+
+    def f2(self, pop_0: str, pop_1: str) -> float:
+        r"""
+        Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, the branch (coalescence-time) version
+        :math:`f_2 = 2 T_{AB} - T_{AA} - T_{BB}` in terms of pairwise coalescence times (matching ``tskit``'s
+        branch-mode ``f2``). Measures the amount of drift separating the two populations.
+
+        :param pop_0: Name of population ``A``.
+        :param pop_1: Name of population ``B``.
+        :return: :math:`f_2(A, B)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1))
+
+    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
+        r"""
+        Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, in branch (coalescence-time) form
+        :math:`f_3 = T_{CA} + T_{CB} - T_{AB} - T_{CC}` (matching ``tskit``'s branch-mode ``f3``). A significantly
+        negative value is evidence that the target population ``C`` is admixed between ``A`` and ``B``.
+
+        :param pop_target: Name of the (potentially admixed) target population ``C``.
+        :param pop_0: Name of source population ``A``.
+        :param pop_1: Name of source population ``B``.
+        :return: :math:`f_3(C; A, B)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target))
+
+    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
+        r"""
+        Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, in branch (coalescence-time) form
+        :math:`f_4 = T_{AD} + T_{BC} - T_{AC} - T_{BD}` (matching ``tskit``'s branch-mode ``f4``). Used to test
+        treeness and detect gene flow between the two population pairs.
+
+        :param pop_0: Name of population ``A``.
+        :param pop_1: Name of population ``B``.
+        :param pop_2: Name of population ``C``.
+        :param pop_3: Name of population ``D``.
+        :return: :math:`f_4(A, B; C, D)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3))
 
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """
