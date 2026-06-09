@@ -135,7 +135,8 @@ from .state_space import (
     StateSpace,
     LineageCountingStateSpace,
     BlockCountingStateSpace,
-    JointBlockCountingStateSpace
+    JointBlockCountingStateSpace,
+    TwoLocusBlockCountingStateSpace
 )
 
 from .rewards import (
@@ -147,6 +148,7 @@ from .rewards import (
     UnfoldedSFSReward,
     FoldedSFSReward,
     JointSFSReward,
+    TwoLocusSFSReward,
     StateReward,
     LineageReward,
     CustomReward,
@@ -161,7 +163,8 @@ from .spectrum import (
     SFS,
     Spectra,
     SFS2,
-    JointSFS
+    JointSFS,
+    TwoLocusSFS
 )
 
 from .inference import Inference
@@ -219,6 +222,7 @@ __all__ = [
     'SFS2',
     'SFS',
     'JointSFS',
+    'TwoLocusSFS',
     'Spectra',
     'Inference',
     'LNorm',
@@ -234,6 +238,7 @@ __all__ = [
     'UnfoldedSFSReward',
     'FoldedSFSReward',
     'JointSFSReward',
+    'TwoLocusSFSReward',
     'StateReward',
     'LineageReward',
     'CustomReward',
@@ -246,6 +251,7 @@ __all__ = [
     'LineageCountingStateSpace',
     'BlockCountingStateSpace',
     'JointBlockCountingStateSpace',
+    'TwoLocusBlockCountingStateSpace',
     'CoalescentModel',
     'LineageConfig',
     'LocusConfig',

@@ -423,6 +423,18 @@ class SFS2(Iterable):
         return SFS2(data)
 
 
+class TwoLocusSFS(SFS2):
+    """
+    The two-locus site-frequency spectrum under recombination: a square matrix whose entry ``(i, j)`` is the
+    expected product of the branch length subtending ``i`` samples at locus 0 and ``j`` samples at locus 1, for two
+    loci separated by recombination rate ``r``. It interpolates between the within-tree cross-moment of the SFS at
+    ``r = 0`` (fully linked, equal to ``Coalescent.sfs.cov`` plus the outer product of the marginal means) and the
+    outer product of the marginal SFS as ``r → ∞`` (independent loci). It shares the container machinery of
+    :class:`SFS2` (plotting, folding, arithmetic, serialization).
+    """
+    pass
+
+
 class JointSFS(Iterable):
     """
     A joint (multi-population) site-frequency spectrum.

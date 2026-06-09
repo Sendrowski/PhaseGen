@@ -177,16 +177,20 @@ def _find_or_add(rows, chain_next, head, target):
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors):
+def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors,
+           recomb_rate, recomb0, recomb1):
     """
-    Build the single-locus state graph by BFS over integer ``lineages`` rows.
+    Build the state graph by BFS over integer ``lineages`` rows.
 
     :param initial: Flattened initial lineage row (length ``n_demes * n_blocks``).
-    :param kind: 0 lineage-counting, 1 block-/joint-counting.
+    :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination).
     :param mig: ``(n_demes, n_demes)`` migration-rate matrix.
     :param timescales: per-deme timescale by which coalescence rates are divided.
     :param block_vectors: ``(n_blocks, vdim)`` block labels (descendant vectors / size classes); the merged block of a
         merger is the one whose label equals the summed label of the merging blocks (found by linear search).
+    :param recomb_rate: recombination rate (kind 2 only).
+    :param recomb0: ``recomb0[b]`` is the block index of ``(a_0, 0)`` for block ``b`` (kind 2 only).
+    :param recomb1: ``recomb1[b]`` is the block index of ``(0, a_1)`` for block ``b`` (kind 2 only).
     :return: ``(rows_arr, src_arr, dst_arr, rate_arr)`` — the state rows and the COO transitions.
     """
     dim = n_demes * n_blocks
@@ -211,6 +215,20 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
         for x in range(dim):
             total += source[x]
 
+        # --- two-locus absorption: both loci have reached their MRCA (one ancestral lineage each) ---
+        absorbing = False
+        if kind == 2:
+            carry0 = 0
+            carry1 = 0
+            for blk in range(n_blocks):
+                cnt = source[blk]
+                if cnt > 0:
+                    if block_vectors[blk, 0] > 0:
+                        carry0 += cnt
+                    if block_vectors[blk, 1] > 0:
+                        carry1 += cnt
+            absorbing = carry0 == 1 and carry1 == 1
+
         # --- migration: move one lineage of each block between demes, rate scaled by source count ---
         # the target states are discovered for every ordered deme pair regardless of the migration rate (matching
         # the pure-Python construction, so the state set is epoch-independent); only the edge is rate-gated
@@ -230,8 +248,8 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                             dst.append(np.int64(tidx))
                             rate.append(mig[d1, d2] * cnt)
 
-        # --- coalescence (only when more than one lineage remains) ---
-        if total > 1:
+        # --- coalescence (only when more than one lineage remains, and not yet absorbed for two loci) ---
+        if total > 1 and not absorbing:
             for deme in range(n_demes):
                 base = deme * n_blocks
 
@@ -329,6 +347,21 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                     dst.append(np.int64(tidx))
                     rate.append(r / ts)
 
+        # --- recombination (two-locus only): a linked block (a_0, a_1) splits into (a_0, 0) and (0, a_1) ---
+        if kind == 2 and not absorbing:
+            for blk in range(n_blocks):
+                cnt = source[blk]
+                if cnt > 0 and block_vectors[blk, 0] > 0 and block_vectors[blk, 1] > 0:
+                    target = source.copy()
+                    target[blk] -= 1
+                    target[recomb0[blk]] += 1
+                    target[recomb1[blk]] += 1
+                    tidx = _find_or_add(rows, chain_next, head, target)
+                    if recomb_rate != 0.0:
+                        src.append(np.int64(cur))
+                        dst.append(np.int64(tidx))
+                        rate.append(recomb_rate * cnt)
+
         cur += 1
 
     # convert to arrays
@@ -361,18 +394,28 @@ def build_rate_matrix(
         psi: float,
         c: float,
         block_vectors: np.ndarray,
+        recomb_rate: float = 0.0,
+        recomb0: np.ndarray = None,
+        recomb1: np.ndarray = None,
 ):
     """
-    Python entry point: build the single-locus state rows and dense rate matrix via the numba kernel.
+    Python entry point: build the state rows and dense rate matrix via the numba kernel.
 
     :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
         order) and ``S`` is the dense intensity matrix (diagonal filled with the negative row sums).
     """
+    # the recombination split maps are only used for the two-locus kernel (kind 2); pass dummies otherwise
+    if recomb0 is None:
+        recomb0 = np.zeros(n_blocks, dtype=np.int64)
+    if recomb1 is None:
+        recomb1 = np.zeros(n_blocks, dtype=np.int64)
+
     rows, src, dst, rate = _build(
         initial.astype(np.int64), kind, n_demes, n_blocks,
         mig.astype(np.float64), timescales.astype(np.float64),
         model_id, float(alpha), float(psi), float(c),
         block_vectors.astype(np.int64),
+        float(recomb_rate), recomb0.astype(np.int64), recomb1.astype(np.int64),
     )
 
     n = rows.shape[0]

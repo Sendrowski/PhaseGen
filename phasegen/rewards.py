@@ -9,7 +9,8 @@ from typing import List, Callable, Tuple, Dict, Iterable, Type
 
 import numpy as np
 
-from .state_space import StateSpace, LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace
+from .state_space import StateSpace, LineageCountingStateSpace, BlockCountingStateSpace, \
+    JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 
 class Reward(ABC):
@@ -180,6 +181,51 @@ class JointSFSReward(JointBlockCountingReward):
         return hash(self.__class__.__name__ + str(self.config))
 
 
+class TwoLocusSFSReward(JointBlockCountingReward):
+    """
+    Reward for one bin of the marginal site-frequency spectrum at a single locus in the two-locus block-counting
+    state space. The reward of a state is the number of lineages that subtend exactly ``count`` samples at the given
+    ``locus`` (i.e. whose two-locus descendant vector has component ``locus`` equal to ``count``), regardless of how
+    many they subtend at the other locus. The two-locus SFS is obtained as the cross-moment of two such rewards, one
+    per locus.
+    """
+
+    def __init__(self, locus: int, count: int):
+        """
+        Initialize the reward.
+
+        :param locus: The locus index (0 or 1).
+        :param count: The number of subtended samples at ``locus`` identifying the SFS bin.
+        """
+        self.locus: int = int(locus)
+        self.count: int = int(count)
+
+    def _get(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
+            # select the blocks whose descendant count at this locus equals ``count`` and sum over them
+            mask = state_space.block_vectors[:, self.locus] == self.count
+            return state_space.lineages[:, :, :, mask].sum(axis=(1, 2, 3))
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name, locus and count.
+
+        :return: hash
+        """
+        return hash((self.__class__.__name__, self.locus, self.count))
+
+
 class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward for tree height. Note that when using multiple loci, this will provide the
@@ -194,6 +240,17 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCou
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
+        # the two-locus state space is absorbed once both loci have reached their MRCA, so it is non-absorbing while
+        # either locus still has more than one ancestral lineage (must precede the JointBlockCountingStateSpace
+        # branch, which it subclasses)
+        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
+            carrying = np.stack(
+                [state_space.lineages[:, :, :, state_space.block_vectors[:, locus] > 0].sum(axis=(1, 2, 3))
+                 for locus in range(2)],
+                axis=1
+            )
+            return np.any(carrying > 1, axis=1).astype(int)
+
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             # a reward of 1 for non-absorbing states and 0 for absorbing states
             return np.any(state_space.lineages.sum(axis=(2, 3)) > 1, axis=1).astype(int)

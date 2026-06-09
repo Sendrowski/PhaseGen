@@ -25,11 +25,12 @@ from .expm import Backend
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
-    LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward, JointSFSReward
+    LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward, JointSFSReward, TwoLocusSFSReward
 from .serialization import Serializable
 from .settings import Settings
-from .spectrum import SFS, SFS2, JointSFS
-from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace, JointBlockCountingStateSpace
+from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
+from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace, JointBlockCountingStateSpace, \
+    TwoLocusBlockCountingStateSpace
 from .utils import parallelize, multiset_permutations
 
 expm = Backend.expm
@@ -2468,6 +2469,72 @@ class JointSFSDistribution(PhaseTypeDistribution):
         return out
 
 
+class TwoLocusSFSDistribution(PhaseTypeDistribution):
+    """
+    Two-locus site-frequency spectrum under recombination. Entry ``(i, j)`` of the (symmetrized) mean is
+    ``E[L^0_i · L^1_j]`` — the expected product of the branch length subtending ``i`` samples at locus 0 and ``j``
+    samples at locus 1 — computed as a second cross-moment of two per-locus SFS rewards on the two-locus
+    block-counting state space. It reduces to ``Coalescent.sfs.cov`` (plus the outer product of the marginal means)
+    as ``r → 0`` and to the outer product of the marginal SFS as ``r → ∞``.
+    """
+
+    def __init__(
+            self,
+            state_space: TwoLocusBlockCountingStateSpace,
+            tree_height: 'TreeHeightDistribution',
+            demography: Demography,
+            reward: Reward = None
+    ):
+        """
+        Initialize the distribution.
+
+        :param state_space: Two-locus block-counting state space.
+        :param tree_height: The (two-locus) tree height distribution, whose absorption time is when both loci have
+            reached their MRCA.
+        :param demography: The demography.
+        :param reward: An optional reward to multiply the per-locus SFS rewards with. By default the unit reward.
+        """
+        if reward is None:
+            reward = UnitReward()
+
+        super().__init__(state_space=state_space, tree_height=tree_height, demography=demography, reward=reward)
+
+    def _get_indices(self) -> List[int]:
+        """
+        Polymorphic SFS bins ``1, ..., n - 1`` (the monomorphic ``0`` and ``n`` bins carry no information).
+        """
+        return list(range(1, self.lineage_config.n))
+
+    @cached_property
+    def mean(self) -> TwoLocusSFS:
+        """
+        Mean two-locus SFS, ``E[L^0_i · L^1_j]`` for all polymorphic bins, symmetrized over the two loci.
+        """
+        n = self.lineage_config.n
+        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
+
+        results = parallelize(
+            func=lambda x: PhaseTypeDistribution.moment(
+                self, k=2, permute=False, center=False,
+                rewards=(
+                    CombinedReward([self.reward, TwoLocusSFSReward(0, x[0])]),
+                    CombinedReward([self.reward, TwoLocusSFSReward(1, x[1])])
+                )
+            ),
+            data=indices,
+            desc="Calculating two-locus SFS",
+            pbar=Settings.use_pbar,
+            parallelize=Settings.parallelize
+        )
+
+        out = np.zeros((n + 1, n + 1))
+        for (i, j), result in zip(indices, results):
+            out[i, j] = result
+
+        # symmetrize over the two (exchangeable) loci, as for the single-locus SFS covariance
+        return TwoLocusSFS((out + out.T) / 2)
+
+
 class EmpiricalJointSFSDistribution:  # pragma: no cover
     """
     Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
@@ -3236,6 +3303,46 @@ class Coalescent(AbstractCoalescent, Serializable):
         return JointSFSDistribution(
             state_space=self.joint_block_counting_state_space,
             tree_height=self.tree_height,
+            demography=self.demography
+        )
+
+    @cached_property
+    def two_locus_block_counting_state_space(self) -> TwoLocusBlockCountingStateSpace:
+        """
+        The two-locus block-counting state space (tracks each lineage's descendant counts at both loci and the
+        recombination/linkage history). Requires exactly two loci and a single population.
+        """
+        return TwoLocusBlockCountingStateSpace(
+            lineage_config=self.lineage_config,
+            locus_config=self.locus_config,
+            model=self.model,
+            epoch=self.demography.get_epoch(0)
+        )
+
+    @cached_property
+    def _two_locus_tree_height(self) -> TreeHeightDistribution:
+        """
+        Tree height of the two-locus process, absorbed once *both* loci have reached their MRCA.
+        """
+        return TreeHeightDistribution(
+            state_space=self.two_locus_block_counting_state_space,
+            demography=self.demography,
+            start_time=self.start_time,
+            end_time=self.end_time
+        )
+
+    @cached_property
+    def sfs2(self) -> TwoLocusSFSDistribution:
+        """
+        Two-locus site-frequency spectrum under recombination, returned as a :class:`~phasegen.spectrum.TwoLocusSFS`.
+        Requires exactly two loci (``loci=2``) and a single population.
+
+        .. note::
+            The two-locus state space grows quickly with the sample size, so this is only practical for small ``n``.
+        """
+        return TwoLocusSFSDistribution(
+            state_space=self.two_locus_block_counting_state_space,
+            tree_height=self._two_locus_tree_height,
             demography=self.demography
         )
 
