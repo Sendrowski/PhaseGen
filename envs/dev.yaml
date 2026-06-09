@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.12
   - dadi
+  - numba
   - graphviz
   - pytorch
   - jax

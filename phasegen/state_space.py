@@ -13,15 +13,29 @@ from typing import List, Tuple, Dict, Callable, cast
 import numpy as np
 from tqdm import tqdm
 
-from .coalescent_models import CoalescentModel, StandardCoalescent
+from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .settings import Settings
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
+from .state_space_numba import HAS_NUMBA, build_rate_matrix
 from .state_space_old import StateSpace as OldStateSpace, LineageCountingStateSpace as OldLineageCountingStateSpace, \
     BlockCountingStateSpace as OldBlockCountingStateSpace
 
 logger = logging.getLogger('phasegen')
+
+
+def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, float]:
+    """
+    Pack a coalescent model into ``(model_id, alpha, psi, c)`` for the numba kernels (0 standard, 1 beta, 2 dirac).
+    """
+    if isinstance(model, BetaCoalescent):
+        return 1, model.alpha, 0.0, 0.0
+
+    if isinstance(model, DiracCoalescent):
+        return 2, 0.0, model.psi, model.c
+
+    return 0, 0.0, 0.0, 0.0
 
 
 class StateSpace(ABC):
@@ -81,15 +95,20 @@ class StateSpace(ABC):
         """
         start = time.time()
 
-        # get all possible transitions
-        transitions, states = self.get_transitions()
+        if self._use_numba():
+            states, S = self._construct_numba()
+            # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it
+            self.__dict__.setdefault('S', S)
+        else:
+            # get all possible transitions
+            transitions, states = self.get_transitions()
+
+            # cache rate matrix if specified
+            if Settings.cache_epochs:
+                self._cache[self.epoch] = (transitions, states)
 
         # record time to compute rate matrix
         self.time = time.time() - start
-
-        # cache rate matrix if specified
-        if Settings.cache_epochs:
-            self._cache[self.epoch] = (transitions, states)
 
         return states
 
@@ -349,6 +368,74 @@ class StateSpace(ABC):
         """
         pass
 
+    def _use_numba(self) -> bool:
+        """
+        Whether numba-accelerated construction applies: numba is available and enabled, there is a single locus, and
+        the state space is one of the supported types (the 2-locus recombination path stays on the Python
+        construction).
+        """
+        return (
+            HAS_NUMBA
+            and Settings.use_numba
+            and self.locus_config.n == 1
+            and type(self) in (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)
+        )
+
+    def _numba_kind(self) -> int:
+        """
+        Kernel selector: 0 lineage-counting, 1 block-/joint-counting.
+        """
+        return 1
+
+    def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
+        """
+        Block labels passed to the kernel; for block-counting, block ``i`` represents lineages subtending ``i + 1``
+        samples.
+        """
+        return np.arange(1, n_blocks + 1, dtype=np.int64).reshape(-1, 1)
+
+    def _construct_numba(self) -> Tuple[List['State'], np.ndarray]:
+        """
+        Build the states and rate matrix for the current epoch via the numba kernel.
+
+        :return: The states (in kernel discovery order) and the dense intensity matrix.
+        """
+        init = self._get_initial()
+        n_demes = init.lineages.shape[1]
+        n_blocks = init.lineages.shape[2]
+        pops = self.lineage_config.pop_names
+
+        mig = np.zeros((n_demes, n_demes))
+        for i, a in enumerate(pops):
+            for j, b in enumerate(pops):
+                if i != j:
+                    mig[i, j] = self.epoch.migration_rates[(a, b)]
+
+        timescales = np.array([self.model._get_timescale(self.epoch.pop_sizes[p]) for p in pops])
+        model_id, alpha, psi, c = _numba_model_params(self.model)
+
+        rows, S = build_rate_matrix(
+            initial=init.lineages.reshape(-1),
+            kind=self._numba_kind(),
+            n_demes=n_demes,
+            n_blocks=n_blocks,
+            mig=mig,
+            timescales=timescales,
+            model_id=model_id,
+            alpha=alpha,
+            psi=psi,
+            c=c,
+            block_vectors=self._numba_block_vectors(n_blocks),
+        )
+
+        lin_shape = init.lineages.shape
+        lin_dtype = init.lineages.dtype
+        linked = init.linked  # all-zero for a single locus
+
+        states = [State((row.reshape(lin_shape).astype(lin_dtype), linked.copy())) for row in rows]
+
+        return states, S
+
     def _get_rate_matrix(self) -> np.ndarray:
         """
         Get the rate matrix.
@@ -357,6 +444,11 @@ class StateSpace(ABC):
 
         :return: The rate matrix.
         """
+        if self._use_numba():
+            states, S = self._construct_numba()
+            self.__dict__.setdefault('states', states)
+            return S
+
         # check if epoch is in cache
         if Settings.cache_epochs and self.epoch in self._cache:
             transitions, states = self._cache[self.epoch]
@@ -513,6 +605,18 @@ class LineageCountingStateSpace(StateSpace):
         data[0][:, 0, 0] = self.lineage_config.n
 
         return State(data)
+
+    def _numba_kind(self) -> int:
+        """
+        Lineage-counting kernel.
+        """
+        return 0
+
+    def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
+        """
+        Lineage counting has a single block; the label is unused by the lineage kernel.
+        """
+        return np.array([[1]], dtype=np.int64)
 
     def _get_old(self) -> OldLineageCountingStateSpace:
         """
@@ -724,6 +828,13 @@ class JointBlockCountingStateSpace(StateSpace):
         Descendant vectors as an integer array of shape ``(n_blocks, n_pops)``.
         """
         return np.array(self.block_configs, dtype=int)
+
+    def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
+        """
+        Block labels are the descendant vectors; the merged block of a coalescence is the one whose descendant
+        vector equals the sum of the merging vectors.
+        """
+        return np.asarray(self.block_vectors, dtype=np.int64)
 
     @cached_property
     def n_blocks(self) -> int:

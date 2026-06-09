@@ -25,6 +25,10 @@ class Settings:
     #: Whether to cache the rate matrix for different epochs which increases performance.
     cache_epochs: bool = True
 
+    #: Whether to use the numba-accelerated state-space construction when numba is available. Set to ``False`` to
+    #: force the pure-Python construction path.
+    use_numba: bool = True
+
     @staticmethod
     @contextmanager
     def set_pbar(enabled: bool = True):

@@ -7,6 +7,7 @@ dependencies:
   - graphviz
   - tensorflow
   - jax
+  - numba
   - python-graphviz
   - pip
   - pip:
