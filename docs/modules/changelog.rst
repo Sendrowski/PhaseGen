@@ -3,6 +3,10 @@
 Changelog
 =========
 
+[1.1.1] - 2026-06-10
+^^^^^^^^^^^^^^^^^^^^
+- Relax the ``numpy`` upper bound (``>=1.26.4``) to allow numpy 2, so phasegen can coexist with current, numpy-2-built msprime/tskit.
+
 [1.1.0] - 2026-06-10
 ^^^^^^^^^^^^^^^^^^^^
 - Add the joint (multi-population) site-frequency spectrum via :meth:`~phasegen.distributions.Coalescent.jsfs`.
