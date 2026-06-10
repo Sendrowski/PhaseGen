@@ -123,6 +123,8 @@ configs = [
     '3_epoch_3_pops_n_5_jsfs',
     '2_epoch_n_8_tajima',
     '1_epoch_4_pops_tree_n_2',
+    '1_epoch_4_pops_tree_n_4',
+    '1_epoch_4_pops_tree_beta',
 ]
 
 configs_suspended = [
@@ -206,6 +208,8 @@ slow_configs = [
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
     '1_epoch_4_pops_tree_n_2',
+    '1_epoch_4_pops_tree_n_4',
+    '1_epoch_4_pops_tree_beta',
 ]
 
 for config in configs:

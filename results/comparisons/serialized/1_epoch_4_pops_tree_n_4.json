@@ -1,0 +1,121 @@
+{
+    "py/object": "phasegen.comparison.Comparison",
+    "logger": {
+        "py/reduce": [
+            {
+                "py/function": "logging.getLogger"
+            },
+            {
+                "py/tuple": [
+                    "phasegen.Comparison"
+                ]
+            }
+        ]
+    },
+    "comparisons": {
+        "tolerance": {},
+        "statistics": {
+            "fst": 0.08,
+            "f2": {
+                "args": [
+                    "pop_0",
+                    "pop_2"
+                ],
+                "tol": 0.1
+            },
+            "f3": {
+                "args": [
+                    "pop_0",
+                    "pop_1",
+                    "pop_2"
+                ],
+                "tol": 0.15
+            },
+            "f4": {
+                "args": [
+                    "pop_0",
+                    "pop_2",
+                    "pop_1",
+                    "pop_3"
+                ],
+                "tol": 0.1
+            }
+        }
+    },
+    "n": {
+        "pop_0": 4,
+        "pop_1": 4,
+        "pop_2": 4,
+        "pop_3": 4
+    },
+    "pop_sizes": {
+        "pop_0": {
+            "json://0": 1
+        },
+        "pop_1": {
+            "json://0": 1
+        },
+        "pop_2": {
+            "json://0": 1
+        },
+        "pop_3": {
+            "json://0": 1
+        }
+    },
+    "migration_rates": {
+        "json://{\"py/tuple\": [\"pop_0\", \"pop_1\"]}": {
+            "json://0": 2
+        },
+        "json://{\"py/tuple\": [\"pop_1\", \"pop_0\"]}": {
+            "json://0": 2
+        },
+        "json://{\"py/tuple\": [\"pop_2\", \"pop_3\"]}": {
+            "json://0": 2
+        },
+        "json://{\"py/tuple\": [\"pop_3\", \"pop_2\"]}": {
+            "json://0": 2
+        },
+        "json://{\"py/tuple\": [\"pop_0\", \"pop_2\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_2\", \"pop_0\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_0\", \"pop_3\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_3\", \"pop_0\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_1\", \"pop_2\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_2\", \"pop_1\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_1\", \"pop_3\"]}": {
+            "json://0": 0.1
+        },
+        "json://{\"py/tuple\": [\"pop_3\", \"pop_1\"]}": {
+            "json://0": 0.1
+        }
+    },
+    "n_loci": 1,
+    "recombination_rate": 0,
+    "num_replicates": 100000,
+    "mutation_rate": null,
+    "record_migration": false,
+    "simulate_mutations": false,
+    "mass_threshold": 0.9,
+    "end_time": null,
+    "n_threads": 100,
+    "parallelize": true,
+    "seed": 42,
+    "alpha": 1.5,
+    "psi": 0.5,
+    "c": 1,
+    "model": {
+        "py/object": "phasegen.coalescent_models.StandardCoalescent"
+    },
+    "n_assertions": 0
+}
