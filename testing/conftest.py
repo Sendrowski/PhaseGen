@@ -20,6 +20,23 @@ def _close_figures():
     plt.close('all')
 
 
+@pytest.fixture(autouse=True)
+def _restore_parallelize_setting():
+    """
+    Snapshot and restore ``Settings.parallelize`` around every test. It is a process-global mutable that some
+    tests flip on; without this, the value leaks into later tests (in collection order, across files) and
+    changes whether they spawn a worker pool. Autouse and in ``conftest`` so it also wraps plain
+    ``unittest.TestCase`` tests.
+    """
+    import phasegen as pg
+
+    original = pg.Settings.parallelize
+
+    yield
+
+    pg.Settings.parallelize = original
+
+
 @pytest.fixture(scope="session")
 def symmetric_demography():
     """

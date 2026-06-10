@@ -162,8 +162,6 @@ class CoalescentTestCase(TestCase):
                 decimal=8
             )
 
-        pg.Settings.parallelize = True
-
     @pytest.mark.skip(reason="Too slow")
     def test_msprime_complex_coalescent(self):
         """
