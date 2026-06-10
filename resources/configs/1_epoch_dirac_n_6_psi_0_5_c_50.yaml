@@ -20,3 +20,6 @@ comparisons:
       mean: 0.01
       cov: 0.05
       corr: 0.02
+      theta_pi: 0.02
+      theta_w: 0.02
+      tajimas_d: 0.1
