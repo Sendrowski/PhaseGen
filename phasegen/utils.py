@@ -2,10 +2,11 @@
 Utility functions.
 """
 import itertools
+import sys
 from typing import Callable, List, Sequence, Generator, Tuple, Any, Iterable, Iterator
 
+import multiprocess as mp
 import numpy as np
-from multiprocess.pool import Pool
 from tqdm import tqdm
 
 
@@ -22,6 +23,15 @@ def parallelize(
     """
     Parallelize given function or execute sequentially.
 
+    On macOS the worker pool uses the ``spawn`` start method instead of ``multiprocess``'s default ``fork``.
+    Forking a process that has already initialized threaded native libraries (numba/llvmlite, and on macOS
+    the Accelerate BLAS and libdispatch) copies their internal locks in a held state, so the first such call
+    in the child deadlocks; ``spawn`` starts a fresh interpreter and sidesteps the inherited locks. The
+    platform default is kept elsewhere (``fork`` on Linux), where it is safe and avoids the per-worker
+    re-import cost of ``spawn``. Because ``spawn`` re-imports the caller's module, on macOS callers must be
+    import-safe (guard top-level code with ``if __name__ == '__main__':``) and ``func``/``data`` must be
+    picklable (handled here by ``dill`` via ``multiprocess``).
+
     :param func: Function to parallelize
     :param data: Data to parallelize over
     :param parallelize: Whether to parallelize
@@ -32,18 +42,21 @@ def parallelize(
     :param delay: Delay for tqdm progress bar
     :return: Array of results
     """
+    def with_pbar(it: Iterable) -> Iterable:
+        """Optionally wrap an iterator in a tqdm progress bar."""
+        if pbar:
+            return tqdm(it, total=len(data), unit_scale=batch_size, desc=desc, delay=delay)
+
+        return it
+
     if parallelize and len(data) > 1:
-        # parallelize
-        with Pool() as pool:
-            iterator = pool.imap(func, data)
-    else:
-        # sequentialize
-        iterator = map(func, data)
+        # spawn on macOS (fork there deadlocks once numba/Accelerate are loaded); platform default elsewhere
+        ctx = mp.get_context('spawn') if sys.platform == 'darwin' else mp.get_context()
+        # consume the lazy imap iterator while the pool is still open
+        with ctx.Pool() as pool:
+            return np.array(list(with_pbar(pool.imap(func, data))), dtype=dtype)
 
-    if pbar:
-        iterator = tqdm(iterator, total=len(data), unit_scale=batch_size, desc=desc, delay=delay)
-
-    return np.array(list(iterator), dtype=dtype)
+    return np.array(list(with_pbar(map(func, data))), dtype=dtype)
 
 
 def multiset_permutations(items: Sequence) -> Generator[Tuple, None, None]:
