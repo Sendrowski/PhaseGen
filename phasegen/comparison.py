@@ -475,6 +475,28 @@ class Comparison(Serializable):
                     name=name
                 )
 
+    @staticmethod
+    def _eval_statistic(coal, stat: str, args: list) -> float:
+        """Evaluate a coalescent-level scalar statistic, calling it with ``args`` if it is a method (e.g. ``f2``)."""
+        value = getattr(coal, stat)
+
+        return value(*args) if callable(value) else value
+
+    def _compare_scalar(self, ph: float, ms: float, tol: float, title: str):
+        """Compare two scalar statistics within a relative tolerance, mirroring :meth:`compare_stat`."""
+        diff = self.rel_diff(ms, ph)
+
+        if not diff <= tol:
+            self.logger.critical(f"{title}: {diff} > {tol}")
+
+            if self.do_assertion:
+                raise AssertionError(f"Relative difference {diff} exceeds threshold {tol} for {title}.")
+        else:
+            self.logger.info(f"{title}: {diff} <= {tol}")
+
+        if self.do_assertion:
+            self.n_assertions += 1
+
     def compare(self, title: str = ''):
         """
         Compare the distributions of the given statistics.
@@ -490,6 +512,21 @@ class Comparison(Serializable):
                 data=data,
                 title=f"{title}: {dist}",
                 name=dist
+            )
+
+        # coalescent-level scalar statistics (optionally parameterized with population arguments), e.g. F_ST and
+        # the Patterson f-statistics f2/f3/f4. Each entry is either ``<stat>: <tol>`` or
+        # ``<stat>: {args: [...], tol: <tol>}``.
+        for stat, spec in self.comparisons.get('statistics', {}).items():
+            args = spec.get('args', []) if isinstance(spec, dict) else []
+            tol = spec['tol'] if isinstance(spec, dict) else spec
+            label = f"{title}: {stat}" + (f"({', '.join(map(str, args))})" if args else "")
+
+            self._compare_scalar(
+                ph=self._eval_statistic(self.ph, stat, args),
+                ms=self._eval_statistic(self.ms, stat, args),
+                tol=tol,
+                title=label
             )
 
         self.logger.info(f"Number of assertions: {self.n_assertions}")
