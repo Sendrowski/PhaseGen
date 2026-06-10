@@ -2119,7 +2119,78 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             i += 1
 
 
-class UnfoldedSFSDistribution(SFSDistribution):
+class TajimaSFSMixin:
+    """
+    Mixin providing the branch-length diversity estimators and Tajima's :math:`D` from the site-frequency
+    spectrum mean and covariance. Shared by the analytical :class:`UnfoldedSFSDistribution` and the
+    simulation-based empirical SFS distribution, so the same statistics can be computed from either source.
+    Subclasses supply :meth:`_tajima_n`, :meth:`_tajima_mean` and :meth:`_tajima_cov`.
+    """
+
+    def _tajima_n(self) -> int:
+        """Number of lineages."""
+        raise NotImplementedError
+
+    def _tajima_mean(self) -> np.ndarray:
+        """Mean branch length per polymorphic SFS bin (``i = 1 .. n-1``)."""
+        raise NotImplementedError
+
+    def _tajima_cov(self) -> np.ndarray:
+        """Covariance of the polymorphic SFS bins (``i, j = 1 .. n-1``)."""
+        raise NotImplementedError
+
+    @cached_property
+    def _tajima_weights(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-bin weights for the two diversity estimators: pairwise diversity ``pi`` and Watterson's ``theta_W``."""
+        n = self._tajima_n()
+        i = np.arange(1, n)
+        w_pi = 2 * i * (n - i) / (n * (n - 1))
+        w_w = np.full(n - 1, 1 / np.sum(1 / i))
+
+        return w_pi, w_w
+
+    @cached_property
+    def theta_pi(self) -> float:
+        r"""
+        Mean pairwise diversity :math:`\pi = \sum_i \frac{2 i (n - i)}{n (n - 1)} \mathbb{E}[L_i]`, the branch-length
+        estimator of :math:`\theta` based on the expected number of pairwise differences.
+        """
+        w_pi, _ = self._tajima_weights
+
+        return float(w_pi @ self._tajima_mean())
+
+    @cached_property
+    def theta_w(self) -> float:
+        r"""
+        Watterson's estimator :math:`\theta_W = L_\text{total} / a_n` with :math:`a_n = \sum_{k=1}^{n-1} 1/k`, the
+        branch-length estimator of :math:`\theta` based on the total branch length.
+        """
+        _, w_w = self._tajima_weights
+
+        return float(w_w @ self._tajima_mean())
+
+    @cached_property
+    def tajimas_d(self) -> float:
+        r"""
+        Tajima's :math:`D` in branch form: :math:`D = (\pi - \theta_W) / \sqrt{c^\top \, \mathrm{Cov}[L] \, c}`
+        with weights :math:`c_i = \frac{2 i (n - i)}{n (n - 1)} - 1/a_n`. It is ``0`` under the standard neutral
+        constant-size model, negative under population growth (excess of low-frequency variants) and positive under
+        contraction. The normalization uses the branch-length covariance rather than the mutation-based variance of
+        the classical sample estimator.
+        """
+        w_pi, w_w = self._tajima_weights
+        c = w_pi - w_w
+
+        num = c @ self._tajima_mean()
+        var = c @ self._tajima_cov() @ c
+
+        if var <= 0:
+            return 0.0
+
+        return float(num / np.sqrt(var))
+
+
+class UnfoldedSFSDistribution(SFSDistribution, TajimaSFSMixin):
     """
     Unfolded site-frequency spectrum distribution.
     """
@@ -2141,67 +2212,16 @@ class UnfoldedSFSDistribution(SFSDistribution):
         """
         return np.arange(1, self.lineage_config.n)
 
-    @cached_property
-    def _tajima_weights(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Per-bin weights for the two diversity estimators: pairwise diversity ``pi`` and Watterson's ``theta_W``."""
+    def _tajima_n(self) -> int:
+        return self.lineage_config.n
+
+    def _tajima_mean(self) -> np.ndarray:
         n = self.lineage_config.n
-        i = np.arange(1, n)
-        w_pi = 2 * i * (n - i) / (n * (n - 1))
-        w_w = np.full(n - 1, 1 / np.sum(1 / i))
+        return np.asarray(self.mean.data)[1:n]
 
-        return w_pi, w_w
-
-    @cached_property
-    def theta_pi(self) -> float:
-        r"""
-        Mean pairwise diversity :math:`\pi = \sum_i \frac{2 i (n - i)}{n (n - 1)} \mathbb{E}[L_i]`, the branch-length
-        estimator of :math:`\theta` based on the expected number of pairwise differences.
-        """
-        w_pi, _ = self._tajima_weights
+    def _tajima_cov(self) -> np.ndarray:
         n = self.lineage_config.n
-
-        return float(w_pi @ np.asarray(self.mean.data)[1:n])
-
-    @cached_property
-    def theta_w(self) -> float:
-        r"""
-        Watterson's estimator :math:`\theta_W = L_\text{total} / a_n` with :math:`a_n = \sum_{k=1}^{n-1} 1/k`, the
-        branch-length estimator of :math:`\theta` based on the total branch length (expected number of segregating
-        sites per unit mutation rate).
-        """
-        _, w_w = self._tajima_weights
-        n = self.lineage_config.n
-
-        return float(w_w @ np.asarray(self.mean.data)[1:n])
-
-    @cached_property
-    def tajimas_d(self) -> float:
-        r"""
-        Tajima's :math:`D` in branch form: the difference of the two :math:`\theta` estimators
-        :math:`\pi - \theta_W` standardized by its standard deviation, computed from the SFS covariance,
-        :math:`D = (\pi - \theta_W) / \sqrt{c^\top \, \mathrm{Cov}[L] \, c}` with weights
-        :math:`c_i = \frac{2 i (n - i)}{n (n - 1)} - 1/a_n`.
-
-        It is ``0`` under the standard neutral constant-size model (where :math:`\mathbb{E}[\pi] = \mathbb{E}[\theta_W]`),
-        negative under population growth / purifying selection (excess of low-frequency variants) and positive under
-        population contraction / balancing selection (excess of intermediate-frequency variants). Note that the
-        normalization uses the branch-length covariance rather than the mutation-based variance of the classical
-        sample estimator.
-        """
-        n = self.lineage_config.n
-        w_pi, w_w = self._tajima_weights
-        c = w_pi - w_w
-
-        mean = np.asarray(self.mean.data)[1:n]
-        cov = np.asarray(self.cov.data)[1:n, 1:n]
-
-        num = c @ mean
-        var = c @ cov @ c
-
-        if var <= 0:
-            return 0.0
-
-        return float(num / np.sqrt(var))
+        return np.asarray(self.cov.data)[1:n, 1:n]
 
     @staticmethod
     def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
@@ -2973,10 +2993,19 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         return loci
 
 
-class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution):  # pragma: no cover
+class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
     """
     SFS phase-type distribution based on realisations.
     """
+
+    def _tajima_n(self) -> int:
+        return self.n
+
+    def _tajima_mean(self) -> np.ndarray:
+        return np.asarray(self.mean)[1:self.n]
+
+    def _tajima_cov(self) -> np.ndarray:
+        return np.asarray(self.cov)[1:self.n, 1:self.n]
 
     def __init__(
             self,
@@ -4373,6 +4402,48 @@ class MsprimeCoalescent(AbstractCoalescent):
             between[k] = np.mean(b)
 
         return float(1 - within.mean() / between.mean())
+
+    def _branch_f_statistic(self, kind: str, pops: List[str]) -> float:
+        """
+        msprime branch-mode Patterson f-statistic ground truth (``f2``/``f3``/``f4``) over the given populations,
+        averaged over replicate trees (tskit branch mode uses the same 2x pairwise-coalescence convention as the
+        analytical :class:`Coalescent` f-statistics).
+        """
+        import msprime as ms
+
+        names = self.demography.pop_names
+        for pop in pops:
+            if pop not in names:
+                raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
+        idx = [names.index(pop) for pop in pops]
+
+        values = np.zeros(self.num_replicates)
+
+        for k, ts in enumerate(ms.sim_ancestry(
+                samples=self.lineage_config.lineage_dict,
+                sequence_length=1,
+                demography=self.demography.to_msprime(),
+                model=self.get_coalescent_model(),
+                ploidy=1,
+                num_replicates=self.num_replicates,
+                random_seed=self.seed,
+        )):
+            sample_sets = [ts.samples(population=i) for i in idx]
+            values[k] = getattr(ts, kind)(sample_sets, mode='branch')
+
+        return float(values.mean())
+
+    def f2(self, pop_0: str, pop_1: str) -> float:
+        """msprime branch-mode ``f2`` ground truth. Matches :meth:`Coalescent.f2`."""
+        return self._branch_f_statistic('f2', [pop_0, pop_1])
+
+    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
+        """msprime branch-mode ``f3`` ground truth. Matches :meth:`Coalescent.f3`."""
+        return self._branch_f_statistic('f3', [pop_target, pop_0, pop_1])
+
+    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
+        """msprime branch-mode ``f4`` ground truth. Matches :meth:`Coalescent.f4`."""
+        return self._branch_f_statistic('f4', [pop_0, pop_1, pop_2, pop_3])
 
     def to_phasegen(self) -> Coalescent:
         """
