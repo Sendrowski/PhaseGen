@@ -1,0 +1,51 @@
+{
+    "py/object": "phasegen.comparison.Comparison",
+    "logger": {
+        "py/reduce": [
+            {
+                "py/function": "logging.getLogger"
+            },
+            {
+                "py/tuple": [
+                    "phasegen.Comparison"
+                ]
+            }
+        ]
+    },
+    "comparisons": {
+        "tolerance": {
+            "sfs": {
+                "mean": 0.02,
+                "theta_pi": 0.02,
+                "theta_w": 0.02,
+                "tajimas_d": 0.1
+            }
+        }
+    },
+    "n": 8,
+    "pop_sizes": {
+        "pop_0": {
+            "json://0": 1,
+            "json://0.5": 5
+        }
+    },
+    "migration_rates": {},
+    "n_loci": 1,
+    "recombination_rate": 0,
+    "num_replicates": 200000,
+    "mutation_rate": null,
+    "record_migration": false,
+    "simulate_mutations": false,
+    "mass_threshold": 0.9,
+    "end_time": null,
+    "n_threads": 100,
+    "parallelize": true,
+    "seed": 42,
+    "alpha": 1.5,
+    "psi": 0.5,
+    "c": 1,
+    "model": {
+        "py/object": "phasegen.coalescent_models.StandardCoalescent"
+    },
+    "n_assertions": 0
+}

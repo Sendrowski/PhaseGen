@@ -1,0 +1,57 @@
+n:
+  pop_0: 2
+  pop_1: 2
+  pop_2: 2
+  pop_3: 2
+num_replicates: 100000
+seed: 42
+pop_sizes:
+  pop_0:
+    0: 1
+  pop_1:
+    0: 1
+  pop_2:
+    0: 1
+  pop_3:
+    0: 1
+migration_rates:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
+    0: 2
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
+    0: 2
+  !!python/tuple [ 'pop_2', 'pop_3' ]:
+    0: 2
+  !!python/tuple [ 'pop_3', 'pop_2' ]:
+    0: 2
+  !!python/tuple [ 'pop_0', 'pop_2' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_2', 'pop_0' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_0', 'pop_3' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_3', 'pop_0' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_1', 'pop_2' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_2', 'pop_1' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_1', 'pop_3' ]:
+    0: 0.1
+  !!python/tuple [ 'pop_3', 'pop_1' ]:
+    0: 0.1
+model: standard
+comparisons:
+  tolerance:
+    tree_height:
+      mean: 0.02
+  statistics:
+    fst: 0.05
+    f2:
+      args: [ 'pop_0', 'pop_2' ]
+      tol: 0.1
+    f3:
+      args: [ 'pop_0', 'pop_1', 'pop_2' ]
+      tol: 0.2
+    f4:
+      args: [ 'pop_0', 'pop_2', 'pop_1', 'pop_3' ]
+      tol: 0.1
