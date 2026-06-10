@@ -7,7 +7,6 @@ dependencies:
   - dadi
   - graphviz
   - tensorflow
-  - jax
   - python-graphviz
   - r-base
   - r-reticulate
