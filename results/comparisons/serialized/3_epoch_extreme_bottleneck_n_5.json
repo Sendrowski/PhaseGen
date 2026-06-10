@@ -30,7 +30,7 @@
                 "corr": 0.05,
                 "theta_pi": 0.02,
                 "theta_w": 0.02,
-                "tajimas_d": 0.1
+                "tajimas_d": 0.05
             }
         }
     },
