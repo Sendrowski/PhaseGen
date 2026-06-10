@@ -18,6 +18,7 @@ Contents
    reference/Python/installation
    reference/Python/quickstart
    reference/Python/coalescent
+   reference/Python/spectra
    reference/Python/rewards
    reference/Python/demography
    reference/Python/mutation_configs
@@ -33,6 +34,7 @@ Contents
    reference/R/installation
    reference/R/quickstart
    reference/R/coalescent
+   reference/R/spectra
    reference/R/rewards
    reference/R/demography
    reference/R/mutation_configs
