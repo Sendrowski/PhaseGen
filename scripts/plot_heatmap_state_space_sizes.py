@@ -93,10 +93,10 @@ def plot_heatmap(
     return ax
 
 
-fig, ax = plt.subplots(1, 3, figsize=(11, 3.5))
+fig, ax = plt.subplots(2, 2, figsize=(9, 8))
 
 plot_heatmap(
-    ax=ax[0],
+    ax=ax[0, 0],
     N=np.arange(2, 18, 2),
     D=np.arange(1, 6),
     state_space=lambda coal: coal.lineage_counting_state_space,
@@ -105,7 +105,16 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[1],
+    ax=ax[0, 1],
+    N=np.arange(2, 14, 2),
+    D=np.arange(1, 4),
+    state_space=lambda coal: coal.block_counting_state_space,
+    locus_config=pg.LocusConfig(1),
+    title="Block-counting state space, one locus"
+)
+
+plot_heatmap(
+    ax=ax[1, 0],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 4),
     state_space=lambda coal: coal.lineage_counting_state_space,
@@ -113,13 +122,14 @@ plot_heatmap(
     title="Lineage-counting state space, two loci"
 )
 
+# two-locus block-counting state space (the recombination-aware 2-SFS state space); single population
 plot_heatmap(
-    ax=ax[2],
-    N=np.arange(2, 14, 2),
-    D=np.arange(1, 4),
-    state_space=lambda coal: coal.block_counting_state_space,
-    locus_config=pg.LocusConfig(1),
-    title="Block-counting state space, one locus"
+    ax=ax[1, 1],
+    N=np.arange(2, 8, 1),
+    D=np.arange(1, 2),
+    state_space=lambda coal: coal.two_locus_block_counting_state_space,
+    locus_config=pg.LocusConfig(2),
+    title="Block-counting state space, two loci"
 )
 
 fig.tight_layout()
