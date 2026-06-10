@@ -6,6 +6,7 @@
 /resources/rice/
 /results/
 /docs/_build/
+/docs/jupyter_execute/
 /slurm/logs/
 .DS_Store
 .idea/
