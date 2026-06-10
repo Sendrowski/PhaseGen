@@ -30,9 +30,6 @@ class Inference(Serializable):
     Gradient-based parameter inference with respect to a specified loss function,
     summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
     The optimization is performed via the BFGS algorithm from scipy.
-
-    .. note::
-        TODO there are problems when pickling this object if is has already been unpickled previously.
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -201,13 +198,20 @@ class Inference(Serializable):
         """
         Get the state of the object for serialization.
 
+        The ``coal``, ``loss`` and ``resample`` callables are serialized with ``dill`` (they are typically
+        lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
+        once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
+        directly from ``self`` rather than deep-copied first; only the remaining state is deep-copied so the
+        live object is left untouched.
+
         :return: State of the object.
         """
-        state = copy.deepcopy(self.__dict__)
+        callables = ['coal', 'loss', 'resample']
 
-        for key in ['coal', 'loss', 'resample']:
-            state[f'{key}_pickled'] = dill.dumps(state[key])
-            state.pop(key)
+        state = copy.deepcopy({key: value for key, value in self.__dict__.items() if key not in callables})
+
+        for key in callables:
+            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key])
 
         return state
 
