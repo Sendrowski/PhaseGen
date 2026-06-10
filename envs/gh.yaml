@@ -1,0 +1,5 @@
+name: gh
+channels:
+  - conda-forge
+dependencies:
+  - gh

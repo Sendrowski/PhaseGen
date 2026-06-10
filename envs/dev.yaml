@@ -6,8 +6,6 @@ dependencies:
   - dadi
   - numba
   - graphviz
-  - pytorch
-  - jax
   - tensorflow
   - python-graphviz
   - r-base
