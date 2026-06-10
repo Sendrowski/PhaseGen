@@ -9,6 +9,8 @@ The size of the state space can grow rapidly with the complexity of the demograp
 
 .. image:: ../images/state_space_sizes.png
    :alt: State space sizes
+   :width: 60%
+   :align: center
 
 State Space Construction
 ------------------------
