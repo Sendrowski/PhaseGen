@@ -23,7 +23,6 @@ Contents
    reference/Python/demography
    reference/Python/mutation_configs
    reference/Python/inference
-   reference/Python/exponentiation_backend
    reference/performance
    reference/Python/miscellaneous
 
@@ -38,7 +37,6 @@ Contents
    reference/R/rewards
    reference/R/demography
    reference/R/mutation_configs
-   reference/R/exponentiation_backend
    reference/performance
    reference/R/miscellaneous
 
