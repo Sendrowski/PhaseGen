@@ -75,6 +75,21 @@ def _island4(sizes, m) -> pg.Demography:
     )
 
 
+def _tree4_rates(strong: float, weak: float) -> dict:
+    """Symmetric migration for a tree-like structure ((A,B),(C,D)): strong gene flow within each pair
+    {pop_0, pop_1} and {pop_2, pop_3}, weak flow between the pairs. Unlike the fully-connected island
+    model (whose symmetric topology forces f4 = 0), this gives the antisymmetric structure f4 detects."""
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+    within = {('pop_0', 'pop_1'), ('pop_1', 'pop_0'), ('pop_2', 'pop_3'), ('pop_3', 'pop_2')}
+    return {(a, b): (strong if (a, b) in within else weak) for a in pops for b in pops if a != b}
+
+
+def _tree4(strong: float = 2.0, weak: float = 0.1) -> pg.Demography:
+    """Four demes structured as a population tree ((pop_0, pop_1), (pop_2, pop_3))."""
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+    return pg.Demography(pop_sizes={p: 1.0 for p in pops}, migration_rates=_tree4_rates(strong, weak))
+
+
 def test_f4_zero_for_symmetric_model():
     """For a fully symmetric island model there is no treeness, so f4(A,B;C,D) = 0 exactly."""
     coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0] * 4, 0.5))
@@ -86,6 +101,29 @@ def test_f2_symmetric_and_positive():
     coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0, 1.5, 0.7, 1.2], 0.4))
     assert coal.f2('pop_0', 'pop_1') == pytest.approx(coal.f2('pop_1', 'pop_0'), abs=1e-12)
     assert coal.f2('pop_0', 'pop_1') > 0
+
+
+def test_f_statistic_identities():
+    """f3 and f4 are fixed linear combinations of f2 (all are linear in pairwise coalescence times), so
+    these algebraic identities hold exactly for any demography. This guards f3/f4 against the f2 baseline
+    in the fast suite, where otherwise only f2 (and f4 = 0) carry a direct numeric check."""
+    coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_island4([1.0, 1.5, 0.7, 1.2], 0.4))
+    a, b, c, d = 'pop_0', 'pop_1', 'pop_2', 'pop_3'
+    assert coal.f3(c, a, b) == pytest.approx((coal.f2(a, c) + coal.f2(b, c) - coal.f2(a, b)) / 2, abs=1e-9)
+    assert coal.f4(a, b, c, d) == pytest.approx(
+        (coal.f2(a, d) + coal.f2(b, c) - coal.f2(a, c) - coal.f2(b, d)) / 2, abs=1e-9)
+
+
+def test_f4_detects_tree_topology():
+    """f4's purpose is to discriminate tree structure: for a population tree ((A,B),(C,D)) the f4 that pairs
+    the true clades vanishes, while the two 'crossing' orderings are equal, nonzero, and antisymmetric under
+    swapping a pair. The symmetric island model only ever yields f4 = 0, so this exercises the other regime."""
+    coal = pg.Coalescent(n={f'pop_{i}': 2 for i in range(4)}, demography=_tree4())
+    a, b, c, d = 'pop_0', 'pop_1', 'pop_2', 'pop_3'
+    assert coal.f4(a, b, c, d) == pytest.approx(0.0, abs=1e-9)                     # true topology -> 0
+    assert coal.f4(a, c, b, d) > 1                                                 # crossing -> clearly nonzero
+    assert coal.f4(a, c, b, d) == pytest.approx(coal.f4(a, d, b, c), abs=1e-9)     # both crossings agree
+    assert coal.f4(a, c, b, d) == pytest.approx(-coal.f4(c, a, b, d), abs=1e-9)    # antisymmetric in a pair
 
 
 def test_f_statistics_unknown_population_raises():
@@ -124,3 +162,33 @@ def test_f_statistics_match_tskit_branch_mode():
     assert coal.f2('pop_0', 'pop_1') == pytest.approx(np.mean(f2), abs=0.05)
     assert coal.f3('pop_2', 'pop_0', 'pop_1') == pytest.approx(np.mean(f3), abs=0.05)
     assert coal.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(np.mean(f4), abs=0.05)
+
+
+@pytest.mark.slow
+def test_f4_nonzero_matches_tskit_branch_mode_tree():
+    """Validate a genuinely *nonzero* f4 against tskit branch-mode ground truth. The island-model case above
+    only checks f4 ~ 0 (its symmetric topology forces this); here a tree-like structure ((A,B),(C,D)) gives
+    the antisymmetric, admixture-detecting f4 in the 'crossing' ordering f4(A,C;B,D)."""
+    import msprime as ms
+
+    strong, weak = 2.0, 0.1
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+    rates = _tree4_rates(strong, weak)
+    coal = pg.Coalescent(n={p: 2 for p in pops}, demography=_tree4(strong, weak))
+
+    d = ms.Demography()
+    for p in pops:
+        d.add_population(name=p, initial_size=1.0)
+    for (src, dst), r in rates.items():
+        d.set_migration_rate(src, dst, r)
+
+    # the 'crossing' ordering (A,C;B,D) is the discriminating, nonzero statistic for this tree
+    f4 = []
+    for ts in ms.sim_ancestry(samples={p: 6 for p in pops}, demography=d, ploidy=1, sequence_length=1,
+                              random_seed=11, num_replicates=20000):
+        s = [ts.samples(population=i) for i in range(4)]
+        f4.append(ts.f4([s[0], s[2], s[1], s[3]], mode='branch'))  # f4(A, C; B, D)
+
+    ana = coal.f4('pop_0', 'pop_2', 'pop_1', 'pop_3')
+    assert ana > 1                                            # genuinely nonzero (guards against trivial pass)
+    assert ana == pytest.approx(np.mean(f4), abs=0.05)
