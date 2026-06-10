@@ -2999,13 +2999,16 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     """
 
     def _tajima_n(self) -> int:
-        return self.n
+        # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
+        return len(np.asarray(self.mean)) - 1
 
     def _tajima_mean(self) -> np.ndarray:
-        return np.asarray(self.mean)[1:self.n]
+        n = self._tajima_n()
+        return np.asarray(self.mean)[1:n]
 
     def _tajima_cov(self) -> np.ndarray:
-        return np.asarray(self.cov)[1:self.n, 1:self.n]
+        n = self._tajima_n()
+        return np.asarray(self.cov)[1:n, 1:n]
 
     def __init__(
             self,
