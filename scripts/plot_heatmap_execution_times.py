@@ -107,7 +107,7 @@ def plot_heatmap(
     ax.set_box_aspect(1)
 
 
-fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+fig, ax = plt.subplots(2, 2, figsize=(9, 8))
 
 # warm start
 _ = pg.Coalescent(
@@ -115,7 +115,7 @@ _ = pg.Coalescent(
 ).tree_height.mean
 
 plot_heatmap(
-    ax=ax[0],
+    ax=ax[0, 0],
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.tree_height.mean,
@@ -123,7 +123,15 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[1],
+    ax=ax[0, 1],
+    N=np.arange(2, 11, 1),
+    D=np.arange(1, 4),
+    callback=lambda coal: coal.sfs.mean,
+    title="Mean SFS, one locus"
+)
+
+plot_heatmap(
+    ax=ax[1, 0],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 3),
     callback=lambda coal: coal.tree_height.mean,
@@ -131,12 +139,14 @@ plot_heatmap(
     locus_config=pg.LocusConfig(2)
 )
 
+# mean two-locus SFS (the recombination-aware 2-SFS); single population
 plot_heatmap(
-    ax=ax[2],
-    N=np.arange(2, 9, 1),
-    D=np.arange(1, 4),
-    callback=lambda coal: coal.sfs.mean,
-    title="Mean SFS, one locus"
+    ax=ax[1, 1],
+    N=np.arange(2, 7, 1),
+    D=np.arange(1, 2),
+    callback=lambda coal: coal.sfs2.mean,
+    title="Mean two-locus SFS",
+    locus_config=pg.LocusConfig(2, recombination_rate=1.0)
 )
 
 fig.tight_layout(pad=2)
