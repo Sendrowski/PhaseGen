@@ -1208,6 +1208,58 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         return factorial(k) * float(alpha_ext @ z)
 
+    def _occupation_times(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Expected total time spent in each transient state until absorption. This is the bin-independent quantity
+        shared by every bin of a *mean* spectrum: the mean of a reward ``r`` is simply ``occupation . r``, so a whole
+        SFS / joint SFS mean is one contraction ``occupation @ R`` over the stacked bin rewards instead of a separate
+        solve per bin. Finite epochs contribute ``p_i (exp(S_i tau_i) - I) S_i^{-1}`` (entered with distribution
+        ``p_i``); the final unbounded epoch contributes ``p (-T)^{-1}``.
+
+        :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
+            epoch, or ``None`` if absorption is not almost sure (callers then fall back to per-bin evaluation).
+        """
+        if not self._absorption_certain_in_last_epoch():
+            return None
+
+        epochs = self._get_epochs_until_unbounded()
+
+        self.state_space.update_epoch(epochs[-1])
+        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        idx_t = np.where(~absorbing)[0]
+        nt = len(idx_t)
+        use_action = nt >= _CLOSED_FORM_SPARSE_MIN_N
+
+        p = np.asarray(self.state_space.alpha)[idx_t].astype(float)
+        m = np.zeros(nt)
+
+        # finite epochs: accumulate the within-epoch occupation and propagate the entry distribution. The occupation
+        # integral ``A = int_0^tau exp(S t) dt`` is read off the augmented (Van Loan) exponential, which is robust
+        # even when the finite-epoch block ``S`` is singular (e.g. a migration barrier), unlike ``(exp(S tau)-I) S^-1``.
+        for epoch in epochs[:-1]:
+            self.state_space.update_epoch(epoch)
+            self._check_numerical_stability(np.asarray(self.state_space.S), 0)
+            S = np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+            tau = epoch.end_time - epoch.start_time
+            aug = np.zeros((2 * nt, 2 * nt))
+            aug[:nt, :nt] = S
+            aug[:nt, nt:] = np.eye(nt)
+            exp_aug = expm(aug * tau)
+            e_s, a = exp_aug[:nt, :nt], exp_aug[:nt, nt:]
+            m += p @ a
+            p = p @ e_s
+
+        # final unbounded epoch: occupation = p (-T)^{-1}, i.e. solve (-T)^T x = p
+        self.state_space.update_epoch(epochs[-1])
+        self._check_numerical_stability(np.asarray(self.state_space.S), len(epochs) - 1)
+        neg_t = -np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+        if use_action:
+            m += spla.splu(sp.csc_matrix(neg_t.T)).solve(p)
+        else:
+            m += sla.solve(neg_t.T, p)
+
+        return m, idx_t
+
     def _sample(
             self,
             n_samples: int,
@@ -1857,6 +1909,29 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         if rewards is None:
             rewards = (self.reward,) * k
+
+        # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
+        # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
+        # the transient solve across bins); only for the plain mean to absorption (k=1, default reward, no custom
+        # accumulation window). Other cases fall through to the per-bin path.
+        if (
+                Settings.closed_form_last_epoch and
+                k == 1 and
+                start_time is None and
+                end_time is None and
+                self.tree_height.end_time is None and
+                rewards == (self.reward,)
+        ):
+            occupation = self._occupation_times()
+            if occupation is not None:
+                m, idx_t = occupation
+                base = np.asarray(self.reward._get(self.state_space), dtype=float)
+                R = np.column_stack([
+                    (base * np.asarray(self._get_sfs_reward(i)._get(self.state_space), dtype=float))[idx_t]
+                    for i in self._get_indices()
+                ])
+                moments = m @ R
+                return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
         # optionally parallelize the moment computation of the SFS bins
         moments = parallelize(
