@@ -2125,11 +2125,64 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute=permute
         )
 
+    def _cov_batched(self) -> Optional[SFS2]:
+        """
+        Batched single-epoch 2-SFS: all ``O(n^2)`` bin pairs share one two-point occupation operator
+        ``K = diag(m) (-T)^{-1}`` (``m`` the sojourn times), so the whole covariance is
+        ``cov = R^T (K + K^T) R - outer(mean)`` via a single batched solve instead of a cross-moment per pair.
+
+        :return: The covariance, or ``None`` when not applicable (multi-epoch, explicit end time, or absorption not
+            almost sure) so the caller falls back to the per-pair path. Multi-epoch needs the (harder) two-point
+            occupation threading and is left to the per-pair path for now.
+        """
+        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
+            return None
+
+        epochs = self._get_epochs_until_unbounded()
+        if len(epochs) != 1 or not self._absorption_certain_in_last_epoch():
+            return None
+
+        ss = self.state_space
+        ss.update_epoch(epochs[-1])
+        absorbing = np.array([s.is_absorbing() for s in ss.states])
+        idx_t = np.where(~absorbing)[0]
+        nt = len(idx_t)
+        alpha = np.asarray(ss.alpha)[idx_t].astype(float)
+        base = np.asarray(self.reward._get(ss), dtype=float)
+        indices = self._get_indices()
+        R = np.column_stack([
+            (base * np.asarray(self._get_sfs_reward(i)._get(ss), dtype=float))[idx_t] for i in indices
+        ])
+        neg_t = -np.asarray(ss.S)[np.ix_(idx_t, idx_t)]
+
+        # factor -T once; X = (-T)^{-1} R (all bins), m = (-T)^{-T} alpha (sojourn times)
+        if nt >= _CLOSED_FORM_SPARSE_MIN_N:
+            lu = spla.splu(sp.csc_matrix(neg_t))
+            X = lu.solve(R)
+            m = lu.solve(alpha, trans='T')
+        else:
+            lu = sla.lu_factor(neg_t)
+            X = sla.lu_solve(lu, R)
+            m = sla.lu_solve(lu, alpha, trans=1)
+
+        sfs_matrix = (m[:, None] * R).T @ X        # = R^T diag(m) (-T)^{-1} R = R^T K R
+        mean = m @ R
+        cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
+
+        out = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
+        for a, ia in enumerate(indices):
+            out[ia, indices] = cov[a]
+        return SFS2(out)
+
     @cached_property
     def cov(self) -> SFS2:
         """
         Covariance matrix across site-frequency counts.
         """
+        batched = self._cov_batched()
+        if batched is not None:
+            return batched
+
         # create list of arguments for each combination of i, j
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
