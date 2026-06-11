@@ -6,6 +6,7 @@ import importlib.util
 from testing import TestCase
 
 import numpy as np
+import pytest
 
 import phasegen as pg
 
@@ -15,6 +16,7 @@ class ExpmTestCase(TestCase):
     Test matrix exponentiation.
     """
 
+    @pytest.mark.slow
     def test_expm_different_backends(self):
         """
         Test that the available matrix exponentiation backends agree on a medium-sized matrix. The optional backends
