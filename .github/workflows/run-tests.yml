@@ -1,5 +1,7 @@
-# This workflow will install Python dependencies, and run tests
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+# Install dependencies with uv and run the (non-slow) test suite with
+# coverage on every push / PR to master.
+# For more information see:
+# https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
 name: tests
 
@@ -21,26 +23,29 @@ env:
   NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba_cache
 
 jobs:
-  setup:
+  test:
     name: run tests on ubuntu
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -el {0}
     steps:
-      - uses: actions/checkout@v3
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          miniconda-version: "latest"
-          python-version: "3.10"
-          environment-file: envs/testing.yaml
-          auto-activate-base: false
-          activate-environment: testing-phasegen
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Cache numba JIT
         uses: actions/cache@v4
         with:
           path: ${{ env.NUMBA_CACHE_DIR }}
           key: numba-${{ runner.os }}-${{ hashFiles('phasegen/state_space_numba.py') }}
-      - run: |
-          pytest --cov phasegen --cov-report=xml testing/ -m "not slow" -x
-      - uses: codecov/codecov-action@v3
+      - name: Install phasegen + test deps
+        # msprime brings tskit; both ship manylinux wheels, so no conda is
+        # needed. The suite runs single-process (numba recompiles per xdist
+        # worker), so pytest-xdist is intentionally omitted.
+        run: uv pip install --system -e . pytest pytest-cov msprime
+      - name: Run tests
+        run: pytest --cov phasegen --cov-report=xml testing/ -m "not slow" -x
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
