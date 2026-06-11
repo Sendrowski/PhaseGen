@@ -22,8 +22,8 @@ env:
 
 jobs:
   setup:
-    name: run tests on macos
-    runs-on: macos-latest
+    name: run tests on ubuntu
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash -el {0}
