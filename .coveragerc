@@ -5,3 +5,15 @@ source = phasegen
 omit =
     phasegen/comparison.py
     phasegen/state_space_old.py
+    phasegen/state_space_numba.py
+# Exclude lines that cannot (or should not) be exercised by the test suite:
+# abstract-method bodies, not-implemented branches, type-checking-only imports,
+# and defensive ``__repr__``/main guards. ``pragma: no cover`` is kept for the
+# few cases that need an explicit opt-out (e.g. optional-backend code paths).
+exclude_also =
+    pragma: no cover
+    raise NotImplementedError
+    @(abc\.)?abstractmethod
+    if TYPE_CHECKING:
+    \.\.\.
+    if __name__ == .__main__.:

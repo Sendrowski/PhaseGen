@@ -17,3 +17,7 @@ __pycache__/
 /example_workflows/inference/results/
 .RData
 .Rhistory
+
+# coverage artifacts
+.coverage
+coverage.xml

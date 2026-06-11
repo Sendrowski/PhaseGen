@@ -48,6 +48,77 @@ class InferenceTestCase(TestCase):
 
         return pg.Inference(**kwargs)
 
+    def get_fast_inference(self, kwargs: dict = {}):
+        """
+        Get a small (n=3, single parameter) inference that exercises the inference code paths quickly
+        enough to stay in the non-slow suite. Correctness is covered by the slow ``get_basic_inference`` tests.
+
+        :param kwargs: Additional keyword arguments.
+        """
+        kwargs = dict(
+            x0=dict(t=0.5, Ne=0.5),
+            bounds=dict(t=(0, 2), Ne=(0.1, 1)),
+            observation=pg.SFS([100, 10, 5, 100]),
+            parallelize=False,
+            n_runs=1,
+            seed=42,
+            do_bootstrap=False,
+            coal=lambda t, Ne: pg.Coalescent(
+                n=3,
+                demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: Ne}})
+            ),
+            loss=lambda coal, observation: pg.PoissonLikelihood().compute(
+                observed=observation.normalize().polymorphic,
+                modelled=coal.sfs.mean.normalize().polymorphic
+            ),
+            resample=lambda sfs, rng: sfs.resample(seed=rng.integers(1e10))
+        ) | kwargs
+
+        return pg.Inference(**kwargs)
+
+    def test_fast_inference_run_bootstrap_and_plots(self):
+        """
+        Run a small inference with bootstrapping and exercise the plotting and serialization paths.
+        """
+        inf = self.get_fast_inference(dict(do_bootstrap=True, n_bootstraps=3))
+
+        inf.run()
+
+        # the optimization produced inferred parameters and a finite loss
+        assert 'Ne' in inf.params_inferred
+        assert np.isfinite(inf.loss_inferred)
+        assert len(inf.bootstraps) == 3
+
+        # plotting paths
+        inf.plot_pop_sizes()
+        inf.plot_migration()
+        inf.plot_demography()
+        inf.plot_bootstraps(kind='hist')
+        inf.plot_bootstraps(kind='kde')
+
+        # serialization round-trip
+        restored = pg.Inference.from_json(inf.to_json())
+        assert restored.params_inferred['Ne'] == pytest.approx(inf.params_inferred['Ne'])
+
+    def test_fast_inference_manual_runs_and_bootstraps(self):
+        """
+        Exercise the distributed run/bootstrap helpers (create/add run and bootstrap) on a small inference.
+        """
+        inf = self.get_fast_inference()
+
+        # additional independent runs, merged back in
+        run2 = inf.create_run()
+        inf.run()
+        run2.run()
+        inf.add_run(run2)
+        assert np.isfinite(inf.loss_inferred)
+
+        # manual bootstrap created, run independently and added back
+        bootstrap = inf.create_bootstrap()
+        bootstrap.run()
+        inf.add_bootstrap(bootstrap)
+        assert len(inf.bootstraps) == 1
+
     @pytest.mark.slow
     def test_basic_inference(self):
         """
