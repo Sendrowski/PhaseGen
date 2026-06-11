@@ -1,7 +1,7 @@
 .. _modules.citing:
 
 Citing phasegen
-==============
+===============
 
 If you use ``phasegen`` in your research, please cite the following preprint:
 

@@ -322,7 +322,6 @@ class Demography:
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param title: Title of the plot.
-        :param title: Title of the plot.
         :param ylabel: Label of the y-axis.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.

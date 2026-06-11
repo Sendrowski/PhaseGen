@@ -1480,7 +1480,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         Get a time estimate for when we have reached absorption almost surely.
         We base this computation on the transition matrix rather than the moments, because here
-        we have a good idea about how likely absorption, and can warn the user if necessary.
+        we have a good idea about how likely absorption is, and can warn the user if necessary.
         Stopping the computation when no more rewards are accumulated is not a good idea, as this
         can happen before almost sure absorption (exponential runaway growth, temporary isolation in different demes).
         """
@@ -2086,8 +2086,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             counts will decrease over time. You can keep track of the generated probability mass by checking the
             :attr:`~.generated_mass` attribute, which is reset every time this method is called.
             A good approach is thus to keep generating configurations until the generated mass is above a certain
-            threshold. More complex demographic models and larger sample sizes increase the number of configurations
-            and higher mutation rates, the number of generated configurations necessary to reach a certain mass.
+            threshold. More complex demographic models, larger sample sizes, and higher mutation rates all increase
+            the number of generated configurations necessary to reach a certain mass.
 
         Code example:
 
@@ -3164,7 +3164,7 @@ class AbstractCoalescent(ABC):
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If ``None``, the end time is end time is taken to be the
+        :param end_time: Time when to end the computation. If ``None``, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         """
         self._logger = logger.getChild(self.__class__.__name__)
