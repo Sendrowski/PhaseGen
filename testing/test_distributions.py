@@ -19,6 +19,18 @@ class DistributionTestCase(TestCase):
     Test distributions.
     """
 
+    def test_sfs_accumulation_fast(self):
+        """
+        Exercise the SFS moment accumulation and its plot on a small coalescent (fast path).
+        """
+        coal = pg.Coalescent(n=3)
+        end_times = np.linspace(0, 2, 5)
+
+        acc = np.asarray(coal.sfs.accumulate(1, end_times=end_times))
+        self.assertEqual(acc.shape[-1], len(end_times))
+
+        coal.sfs.plot_accumulation(end_times=end_times, show=False)
+
     @staticmethod
     def get_test_coalescent() -> pg.Coalescent:
         """

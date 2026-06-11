@@ -249,3 +249,55 @@ class SpectrumTestCase(TestCase):
         diag_mask = np.logical_or(diag_mask, np.fliplr(diag_mask))  # Add secondary diagonal
         self.assertTrue(np.array_equal(original_data[~diag_mask], masked_sfs.data[~diag_mask]))
 
+
+    def test_joint_sfs_container(self):
+        """
+        Exercise the JointSFS container: shape/array/iteration/indexing, plotting and serialization.
+        """
+        data = np.arange(9).reshape(3, 3).astype(float)
+        j = pg.JointSFS(data)
+
+        self.assertEqual(j.n_pops, 2)
+        self.assertEqual(tuple(j.shape), (3, 3))
+        self.assertEqual(np.asarray(j).shape, (3, 3))
+        self.assertEqual(len(list(iter(j))), 3)
+        self.assertTrue(np.array_equal(np.asarray(j[0]), data[0]))
+        self.assertTrue(np.array_equal(np.asarray(j.copy()), data))
+
+        # plotting (Agg backend, non-interactive)
+        j.plot(show=False)
+        j.plot_surface(show=False)
+
+        # serialization round-trips
+        j.to_file('scratch/test_jsfs.json')
+        self.assertTrue(np.allclose(np.asarray(pg.JointSFS.from_file('scratch/test_jsfs.json')), data))
+        self.assertTrue(np.allclose(np.asarray(pg.JointSFS.from_json(j.to_json())), data))
+
+    def test_joint_sfs_marginalize(self):
+        """
+        Marginalize a three-population joint SFS down to two populations and plot it.
+        """
+        data = np.arange(27).reshape(3, 3, 3).astype(float)
+        j = pg.JointSFS(data)
+
+        self.assertEqual(j.n_pops, 3)
+
+        marg = j.marginalize(pops=[0, 1])
+        self.assertEqual(marg.n_pops, 2)
+        self.assertTrue(np.allclose(np.asarray(marg), data.sum(axis=2)))
+
+        marg.plot(pops=(0, 1), show=False)
+
+        with self.assertRaises(ValueError):
+            j.marginalize(pops=[0, 5])
+
+    def test_two_locus_sfs_fold_and_surface(self):
+        """
+        Fold a TwoLocusSFS and plot it as a surface.
+        """
+        t = pg.TwoLocusSFS(np.arange(25).reshape(5, 5).astype(float))
+
+        folded = t.fold()
+        self.assertEqual(tuple(folded.data.shape), (5, 5))
+
+        t.plot_surface(show=False)
