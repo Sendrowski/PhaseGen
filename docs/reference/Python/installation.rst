@@ -3,9 +3,9 @@
 Installation
 ============
 
-PyPi
+PyPI
 ^^^^
-To install the ``phasegen``, you can use pip:
+To install ``phasegen``, you can use pip:
 
 .. code-block:: bash
 

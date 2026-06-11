@@ -446,7 +446,7 @@ class StateReward(Reward):
 
 class LineageReward(LineageCountingReward, JointBlockCountingReward):
     """
-    Reward for a specific number of lineages present in across all demes and loci.
+    Reward for a specific number of lineages present across all demes and loci.
     This reward can be used to, for example, track the individual coalescent times.
     """
 

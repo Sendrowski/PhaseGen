@@ -217,11 +217,11 @@ class Comparison(Serializable):
     @classmethod
     def rel_diff(cls, a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
         """
-        Compute the maximum relative difference between two arrays.
+        Compute the relative difference between two arrays.
 
         :param a: The first array.
         :param b: The second array.
-        :return: The mean relative difference.
+        :return: The relative difference.
         """
         # vectorize
         if not isinstance(a, Iterable) and not isinstance(b, Iterable):

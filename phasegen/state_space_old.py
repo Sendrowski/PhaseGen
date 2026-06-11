@@ -168,7 +168,7 @@ class StateSpace(ABC):
 
     def __eq__(self, other):
         """
-        Check if two state spaces are equal. We do not for equivalence of the epochs as we can
+        Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
         update the epoch of a state space.
 
         :param other: Other state space
@@ -618,7 +618,7 @@ class BlockCountingStateSpace(StateSpace):
     def _expand_loci(self, states: np.ndarray) -> np.ndarray:
         """
         Expand the given states to include all possible combinations of locus configurations.
-        Two-locus state space not sufficient for computing SFS as lineages are not longer
+        Two-locus state space not sufficient for computing SFS as lineages are no longer
           exchangeable in this case.
 
         :param states: States.
@@ -1415,7 +1415,7 @@ class Transition:
 
         For example, let there be n > 2 lineages, and two loci. Assume we start with completely linked loci.
         Now assume there is a linked coalescence event, so that we have 1 linked doubleton and n - 2 linked singletons.
-        Now conditional on the fact that no recombination even has occurred, we can cannot have linked coalescence
+        Now conditional on the fact that no recombination event has occurred, we cannot have linked coalescence
         where one of the lineages is a doubleton in one locus and a singleton in the other locus. However, assume we
         first experience n recombination events so that our loci are now completely unlinked. Now assume we have an
         unlinked coalescence event in each locus, and subsequently n - 1 locus coalescence events. Now the state looks

@@ -183,7 +183,7 @@ class SFS2(Iterable):
     def fold(self) -> 'SFS2':
         """
         Fold 2-SFS by adding up ``i`` and ``n - i`` for both axes.
-        Node that this only make sense for counts or frequencies.
+        Note that this only makes sense for counts or frequencies.
 
         :return: Folded 2-SFS.
         """
@@ -217,7 +217,7 @@ class SFS2(Iterable):
 
     def fill_monomorphic(self, fill_value=np.nan) -> 'SFS2':
         """
-        Remote the diagonal entries of the given array.
+        Remove the diagonal entries of the given array.
         
         :param fill_value: Value to fill diagonal entries with.
         :return: 2-SFS
