@@ -686,6 +686,7 @@ class CoalescentTestCase(TestCase):
 
         plt.show()
 
+    @pytest.mark.slow
     def test_plot_accumulation(self):
         """
         Test accumulation plot.
@@ -919,6 +920,7 @@ class CoalescentTestCase(TestCase):
 
         self.assertAlmostEqual(moment, (xy + yx) / 2 - x * y)
 
+    @pytest.mark.slow
     def test_central_3rd_order_cross_moment(self):
         """
         Test 3rd order cross moment.
@@ -946,6 +948,7 @@ class CoalescentTestCase(TestCase):
         self.assertAlmostEqual(moment, xyz - xy * z - xz * y - yz * x + 2 * x * y * z)
         self.assertAlmostEqual(moment, xyz - xy_centered * z - xz_centered * y - yz_centered * x - x * y * z)
 
+    @pytest.mark.slow
     def test_3rd_order_uncentered_cross_moment(self):
         """
         Test 3rd order uncentered cross moment.
