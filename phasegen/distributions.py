@@ -15,7 +15,9 @@ from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable,
     Type, Union
 
 import numpy as np
+import scipy.linalg as sla
 import scipy.sparse as sp
+import scipy.sparse.linalg as spla
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
@@ -34,6 +36,12 @@ from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, Sta
 from .utils import parallelize, multiset_permutations
 
 expm = Backend.expm
+
+#: Transient-state count at or above which the closed-form last-epoch evaluation factors the transient
+#: sub-generator with a sparse LU (``scipy.sparse.linalg.splu``) instead of a dense LU. Benchmarked crossover for
+#: the (upper-triangular, single-deme) coalescent transient block; hardcoded because it depends only on the
+#: transient dimension (not the moment order) and rarely needs tuning. See :attr:`Settings.closed_form_last_epoch`.
+_CLOSED_FORM_SPARSE_MIN_N = 1200
 
 logger = logging.getLogger('phasegen')
 
@@ -660,7 +668,18 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             start_time = self.tree_height.start_time
 
         if end_time is None:
-            end_time = self.tree_height.t_max
+            # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
+            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch),
+            # otherwise use the estimated absorption time
+            if (
+                    Settings.closed_form_last_epoch and
+                    start_time == 0 and
+                    self.tree_height.end_time is None and
+                    self._absorption_certain_in_last_epoch()
+            ):
+                end_time = np.inf
+            else:
+                end_time = self.tree_height.t_max
 
         if start_time > 0:
             m_start, m_end = PhaseTypeDistribution.accumulate(
@@ -710,6 +729,31 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         # rewards in the Van Loan matrix are of order 1
         return 10 ** - np.log10(rates).mean()
+
+    def _check_demography_conditioning(self):
+        """
+        Fail fast on extreme demographies whose population sizes or migration rates differ by more than ~double
+        precision. Such demographies make the moment computation numerically unreliable, whether via the
+        matrix-exponential absorption-time estimate (where scipy's ``expm`` one-norm power iteration becomes
+        intermittently prohibitively slow) or the closed-form transient solve (where the rate matrix is
+        ill-conditioned). Detected up front from the demography (not the rate matrix, whose range can also be
+        widened by the coalescent model, e.g. multiple-merger models).
+
+        :raises ValueError: if the population sizes and migration rates differ by a factor of more than ``1e16``.
+        """
+        epoch = self.demography.get_epoch(0)
+
+        # coalescence rates scale as 1 / pop_size, migration enters at its own rate
+        scales = [1 / v for v in epoch.pop_sizes.values() if v > 0]
+        scales += [v for v in epoch.migration_rates.values() if v > 0]
+        ratio = max(scales) / min(scales) if scales else 1
+
+        if ratio > 1e16:
+            raise ValueError(
+                "The demography is too ill-conditioned to reliably compute the time of almost sure absorption: its "
+                f"population sizes and migration rates differ by a factor of {ratio:.1e}. Use less extreme "
+                "parameters, or set the end time manually (see ``Coalescent.end_time``)."
+            )
 
     def _check_numerical_stability(self, S: np.ndarray, epoch: int):
         """
@@ -865,6 +909,18 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :return: The moment accumulated at the specified times or time.
         """
+        # use default reward if not specified
+        if rewards is None:
+            rewards = (self.reward,) * k
+        elif len(rewards) != k:
+            raise ValueError(f"Number of rewards must be {k}.")
+
+        # closed-form evaluation of the moment to absorption (signalled by an infinite end time): the final
+        # unbounded epoch is solved directly instead of exponentiating over the estimated absorption time
+        end_times = np.array(end_times)
+        if Settings.closed_form_last_epoch and end_times.size == 1 and np.isinf(end_times.flat[0]):
+            return np.array([self._accumulate_closed_form(k, rewards)])
+
         if (
                 Settings.flatten_block_counting and
                 k == 1 and
@@ -875,18 +931,9 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         ):
             return self._accumulate_flattened(k, end_times, rewards)
 
-        end_times = np.array(end_times)
-
         # check for negative values
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
-
-        # use default reward if not specified
-        if rewards is None:
-            rewards = (self.reward,) * k
-        else:
-            if len(rewards) != k:
-                raise ValueError(f"Number of rewards must be {k}.")
 
         # sort array in ascending order but keep track of original indices
         t_sorted: Collection[float] = np.sort(end_times)
@@ -1036,6 +1083,130 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             )
 
         return moments
+
+    def _get_epochs_until_unbounded(self) -> List['Epoch']:
+        """
+        Materialize the demographic epochs up to and including the final, unbounded epoch (``end_time == inf``).
+
+        :return: List of epochs, the last of which is unbounded.
+        """
+        epochs = []
+        for epoch in self.demography.epochs:
+            epochs.append(epoch)
+            if epoch.end_time == np.inf:
+                break
+        return epochs
+
+    def _absorption_certain_in_last_epoch(self) -> bool:
+        """
+        Structural check on the final (unbounded) epoch: whether every transient state can reach an absorbing
+        state, i.e. the transient sub-generator is non-singular and the moment-to-absorption can be evaluated in
+        closed form. When this is ``False`` (e.g. disconnected demes or a migration barrier in the last epoch) the
+        moment may still be finite if absorption occurs in earlier epochs, so callers fall back to the
+        matrix-exponential path rather than relying on the closed form.
+
+        :return: Whether absorption is certain from every transient state of the last epoch.
+        """
+        # the result depends only on the (fixed) last-epoch structure, so memoize it: the closed form queries this
+        # once per moment, and an SFS/jSFS evaluates many bins, so recomputing the reachability each time dominated.
+        if getattr(self, '_absorption_certain_cache', None) is not None:
+            return self._absorption_certain_cache
+
+        self.state_space.update_epoch(self._get_epochs_until_unbounded()[-1])
+        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+
+        if absorbing.all():
+            self._absorption_certain_cache = True
+            return True
+
+        # a state can reach absorption iff it has an outgoing edge to a state that can. Propagate this backwards over
+        # the rate graph (edge i->j iff rate S[i, j] > 0) with a sparse adjacency, so each pass is O(nnz).
+        S = np.asarray(self.state_space.S)
+        adj = sp.csr_matrix((S - np.diag(np.diag(S))) > 0)
+        reach = absorbing.copy()
+        while True:
+            nxt = absorbing | (adj @ reach > 0)
+            if np.array_equal(nxt, reach):
+                break
+            reach = nxt
+
+        self._absorption_certain_cache = bool(reach[~absorbing].all())
+        return self._absorption_certain_cache
+
+    def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward]) -> float:
+        """
+        Evaluate the kth (non-central) moment accumulated until absorption, evaluating the final unbounded epoch in
+        closed form. The final epoch's contribution to ``t -> inf`` is the limit ``z = lim_t exp(V t) e_ext`` of the
+        Van Loan propagator, whose transient part is the back-substitution ``nu_j = (-T)^{-1} R_j nu_{j+1}`` (with
+        ``nu_k`` the exit vector) and whose absorbing part is the exit vector in the last block. The preceding finite
+        epochs are applied to ``z`` via the (well-conditioned, finite-interval) matrix exponential of the full Van
+        Loan matrix. This is for a single reward ordering; permutation averaging is handled by :meth:`accumulate`.
+
+        :param k: The order of the moment.
+        :param rewards: Sequence of k rewards (a single ordering).
+        :return: The kth moment accumulated until absorption.
+        """
+        self._check_demography_conditioning()
+
+        epochs = self._get_epochs_until_unbounded()
+        n = self.state_space.k
+
+        # --- final, unbounded epoch: limit vector z ---
+        self.state_space.update_epoch(epochs[-1])
+        self._check_numerical_stability(np.asarray(self.state_space.S), len(epochs) - 1)
+        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        idx_t = np.where(~absorbing)[0]
+        idx_a = np.where(absorbing)[0]
+        e = np.asarray(self.state_space.e)
+
+        # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
+        # dense-LU vs sparse-LU crossover sits at ``_CLOSED_FORM_SPARSE_MIN_N`` transient states. This is a different
+        # quantity from the Van Loan dimension that governs the matrix-exponential path (:attr:`expm_action_min_dim`):
+        # the LU only ever sees ``T``, independent of the moment order, so the threshold is on ``len(idx_t)`` alone.
+        use_action = len(idx_t) >= _CLOSED_FORM_SPARSE_MIN_N
+
+        # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution
+        T = np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+        if use_action:
+            solver = spla.splu(sp.csc_matrix(-T))
+            solve = solver.solve
+        else:
+            lu = sla.lu_factor(-T)
+            solve = lambda b: sla.lu_solve(lu, b)
+
+        # reward diagonals restricted to the transient states (the off-diagonal Van Loan reward blocks are diagonal)
+        r_t = [np.asarray(r._get(self.state_space), dtype=float)[idx_t] for r in rewards]
+
+        nu = [None] * (k + 1)
+        nu[k] = e[idx_t]
+        for j in range(k - 1, -1, -1):
+            nu[j] = solve(r_t[j] * nu[j + 1])
+
+        z = np.zeros((k + 1) * n)
+        for j in range(k + 1):
+            z[j * n + idx_t] = nu[j]
+        z[k * n + idx_a] = e[idx_a]
+
+        # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
+        for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
+            self.state_space.update_epoch(epoch)
+            S = np.asarray(self.state_space.S)
+            self._check_numerical_stability(S, i_epoch)
+            tau = epoch.end_time - epoch.start_time
+
+            if use_action:
+                r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
+                V = self._get_van_loan_matrix_sparse(R=r_vecs, S=sp.csr_matrix(S), k=k)
+                z = Backend.expm_multiply(V * tau, z)
+            else:
+                R = [np.diag(r._get(self.state_space)) for r in rewards]
+                V = self._get_van_loan_matrix(S=S, R=R, k=k)
+                z = expm(V * tau) @ z
+
+        alpha_ext = np.zeros((k + 1) * n)
+        alpha_ext[:n] = self.state_space.alpha
+
+        return factorial(k) * float(alpha_ext @ z)
 
     def _sample(
             self,
@@ -1488,22 +1659,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         T = np.eye(self.state_space.k)
         epoch = self.demography.get_epoch(0)
 
-        # An extreme demography (population sizes or migration rates differing by more than ~double precision) makes
-        # the absorption-time matrix exponential numerically unreliable. Because scipy's ``expm`` estimates the
-        # matrix one-norm with randomised power iteration, it then becomes intermittently prohibitively slow
-        # (appearing to hang). Detect this up front from the demography (not the rate matrix, whose range can also be
-        # widened by the coalescent model, e.g. multiple-merger models) and fail fast with a clear error.
-        # coalescence rates scale as 1 / pop_size, migration enters at its own rate
-        scales = [1 / v for v in epoch.pop_sizes.values() if v > 0]
-        scales += [v for v in epoch.migration_rates.values() if v > 0]
-        ratio = max(scales) / min(scales) if scales else 1
-
-        if ratio > 1e16:
-            raise ValueError(
-                "The demography is too ill-conditioned to reliably compute the time of almost sure absorption: its "
-                f"population sizes and migration rates differ by a factor of {ratio:.1e}. Use less extreme "
-                "parameters, or set the end time manually (see ``Coalescent.end_time``)."
-            )
+        self._check_demography_conditioning()
 
         t = 2 ** int(np.log2(np.mean(list(epoch.pop_sizes.values()))))
         expansion_factor = 2
@@ -2378,7 +2534,18 @@ class JointSFSDistribution(PhaseTypeDistribution):
             start_time = self.tree_height.start_time
 
         if end_time is None:
-            end_time = self.tree_height.t_max
+            # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
+            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch),
+            # otherwise use the estimated absorption time
+            if (
+                    Settings.closed_form_last_epoch and
+                    start_time == 0 and
+                    self.tree_height.end_time is None and
+                    self._absorption_certain_in_last_epoch()
+            ):
+                end_time = np.inf
+            else:
+                end_time = self.tree_height.t_max
 
         if start_time > 0:
             acc = self.accumulate(k, [start_time, end_time], center=center, permute=permute)

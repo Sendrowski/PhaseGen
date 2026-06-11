@@ -35,6 +35,18 @@ class Settings:
     #: very large value to always use the dense path, or to 0 to always use the action.
     expm_action_min_dim: int = 1500
 
+    #: Whether to evaluate the final (unbounded) epoch of a moment-to-absorption in closed form (a linear solve with
+    #: the transient sub-generator) instead of exponentiating the Van Loan matrix over the estimated absorption time.
+    #: This is exact and substantially faster (it never forms the dense matrix exponential and avoids the
+    #: absorption-time heuristic). It applies only when absorption is almost sure; otherwise the code falls back to
+    #: the matrix-exponential path. Within the closed form, the transient sub-generator is factored with a dense LU
+    #: below, and a sparse LU at or above, a transient-state count of ``_CLOSED_FORM_SPARSE_MIN_N`` (this is a
+    #: separate crossover from :attr:`expm_action_min_dim`, which governs the matrix-exponential path).
+    #: Off by default: the per-solve speedup is real, but the current per-call setup overhead (the
+    #: absorption-certainty check and transient-block extraction) makes it a net slowdown across many small moments.
+    #: Enable it for workloads dominated by large single moments-to-absorption.
+    closed_form_last_epoch: bool = False
+
     @staticmethod
     @contextmanager
     def set_pbar(enabled: bool = True):

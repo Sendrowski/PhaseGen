@@ -704,6 +704,10 @@ class CoalescentTestCase(TestCase):
         """
         Test large accumulation equals moments.
         """
+        # this validates the matrix-exponential invariant ``accumulate(t_max) == moment``; the closed-form path
+        # evaluates the moment to infinity directly, so it would not be bit-identical to accumulating to t_max
+        pg.Settings.closed_form_last_epoch = False
+
         coal = self.get_complex_coalescent()
 
         self.assertEqual(
@@ -1343,6 +1347,9 @@ class CoalescentTestCase(TestCase):
         """
         Test that flattened state rewards match the original state rewards.
         """
+        # this exercises the block-counting flatten path, which the closed-form moment evaluation would bypass
+        pg.Settings.closed_form_last_epoch = False
+
         coal = pg.Coalescent(n=10)
         k = coal.block_counting_state_space.k
 
