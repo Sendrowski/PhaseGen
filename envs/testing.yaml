@@ -4,10 +4,7 @@ channels:
 dependencies:
   - python=3.10
   - msprime
-  - graphviz
-  - tensorflow
   - numba
-  - python-graphviz
   - pip
   - pip:
     - pytest

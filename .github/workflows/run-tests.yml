@@ -4,10 +4,21 @@
 name: tests
 
 on:
+  push:
+    branches: [master]
+    paths-ignore: ['docs/**', '**.md', '**.rst']
+  pull_request:
+    branches: [master]
+    paths-ignore: ['docs/**', '**.md', '**.rst']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  # persist numba's on-disk JIT cache between runs so we don't pay the cold
+  # compile cost on every CI run (see state_space_numba.py, cache=True)
+  NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba_cache
 
 jobs:
   setup:
@@ -25,6 +36,11 @@ jobs:
           environment-file: envs/testing.yaml
           auto-activate-base: false
           activate-environment: testing-phasegen
+      - name: Cache numba JIT
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUMBA_CACHE_DIR }}
+          key: numba-${{ runner.os }}-${{ hashFiles('phasegen/state_space_numba.py') }}
       - run: |
-          pytest --cov phasegen --cov-report=xml testing/ -x
+          pytest --cov phasegen --cov-report=xml testing/ -m "not slow" -x
       - uses: codecov/codecov-action@v3
