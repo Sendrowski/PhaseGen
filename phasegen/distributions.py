@@ -2604,6 +2604,31 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param permute: For cross-moments, whether to average over all permutations of rewards.
         :return: An array of shape :attr:`shape` holding the kth moment of each joint SFS bin.
         """
+        # batched mean: all joint bins share one occupation-time vector, so the whole joint SFS mean is a single
+        # contraction over the stacked bin rewards (closed form's spectrum path). Only for the plain mean to
+        # absorption; other cases fall through to the per-bin accumulation.
+        if (
+                Settings.closed_form_last_epoch and
+                int(k) == 1 and
+                start_time is None and
+                end_time is None and
+                self.tree_height.end_time is None
+        ):
+            occupation = self._occupation_times()
+            if occupation is not None:
+                m, idx_t = occupation
+                base = np.asarray(self.reward._get(self.state_space), dtype=float)
+                configs = self._get_configs()
+                R = np.column_stack([
+                    (base * np.asarray(JointSFSReward(config)._get(self.state_space), dtype=float))[idx_t]
+                    for config in configs
+                ])
+                values = m @ R
+                out = np.zeros(self.shape)
+                for config, value in zip(configs, values):
+                    out[config] = value
+                return JointSFS(out)
+
         # like the base distribution, a moment is the accumulation over the [start_time, end_time] window
         if start_time is None:
             start_time = self.tree_height.start_time
