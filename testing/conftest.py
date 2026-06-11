@@ -37,6 +37,21 @@ def _restore_parallelize_setting():
     pg.Settings.parallelize = original
 
 
+@pytest.fixture(autouse=True)
+def _restore_closed_form_setting():
+    """
+    Snapshot and restore ``Settings.closed_form_last_epoch`` around every test, so tests that pin it (e.g. to
+    validate the matrix-exponential path) do not leak the value into later tests.
+    """
+    import phasegen as pg
+
+    original = pg.Settings.closed_form_last_epoch
+
+    yield
+
+    pg.Settings.closed_form_last_epoch = original
+
+
 @pytest.fixture(scope="session")
 def symmetric_demography():
     """
