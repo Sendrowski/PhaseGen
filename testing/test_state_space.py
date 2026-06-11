@@ -2,6 +2,7 @@
 Test StateSpace class.
 """
 import itertools
+import shutil
 import sys
 from collections import defaultdict
 from testing import TestCase
@@ -254,6 +255,8 @@ class StateSpaceTestCase(TestCase):
         """
         # graphviz is an optional dependency (Python package and the ``dot`` binary)
         pytest.importorskip('graphviz')
+        if shutil.which('dot') is None:
+            pytest.skip('graphviz "dot" executable not on PATH')
 
         s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
