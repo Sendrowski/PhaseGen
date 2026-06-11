@@ -37,6 +37,12 @@ markers = [
     "slow: marks tests as slow, e.g. msprime comparisons or large state spaces (deselect with '-m \"not slow\"')",
 ]
 
+[tool.coverage.run]
+# The numba kernels JIT-compile to machine code, so coverage.py cannot trace
+# inside their @njit functions — exclude them rather than report a misleading
+# low number for code that is in fact exercised (just not traceable).
+omit = ["phasegen/state_space_numba.py"]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
