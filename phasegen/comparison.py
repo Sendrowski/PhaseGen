@@ -4,7 +4,7 @@ Compare statistics between PhaseGen and Msprime.
 import itertools
 import logging
 import os
-from functools import cached_property
+from .caching import cached_property
 from typing import Iterable, Dict, Literal, List
 
 import matplotlib as mpl
@@ -229,8 +229,10 @@ class Comparison(Serializable):
 
         a, b = np.array(a), np.array(b)
 
-        # compute relative difference
-        diff = np.abs(a - b) / ((np.abs(a) + np.abs(b)) / 2)
+        # compute relative difference; where both values are 0 the 0/0 is replaced by 0 below, so silence the
+        # benign divide warning at the source
+        with np.errstate(divide='ignore', invalid='ignore'):
+            diff = np.abs(a - b) / ((np.abs(a) + np.abs(b)) / 2)
 
         # set relative difference to 0 if both values are 0
         diff[(a == 0) & (b == 0)] = 0

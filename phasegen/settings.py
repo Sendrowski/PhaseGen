@@ -14,16 +14,18 @@ class Settings:
     #: Whether to show a progress bar for certain operations such as state space generation.
     use_pbar: bool = False
 
-    #: Whether to parallelize phase-type computations across multiple CPU cores.
-    #: This may improve performance in some cases, but can also be detrimental due to
-    #: inter-process data copying and can lead to hanging processes.
-    parallelize: bool = False
-
     #: Whether to regularize the intensity matrix for numerical stability.
     regularize: bool = True
 
     #: Whether to cache the rate matrix for different epochs which increases performance.
     cache_epochs: bool = True
+
+    #: Global switch for property/result memoization (the ``cached_property`` and ``cache`` decorators in
+    #: :mod:`phasegen.caching`). Set to ``False`` to force every cached property, moment and intermediate result to
+    #: recompute on each access. This is meant for debugging (ruling out stale cached state, or profiling the true
+    #: cost of a computation without cache hits masking it) and will be slower. Note this is distinct from
+    #: :attr:`cache_epochs`, which toggles the separate per-epoch rate-matrix cache.
+    cache: bool = True
 
     #: Whether to use the numba-accelerated state-space construction when numba is available. Set to ``False`` to
     #: force the pure-Python construction path.
@@ -37,15 +39,33 @@ class Settings:
 
     #: Whether to evaluate the final (unbounded) epoch of a moment-to-absorption in closed form (a linear solve with
     #: the transient sub-generator) instead of exponentiating the Van Loan matrix over the estimated absorption time.
-    #: This is exact and substantially faster (it never forms the dense matrix exponential and avoids the
-    #: absorption-time heuristic). It applies only when absorption is almost sure; otherwise the code falls back to
-    #: the matrix-exponential path. Within the closed form, the transient sub-generator is factored with a dense LU
-    #: below, and a sparse LU at or above, a transient-state count of ``_CLOSED_FORM_SPARSE_MIN_N`` (this is a
-    #: separate crossover from :attr:`expm_action_min_dim`, which governs the matrix-exponential path).
-    #: Off by default: the per-solve speedup is real, but the current per-call setup overhead (the
-    #: absorption-certainty check and transient-block extraction) makes it a net slowdown across many small moments.
-    #: Enable it for workloads dominated by large single moments-to-absorption.
-    closed_form_last_epoch: bool = False
+    #: The closed form is exact and faster (it never forms the dense matrix exponential, avoids the absorption-time
+    #: heuristic, and enables the batched spectrum paths that share one solve across all bins). It applies only when
+    #: absorption is almost sure; otherwise the code falls back to the matrix-exponential path. Enabled by default.
+    #: Gates the moment-to-absorption path (``moment`` / ``_accumulate`` / ``_accumulate_closed_form``), the mean
+    #: spectrum (``_occupation_times``) and the single-epoch covariance spectrum (``_two_point_occupation``); the
+    #: independent dense/sparse crossovers (:attr:`expm_action_min_dim`, :attr:`closed_form_sparse_min_states`) sit
+    #: below it and change only how, not what, is computed. The off switch mainly exists to validate against the
+    #: matrix-exponential path.
+    closed_form_last_epoch: bool = True
+
+    #: Transient-state count at or above which the closed-form last-epoch path (see
+    #: :attr:`closed_form_last_epoch`) factors the transient sub-generator with a sparse LU (and applies
+    #: the sparse matrix-exponential action for its finite-epoch / occupation steps) instead of a dense LU. This is
+    #: the closed-form analogue of :attr:`expm_action_min_dim` and, like it, only changes how the result is
+    #: computed, never the result. The crossover is on the transient-state count alone (independent of the moment
+    #: order). Set to a very large value to always use the dense path, or to 0 to always use the sparse path.
+    closed_form_sparse_min_states: int = 1200
+
+    #: State count at or above which the constructed rate matrix is kept **sparse** instead of dense. The moment code
+    #: works with either, so this is purely a memory/speed tradeoff: a dense matrix is faster where it fits but costs
+    #: ``n_states**2`` memory, which becomes prohibitive for large state spaces. The default keeps the dense matrix under ~0.5 GB. Set to a very large value to always build dense, or to 0 to always build sparse.
+    dense_rate_matrix_max_states: int = 8000
+
+    #: Maximum number of states the construction will build before aborting with a :class:`MemoryError`. This guards
+    #: against a prohibitively large state space (which grows steeply with the sample size; e.g. the single-deme
+    #: Raise it if you have the memory for a larger space.
+    max_state_space_size: int = 1_000_000
 
     @staticmethod
     @contextmanager

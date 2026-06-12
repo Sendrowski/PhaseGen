@@ -6,7 +6,7 @@ summary statistics, and a :class:`~phasegen.distributions.Coalescent` distributi
 import copy
 import logging
 from collections import defaultdict
-from functools import cached_property
+from .caching import cached_property
 from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional
 
 import dill
@@ -236,10 +236,6 @@ class Inference(Serializable):
         """
         coal = self.coal(**kwargs)
 
-        # disable parallelization to avoid problematic double parallelization
-        coal.parallelize = False
-        coal.pbar = False
-
         # if state space caching is enabled, replace each state space by the cached one if it matches
         if self.cache:
 
@@ -267,9 +263,7 @@ class Inference(Serializable):
 
         spaces = {}
         for name in self._state_space_names:
-            s = getattr(coal, name)
-            s.pbar = False
-            spaces[name] = s
+            spaces[name] = getattr(coal, name)
 
         return spaces
 

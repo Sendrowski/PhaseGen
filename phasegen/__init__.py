@@ -86,6 +86,37 @@ class ColoredFormatter(logging.Formatter):
         return f"{color}{formatted}{self.reset}"
 
 
+class DeduplicatingFilter(logging.Filter):
+    """
+    Collapse identical log records (same logger, level and rendered message) within a single *coalescent
+    computation* into one record. The per-bin / per-pair spectrum computations would otherwise repeat the same
+    strategy/debug message once per iteration; this keeps one of each per computation. Deduplication is scoped to a
+    computation (not a time or record window, neither of which can robustly bound an arbitrarily slow per-pair
+    loop): the caching layer bumps :data:`phasegen.caching.computation_epoch` at each outermost cached/memoised
+    computation, and this filter resets its seen-set whenever that epoch changes — so a later computation logs
+    afresh while repeats within a computation are suppressed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._epoch = None
+        self._seen: set = set()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from . import caching
+
+        if caching.computation_epoch != self._epoch:
+            self._epoch = caching.computation_epoch
+            self._seen = set()
+
+        key = (record.name, record.levelno, record.getMessage())
+        if key in self._seen:
+            return False
+
+        self._seen.add(key)
+        return True
+
+
 # configure logger
 logger = logging.getLogger('phasegen')
 
@@ -102,6 +133,11 @@ handler = TqdmLoggingHandler()
 formatter = ColoredFormatter('%(levelname)s:%(name)s: %(message)s')
 
 handler.setFormatter(formatter)
+
+# collapse bursts of identical messages (e.g. the same per-bin strategy log repeated across spectrum bins). On the
+# handler, not the logger, so it also covers records propagated from the per-class child loggers (``getChild``).
+handler.addFilter(DeduplicatingFilter())
+
 logger.addHandler(handler)
 
 from .distributions import PhaseTypeDistribution

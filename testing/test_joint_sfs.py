@@ -175,13 +175,18 @@ def test_marginal_consistency_with_single_population_sfs(symmetric_demography, n
     np.testing.assert_allclose(pooled, sfs, atol=1e-10)
 
 
-def test_single_population_jsfs_equals_sfs():
+def test_single_population_jsfs_raises():
     """
-    For a single population the joint SFS is just the (1-D) SFS.
+    The joint SFS is a spectrum *across* populations, so accessing it for a single population is an error
+    (the single-population spectrum is ``sfs``). A single population with multiple epochs (size-change times as
+    ``pop_sizes`` keys) is still one population and must also raise.
     """
-    coal = pg.Coalescent(n=5)
+    with pytest.raises(ValueError, match="at least two populations"):
+        _ = pg.Coalescent(n=5).jsfs
 
-    np.testing.assert_allclose(np.asarray(coal.jsfs.mean), coal.sfs.mean.data, atol=1e-10)
+    demo = pg.Demography(pop_sizes={0: 1.0, 1: 1.1})
+    with pytest.raises(ValueError, match="at least two populations"):
+        _ = pg.Coalescent(n=5, demography=demo).jsfs
 
 
 def test_moment_accumulate_auto_routing(two_pop_coalescent):

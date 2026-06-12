@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Mapping
-from functools import cached_property, cache
+from .caching import cached_property, cache
 from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional, Sequence, Set, \
     Type, Union
@@ -36,12 +36,6 @@ from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, Sta
 from .utils import parallelize, multiset_permutations
 
 expm = Backend.expm
-
-#: Transient-state count at or above which the closed-form last-epoch evaluation factors the transient
-#: sub-generator with a sparse LU (``scipy.sparse.linalg.splu``) instead of a dense LU. Benchmarked crossover for
-#: the (upper-triangular, single-deme) coalescent transient block; hardcoded because it depends only on the
-#: transient dimension (not the moment order) and rarely needs tuning. See :attr:`Settings.closed_form_last_epoch`.
-_CLOSED_FORM_SPARSE_MIN_N = 1200
 
 logger = logging.getLogger('phasegen')
 
@@ -669,10 +663,12 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         if end_time is None:
             # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
-            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch),
+            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch), but not
+            # when flattening applies (which takes precedence and delegates to the smaller lineage-counting space),
             # otherwise use the estimated absorption time
             if (
                     Settings.closed_form_last_epoch and
+                    not self._flattening_applies(k) and
                     start_time == 0 and
                     self.tree_height.end_time is None and
                     self._absorption_certain_in_last_epoch()
@@ -724,8 +720,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         if not Settings.regularize:
             return 1.0
 
-        # obtain positive rates
-        rates = S[S > 0]
+        # obtain positive rates (for a sparse matrix, the positive stored entries)
+        rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
 
         # rewards in the Van Loan matrix are of order 1
         return 10 ** - np.log10(rates).mean()
@@ -762,7 +758,8 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         :param S: (Regularized) intensity matrix.
         :param epoch: Epoch number.
         """
-        rates = S[S > 0]
+        # positive (off-diagonal) rates; for a sparse matrix these are the positive stored entries
+        rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
 
         if rates.min() / rates.max() < 1e-10:
             self._logger.warning(
@@ -804,6 +801,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         # center moments around the mean
         if center and k > 1:
+            self._logger.debug("accumulate (k=%d): centering (subtracting lower-order moment products)", k)
 
             components = []
 
@@ -891,6 +889,11 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # Create a custom reward that returns the weights.
         weighted_reward = CustomReward(lambda _: weights)
 
+        self._logger.debug(
+            "flattening block-counting state space (%d states) onto the lineage-counting state space (%d states)",
+            len(self.state_space.states), self.tree_height.state_space.k
+        )
+
         return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
 
     @_make_hashable
@@ -915,21 +918,18 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         elif len(rewards) != k:
             raise ValueError(f"Number of rewards must be {k}.")
 
+        end_times = np.array(end_times)
+
+        # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost)
+        if self._flattening_applies(k):
+            self._logger.debug("accumulate (k=%d): flattened block-counting", k)
+            return self._accumulate_flattened(k, end_times, rewards)
+
         # closed-form evaluation of the moment to absorption (signalled by an infinite end time): the final
         # unbounded epoch is solved directly instead of exponentiating over the estimated absorption time
-        end_times = np.array(end_times)
         if Settings.closed_form_last_epoch and end_times.size == 1 and np.isinf(end_times.flat[0]):
+            self._logger.debug("accumulate (k=%d): closed-form last epoch", k)
             return np.array([self._accumulate_closed_form(k, rewards)])
-
-        if (
-                Settings.flatten_block_counting and
-                k == 1 and
-                isinstance(self.state_space, BlockCountingStateSpace) and
-                isinstance(self.state_space.model, StandardCoalescent) and
-                self.lineage_config.n_pops == 1 and
-                self.locus_config.n == 1
-        ):
-            return self._accumulate_flattened(k, end_times, rewards)
 
         # check for negative values
         if np.any(end_times < 0):
@@ -950,7 +950,13 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # for large (sparse) state spaces, compute the moment via the action of the matrix exponential on a vector
         # (threading through the epochs) instead of forming the dense Van Loan propagator
         if (k + 1) * n_states >= Settings.expm_action_min_dim:
+            self._logger.debug(
+                "accumulate (k=%d): sparse matrix-exponential action (Van Loan dim %d >= %d)",
+                k, (k + 1) * n_states, Settings.expm_action_min_dim
+            )
             return self._accumulate_action(k, end_times, t_sorted, rewards)
+
+        self._logger.debug("accumulate (k=%d): dense Van Loan matrix exponential (dim %d)", k, (k + 1) * n_states)
 
         # initialize block matrix holding (rewarded) moments
         Q = np.eye(n_states * (k + 1))
@@ -963,7 +969,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         lamb = self._get_regularization_factor(self.state_space.S)
 
         # regularized intensity matrix
-        S = self.state_space.S * lamb
+        S = self._dense_rate_matrix() * lamb
 
         # check numerical stability
         self._check_numerical_stability(S, 0)
@@ -974,39 +980,46 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # get Van Loan matrix
         V = self._get_van_loan_matrix(S=S, R=R, k=k)
 
-        # iterate through sorted values
-        for i, u in enumerate(t_sorted):
+        # The Van Loan exponential is evaluated over the absorption time, which scales with Ne (the doubling search
+        # in ``_get_absorption_time`` deliberately spans many orders of magnitude). For a large time the dense
+        # ``expm`` can transiently over/underflow inside scipy's scaling-squaring on some BLAS builds, even though
+        # the regularized result (corrected by ``lamb ** k``) is finite. The benign intermediate over/divide/invalid
+        # is silenced here and the *output* is checked for finiteness below, so a genuine blow-up still surfaces.
+        with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
+            # iterate through sorted values
+            for i, u in enumerate(t_sorted):
 
-            # iterate over epochs between u_prev and u
-            while u > epoch.end_time:
-                # update transition matrix with remaining time in current epoch
-                Q @= expm(V * (epoch.end_time - u_prev) / lamb)
+                # iterate over epochs between u_prev and u
+                while u > epoch.end_time:
+                    # update transition matrix with remaining time in current epoch
+                    Q @= expm(V * (epoch.end_time - u_prev) / lamb)
 
-                # fetch and update for next epoch
-                u_prev = epoch.end_time
-                i_epoch, epoch = next(epochs)
-                self.state_space.update_epoch(epoch)
+                    # fetch and update for next epoch
+                    u_prev = epoch.end_time
+                    i_epoch, epoch = next(epochs)
+                    self.state_space.update_epoch(epoch)
 
-                # compute Van Loan matrix for next epoch using regularized intensity matrix
-                S = self.state_space.S * lamb
-                self._check_numerical_stability(S, 0)
-                V = self._get_van_loan_matrix(S=S, R=R, k=k)
+                    # compute Van Loan matrix for next epoch using regularized intensity matrix
+                    S = self._dense_rate_matrix() * lamb
+                    self._check_numerical_stability(S, 0)
+                    V = self._get_van_loan_matrix(S=S, R=R, k=k)
 
-            # update with remaining time in current epoch
-            Q @= expm(V * (u - u_prev) / lamb)
+                # update with remaining time in current epoch
+                Q @= expm(V * (u - u_prev) / lamb)
 
-            alpha = self.state_space.alpha
-            e = self.state_space.e
-            moments[i] = factorial(k) * lamb ** k * alpha @ Q[:n_states, -n_states:] @ e
+                alpha = self.state_space.alpha
+                e = self.state_space.e
+                moments[i] = factorial(k) * lamb ** k * alpha @ Q[:n_states, -n_states:] @ e
 
-            u_prev = u
+                u_prev = u
 
         # sort probabilities back to original order
         moments = moments[np.argsort(end_times)]
 
-        if np.isnan(moments).any():
+        # the suppressed intermediate over/underflow must not have corrupted the (finite) result
+        if not np.isfinite(moments).all():
             self._logger.warning(
-                "NaN values encountered when computing moments. "
+                "Non-finite values encountered when computing moments. "
                 f"Epoch: {i_epoch} at time: {epoch.start_time}. "
                 "This is likely due to an ill-conditioned rate matrix."
             )
@@ -1113,16 +1126,31 @@ class PhaseTypeDistribution(MomentAwareDistribution):
             return self._absorption_certain_cache
 
         self.state_space.update_epoch(self._get_epochs_until_unbounded()[-1])
+        absorbing, reach = self._reaches_absorption()
+
+        self._absorption_certain_cache = bool(reach[~absorbing].all())
+        return self._absorption_certain_cache
+
+    def _reaches_absorption(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Backward reachability over the *current* epoch's rate graph: which states can reach an absorbing state.
+        A state can reach absorption iff it is absorbing or has an outgoing edge (rate ``S[i, j] > 0``) to a state
+        that can; this is propagated backwards with a sparse adjacency, so each pass is O(nnz). Used both to decide
+        whether the closed form applies (:meth:`_absorption_certain_in_last_epoch`) and to guard against demographies
+        that never absorb (:meth:`_get_absorption_time`).
+
+        :return: ``(absorbing, reach)`` boolean masks over the states; ``reach`` includes the absorbing states.
+        """
         absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
 
-        if absorbing.all():
-            self._absorption_certain_cache = True
-            return True
+        S = self.state_space.S
+        if sp.issparse(S):
+            adj = S.tocsr(copy=True)
+            adj.setdiag(0)
+            adj.eliminate_zeros()
+        else:
+            adj = sp.csr_matrix((S - np.diag(np.diag(S))) > 0)
 
-        # a state can reach absorption iff it has an outgoing edge to a state that can. Propagate this backwards over
-        # the rate graph (edge i->j iff rate S[i, j] > 0) with a sparse adjacency, so each pass is O(nnz).
-        S = np.asarray(self.state_space.S)
-        adj = sp.csr_matrix((S - np.diag(np.diag(S))) > 0)
         reach = absorbing.copy()
         while True:
             nxt = absorbing | (adj @ reach > 0)
@@ -1130,8 +1158,32 @@ class PhaseTypeDistribution(MomentAwareDistribution):
                 break
             reach = nxt
 
-        self._absorption_certain_cache = bool(reach[~absorbing].all())
-        return self._absorption_certain_cache
+        return absorbing, reach
+
+    def _assert_absorbs(self, T: np.ndarray):
+        """
+        Raise if the demography can never absorb. Distinguishes a *structural* barrier (an isolated deme or a
+        one-way/blocked migration in the final, unbounded epoch, leaving lineages that can never coalesce) from a
+        merely slow or numerically imprecise computation. ``T`` is the transition matrix integrated to a large time,
+        so ``alpha @ T`` is the occupation distribution there and its support is exactly the mass still in play; the
+        final epoch's rate graph (``state_space`` is expected to be updated to it) tells us which states can
+        structurally reach absorption. Residual mass parked on states that cannot is permanent. Shared by the
+        absorption-time and quantile searches, both of which otherwise silently run to their iteration ceiling.
+
+        :param T: Transition matrix integrated from time 0 to a large time in the final, unbounded epoch.
+        :raises ValueError: if a non-negligible fraction of the mass can never reach a common ancestor.
+        """
+        _, reach = self._reaches_absorption()
+        stuck = float((self.state_space.alpha @ T)[~reach].sum())
+
+        if stuck > 1e-8:
+            raise ValueError(
+                f"The demography does not absorb: a fraction {stuck:.2e} of the probability mass remains on "
+                "states that can never reach a common ancestor, so there is no almost-sure absorption time. "
+                "This typically means a deme is isolated or migration is one-way/blocked in the final "
+                "(unbounded) epoch, leaving lineages that can never coalesce. Check the migration structure "
+                "of the last epoch."
+            )
 
     def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward]) -> float:
         """
@@ -1153,24 +1205,31 @@ class PhaseTypeDistribution(MomentAwareDistribution):
 
         # --- final, unbounded epoch: limit vector z ---
         self.state_space.update_epoch(epochs[-1])
-        self._check_numerical_stability(np.asarray(self.state_space.S), len(epochs) - 1)
+        self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
         absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
         idx_t = np.where(~absorbing)[0]
         idx_a = np.where(absorbing)[0]
         e = np.asarray(self.state_space.e)
 
         # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
-        # dense-LU vs sparse-LU crossover sits at ``_CLOSED_FORM_SPARSE_MIN_N`` transient states. This is a different
+        # dense-LU vs sparse-LU crossover sits at ``Settings.closed_form_sparse_min_states`` transient states. This is a different
         # quantity from the Van Loan dimension that governs the matrix-exponential path (:attr:`expm_action_min_dim`):
         # the LU only ever sees ``T``, independent of the moment order, so the threshold is on ``len(idx_t)`` alone.
-        use_action = len(idx_t) >= _CLOSED_FORM_SPARSE_MIN_N
+        use_action = len(idx_t) >= Settings.closed_form_sparse_min_states
 
         # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution
-        T = np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+        T = self._transient_block(idx_t, sparse=use_action)
         if use_action:
+            self._logger.debug(
+                "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %d finite epoch(s)",
+                k, len(idx_t), Settings.closed_form_sparse_min_states, len(epochs) - 1
+            )
             solver = spla.splu(sp.csc_matrix(-T))
             solve = solver.solve
         else:
+            self._logger.debug(
+                "closed form (k=%d): dense LU of T (n_t=%d), %d finite epoch(s)", k, len(idx_t), len(epochs) - 1
+            )
             lu = sla.lu_factor(-T)
             solve = lambda b: sla.lu_solve(lu, b)
 
@@ -1190,23 +1249,62 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
             self.state_space.update_epoch(epoch)
-            S = np.asarray(self.state_space.S)
+            S = self.state_space.S
             self._check_numerical_stability(S, i_epoch)
             tau = epoch.end_time - epoch.start_time
 
             if use_action:
                 r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
-                V = self._get_van_loan_matrix_sparse(R=r_vecs, S=sp.csr_matrix(S), k=k)
+                S_csr = S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S))
+                V = self._get_van_loan_matrix_sparse(R=r_vecs, S=S_csr, k=k)
                 z = Backend.expm_multiply(V * tau, z)
             else:
+                S_dense = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
                 R = [np.diag(r._get(self.state_space)) for r in rewards]
-                V = self._get_van_loan_matrix(S=S, R=R, k=k)
+                V = self._get_van_loan_matrix(S=S_dense, R=R, k=k)
                 z = expm(V * tau) @ z
 
         alpha_ext = np.zeros((k + 1) * n)
         alpha_ext[:n] = self.state_space.alpha
 
         return factorial(k) * float(alpha_ext @ z)
+
+    def _flattening_applies(self, k: int) -> bool:
+        """
+        Whether the block-counting state space can be flattened to the (much smaller) lineage-counting state space
+        for this moment: the first moment of the standard coalescent on a single population and a single locus. When
+        it applies it takes precedence over the closed form / batched occupation, because reducing the state space
+        (e.g. thousands of block states to ``n`` lineage states) dominates the per-solve cost.
+        """
+        return (
+                Settings.flatten_block_counting and
+                k == 1 and
+                isinstance(self.state_space, BlockCountingStateSpace) and
+                isinstance(self.state_space.model, StandardCoalescent) and
+                self.lineage_config.n_pops == 1 and
+                self.locus_config.n == 1
+        )
+
+    def _transient_block(self, idx_t: np.ndarray, sparse: bool = False):
+        """
+        The transient sub-generator ``T = S[idx_t, idx_t]`` extracted from the (dense or sparse) rate matrix,
+        returned as a dense array (default) or a sparse CSC matrix (``sparse=True``, for the large-state-space LU /
+        exp-action paths, which never materialise the dense block).
+        """
+        S = self.state_space.S
+        if sp.issparse(S):
+            sub = S[idx_t][:, idx_t]
+            return sub.tocsc() if sparse else np.asarray(sub.todense())
+        sub = np.asarray(S)[np.ix_(idx_t, idx_t)]
+        return sp.csc_matrix(sub) if sparse else sub
+
+    def _dense_rate_matrix(self) -> np.ndarray:
+        """
+        The full rate matrix as a dense array (densifying if it is stored sparse). Used by the dense moment paths,
+        which are only taken for state spaces small enough that a dense matrix is cheap.
+        """
+        S = self.state_space.S
+        return np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
 
     def _occupation_times(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
@@ -1228,37 +1326,96 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
         idx_t = np.where(~absorbing)[0]
         nt = len(idx_t)
-        use_action = nt >= _CLOSED_FORM_SPARSE_MIN_N
+        use_action = nt >= Settings.closed_form_sparse_min_states
 
         p = np.asarray(self.state_space.alpha)[idx_t].astype(float)
         m = np.zeros(nt)
 
+        self._logger.debug(
+            "occupation times (batched mean): %s factorization, n_t=%d, %d finite epoch(s)",
+            "sparse" if use_action else "dense", nt, len(epochs) - 1
+        )
+
         # finite epochs: accumulate the within-epoch occupation and propagate the entry distribution. The occupation
-        # integral ``A = int_0^tau exp(S t) dt`` is read off the augmented (Van Loan) exponential, which is robust
-        # even when the finite-epoch block ``S`` is singular (e.g. a migration barrier), unlike ``(exp(S tau)-I) S^-1``.
+        # integral ``A = int_0^tau exp(S t) dt`` is read off the augmented (Van Loan) generator ``[[S, I], [0, 0]]``,
+        # which is robust even when the finite-epoch block ``S`` is singular (e.g. a migration barrier), unlike
+        # ``(exp(S tau) - I) S^-1``. Only the row-action ``[p, 0] exp(aug tau) = [p exp(S tau), p A]`` is needed (the
+        # propagated entry distribution and the occupation increment ``p A`` at once), so for large state spaces apply
+        # the sparse matrix-exponential action instead of forming the dense ``2 nt x 2 nt`` exponential.
         for epoch in epochs[:-1]:
             self.state_space.update_epoch(epoch)
-            self._check_numerical_stability(np.asarray(self.state_space.S), 0)
-            S = np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+            self._check_numerical_stability(self.state_space.S, 0)
+            S = self._transient_block(idx_t, sparse=use_action)
             tau = epoch.end_time - epoch.start_time
-            aug = np.zeros((2 * nt, 2 * nt))
-            aug[:nt, :nt] = S
-            aug[:nt, nt:] = np.eye(nt)
-            exp_aug = expm(aug * tau)
-            e_s, a = exp_aug[:nt, :nt], exp_aug[:nt, nt:]
-            m += p @ a
-            p = p @ e_s
+            if use_action:
+                aug = sp.bmat([
+                    [sp.csc_matrix(S), sp.identity(nt, format='csc')],
+                    [None, sp.csc_matrix((nt, nt))]
+                ], format='csc')
+                # [p, 0] exp(aug tau) = (exp((aug tau)^T) [p; 0])^T, so apply the action to the transposed generator
+                w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, np.zeros(nt)]))
+                m += w[nt:]
+                p = w[:nt]
+            else:
+                aug = np.zeros((2 * nt, 2 * nt))
+                aug[:nt, :nt] = S
+                aug[:nt, nt:] = np.eye(nt)
+                exp_aug = expm(aug * tau)
+                m += p @ exp_aug[:nt, nt:]
+                p = p @ exp_aug[:nt, :nt]
 
         # final unbounded epoch: occupation = p (-T)^{-1}, i.e. solve (-T)^T x = p
         self.state_space.update_epoch(epochs[-1])
-        self._check_numerical_stability(np.asarray(self.state_space.S), len(epochs) - 1)
-        neg_t = -np.asarray(self.state_space.S)[np.ix_(idx_t, idx_t)]
+        self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
+        neg_t = -self._transient_block(idx_t, sparse=use_action)
         if use_action:
             m += spla.splu(sp.csc_matrix(neg_t.T)).solve(p)
         else:
             m += sla.solve(neg_t.T, p)
 
         return m, idx_t
+
+    def _two_point_occupation(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Two-point occupation matrix ``K_{a,b} = int_{s<u} P(X_s = a, X_u = b) ds du`` — the bin-independent quantity
+        shared by every *pair* of a second-moment spectrum: the uncentered cross-moment of two rewards ``r, r'`` is
+        ``r^T (K + K^T) r'``, so the whole 2-SFS covariance is a single contraction over the stacked bin rewards.
+
+        Restricted to a **single (unbounded) epoch**, where it is the exact closed form ``K = diag(m) (-T)^{-1}``
+        (``m = alpha (-T)^{-1}`` the occupation times) and needs no numerical integration. The multi-epoch version
+        requires integrating the ``O(n_states^2)`` matrix ODE ``dJ/du = J S + diag(f(u))``, whose explicit
+        integrator degenerates (very many tiny steps) on stiff demographies, so it is deliberately not used: the
+        caller falls back to the per-pair matrix-exponential path instead.
+
+        :return: ``(K, idx_t)`` over the transient states, or ``None`` when not applicable (caller falls back).
+        """
+        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
+            return None
+
+        epochs = self._get_epochs_until_unbounded()
+
+        # only the single-epoch closed form is used; the multi-epoch ODE is stiffness-fragile (see docstring)
+        if len(epochs) > 1:
+            self._logger.debug(
+                "two-point occupation: %d epochs; using per-pair matrix-exponential (multi-epoch closed form "
+                "disabled)", len(epochs)
+            )
+            return None
+
+        if not self._absorption_certain_in_last_epoch():
+            return None
+
+        self.state_space.update_epoch(epochs[-1])
+        self._check_numerical_stability(self.state_space.S, 0)
+        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        idx_t = np.where(~absorbing)[0]
+
+        neg_t_inv = sla.inv(-self._transient_block(idx_t))
+        m = np.asarray(self.state_space.alpha)[idx_t].astype(float) @ neg_t_inv
+
+        self._logger.debug("two-point occupation: single-epoch closed form diag(m)(-T)^-1 (n_t=%d)", len(idx_t))
+
+        return np.diag(m) @ neg_t_inv, idx_t
 
     def _sample(
             self,
@@ -1527,7 +1684,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 self._check_numerical_stability(self.state_space.S, i_epoch)
 
                 # update transition matrix with remaining time in current epoch
-                T @= expm(self.state_space.S * (epoch.end_time - u_prev))
+                T @= expm(self._dense_rate_matrix() * (epoch.end_time - u_prev))
 
                 # fetch and update for next epoch
                 u_prev = epoch.end_time
@@ -1537,7 +1694,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             self._check_numerical_stability(self.state_space.S, i_epoch)
 
             # update transition matrix with remaining time in current epoch
-            T @= expm(self.state_space.S * (u - u_prev))
+            T @= expm(self._dense_rate_matrix() * (u - u_prev))
 
             probs[i] = 1 - self.state_space.alpha @ T @ e
 
@@ -1575,7 +1732,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
             # update transition matrix with remaining time in current epoch
             tau = epoch.end_time - u_prev
-            T = T @ expm(self.state_space.S * tau)
+            T = T @ expm(self._dense_rate_matrix() * tau)
             u_prev = epoch.end_time
 
             # fetch and update for next epoch
@@ -1583,7 +1740,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             self.state_space.update_epoch(epoch)
         else:
             # update transition matrix
-            T = T @ expm(self.state_space.S * (u - u_prev))
+            T = T @ expm(self._dense_rate_matrix() * (u - u_prev))
 
         return u, T, epoch
 
@@ -1626,18 +1783,24 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         if expansion_factor <= 1:
             raise ValueError("Expansion factor must be greater than 1.")
 
+        # finite upper bound for the search: the time of almost-sure absorption (any quantile q < 1 lies below it).
+        # This also guards against a demography that never absorbs — ``_get_absorption_time`` raises in that case —
+        # and keeps the expansion below from doubling ``b`` to an overflow-inducing ceiling. A user-supplied end
+        # time bounds the (necessarily proper) distribution instead.
+        b_max = self.end_time if self.end_time is not None else self._get_absorption_time()
+
         # initialize bounds
         a, b = 0, 1
 
         T_a = np.eye(self.state_space.k)
         epoch_a, epoch_b = self.demography.get_epoch(0), self.demography.get_epoch(0)
-        b, T_b, epoch_b = self._update(b, a, T_a, epoch_b)
+        b, T_b, epoch_b = self._update(min(b, b_max), a, T_a, epoch_b)
 
         i = 0
 
-        # expand lower bound until it contains the quantile
-        while self._cum(T_b) < q and i < max_iter:
-            b, T_b, epoch_b = self._update(b * expansion_factor, b, T_b, epoch_b)
+        # expand the upper bound until its CDF reaches q (bounded by the absorption time, so it always terminates)
+        while self._cum(T_b) < q and b < b_max and i < max_iter:
+            b, T_b, epoch_b = self._update(min(b * expansion_factor, b_max), b, T_b, epoch_b)
 
             i += 1
 
@@ -1733,6 +1896,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 )
 
             i += 1
+
+        # if absorption was not reached, fail loudly for a demography that *never* absorbs rather than returning the
+        # doubling ceiling (see :meth:`_assert_absorbs`).
+        if p < self.p_absorption and not np.isnan(p):
+            self._assert_absorbs(T)
 
         if i - 1 == self.max_iter:
             self._logger.warning(
@@ -1913,9 +2081,11 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
         # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
         # the transient solve across bins); only for the plain mean to absorption (k=1, default reward, no custom
-        # accumulation window). Other cases fall through to the per-bin path.
+        # accumulation window) and when flattening does not apply (flattening reduces the state space and wins).
+        # Other cases fall through to the per-bin path.
         if (
                 Settings.closed_form_last_epoch and
+                not self._flattening_applies(k) and
                 k == 1 and
                 start_time is None and
                 end_time is None and
@@ -1933,14 +2103,11 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
                 moments = m @ R
                 return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
-        # optionally parallelize the moment computation of the SFS bins
-        moments = parallelize(
-            func=lambda x: self._moment(*x),
-            data=[[k, i, rewards, start_time, end_time, center, permute] for i in self._get_indices()],
-            desc=f"Calculating {k}-moments",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+        # moment of each SFS bin (serial; performance-critical paths use the batched closed form above)
+        moments = np.array([
+            self._moment(k, i, rewards, start_time, end_time, center, permute)
+            for i in self._get_indices()
+        ])
 
         return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
@@ -2004,13 +2171,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
-        accumulation = parallelize(
-            func=lambda x: self.get_accumulation(*x),
-            data=[[k, i, end_times, rewards] for i in indices],
-            desc=f"Calculating accumulation of {k}-moments",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+        accumulation = np.array([
+            self.get_accumulation(k, i, end_times, rewards)
+            for i in indices
+        ])
 
         # pad with zeros
         return np.concatenate([
@@ -2127,46 +2291,31 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
     def _cov_batched(self) -> Optional[SFS2]:
         """
-        Batched single-epoch 2-SFS: all ``O(n^2)`` bin pairs share one two-point occupation operator
-        ``K = diag(m) (-T)^{-1}`` (``m`` the sojourn times), so the whole covariance is
-        ``cov = R^T (K + K^T) R - outer(mean)`` via a single batched solve instead of a cross-moment per pair.
+        Batched 2-SFS: all ``O(n^2)`` bin pairs share one two-point occupation operator ``K`` (see
+        :meth:`_two_point_occupation`), so the whole covariance is ``cov = R^T (K + K^T) R - outer(mean)`` via a
+        single contraction over the stacked bin rewards instead of a cross-moment per pair.
 
-        :return: The covariance, or ``None`` when not applicable (multi-epoch, explicit end time, or absorption not
-            almost sure) so the caller falls back to the per-pair path. Multi-epoch needs the (harder) two-point
-            occupation threading and is left to the per-pair path for now.
+        :return: The covariance, or ``None`` when not applicable (closed form disabled, explicit end time, or
+            absorption not almost sure) so the caller falls back to the per-pair path.
         """
-        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
+        if not Settings.closed_form_last_epoch:
             return None
 
-        epochs = self._get_epochs_until_unbounded()
-        if len(epochs) != 1 or not self._absorption_certain_in_last_epoch():
+        two_point = self._two_point_occupation()
+        if two_point is None:
             return None
 
+        K, idx_t = two_point
         ss = self.state_space
-        ss.update_epoch(epochs[-1])
-        absorbing = np.array([s.is_absorbing() for s in ss.states])
-        idx_t = np.where(~absorbing)[0]
-        nt = len(idx_t)
-        alpha = np.asarray(ss.alpha)[idx_t].astype(float)
         base = np.asarray(self.reward._get(ss), dtype=float)
         indices = self._get_indices()
         R = np.column_stack([
             (base * np.asarray(self._get_sfs_reward(i)._get(ss), dtype=float))[idx_t] for i in indices
         ])
-        neg_t = -np.asarray(ss.S)[np.ix_(idx_t, idx_t)]
 
-        # factor -T once; X = (-T)^{-1} R (all bins), m = (-T)^{-T} alpha (sojourn times)
-        if nt >= _CLOSED_FORM_SPARSE_MIN_N:
-            lu = spla.splu(sp.csc_matrix(neg_t))
-            X = lu.solve(R)
-            m = lu.solve(alpha, trans='T')
-        else:
-            lu = sla.lu_factor(neg_t)
-            X = sla.lu_solve(lu, R)
-            m = sla.lu_solve(lu, alpha, trans=1)
-
-        sfs_matrix = (m[:, None] * R).T @ X        # = R^T diag(m) (-T)^{-1} R = R^T K R
-        mean = m @ R
+        sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
+        self._logger.debug("sfs.cov: centering with the outer product of bin means")
+        mean = np.asarray(self.mean.data)[indices]
         cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
 
         out = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
@@ -2181,24 +2330,22 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         batched = self._cov_batched()
         if batched is not None:
+            self._logger.debug("sfs.cov: batched (shared two-point occupation)")
             return batched
 
         # create list of arguments for each combination of i, j
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
-        # get sfs using parallelized function
-        sfs_results = parallelize(
-            func=lambda x: (
-                PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(
-                    CombinedReward([self.reward, self._get_sfs_reward(x[0])]),
-                    CombinedReward([self.reward, self._get_sfs_reward(x[1])])
-                ))
-            ),
-            data=indices,
-            desc="Calculating covariance",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+        self._logger.debug("sfs.cov: per-pair matrix exponential over %d bin pairs", len(indices))
+
+        # cross-moment of each bin pair (serial)
+        sfs_results = [
+            PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(
+                CombinedReward([self.reward, self._get_sfs_reward(i)]),
+                CombinedReward([self.reward, self._get_sfs_reward(j)])
+            ))
+            for i, j in indices
+        ]
 
         # re-structure the results to a matrix form
         sfs = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
@@ -2241,7 +2388,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # get standard deviations
         std = np.sqrt(self.var.data)
 
-        sfs = SFS2(self.cov.data / np.outer(std, std))
+        # monomorphic bins have zero variance; the resulting NaNs from dividing by a zero std are expected and
+        # replaced with zeros below, so silence the benign divide warning at the source.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            sfs = SFS2(self.cov.data / np.outer(std, std))
 
         # replace NaNs with zeros
         sfs.data[np.isnan(sfs.data)] = 0
@@ -2680,7 +2830,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
                 out = np.zeros(self.shape)
                 for config, value in zip(configs, values):
                     out[config] = value
-                return JointSFS(out)
+                return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
         # like the base distribution, a moment is the accumulation over the [start_time, end_time] window
         if start_time is None:
@@ -2688,10 +2838,12 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         if end_time is None:
             # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
-            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch),
+            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch), but not
+            # when flattening applies (which takes precedence and delegates to the smaller lineage-counting space),
             # otherwise use the estimated absorption time
             if (
                     Settings.closed_form_last_epoch and
+                    not self._flattening_applies(k) and
                     start_time == 0 and
                     self.tree_height.end_time is None and
                     self._absorption_certain_in_last_epoch()
@@ -2712,7 +2864,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
                 "This is likely due to an ill-conditioned rate matrix."
             )
 
-        return JointSFS(out)
+        return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
     def accumulate(
             self,
@@ -2734,20 +2886,17 @@ class JointSFSDistribution(PhaseTypeDistribution):
         configs = self._get_configs()
         end_times = np.array(list(end_times))
 
-        accumulation = parallelize(
-            func=lambda config: PhaseTypeDistribution.accumulate(
+        accumulation = np.array([
+            PhaseTypeDistribution.accumulate(
                 self,
                 k=k,
                 end_times=end_times,
                 rewards=tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k)),
                 center=center,
                 permute=permute
-            ),
-            data=configs,
-            desc=f"Calculating accumulation of {k}-moments",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+            )
+            for config in configs
+        ])
 
         out = np.zeros(self.shape + (len(end_times),))
         for config, acc in zip(configs, accumulation):
@@ -2829,6 +2978,14 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         Variance of the joint site-frequency spectrum.
         """
+        batched = self._cov_batched
+        if batched is not None:
+            configs, cov = batched
+            out = np.zeros(self.shape)
+            for a, config in enumerate(configs):
+                out[config] = cov[a, a]
+            return JointSFS(out, pop_names=self.lineage_config.pop_names)
+
         return self.moment(k=2, center=True)
 
     def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
@@ -2847,22 +3004,62 @@ class JointSFSDistribution(PhaseTypeDistribution):
         )
 
     @cached_property
+    def _cov_batched(self) -> Optional[Tuple[List[Tuple[int, ...]], np.ndarray]]:
+        """
+        Batched joint-SFS covariance: all ``O(n^{2P})`` bin pairs share one two-point occupation operator ``K``
+        (see :meth:`_two_point_occupation`), so the whole covariance is ``cov = R^T (K + K^T) R - outer(mean)`` via a
+        single contraction over the stacked bin rewards instead of a cross-moment per pair. Cached so that
+        :attr:`cov` and :attr:`var` share the single (potentially expensive) ``K`` solve.
+
+        :return: ``(configs, cov)`` with ``cov`` the bins-by-bins covariance over the polymorphic ``configs``, or
+            ``None`` when not applicable (closed form disabled, explicit end time, or absorption not almost sure) so
+            callers fall back.
+        """
+        if not Settings.closed_form_last_epoch:
+            return None
+
+        two_point = self._two_point_occupation()
+        if two_point is None:
+            return None
+
+        K, idx_t = two_point
+        ss = self.state_space
+        base = np.asarray(self.reward._get(ss), dtype=float)
+        configs = self._get_configs()
+        R = np.column_stack([
+            (base * np.asarray(JointSFSReward(config)._get(ss), dtype=float))[idx_t] for config in configs
+        ])
+
+        sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
+        self._logger.debug("jsfs.cov: centering with the outer product of bin means")
+        mean = np.array([self.mean.data[config] for config in configs])
+        cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
+
+        return configs, cov
+
+    @cached_property
     def cov(self) -> np.ndarray:
         """
         Covariance between the branch lengths of all pairs of (polymorphic) joint SFS bins. Returned as an array of
         shape :attr:`shape` ``+`` :attr:`shape`, where ``cov[a_0, ..., a_{P-1}, b_0, ..., b_{P-1}]`` is the covariance
         between bins ``(a_0, ..., a_{P-1})`` and ``(b_0, ..., b_{P-1})``.
         """
+        batched = self._cov_batched
+        if batched is not None:
+            self._logger.debug("jsfs.cov: batched (shared two-point occupation)")
+            configs, cov = batched
+            out = np.zeros(self.shape + self.shape)
+            for a, config_a in enumerate(configs):
+                for b, config_b in enumerate(configs):
+                    out[tuple(config_a) + tuple(config_b)] = cov[a, b]
+            return out
+
         configs = self._get_configs()
         pairs = [(a, b) for a in configs for b in configs]
 
-        results = parallelize(
-            func=lambda ab: self.get_cov(*ab),
-            data=pairs,
-            desc="Calculating covariance",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+        self._logger.debug("jsfs.cov: per-pair matrix exponential over %d config pairs", len(pairs))
+
+        results = [self.get_cov(a, b) for a, b in pairs]
 
         out = np.zeros(self.shape + self.shape)
         for (a, b), result in zip(pairs, results):
@@ -2923,19 +3120,16 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         n = self.lineage_config.n
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
-        results = parallelize(
-            func=lambda x: PhaseTypeDistribution.moment(
+        results = [
+            PhaseTypeDistribution.moment(
                 self, k=2, permute=False, center=False,
                 rewards=(
-                    CombinedReward([self.reward, TwoLocusSFSReward(0, x[0])]),
-                    CombinedReward([self.reward, TwoLocusSFSReward(1, x[1])])
+                    CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),
+                    CombinedReward([self.reward, TwoLocusSFSReward(1, j)])
                 )
-            ),
-            data=indices,
-            desc="Calculating two-locus SFS",
-            pbar=Settings.use_pbar,
-            parallelize=Settings.parallelize
-        )
+            )
+            for i, j in indices
+        ]
 
         out = np.zeros((n + 1, n + 1))
         for (i, j), result in zip(indices, results):
@@ -2943,6 +3137,46 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
         # symmetrize over the two (exchangeable) loci, as for the single-locus SFS covariance
         return TwoLocusSFS((out + out.T) / 2)
+
+    @cached_property
+    def corr(self) -> TwoLocusSFS:
+        """
+        Pearson correlation between the locus-0 and locus-1 branch lengths,
+        ``Corr(L^0_i, L^1_j) = (E[L^0_i L^1_j] - E[L^0_i] E[L^1_j]) / (sd(L^0_i) sd(L^1_j))``, for all polymorphic
+        bins ``(i, j)``. This is the centered, scale-free companion to :attr:`mean` (which is the *uncentered*
+        cross-moment ``E[L^0_i L^1_j]`` and therefore tends to the outer product of the marginal SFS means as the
+        loci decouple). It is ``0`` as ``r → ∞`` (independent loci) and reduces to the single-locus SFS correlation
+        as ``r → 0`` (fully linked). The per-locus means and variances are the marginals of the two-locus space and
+        coincide for the two exchangeable loci.
+        """
+        indices = self._get_indices()
+        n = self.lineage_config.n
+
+        # marginal locus-0 mean and variance per bin (identical for locus 1 by exchangeability, and independent of r)
+        mean = {
+            i: PhaseTypeDistribution.moment(
+                self, k=1, center=False,
+                rewards=(CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),)
+            )
+            for i in indices
+        }
+        var = {
+            i: PhaseTypeDistribution.moment(
+                self, k=2, center=True,
+                rewards=(CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),) * 2
+            )
+            for i in indices
+        }
+
+        cross = self.mean.data
+        out = np.zeros((n + 1, n + 1))
+        for i in indices:
+            for j in indices:
+                denom = np.sqrt(var[i] * var[j])
+                if denom > 0:
+                    out[i, j] = (cross[i, j] - mean[i] * mean[j]) / denom
+
+        return TwoLocusSFS(out)
 
 
 class EmpiricalJointSFSDistribution:  # pragma: no cover
@@ -3077,14 +3311,16 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         Covariance matrix.
         """
-        return np.nan_to_num(np.cov(self.samples, rowvar=False))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.nan_to_num(np.cov(self.samples, rowvar=False))
 
     @cached_property
     def corr(self) -> float | np.ndarray:
         """
         Correlation matrix.
         """
-        return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
 
     def moment(self, k: int) -> float | np.ndarray:
         """
@@ -3198,14 +3434,16 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         Covariance matrix.
         """
-        return SFS2(np.nan_to_num(np.cov(self.samples, rowvar=False)))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return SFS2(np.nan_to_num(np.cov(self.samples, rowvar=False)))
 
     @cached_property
     def corr(self) -> SFS2:
         """
         Correlation matrix.
         """
-        return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
 class DictContainer(dict):  # pragma: no cover
@@ -3244,17 +3482,20 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Samples by deme and locus
         self._samples = samples
 
-        #: Covariance matrix for the demes
-        self.pops_cov: np.ndarray = np.cov(over_loci)
+        # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
+        # silence the benign warning
+        with np.errstate(divide='ignore', invalid='ignore'):
+            #: Covariance matrix for the demes
+            self.pops_cov: np.ndarray = np.cov(over_loci)
 
-        #: Correlation matrix for the demes
-        self.pops_corr: np.ndarray = np.corrcoef(over_loci)
+            #: Correlation matrix for the demes
+            self.pops_corr: np.ndarray = np.corrcoef(over_loci)
 
-        #: Covariance matrix for the loci
-        self.loci_corr: np.ndarray = np.corrcoef(over_demes)
+            #: Covariance matrix for the loci
+            self.loci_corr: np.ndarray = np.corrcoef(over_demes)
 
-        #: Correlation matrix for the loci
-        self.loci_cov: np.ndarray = np.cov(over_demes)
+            #: Correlation matrix for the loci
+            self.loci_cov: np.ndarray = np.cov(over_demes)
 
     def touch(self, t: np.ndarray):
         """
@@ -3399,8 +3640,11 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         stats = np.zeros((samples.shape[0], samples.shape[0], samples.shape[2], samples.shape[2]))
 
-        for i, j in itertools.product(range(1, samples.shape[2] - 1), range(1, samples.shape[2] - 1)):
-            stats[:, :, i, j] = callback(samples[:, :, i])
+        # bins with no variance (e.g. always-zero monomorphic counts) make np.corrcoef divide by a zero standard
+        # deviation; the resulting NaNs are expected here, so silence the benign warning rather than emit it.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            for i, j in itertools.product(range(1, samples.shape[2] - 1), range(1, samples.shape[2] - 1)):
+                stats[:, :, i, j] = callback(samples[:, :, i])
 
         return stats
 
@@ -3670,7 +3914,10 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def tree_height(self) -> TreeHeightDistribution:
         """
-        Tree height distribution.
+        Tree height distribution, i.e. the time to the most recent common ancestor. With multiple loci this is the
+        time until *all* loci have reached their MRCA (absorption of the two-locus ancestral process), so it equals
+        the single-locus height when fully linked (``r = 0``) and grows towards the maximum of the per-locus heights
+        as the loci decouple (``r -> inf``).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,
@@ -3742,7 +3989,16 @@ class Coalescent(AbstractCoalescent, Serializable):
         .. note::
             The joint state space grows combinatorially with the per-population sample sizes, so this is only
             practical for small samples.
+
+        :raises ValueError: If fewer than two populations are configured (the joint SFS is across populations; use
+            :attr:`sfs` for a single population).
         """
+        if self.lineage_config.n_pops < 2:
+            raise ValueError(
+                f"The joint SFS requires at least two populations, but {self.lineage_config.n_pops} is configured. "
+                f"Use `sfs` for a single-population site-frequency spectrum."
+            )
+
         return JointSFSDistribution(
             state_space=self.joint_block_counting_state_space,
             tree_height=self.tree_height,

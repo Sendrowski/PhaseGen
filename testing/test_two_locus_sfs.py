@@ -204,6 +204,67 @@ def test_symmetric():
     np.testing.assert_allclose(two, two.T, atol=1e-12)
 
 
+def _single_locus_sfs_corr(n):
+    """Single-locus SFS Pearson correlation matrix ``cov[i,j] / (sd_i sd_j)`` over the polymorphic bins."""
+    cov = np.asarray(pg.Coalescent(n=n).sfs.cov.data)
+    sd = np.sqrt(np.diag(cov))
+    corr = np.zeros_like(cov)
+    s = slice(1, n)
+    corr[s, s] = cov[s, s] / np.outer(sd[s], sd[s])
+    return corr
+
+
+def test_corr_r_zero_equals_single_locus_correlation():
+    """At ``r = 0`` (fully linked) the cross-locus correlation reduces to the single-locus SFS correlation
+    (its diagonal is therefore 1: a bin is perfectly correlated with itself)."""
+    n = 4
+    corr = np.asarray(pg.Coalescent(n=n, loci=2, recombination_rate=0.0).sfs2.corr.data)
+
+    np.testing.assert_allclose(corr, _single_locus_sfs_corr(n), atol=1e-9)
+    np.testing.assert_allclose(np.diag(corr)[1:n], 1.0, atol=1e-9)
+
+
+def test_corr_large_r_approaches_zero():
+    """As ``r -> inf`` the loci decouple, so the cross-locus correlation vanishes even though the (uncentered)
+    mean two-locus SFS tends to the (non-zero) outer product of the marginal SFS means."""
+    n = 4
+    corr = np.asarray(pg.Coalescent(n=n, loci=2, recombination_rate=1e9).sfs2.corr.data)
+
+    np.testing.assert_allclose(corr, 0.0, atol=1e-6)
+
+
+def test_corr_decreases_with_recombination():
+    """The cross-locus correlation decays monotonically from the single-locus value (r=0) toward 0 as r grows."""
+    n = 4
+    bin_ = (1, 1)
+    corrs = [np.asarray(pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2.corr.data)[bin_]
+             for r in (0.0, 0.5, 2.0, 10.0)]
+
+    assert corrs[0] == pytest.approx(1.0, abs=1e-9)
+    assert corrs[0] > corrs[1] > corrs[2] > corrs[3] >= 0
+
+
+def test_corr_more_unlinked_reduces_correlation():
+    """``n_unlinked`` lineages start with their two loci on separate ancestral lineages: more of them means less
+    shared genealogy, so the cross-locus singleton correlation decreases monotonically with ``n_unlinked``."""
+    n, r = 4, 1.0
+    corrs = [
+        np.asarray(pg.Coalescent(n=n, loci=pg.LocusConfig(n=2, n_unlinked=u, recombination_rate=r)).sfs2.corr.data)[1, 1]
+        for u in range(0, n + 1)
+    ]
+
+    # default (all linked) is the most correlated; each additional unlinked lineage lowers it, staying non-negative
+    assert all(a > b for a, b in zip(corrs[:-1], corrs[1:]))
+    assert corrs[-1] >= 0
+
+
+def test_corr_fully_linked_singleton_is_one():
+    """With the default fully-linked start (``n_unlinked = 0``) the two loci share one tree at ``r = 0``, so every
+    bin is perfectly correlated with itself: the singleton cross-locus correlation is exactly 1."""
+    corr = np.asarray(pg.Coalescent(n=4, loci=2, recombination_rate=0.0).sfs2.corr.data)
+    assert corr[1, 1] == pytest.approx(1.0, abs=1e-9)
+
+
 @pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
 def test_numba_python_parity(name, model):
     """The numba and pure-Python construction give the same two-locus SFS."""

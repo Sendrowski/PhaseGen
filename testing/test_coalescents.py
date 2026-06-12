@@ -106,6 +106,97 @@ class CoalescentTestCase(TestCase):
 
         self.assertTrue(3 < t < 5)
 
+    def test_non_absorbing_demography_raises(self):
+        """
+        A demography with an isolated deme (a lineage that can never coalesce) has no almost-sure absorption
+        time and must raise rather than silently returning the doubling-search ceiling.
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 2, 'pop_1': 1, 'pop_2': 1},
+            demography=pg.Demography(
+                pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1},
+                # pop_1 is isolated: migration only ever connects pop_0 and pop_2
+                migration_rates={('pop_0', 'pop_2'): 1}
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not absorb"):
+            _ = coal.tree_height.mean
+
+    def test_non_absorbing_demography_quantile_raises(self):
+        """
+        The CDF-side search (quantile, and the pdf / plot_cdf paths that rely on it) must also guard against a
+        demography that never absorbs, rather than spinning to its iteration ceiling.
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 2, 'pop_1': 1, 'pop_2': 1},
+            demography=pg.Demography(
+                pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1},
+                migration_rates={('pop_0', 'pop_2'): 1}
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not absorb"):
+            _ = coal.tree_height.quantile(0.99)
+
+        with self.assertRaisesRegex(ValueError, "does not absorb"):
+            _ = coal.tree_height.pdf(1.0)
+
+    def test_temporary_isolation_resolves_and_absorbs(self):
+        """
+        A demography whose demes are isolated in the first epoch but connected by migration in a later (unbounded)
+        epoch does absorb: the non-absorption guard must not fire for either the mean or the quantile.
+        """
+        demog = pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1},
+            migration_rates={
+                ('pop_0', 'pop_1'): {0: 0.0, 1.0: 1.0},
+                ('pop_1', 'pop_0'): {0: 0.0, 1.0: 1.0},
+            }
+        )
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demog)
+
+        self.assertTrue(np.isfinite(coal.tree_height.mean))
+        self.assertTrue(np.isfinite(coal.tree_height.quantile(0.99)))
+
+    def test_connected_migration_demography_absorbs(self):
+        """
+        The non-absorption guard must not fire for a fully connected migration demography: every lineage can
+        reach a common ancestor, so the mean tree height is finite.
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 2, 'pop_1': 2},
+            demography=pg.Demography(
+                pop_sizes={'pop_0': 1, 'pop_1': 1},
+                migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
+            )
+        )
+
+        self.assertTrue(np.isfinite(coal.tree_height.mean))
+
+    def test_sfs2_mean_is_cached(self):
+        """
+        The two-locus SFS distribution and its mean are memoized on the Coalescent when caching is enabled
+        (regression: ``sfs2.mean`` must not recompute on every access), and recomputed when caching is disabled.
+        """
+        coal = pg.Coalescent(n=4, loci=2)
+
+        # enabled (default): re-access returns the very same cached objects, i.e. no recomputation
+        self.assertIs(coal.sfs2, coal.sfs2)
+        self.assertIs(coal.sfs2.mean, coal.sfs2.mean)
+
+        # disabled: a fresh, un-warmed Coalescent recomputes on each access, but yields an identical result
+        fresh = pg.Coalescent(n=4, loci=2)
+        try:
+            pg.Settings.cache = False
+            a = fresh.sfs2.mean
+            b = fresh.sfs2.mean
+        finally:
+            pg.Settings.cache = True
+
+        self.assertIsNot(a, b)
+        np.testing.assert_allclose(a.data, b.data)
+
     def test_complex_coalescent(self):
         """
         Test complex coalescent.
@@ -122,8 +213,6 @@ class CoalescentTestCase(TestCase):
         """
         Validate first moments for deme-wise complex coalescent.
         """
-        pg.Settings.parallelize = False
-
         coals = [
             pg.Coalescent(
                 n=pg.LineageConfig({'pop_0': 2, 'pop_1': 2, 'pop_2': 2}),
@@ -1329,7 +1418,10 @@ class CoalescentTestCase(TestCase):
         plt.legend()
         plt.show()
 
-        rel_diff = np.abs(empirical - exact) / exact
+        # the early bins of the exact CDF are ~0 (division by zero); only the tail [20:] is asserted on, so
+        # silence the benign divide warning rather than emit it
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rel_diff = np.abs(empirical - exact) / exact
 
         self.assertLess(rel_diff[20:].mean(), 0.02)
 

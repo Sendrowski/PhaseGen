@@ -178,7 +178,7 @@ def _find_or_add(rows, chain_next, head, target):
 
 @njit(cache=True)
 def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors,
-           recomb_rate, recomb0, recomb1):
+           recomb_rate, recomb0, recomb1, max_states):
     """
     Build the state graph by BFS over integer ``lineages`` rows.
 
@@ -209,6 +209,11 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
 
     cur = 0
     while cur < len(rows):
+        # abort the BFS once the discovered states exceed the cap (the caller raises); this guards against building
+        # a prohibitively large state space (which would otherwise exhaust memory before returning)
+        if len(rows) > max_states:
+            break
+
         source = rows[cur].copy()
 
         total = 0
@@ -397,13 +402,24 @@ def build_rate_matrix(
         recomb_rate: float = 0.0,
         recomb0: np.ndarray = None,
         recomb1: np.ndarray = None,
+        max_states: int = 2 ** 62,
+        dense_max_states: int = 0,
 ):
     """
-    Python entry point: build the state rows and dense rate matrix via the numba kernel.
+    Python entry point: build the state rows and the rate matrix via the numba kernel.
+
+    The kernel's BFS is aborted once it discovers more than ``max_states`` states, which guards against building a
+    prohibitively large state space (raising a clear error instead of exhausting memory). The COO transitions it
+    returns are assembled, in one place, into either a dense array (below ``dense_max_states`` states, where dense is
+    cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above it — the generator is
+    sparse, each state coalescing to only O(n) others, so a dense ``n_states**2`` matrix would be prohibitive).
 
     :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
-        order) and ``S`` is the dense intensity matrix (diagonal filled with the negative row sums).
+        order) and ``S`` is the intensity matrix (dense or sparse; diagonal = negative row sums).
+    :raises MemoryError: if the state space exceeds ``max_states``.
     """
+    from scipy.sparse import coo_matrix
+
     # the recombination split maps are only used for the two-locus kernel (kind 2); pass dummies otherwise
     if recomb0 is None:
         recomb0 = np.zeros(n_blocks, dtype=np.int64)
@@ -416,12 +432,26 @@ def build_rate_matrix(
         model_id, float(alpha), float(psi), float(c),
         block_vectors.astype(np.int64),
         float(recomb_rate), recomb0.astype(np.int64), recomb1.astype(np.int64),
+        int(max_states),
     )
 
     n = rows.shape[0]
-    S = np.zeros((n, n))
-    # accumulate (a target may be reached by several transitions, e.g. multiple merger paths)
-    np.add.at(S, (src, dst), rate)
-    S[np.diag_indices_from(S)] = -S.sum(axis=1)
 
-    return rows, S
+    # the BFS aborts once it exceeds the cap, so a returned count over it means the (incomplete) space is too large
+    if n > max_states:
+        raise MemoryError(
+            f"State space exceeds the maximum of {max_states} states (construction aborted to avoid running out "
+            f"of memory). Increase Settings.max_state_space_size to override, or reduce the sample size."
+        )
+
+    # off-diagonal transitions (a target may be reached by several transitions, e.g. multiple-merger paths, so
+    # duplicate (src, dst) entries are summed by ``coo_matrix``) plus the diagonal = negative out-rate per row
+    row_sums = np.bincount(src, weights=rate, minlength=n)
+    diag = np.arange(n)
+    data = np.concatenate([rate, -row_sums])
+    rows_idx = np.concatenate([src, diag])
+    cols_idx = np.concatenate([dst, diag])
+    S = coo_matrix((data, (rows_idx, cols_idx)), shape=(n, n))
+
+    # one place decides the representation: dense where it is cheap and faster, sparse where dense would be too big
+    return rows, (S.toarray() if n < dense_max_states else S.tocsr())
