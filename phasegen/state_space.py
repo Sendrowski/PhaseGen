@@ -6,11 +6,12 @@ State space classes and utilities. The two main state space classes are
 import logging
 import time
 from abc import ABC, abstractmethod
-from functools import cached_property
+from .caching import cached_property
 from itertools import product
 from typing import List, Tuple, Dict, Callable, cast
 
 import numpy as np
+import scipy.sparse as sp
 from tqdm import tqdm
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
@@ -95,6 +96,10 @@ class StateSpace(ABC):
         """
         start = time.time()
 
+        # The construction is guarded against a prohibitively large (out-of-memory) state space by an abort cap in
+        # the builder (``Settings.max_state_space_size``), which raises before memory is exhausted — this works for
+        # every state-space type, without needing an a-priori size formula. After a successful build the actual
+        # count is warned about (escalating with size), again for every type.
         if self._use_numba():
             states, S = self._construct_numba()
             # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it
@@ -110,7 +115,20 @@ class StateSpace(ABC):
         # record time to compute rate matrix
         self.time = time.time() - start
 
+        self._warn_if_large(len(states))
+
         return states
+
+    def _warn_if_large(self, n_states: int):
+        """
+        Warn once, at the appropriate severity, if the state space is large; computation time (and the dense
+        rate-matrix memory, which grows as ``n_states**2``) grow steeply with the number of states. The size is
+        already known here, so a single warning at the highest crossed threshold is emitted (not one per threshold).
+        """
+        for threshold, level in ((25000, 'extremely slow'), (5000, 'very slow'), (1000, 'slow')):
+            if n_states >= threshold:
+                self._logger.warning(f'State space is large ({n_states} states). Computations may be {level}.')
+                break
 
     @cached_property
     def lineages(self) -> np.ndarray:
@@ -210,6 +228,14 @@ class StateSpace(ABC):
                 # add visited source state
                 visited += [source]
 
+                # guard against a prohibitively large (out-of-memory) state space, as the numba builder does
+                if len(visited) > Settings.max_state_space_size:
+                    raise MemoryError(
+                        f"State space exceeds the maximum of {Settings.max_state_space_size} states (construction "
+                        f"aborted to avoid running out of memory). Increase Settings.max_state_space_size to "
+                        f"override, or reduce the sample size."
+                    )
+
                 # add transitions to dictionary
                 for target, transition in targets.items():
                     transitions[(source, target)] = transition
@@ -223,13 +249,6 @@ class StateSpace(ABC):
                 # increment state counter
                 i += 1
 
-                if i in [1000, 5000, 25000]:
-                    levels = {1000: 'slow', 5000: 'very slow', 25000: 'extremely slow'}
-
-                    self._logger.warning(
-                        f'State space size exceeds {i} states. Computations may be {levels[i]}.'
-                    )
-
             # break if no more targets
             if len(targets_new) == 0:
                 break
@@ -239,12 +258,6 @@ class StateSpace(ABC):
 
         pbar.set_description_str(f'{self.__class__.__name__}: ({i} states, {j} transitions)')
         pbar.close()
-
-        # warn if state space is large
-        if (k := len(visited)) > 400:
-            self._logger.warning(f'State space is large ({k} states, {len(transitions)} transitions). '
-                                 f'Note that the computation time increases '
-                                 f'exponentially with the number of states.')
 
         return transitions, visited
 
@@ -453,6 +466,8 @@ class StateSpace(ABC):
             recomb_rate=recomb_rate,
             recomb0=recomb0,
             recomb1=recomb1,
+            max_states=Settings.max_state_space_size,
+            dense_max_states=Settings.dense_rate_matrix_max_states,
         )
 
         lin_shape = init.lineages.shape
@@ -522,7 +537,9 @@ class StateSpace(ABC):
 
         :return: The sparsity.
         """
-        return 1 - np.count_nonzero(self.S) / self.S.size
+        S = self.S
+        nnz = S.nnz if sp.issparse(S) else np.count_nonzero(S)
+        return 1 - nnz / (S.shape[0] * S.shape[1])
 
     def _get_color_state(self, i: int) -> str:
         """
@@ -738,10 +755,13 @@ class BlockCountingStateSpace(StateSpace):
 
             # iterate over states with k lineages
             for i in state_indices[lineage_counts == k]:
-                if i in absorbing_states or S[i, i] == 0:
+                diag = S[i, i]
+                if i in absorbing_states or diag == 0:
                     continue
 
-                trans_probs = S[i] / -S[i, i]
+                # one row densified at a time (cheap) so this works whether S is dense or sparse
+                row = S[i].toarray().ravel() if sp.issparse(S) else S[i]
+                trans_probs = row / -diag
 
                 for j in np.where(trans_probs > 0)[0]:
                     probs[j] += probs[i] * trans_probs[j]
@@ -751,11 +771,10 @@ class BlockCountingStateSpace(StateSpace):
     @cached_property
     def _state_probs(self) -> np.ndarray:
         """
-        Get state probabilities conditioned on the number of lineages.
-        This can be used to flatten the block-counting state space to a lineage-counting state space by weighting the
-        lineages by the probabilities of being in each of the corresponding block-counting states.
-        This only works for one-population, one-locus state spaces under the standard coalescent, or MMCs provided
-        there is only one epoch, and we accumulate until absorption.
+        State probabilities conditioned on the number of lineages, from the embedded jump chain (``row / -diag``),
+        used to flatten the block-counting state space onto the lineage-counting one. Valid only for the
+        single-population, single-locus standard coalescent (any number of epochs, since a uniform rescaling of the
+        generator leaves the jump chain unchanged); not for multiple-merger coalescents. See ``_flattening_applies``.
 
         :return: State probabilities conditioned on the number of lineages.
         """

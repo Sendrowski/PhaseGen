@@ -6,7 +6,7 @@ import itertools
 import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
-from functools import cached_property
+from .caching import cached_property
 from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence
 
 import numpy as np

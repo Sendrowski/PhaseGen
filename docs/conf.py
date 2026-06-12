@@ -38,7 +38,9 @@ pygments_style = 'default'
 nb_execution_mode = 'off'
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+# 'jupyter_execute' is a myst-nb build artifact; excluding it keeps Sphinx from scanning (and recursively
+# re-nesting) it as source, which otherwise floods the build with "not in any toctree" warnings.
+exclude_patterns = ['_build', 'jupyter_execute', 'Thumbs.db', '.DS_Store']
 
 autodoc_default_options = {
     'members': True,
