@@ -491,3 +491,25 @@ def _two_sfs_demography(n, r):
     coal = pg.Coalescent(n=n, loci=2, recombination_rate=r,
                          demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1.0: 0.5}}))
     return np.asarray(coal.sfs2.mean.data)
+
+
+@pytest.mark.slow
+def test_two_locus_joint_distribution_vs_msprime():
+    """Ground truth via the scenario infrastructure: the two-locus joint reward distribution's cross-moment
+    ``E[L^0_i L^1_j]`` (the 2-SFS entry) and joint CDF match a fresh msprime simulation, compared through the
+    empirical two-locus cross-moment / joint-CDF tracking. Exercises the cross-locus dependence at ``r = 0.5``."""
+    from phasegen.comparison import Comparison
+
+    c = Comparison(n=4, n_loci=2, recombination_rate=0.5, num_replicates=120000,
+                   pop_sizes={'pop_0': {0: 1.0}}, parallelize=True, seed=5, comparisons={'tolerance': {}})
+    ms2, ph = c.ms.sfs2, c.ph
+
+    for i, j in [(1, 1), (1, 2), (2, 2), (2, 3)]:
+        jd = ph.sfs2.joint_distribution(i, j)
+        empirical_cross = ms2.cross_moment(i, j)
+        assert abs(jd.moment(1, 1) - empirical_cross) < 0.04 * empirical_cross + 0.01
+
+        for qa, qb in [(0.5, 0.6), (0.7, 0.4)]:
+            x = float(jd.marginal('a').quantile(qa))
+            y = float(jd.marginal('b').quantile(qb))
+            assert abs(jd.cdf(x, y) - ms2.joint_cdf(i, j, x, y)) < 0.02

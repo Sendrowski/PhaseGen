@@ -583,16 +583,50 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
     :class:`~phasegen.comparison.Comparison`.
     """
 
-    def __init__(self, mean: np.ndarray):
+    def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None):
         """
         :param mean: The simulated mean two-locus SFS array.
+        :param left: Optional per-replicate locus-0 SFS branch lengths ``(num_replicates, n + 1)`` (for the joint
+            distribution / cross-moment tracking). Dropped on :meth:`drop` and absent from a serialized comparison.
+        :param right: Optional per-replicate locus-1 SFS branch lengths.
         """
         self._mean = np.asarray(mean)
+        self._left = None if left is None else np.asarray(left)
+        self._right = None if right is None else np.asarray(right)
 
     @property
     def mean(self) -> TwoLocusSFS:
         """Mean two-locus SFS."""
         return TwoLocusSFS(self._mean)
+
+    def drop(self):
+        """Drop the per-replicate samples (the mean is retained)."""
+        self._left = None
+        self._right = None
+
+    def cross_moment(self, i: int, j: int) -> float:
+        """
+        Empirical cross-moment ``E[L^0_i L^1_j]`` (the two-locus SFS entry) from the per-replicate locus branch
+        lengths — the simulated counterpart of :meth:`JointRewardDistribution.moment` ``(1, 1)``.
+
+        :param i: Locus-0 frequency class.
+        :param j: Locus-1 frequency class.
+        :return: The empirical cross-moment.
+        """
+        return float((self._left[:, i] * self._right[:, j]).mean())
+
+    def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
+        """
+        Empirical joint CDF ``P(L^0_i <= x, L^1_j <= y)`` from the per-replicate locus branch lengths — the
+        simulated counterpart of :meth:`JointRewardDistribution.cdf`.
+
+        :param i: Locus-0 frequency class.
+        :param j: Locus-1 frequency class.
+        :param x: Threshold for ``L^0_i``.
+        :param y: Threshold for ``L^1_j``.
+        :return: The empirical joint probability.
+        """
+        return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
 
 
 class MsprimeCoalescent(AbstractCoalescent):
@@ -1069,7 +1103,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         model = self.get_coalescent_model()
 
         out = np.zeros((n + 1, n + 1))
-        for ts in ms.sim_ancestry(
+        lefts = np.zeros((self.num_replicates, n + 1))   # per-replicate locus-0 / locus-1 SFS branch lengths,
+        rights = np.zeros((self.num_replicates, n + 1))  # retained for the joint distribution / cross-moments
+        for rep, ts in enumerate(ms.sim_ancestry(
                 samples=self.lineage_config.lineage_dict,
                 sequence_length=2,
                 recombination_rate=self.locus_config.recombination_rate,
@@ -1078,7 +1114,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 ploidy=1,
                 num_replicates=self.num_replicates,
                 random_seed=self.seed,
-        ):
+        )):
             t0, t1 = ts.at(0.5), ts.at(1.5)
             left = np.zeros(n + 1)
             right = np.zeros(n + 1)
@@ -1089,8 +1125,10 @@ class MsprimeCoalescent(AbstractCoalescent):
                 if t1.parent(nd) != -1:
                     right[t1.num_samples(nd)] += t1.branch_length(nd)
             out += np.outer(left, right)
+            lefts[rep] = left
+            rights[rep] = right
 
-        return EmpiricalTwoLocusSFSDistribution(out / self.num_replicates)
+        return EmpiricalTwoLocusSFSDistribution(out / self.num_replicates, left=lefts, right=rights)
 
     @cached_property
     def fst(self) -> float:
