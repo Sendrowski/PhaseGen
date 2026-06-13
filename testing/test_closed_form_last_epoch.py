@@ -178,10 +178,10 @@ def test_disabled_uses_only_matrix_exponential(name):
 _EXPECTED_PATHS = {
     "tree_height.mean": {"_accumulate_closed_form"},
     "tree_height.var": {"_accumulate_closed_form"},
-    # single-population SFS mean flattens (k=1, standard), which takes precedence -> no closed-form entry point
-    "sfs.mean": set(),
-    # the cov's mean also flattens (no occupation); the covariance itself uses the two-point operator
-    "sfs.cov 1-epoch": {"_two_point_occupation"},
+    # single-population SFS mean flattens (k=1, standard); the small lineage-counting space then uses the closed form
+    "sfs.mean": {"_accumulate_closed_form"},
+    # the cov's mean flattens (closed form on the lineage space); the covariance itself uses the two-point operator
+    "sfs.cov 1-epoch": {"_two_point_occupation", "_accumulate_closed_form"},
     # multi-epoch covariance: the batched single-epoch operator is declined (returns None) -> per-pair closed form
     "sfs.cov 3-epoch": {"_two_point_occupation", "_accumulate_closed_form"},
     # joint SFS is multi-population, so flattening does not apply: mean uses the batched occupation

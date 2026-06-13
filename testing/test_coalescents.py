@@ -1366,7 +1366,8 @@ class CoalescentTestCase(TestCase):
         coal_flattened = pg.Coalescent(n=n, demography=demography)
         flattened = np.array([coal_flattened.sfs.get_accumulation(1, i, times) for i in range(10)])
 
-        # make sure state probabilities are cached
+        # the monomorphic corner (bin 0, here over range(10)) falls back to the block-counting traversal, which
+        # builds the state probabilities; the polymorphic bins use the closed-form Kingman weights
         self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
 
         pg.Settings.flatten_block_counting = False

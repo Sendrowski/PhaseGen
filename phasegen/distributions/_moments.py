@@ -6,7 +6,7 @@ phase-type distribution, mixed into :class:`PhaseTypeDistribution`.
 import itertools
 import logging
 from ..caching import cache
-from math import factorial
+from math import comb, factorial
 from typing import List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
@@ -14,7 +14,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 from ..coalescent_models import StandardCoalescent
 from ..expm import Backend
-from ..rewards import Reward, CustomReward
+from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
@@ -116,16 +116,17 @@ class MomentEvaluator:
             start_time = self.tree_height.start_time
 
         if end_time is None:
-            # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
-            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch), but not
-            # when flattening applies (which takes precedence and delegates to the smaller lineage-counting space),
-            # otherwise use the estimated absorption time
+            # signal the closed form (and the batched paths it enables) with an infinite end time for the moment to
+            # absorption: no explicit end time, accumulation from 0, and either flattening applies — which delegates
+            # to the lineage-counting space, always absorption-certain for the single-population standard coalescent,
+            # so the closed form applies there too — or absorption is certain in the last epoch. The ``or`` is
+            # short-circuited so the (block-space-building) absorption check is skipped when flattening applies.
+            # Otherwise fall back to the estimated absorption time.
             if (
                     Settings.closed_form_last_epoch and
-                    not self._flattening_applies(k) and
                     start_time == 0 and
                     self.tree_height.end_time is None and
-                    self._absorption_certain_in_last_epoch()
+                    (self._flattening_applies(k) or self._absorption_certain_in_last_epoch())
             ):
                 end_time = np.inf
             else:
@@ -330,25 +331,85 @@ class MomentEvaluator:
             raise ValueError("Flattened accumulation is only supported for standard coalescent.")
 
         reward = rewards[0] if rewards else self.reward
-        r = reward._get(self.state_space)
-
-        probs = self.state_space._state_probs
-
-        # sum up weights for each state based on the number of lineages
         n = self.lineage_config.n
-        weights = np.zeros(n)
-        for i, s in enumerate(self.state_space.states):
-            weights[n - s.lineages.sum()] += probs[i] * r[i]
+
+        # Prefer the closed-form Kingman block-size weights, which never build the (p(n)-state) block-counting space.
+        weights = self._flattened_sfs_weights(reward, n)
+        if weights is not None:
+            self._logger.debug(
+                "flattening block-counting onto the lineage-counting state space (%d states) via the closed-form "
+                "Kingman block-size weights", self.tree_height.state_space.k
+            )
+        else:
+            # fall back to weighting by the per-lineage state probabilities of the block-counting space
+            r = reward._get(self.state_space)
+            probs = self.state_space._state_probs
+            weights = np.zeros(n)
+            for i, s in enumerate(self.state_space.states):
+                weights[n - s.lineages.sum()] += probs[i] * r[i]
+            self._logger.debug(
+                "flattening block-counting state space (%d states) onto the lineage-counting state space (%d states)",
+                len(self.state_space.states), self.tree_height.state_space.k
+            )
 
         # Create a custom reward that returns the weights.
         weighted_reward = CustomReward(lambda _: weights)
 
-        self._logger.debug(
-            "flattening block-counting state space (%d states) onto the lineage-counting state space (%d states)",
-            len(self.state_space.states), self.tree_height.state_space.k
-        )
-
         return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
+
+    def _flattened_sfs_weights(self, reward: Reward, n: int) -> Optional[np.ndarray]:
+        """
+        Per-lineage-level weights ``E[reward | k lineages]`` (indexed by ``n - k``) for the flattened SFS, in closed
+        form from the Kingman conditional block-size distribution (block sizes given ``k`` lineages are uniform over
+        compositions of ``n`` into ``k`` parts): ``E[# size-b blocks | k] = k * C(n-b-1, k-2) / C(n-1, k-1)``. This
+        never builds the ``p(n)``-state block-counting space. Returns ``None`` for any reward that is not (a unit
+        multiple of) an unfolded/folded SFS bin reward, in which case the caller falls back to the block-counting
+        state-probability traversal.
+
+        :param reward: The reward whose flattened weights to compute.
+        :param n: The number of lineages.
+        :return: Weight vector indexed by ``n - k``, or ``None`` if the reward is unsupported.
+        """
+        block_sizes = self._sfs_reward_block_sizes(reward, n)
+        if block_sizes is None:
+            return None
+
+        weights = np.zeros(n)
+        for k in range(2, n + 1):  # k = 1 (the grand MRCA, a single size-n block) carries no polymorphic SFS reward
+            denom = comb(n - 1, k - 1)
+            weights[n - k] = sum(
+                k * comb(n - b - 1, k - 2) / denom for b in block_sizes if 0 <= k - 2 <= n - b - 1
+            )
+        return weights
+
+    @staticmethod
+    def _sfs_reward_block_sizes(reward: Reward, n: int) -> Optional[List[int]]:
+        """
+        The block sizes an SFS reward counts: ``[i]`` for an unfolded bin ``i``, ``[i, n - i]`` for a folded bin
+        (just ``[i]`` when ``i == n - i``). A :class:`~phasegen.rewards.CombinedReward` is unwrapped when it is a
+        product of unit rewards and a single SFS reward (as built by the SFS moment path). Returns ``None`` for
+        anything else.
+        """
+        if isinstance(reward, CombinedReward):
+            non_unit = [r for r in reward.rewards if not isinstance(r, UnitReward)]
+            if len(non_unit) != 1:
+                return None
+            reward = non_unit[0]
+
+        if isinstance(reward, FoldedSFSReward):
+            i = reward.index
+            sizes = [i] if i == n - i else [i, n - i]
+        elif isinstance(reward, UnfoldedSFSReward):
+            sizes = [reward.index]
+        else:
+            return None
+
+        # only the polymorphic bins (block sizes 1..n-1) are handled in closed form; the monomorphic corners
+        # (size n via the index-1 wraparound, whose only contribution is the k=1 grand-MRCA / absorbing state) fall
+        # back to the block-counting traversal
+        if all(1 <= b <= n - 1 for b in sizes):
+            return sizes
+        return None
 
     @_make_hashable
     @cache
