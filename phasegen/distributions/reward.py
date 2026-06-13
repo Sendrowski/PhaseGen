@@ -340,3 +340,130 @@ class JointRewardDistribution:
         va = self.marginal('a')._cumulants()[1]
         vb = self.marginal('b')._cumulants()[1]
         return self.cov() / np.sqrt(va * vb)
+
+    # ------------------------------------------------------------------------------------------------------------
+    # joint distribution (2D) and the product distribution
+    # ------------------------------------------------------------------------------------------------------------
+    @cached_property
+    def _atoms(self) -> dict:
+        """Atom probabilities from the ``s -> inf`` limits of ``Phi``: ``P(R_a = 0)``, ``P(R_b = 0)``,
+        ``P(R_a = 0, R_b = 0)`` (an SFS bin is empty with positive probability)."""
+        big = 1e8
+        return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
+
+    @cached_property
+    def _cos2d(self) -> dict:
+        """
+        The *continuous-continuous* joint density (both rewards ``> 0``) as a 2D Fourier-cosine (COS) expansion on
+        ``[0, b_a] x [0, b_b]``. The marginal atoms are removed by inclusion-exclusion so the cosine series only
+        sees the smooth part: ``cf_cc(w_a, w_b) = Phi(-i w_a, -i w_b) - Phi(-i w_a, inf) - Phi(inf, -i w_b) +
+        P(both = 0)``. Returns the coefficient matrix and the (zero-based) ranges/frequencies.
+        """
+        n_terms, scale, big = 64, 10.0, 1e8
+        p00 = self._atoms['both0']
+        ca, va = self.marginal('a')._cumulants()
+        cb, vb = self.marginal('b')._cumulants()
+        ba, bb = ca + scale * np.sqrt(va), cb + scale * np.sqrt(vb)
+        ua = np.arange(n_terms) * np.pi / ba
+        ub = np.arange(n_terms) * np.pi / bb
+
+        phi_a_inf = np.array([self.lst(-1j * w, big) for w in ua])    # Phi(-i w_a, inf), reused across w_b
+        phi_inf_b_p = np.array([self.lst(big, -1j * w) for w in ub])  # Phi(inf, -i w_b)
+        phi_inf_b_m = np.array([self.lst(big, 1j * w) for w in ub])   # Phi(inf, +i w_b)
+
+        A = np.zeros((n_terms, n_terms))
+        for i, wa in enumerate(ua):
+            pp = np.array([self.lst(-1j * wa, -1j * wb) for wb in ub]) - phi_a_inf[i] - phi_inf_b_p + p00
+            pm = np.array([self.lst(-1j * wa, 1j * wb) for wb in ub]) - phi_a_inf[i] - phi_inf_b_m + p00
+            A[i] = (2.0 / ba) * (2.0 / bb) * 0.5 * np.real(pp + pm)  # lower limits are 0, so exp(-i w a) = 1
+        A[0, :] *= 0.5
+        A[:, 0] *= 0.5
+        return dict(ba=ba, bb=bb, ua=ua, ub=ub, A=A)
+
+    def _density(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """The continuous joint density on the outer grid ``xs x ys`` (shape ``(len(xs), len(ys))``), as the raw
+        cosine sum (may be slightly negative from Gibbs near edges; callers clip only for display, never for
+        integration, which would bias the mass/moments)."""
+        st = self._cos2d
+        cx = np.cos(np.outer(st['ua'], xs))
+        cy = np.cos(np.outer(st['ub'], ys))
+        return cx.T @ st['A'] @ cy
+
+    def pdf(self, x, y):
+        """
+        Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
+        atom mass on the axes where a reward is zero (see :attr:`_atoms`); a non-empty SFS bin pair has none there.
+
+        :param x: ``R_a`` value(s).
+        :param y: ``R_b`` value(s).
+        :return: Density, scalar or a ``(len(x), len(y))`` grid.
+        """
+        xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
+        f = np.clip(self._density(xs, ys), 0.0, None)  # clip for display only
+        return float(f.ravel()[0]) if f.size == 1 else f
+
+    @staticmethod
+    def _cos_antideriv(u: np.ndarray, x: np.ndarray) -> np.ndarray:
+        """``int_0^x cos(u_k t) dt`` for each frequency ``u_k`` and point ``x`` (``sin(u_k x)/u_k``, and ``x`` for
+        ``u_0 = 0``); returns shape ``(len(x), len(u))``. Used to integrate the cosine density in closed form."""
+        x = np.atleast_1d(x).astype(float)
+        safe = np.where(u == 0, 1.0, u)
+        out = np.sin(np.outer(x, u)) / safe
+        out[:, u == 0] = x[:, None]
+        return out
+
+    def _cc_box(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """The continuous-continuous box probabilities ``int_0^x int_0^y f_cc`` on the grid ``xs x ys``, evaluated
+        *analytically* from the cosine coefficients (exact, unlike a grid quadrature of the oscillatory density)."""
+        st = self._cos2d
+        Ix = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba']))   # (len_x, N)
+        Iy = self._cos_antideriv(st['ub'], np.minimum(ys, st['bb']))   # (len_y, N)
+        return Ix @ st['A'] @ Iy.T                                     # (len_x, len_y)
+
+    def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """Joint CDF on the grid ``xs x ys``: the axis atoms (marginal sub-transform inversions, one per grid line)
+        plus the analytic continuous box integral."""
+        big = 1e8
+        g_a = np.array([self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])  # P(R_a=0,R_b<=y)
+        g_b = np.array([self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])  # P(R_b=0,R_a<=x)
+        cc = self._cc_box(np.asarray(xs, float), np.asarray(ys, float))
+        return g_b[:, None] + g_a[None, :] - self._atoms['both0'] + cc
+
+    def cdf(self, x, y):
+        """
+        Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(0 < R_a <= x,
+        R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
+        continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)`` (the cosine density integrated in closed form).
+        """
+        return float(self._cdf_grid(np.atleast_1d(x), np.atleast_1d(y))[0, 0])
+
+    def plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,
+                 title: str = 'Joint reward PDF') -> 'plt.Axes':
+        """Heatmap of the joint (continuous) density of ``(R_a, R_b)``."""
+        return self._plot_joint('pdf', ax, n_points, show, file, title)
+
+    def plot_cdf(self, ax: 'plt.Axes' = None, n_points: int = 60, show: bool = True, file: str = None,
+                 title: str = 'Joint reward CDF') -> 'plt.Axes':
+        """Heatmap of the joint CDF of ``(R_a, R_b)``."""
+        return self._plot_joint('cdf', ax, n_points, show, file, title)
+
+    def _plot_joint(self, kind, ax, n_points, show, file, title):
+        import matplotlib.pyplot as plt
+
+        st = self._cos2d
+        xs = np.linspace(0, st['ba'], n_points)
+        ys = np.linspace(0, st['bb'], n_points)
+        Z = np.clip(self._density(xs, ys), 0.0, None) if kind == 'pdf' else self._cdf_grid(xs, ys)
+
+        if ax is None:
+            ax = plt.gca()
+        mesh = ax.pcolormesh(xs, ys, Z.T, shading='auto', cmap='viridis')
+        ax.figure.colorbar(mesh, ax=ax)
+        ax.set_xlabel('$R_a$')
+        ax.set_ylabel('$R_b$')
+        ax.set_title(title)
+        if file is not None:
+            plt.savefig(file)
+        if show:
+            plt.show()
+        return ax

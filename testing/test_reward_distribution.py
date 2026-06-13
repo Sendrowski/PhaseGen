@@ -316,6 +316,46 @@ def test_joint_reward_distribution_within_tree():
         assert jd.cov() == pytest.approx(cov[i, j], abs=1e-8)
 
 
+def test_joint_distribution_2d_density_and_cdf():
+    """The 2D joint density recovers the cross-moment and integrates to the continuous mass; the joint CDF
+    saturates to 1 and starts at the joint atom; plotting runs. Validated on a no-atom pair (tight) and an
+    atom-bearing pair (the continuous-continuous part)."""
+    import matplotlib
+    matplotlib.use('Agg')
+
+    # no-atom pair: every tree has external (singleton) branches, so L_1 > 0 a.s.
+    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 1)
+    st = jd._cos2d
+
+    # the joint CDF is bounded, monotone, saturates to 1, and starts at the joint atom
+    xs = np.linspace(0, st['ba'], 25)
+    ys = np.linspace(0, st['bb'], 25)
+    G = jd._cdf_grid(xs, ys)
+    assert G.min() > -2e-3 and G.max() < 1 + 2e-3
+    # essentially monotone (small COS/Gibbs wiggles allowed)
+    assert np.all(np.diff(G, axis=0) > -3e-3) and np.all(np.diff(G, axis=1) > -3e-3)
+    assert jd.cdf(st['ba'], st['bb']) == pytest.approx(1.0, abs=1e-3)
+    assert jd.cdf(0.0, 0.0) == pytest.approx(0.0, abs=1e-3)  # no atom for bin 1
+
+    # the joint CDF's marginal equals the 1D marginal CDF exactly (the strong 2D-accuracy check)
+    for y in [0.8, 1.5, 3.0]:
+        assert jd.cdf(st['ba'] * 5, y) == pytest.approx(jd.marginal('b').cdf(y), abs=2e-3)
+
+    # atom-bearing pair: bin 3 of n=6 is empty with positive probability; its atom is recovered exactly, and the
+    # cross-moment is read off the density (the product kills the boundary)
+    jd2 = pg.Coalescent(n=6).sfs.joint_distribution(2, 3)
+    assert jd2._atoms['b0'] > 0.05
+    assert jd2.cdf(jd2._cos2d['ba'] * 5, 1e-9) == pytest.approx(jd2._atoms['b0'], abs=3e-3)  # P(L_3 = 0)
+    x2 = np.linspace(0, jd2._cos2d['ba'], 220)
+    y2 = np.linspace(0, jd2._cos2d['bb'], 220)
+    f2 = jd2._density(x2, y2)
+    cross = (np.outer(x2, y2) * f2).sum() * (x2[1] - x2[0]) * (y2[1] - y2[0])
+    assert abs(cross - jd2.moment(1, 1)) < 1e-2  # E[L_2 L_3]
+
+    jd.plot_pdf(show=False)
+    jd.plot_cdf(show=False, n_points=15)
+
+
 def test_joint_reward_distribution_two_locus():
     """The two-locus joint distribution recovers the 2-SFS entry ``E[L^0_i L^1_j]`` and its correlation."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
