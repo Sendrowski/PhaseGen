@@ -1,10 +1,11 @@
 """Distribution base classes and marginal (per-deme / per-locus) views."""
 
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
-from typing import Iterator, Sequence, TYPE_CHECKING
+from typing import Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
 from ..expm import Backend
 from ..rewards import DemeReward, LocusReward, CombinedReward
@@ -15,6 +16,75 @@ if TYPE_CHECKING:
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
+
+
+class DistributionFunction:
+    """
+    A distribution function -- a ``pdf``, ``cdf`` or ``quantile`` -- that is both **callable** and **plottable**.
+
+    Calling it evaluates the function exactly as the former method did (e.g. ``coal.sfs.pdf(t)`` returns the per-bin
+    densities at ``t``), while :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` draws every bin's density curve at
+    once, and for a bivariate distribution ``coal.sfs2.joint_distribution(i, j).pdf.plot()`` draws the 2D heatmap).
+
+    Returned by the ``pdf`` / ``cdf`` / ``quantile`` properties of the distributions; it supersedes the former
+    ``plot_pdf`` / ``plot_cdf`` methods (now deprecated aliases for ``.pdf.plot()`` / ``.cdf.plot()``).
+    """
+
+    def __init__(self, evaluate: Callable, plot: Callable, kind: str = ''):
+        """
+        :param evaluate: The evaluation callback (the former ``cdf`` / ``pdf`` / ``quantile`` method body).
+        :param plot: The plotting callback (the former ``plot_cdf`` / ``plot_pdf`` body, or a quantile-function plot).
+        :param kind: One of ``'cdf'``, ``'pdf'``, ``'quantile'`` (for ``repr``).
+        """
+        self._evaluate = evaluate
+        self._plot = plot
+        #: The kind of function: ``'cdf'``, ``'pdf'`` or ``'quantile'``.
+        self.kind = kind
+
+    def __call__(self, *args, **kwargs):
+        """Evaluate the distribution function (delegates to the wrapped evaluator)."""
+        return self._evaluate(*args, **kwargs)
+
+    def plot(self, *args, **kwargs):
+        """Plot the distribution function (delegates to the wrapped plotter)."""
+        return self._plot(*args, **kwargs)
+
+    def __repr__(self):
+        return f"<{self.kind or 'distribution'} function: call to evaluate, .plot() to draw>"
+
+
+class CallableDistributionFunctions:
+    """
+    Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable :class:`DistributionFunction`
+    properties. Each concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the
+    plotters ``_plot_pdf`` / ``_plot_cdf`` / ``_plot_quantile``; this mixin wires them together and keeps the former
+    ``plot_pdf`` / ``plot_cdf`` methods working as (deprecated) aliases.
+    """
+
+    @property
+    def cdf(self) -> DistributionFunction:
+        """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()``)."""
+        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf')
+
+    @property
+    def pdf(self) -> DistributionFunction:
+        """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()``)."""
+        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf')
+
+    @property
+    def quantile(self) -> DistributionFunction:
+        """Quantile function: callable (``quantile(q)``) and plottable (``quantile.plot()``)."""
+        return DistributionFunction(self._quantile, self._plot_quantile, 'quantile')
+
+    def plot_cdf(self, *args, **kwargs):
+        """Deprecated: use :attr:`cdf`.plot() instead."""
+        warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        return self._plot_cdf(*args, **kwargs)
+
+    def plot_pdf(self, *args, **kwargs):
+        """Deprecated: use :attr:`pdf`.plot() instead."""
+        warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        return self._plot_pdf(*args, **kwargs)
 
 
 class ProbabilityDistribution(ABC):
@@ -339,13 +409,15 @@ class MarginalDemeDistributions(MarginalDistributions):
         return np.array([[self.get_corr(p1, p2) for p1 in pops] for p2 in pops])
 
 
-class DensityAwareDistribution(MomentAwareDistribution, ABC):
+class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistribution, ABC):
     """
-    Abstract base class for probability distributions for which moments and densities can be calculated.
+    Abstract base class for probability distributions for which moments and densities can be calculated. The
+    ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable :class:`DistributionFunction`s (see
+    :class:`CallableDistributionFunctions`); subclasses implement the ``_cdf`` / ``_pdf`` / ``_quantile`` evaluators.
     """
 
     @abstractmethod
-    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -355,14 +427,14 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         pass
 
     @abstractmethod
-    def quantile(self, q: float) -> float:
+    def _quantile(self, q: float) -> float:
         """
         Get the qth quantile.
         """
         pass
 
     @abstractmethod
-    def pdf(self, t: float | Sequence[float], **kwargs: dict) -> float | np.ndarray:
+    def _pdf(self, t: float | Sequence[float], **kwargs: dict) -> float | np.ndarray:
         """
         Density function.
 
@@ -372,7 +444,47 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         """
         pass
 
-    def plot_cdf(
+    def _plot_quantile(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = 'Quantile function'
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function (value versus probability ``q``).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate the quantile at. By default, 99 evenly spaced values in ``(0, 1)``.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        if q is None:
+            q = np.linspace(0.01, 0.99, 99)
+
+        return Visualization.plot(
+            ax=ax,
+            x=q,
+            y=np.array([self._quantile(float(p)) for p in q]),
+            xlabel='q',
+            ylabel='quantile',
+            label=label,
+            file=file,
+            show=show,
+            clear=clear,
+            title=title
+        )
+
+    def _plot_cdf(
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
@@ -397,12 +509,12 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         from ..visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self.quantile(0.99), 200)
+            t = np.linspace(0, self._quantile(0.99), 200)
 
         return Visualization.plot(
             ax=ax,
             x=t,
-            y=self.cdf(t),
+            y=self._cdf(t),
             xlabel='t',
             ylabel='F(t)',
             label=label,
@@ -412,7 +524,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
             title=title
         )
 
-    def plot_pdf(
+    def _plot_pdf(
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
@@ -440,15 +552,15 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         from ..visualization import Visualization
 
         if dx is None:
-            dx = self.quantile(0.99) / 1e10
+            dx = self._quantile(0.99) / 1e10
 
         if t is None:
-            t = np.linspace(0, self.quantile(0.99), 200)
+            t = np.linspace(0, self._quantile(0.99), 200)
 
         return Visualization.plot(
             ax=ax,
             x=t,
-            y=self.pdf(t, dx=dx),
+            y=self._pdf(t, dx=dx),
             xlabel='t',
             ylabel='f(t)',
             label=label,

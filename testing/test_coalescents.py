@@ -61,7 +61,7 @@ class CoalescentTestCase(TestCase):
         coal = self.get_simple_coalescent()
 
         m = coal.tree_height.mean
-        coal.tree_height.plot_pdf()
+        coal.tree_height.pdf.plot()
 
         self.assertAlmostEqual(m, 1)
 
@@ -220,7 +220,7 @@ class CoalescentTestCase(TestCase):
         coal = self.get_complex_coalescent()
 
         m = coal.tree_height.mean
-        coal.tree_height.plot_pdf()
+        coal.tree_height.pdf.plot()
 
         self.assertAlmostEqual(m, 5.91979, delta=5)
 
@@ -901,7 +901,7 @@ class CoalescentTestCase(TestCase):
             ),
         )
 
-        coal.tree_height.plot_cdf()
+        coal.tree_height.cdf.plot()
         coal.tree_height.plot_accumulation(1)
 
         self.assertNoLogs(level='WARNING', logger=coal._logger)
@@ -1179,7 +1179,7 @@ class CoalescentTestCase(TestCase):
 
             t = np.linspace(0, coal.tree_height.quantile(0.99), 200)
             data += [coal.tree_height.pdf(t=t)]
-            coal.tree_height.plot_pdf(ax=axs[i], label=f'N={N}', show=False, t=t)
+            coal.tree_height.pdf.plot(ax=axs[i], label=f'N={N}', show=False, t=t)
 
         plt.show()
 

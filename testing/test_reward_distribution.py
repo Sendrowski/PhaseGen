@@ -375,8 +375,8 @@ def test_joint_distribution_2d_density_and_cdf():
     cross = (np.outer(x2, y2) * f2).sum() * (x2[1] - x2[0]) * (y2[1] - y2[0])
     assert abs(cross - jd2.moment(1, 1)) < 1e-2  # E[L_2 L_3]
 
-    jd.plot_pdf(show=False)
-    jd.plot_cdf(show=False, n_points=15)
+    jd.pdf.plot(show=False)
+    jd.cdf.plot(show=False, n_points=15)
 
 
 def test_joint_reward_distribution_two_locus():
@@ -433,7 +433,7 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
 
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
 def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
-    """``plot_pdf`` / ``plot_cdf`` draw one curve per bin on a single axes (unfolded and folded)."""
+    """``pdf.plot`` / ``cdf.plot`` / ``quantile.plot`` draw one curve per bin on a single axes (unfolded/folded)."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -441,13 +441,53 @@ def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     dist = getattr(pg.Coalescent(n=7), dist_name)
 
     _, ax = plt.subplots()
-    dist.plot_pdf(ax=ax, show=False)
+    dist.pdf.plot(ax=ax, show=False)
     assert len(ax.get_lines()) == n_bins
 
     _, ax = plt.subplots()
-    dist.plot_cdf(ax=ax, bins=[1, 2], show=False)
+    dist.cdf.plot(ax=ax, bins=[1, 2], show=False)
+    assert len(ax.get_lines()) == 2
+
+    _, ax = plt.subplots()
+    dist.quantile.plot(ax=ax, bins=[1, 2], show=False)
     assert len(ax.get_lines()) == 2
     plt.close('all')
+
+
+def test_distribution_functions_are_callable_and_plottable():
+    """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
+    expose ``.plot()``. The former ``plot_pdf``/``plot_cdf`` still work but warn (deprecated)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    from phasegen.distributions.base import DistributionFunction
+
+    coal = pg.Coalescent(n=5)
+
+    # spectra: callable returns the per-bin spectrum, identical to the underlying evaluation
+    assert isinstance(coal.sfs.pdf, DistributionFunction)
+    assert np.allclose(np.asarray(coal.sfs.cdf(1.3).data), np.asarray(coal.sfs._cdf(1.3).data))
+
+    # univariate (tree height): callable scalar + plottable
+    assert isinstance(coal.tree_height.quantile, DistributionFunction)
+    assert coal.tree_height.cdf(1.0) == pytest.approx(coal.tree_height._cdf(1.0))
+    coal.tree_height.pdf.plot(show=False)
+    coal.tree_height.quantile.plot(show=False)
+
+    # 2D joint: callable (x, y) + heatmap plot
+    jd = coal.sfs.joint_distribution(1, 2)
+    assert isinstance(jd.cdf, DistributionFunction)
+    assert jd.cdf(1.0, 1.0) == pytest.approx(jd._cdf(1.0, 1.0))
+    jd.pdf.plot(show=False)
+
+    # the two-locus distribution intentionally has no univariate cdf/pdf/quantile
+    with pytest.raises(NotImplementedError):
+        pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.cdf(1.0)
+
+    # deprecated aliases still work but warn
+    with pytest.warns(DeprecationWarning):
+        coal.sfs.plot_pdf(show=False)
+    with pytest.warns(DeprecationWarning):
+        jd.plot_cdf(show=False, n_points=12)
 
 
 def test_phasetype_distribution_exposes_cdf_pdf_quantile():

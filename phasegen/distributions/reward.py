@@ -29,6 +29,7 @@ while the chain passes through them. An atom at ``R = 0`` (e.g. an SFS bin that 
 automatically by the inversion.
 """
 import logging
+import warnings
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
@@ -40,6 +41,7 @@ import scipy.sparse.linalg as spla
 
 from ..rewards import Reward
 from ..settings import Settings
+from .base import DistributionFunction
 from ._moments import MomentEvaluator
 
 if TYPE_CHECKING:
@@ -397,7 +399,7 @@ class JointRewardDistribution:
         cy = np.cos(np.outer(st['ub'], ys))
         return cx.T @ st['A'] @ cy
 
-    def pdf(self, x, y):
+    def _pdf(self, x, y):
         """
         Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
         atom mass on the axes where a reward is zero (see :attr:`_atoms`); a non-empty SFS bin pair has none there.
@@ -444,7 +446,7 @@ class JointRewardDistribution:
         cc = self._cc_box(np.asarray(xs, float), np.asarray(ys, float))
         return g_b[:, None] + g_a[None, :] - both0 + cc
 
-    def cdf(self, x, y):
+    def _cdf(self, x, y):
         """
         Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(0 < R_a <= x,
         R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
@@ -459,15 +461,35 @@ class JointRewardDistribution:
             return float(self._atoms['both0'] if t <= 0.0 else self.marginal('a').cdf(t))
         return float(self._cdf_grid(np.atleast_1d(x), np.atleast_1d(y))[0, 0])
 
-    def plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,
-                 title: str = 'Joint reward PDF') -> 'plt.Axes':
+    @property
+    def pdf(self) -> DistributionFunction:
+        """Joint density of ``(R_a, R_b)``: callable (``pdf(x, y)``) and plottable as a heatmap (``pdf.plot()``)."""
+        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf')
+
+    @property
+    def cdf(self) -> DistributionFunction:
+        """Joint CDF of ``(R_a, R_b)``: callable (``cdf(x, y)``) and plottable as a heatmap (``cdf.plot()``)."""
+        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf')
+
+    def _plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,
+                  title: str = 'Joint reward PDF') -> 'plt.Axes':
         """Heatmap of the joint (continuous) density of ``(R_a, R_b)``."""
         return self._plot_joint('pdf', ax, n_points, show, file, title)
 
-    def plot_cdf(self, ax: 'plt.Axes' = None, n_points: int = 60, show: bool = True, file: str = None,
-                 title: str = 'Joint reward CDF') -> 'plt.Axes':
+    def _plot_cdf(self, ax: 'plt.Axes' = None, n_points: int = 60, show: bool = True, file: str = None,
+                  title: str = 'Joint reward CDF') -> 'plt.Axes':
         """Heatmap of the joint CDF of ``(R_a, R_b)``."""
         return self._plot_joint('cdf', ax, n_points, show, file, title)
+
+    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
+        """Deprecated: use ``.pdf.plot()`` instead."""
+        warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        return self._plot_pdf(*args, **kwargs)
+
+    def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
+        """Deprecated: use ``.cdf.plot()`` instead."""
+        warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        return self._plot_cdf(*args, **kwargs)
 
     def _plot_joint(self, kind, ax, n_points, show, file, title):
         import matplotlib.pyplot as plt

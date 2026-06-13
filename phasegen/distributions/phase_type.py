@@ -14,7 +14,8 @@ from ..settings import Settings
 from ..spectrum import SFS
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from .base import DensityAwareDistribution, MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution
+from .base import CallableDistributionFunctions, DensityAwareDistribution, MarginalDemeDistributions, \
+    MarginalLocusDistributions, MomentAwareDistribution
 from ._moments import MomentEvaluator
 
 if TYPE_CHECKING:
@@ -25,7 +26,7 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
+class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, MomentAwareDistribution):
     """
     Phase-type distribution for a piecewise time-homogeneous process.
     """
@@ -140,7 +141,7 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
 
         return _build_epoch_data(self)
 
-    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function of the accumulated reward, ``P(R <= t)``, via the Laplace-Stieltjes
         transform and its numerical inversion (see :class:`RewardDistribution`).
@@ -150,7 +151,7 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
         """
         return self._reward_distribution.cdf(t)
 
-    def pdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+    def _pdf(self, t: float | Sequence[float], **kwargs) -> float | np.ndarray:
         """
         Probability density function of the accumulated reward.
 
@@ -159,7 +160,7 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
         """
         return self._reward_distribution.pdf(t)
 
-    def quantile(self, q: float) -> float:
+    def _quantile(self, q: float) -> float:
         """
         The ``q``-quantile of the accumulated reward.
 
@@ -167,6 +168,25 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
         :return: The quantile.
         """
         return self._reward_distribution.quantile(q)
+
+    def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = 'CDF') -> 'plt.Axes':
+        """Plot the CDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
+        return self._plot_reward_curves('cdf', [(label or 'cdf', self.reward)], ax, t, n_points, show, file, clear,
+                                        title)
+
+    def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = 'PDF') -> 'plt.Axes':
+        """Plot the PDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
+        return self._plot_reward_curves('pdf', [(label or 'pdf', self.reward)], ax, t, n_points, show, file, clear,
+                                        title)
+
+    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
+                       file: str = None, clear: bool = True, label: str = None,
+                       title: str = 'Quantile function') -> 'plt.Axes':
+        """Plot the quantile function (accumulated reward versus probability ``q``)."""
+        return self._plot_reward_curves('quantile', [(label or 'quantile', self.reward)], ax, q, n_points, show, file,
+                                        clear, title)
 
     def _plot_reward_curves(
             self,
@@ -195,17 +215,29 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
         dists = [(label, self.distribution(reward=reward)) for label, reward in items]
 
         if x is None:
-            x = np.linspace(0, max(d._range() for _, d in dists), n_points)
+            # the quantile function lives on the probability axis q in (0, 1); cdf/pdf on the reward-value axis
+            x = np.linspace(0.01, 0.99, n_points) if kind == 'quantile' \
+                else np.linspace(0, max(d._range() for _, d in dists), n_points)
         else:
             x = np.asarray(x, dtype=float)
 
+        ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
+        xlabel = 'q' if kind == 'quantile' else 'accumulated branch length'
+
         for k, (label, d) in enumerate(dists):
+            if kind == 'cdf':
+                y = d.cdf_curve(x)
+            elif kind == 'pdf':
+                y = d.pdf_curve(x)
+            else:
+                y = np.array([d.quantile(float(q)) for q in x])
+
             Visualization.plot(
                 ax=ax,
                 x=x,
-                y=d.cdf_curve(x) if kind == 'cdf' else d.pdf_curve(x),
-                xlabel='accumulated branch length',
-                ylabel='F(x)' if kind == 'cdf' else 'f(x)',
+                y=y,
+                xlabel=xlabel,
+                ylabel=ylabel,
                 label=str(label),
                 file=file,
                 show=(k == len(dists) - 1 and show),
@@ -448,7 +480,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         #: End time
         self.end_time: float | None = end_time
 
-    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -462,7 +494,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         # assume scalar if not array
         if not isinstance(t, Iterable):
-            return self.cdf(np.array([t]))[0]
+            return self._cdf(np.array([t]))[0]
 
         # check for negative values
         if np.any(t < 0):
@@ -572,7 +604,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return float(1 - self.state_space.alpha @ T @ self._e)
 
     @cache
-    def quantile(
+    def _quantile(
             self,
             q: float,
             expansion_factor: float = 2,
@@ -632,7 +664,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return (a + b) / 2
 
-    def pdf(self, t: float | Sequence[float], dx: float = None) -> float | np.ndarray:
+    def _pdf(self, t: float | Sequence[float], dx: float = None) -> float | np.ndarray:
         """
         Density function. We use numerical differentiation of the CDF to calculate the density. This provides good
         results as the CDF is exact and continuous.
@@ -642,7 +674,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :return: Density
         """
         if dx is None:
-            dx = self.quantile(0.99) / 1e10
+            dx = self._quantile(0.99) / 1e10
 
         if isinstance(t, Iterable):
             t = np.array(t)
@@ -651,7 +683,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         x1 = np.max([t - dx / 2, np.zeros_like(t)], axis=0)
         x2 = x1 + dx
 
-        return (self.cdf(x2) - self.cdf(x1)) / dx
+        return (self._cdf(x2) - self._cdf(x1)) / dx
 
     @cached_property
     def t_max(self) -> float:

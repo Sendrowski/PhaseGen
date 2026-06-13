@@ -215,7 +215,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         return np.mean(self.samples ** k, axis=0)
 
-    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function.
 
@@ -233,7 +233,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
-    def quantile(self, q: float) -> float:
+    def _quantile(self, q: float) -> float:
         """
         Get the qth quantile.
 
@@ -242,7 +242,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         return np.quantile(self.samples, q=q)
 
-    def pdf(
+    def _pdf(
             self,
             t: float | np.ndarray,
             n_bins: int = 10000,
@@ -262,7 +262,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         samples = self.samples if samples is None else samples
 
         if samples.ndim == 2:
-            return np.array([self.pdf(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
+            return np.array([self._pdf(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
 
         hist, bin_edges = np.histogram(samples, range=(0, max(samples)), bins=n_bins, density=True)
 

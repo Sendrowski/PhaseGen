@@ -342,22 +342,22 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         return super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
 
-    def cdf(self, t: float) -> SFS:
+    def _cdf(self, t: float) -> SFS:
         """Per-bin CDF at ``t``: an :class:`SFS` whose ``i``-th entry is ``P(L_i <= t)`` (like :attr:`mean`)."""
         _require_scalar(t)
         return self._per_bin(lambda d: d.cdf(t))
 
-    def pdf(self, t: float) -> SFS:
+    def _pdf(self, t: float, **kwargs) -> SFS:
         """Per-bin PDF at ``t``: an :class:`SFS` whose ``i``-th entry is the density of ``L_i`` at ``t``."""
         _require_scalar(t)
         return self._per_bin(lambda d: d.pdf(t))
 
-    def quantile(self, q: float) -> SFS:
+    def _quantile(self, q: float) -> SFS:
         """Per-bin ``q``-quantile: an :class:`SFS` whose ``i``-th entry is the ``q``-quantile of ``L_i``."""
         _require_scalar(q)
         return self._per_bin(lambda d: d.quantile(q))
 
-    def plot_cdf(
+    def _plot_cdf(
             self,
             ax: 'plt.Axes' = None,
             x: np.ndarray = None,
@@ -384,7 +384,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return self._plot_reward_curves('cdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
                                         clear, title)
 
-    def plot_pdf(
+    def _plot_pdf(
             self,
             ax: 'plt.Axes' = None,
             x: np.ndarray = None,
@@ -409,6 +409,33 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :return: Axes.
         """
         return self._plot_reward_curves('pdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
+                                        clear, title)
+
+    def _plot_quantile(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = 99,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'SFS bin quantile functions'
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function of every SFS bin at once (bin branch length versus probability ``q``).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate the quantiles at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param bins: The bins (frequency classes) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('quantile', self._bin_distribution_items(bins), ax, q, n_points, show, file,
                                         clear, title)
 
     def get_accumulation(
@@ -1029,17 +1056,17 @@ class JointSFSDistribution(PhaseTypeDistribution):
             out[config] = fn(self.distribution(reward=JointSFSReward(config)))
         return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
-    def cdf(self, t: float) -> JointSFS:
+    def _cdf(self, t: float) -> JointSFS:
         """Per-bin CDF at ``t``: a :class:`JointSFS` whose entry ``c`` is ``P(L_c <= t)`` (like :attr:`mean`)."""
         _require_scalar(t)
         return self._per_config(lambda d: d.cdf(t))
 
-    def pdf(self, t: float) -> JointSFS:
+    def _pdf(self, t: float, **kwargs) -> JointSFS:
         """Per-bin PDF at ``t``: a :class:`JointSFS` whose entry ``c`` is the density of ``L_c`` at ``t``."""
         _require_scalar(t)
         return self._per_config(lambda d: d.pdf(t))
 
-    def quantile(self, q: float) -> JointSFS:
+    def _quantile(self, q: float) -> JointSFS:
         """Per-bin ``q``-quantile: a :class:`JointSFS` whose entry ``c`` is the ``q``-quantile of ``L_c``."""
         _require_scalar(q)
         return self._per_config(lambda d: d.quantile(q))
@@ -1060,7 +1087,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         return super().joint_distribution(JointSFSReward(tuple(config_a)), JointSFSReward(tuple(config_b)))
 
-    def plot_cdf(
+    def _plot_cdf(
             self,
             ax: 'plt.Axes' = None,
             x: np.ndarray = None,
@@ -1087,7 +1114,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         return self._plot_reward_curves('cdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
                                         clear, title)
 
-    def plot_pdf(
+    def _plot_pdf(
             self,
             ax: 'plt.Axes' = None,
             x: np.ndarray = None,
@@ -1113,6 +1140,33 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         return self._plot_reward_curves('pdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
                                         clear, title)
+
+    def _plot_quantile(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = 99,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'Joint SFS bin quantile functions'
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function of every joint SFS bin at once (bin branch length versus probability ``q``).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate the quantiles at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('quantile', self._config_distribution_items(configs), ax, q, n_points, show,
+                                        file, clear, title)
 
     def accumulate(
             self,
