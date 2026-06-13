@@ -18,6 +18,8 @@ comparisons:
       mean: 0.15
       var: 0.3
     total_branch_length:
+      pdf: 2
+      cdf: 2
       mean: 0.15
       var: 0.3
     sfs:

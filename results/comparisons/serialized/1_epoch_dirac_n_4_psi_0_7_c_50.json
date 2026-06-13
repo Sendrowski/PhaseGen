@@ -21,6 +21,7 @@
                 "var": 0.01
             },
             "total_branch_length": {
+                "cdf": 0.02,
                 "mean": 0.01,
                 "var": 0.01
             },
