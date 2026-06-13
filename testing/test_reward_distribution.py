@@ -390,6 +390,47 @@ def test_joint_reward_distribution_two_locus():
         assert jd.corr() == pytest.approx(corr[i, j], rel=1e-4)
 
 
+def test_self_pair_joint_distribution_reduces_to_marginal():
+    """A bin paired with itself is degenerate on the diagonal (``L_a = L_b`` a.s.): the joint CDF equals the
+    marginal CDF at ``min(x, y)`` exactly -- including the atom at 0 -- and the 2D density is singular (raises)."""
+    coal = pg.Coalescent(n=6)
+    # an atom-free bin (singletons, L_1 > 0 a.s.) and an atom-bearing bin (bin 3 is empty with positive probability)
+    for i in (1, 3):
+        jd = coal.sfs.joint_distribution(i, i)
+        assert jd._is_diagonal
+        m = jd.marginal('a')
+        for x, y in [(0.5, 1.3), (1.3, 0.5), (0.9, 0.9), (2.0, 0.2)]:
+            assert jd.cdf(x, y) == pytest.approx(m.cdf(min(x, y)), abs=1e-9)
+        # at min(x, y) == 0 the CDF is the atom P(L_i = 0), not the (unreliable) de Hoog inversion at t = 0
+        assert jd.cdf(0.0, 1.0) == pytest.approx(jd._atoms['both0'], abs=1e-12)
+        # the joint law lives on the diagonal and has no 2D density
+        with pytest.raises(NotImplementedError):
+            jd.pdf(1.0, 1.0)
+
+    # the atom-bearing self-pair actually carries mass at 0
+    assert coal.sfs.joint_distribution(3, 3)._atoms['both0'] > 0.05
+
+
+def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
+    """``JointSFSDistribution.joint_distribution`` is the within-tree bivariate object behind the multi-population
+    SFS cross-moment: its marginals match the joint SFS mean, its ``(1, 1)`` moment is a positive cross-moment, and
+    a config paired with itself is the singular diagonal."""
+    dem = pg.Demography(
+        pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.5}},
+        migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+    )
+    jsfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).jsfs
+    mean = np.asarray(jsfs.mean.data)
+
+    ca, cb = (1, 0), (0, 1)
+    jd = jsfs.joint_distribution(ca, cb)
+    assert jd.marginal('a')._cumulants()[0] == pytest.approx(mean[ca], rel=1e-6)
+    assert jd.marginal('b')._cumulants()[0] == pytest.approx(mean[cb], rel=1e-6)
+    assert jd.moment(1, 1) > 0
+    assert -1.0 <= jd.corr() <= 1.0
+    assert jsfs.joint_distribution(ca, ca)._is_diagonal
+
+
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
 def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     """``plot_pdf`` / ``plot_cdf`` draw one curve per bin on a single axes (unfolded and folded)."""

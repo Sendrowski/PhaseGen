@@ -1,7 +1,7 @@
 n:
   pop_0: 2
   pop_1: 2
-num_replicates: 500000
+num_replicates: 1000000
 seed: 103
 model: dirac
 psi: 0.5
@@ -19,4 +19,5 @@ migration_rates:
 comparisons:
   tolerance:
     jsfs:
+      joint: 0.03
       mean: 0.03

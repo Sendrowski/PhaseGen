@@ -1,7 +1,7 @@
 n:
   pop_0: 4
   pop_1: 4
-num_replicates: 500000
+num_replicates: 1000000
 seed: 105
 pop_sizes:
   pop_0:
@@ -17,4 +17,5 @@ model: standard
 comparisons:
   tolerance:
     jsfs:
+      joint: 0.03
       mean: 0.06

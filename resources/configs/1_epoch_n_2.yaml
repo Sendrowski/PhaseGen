@@ -21,6 +21,7 @@ comparisons:
       m3: 0.05
       m4: 0.05
     sfs:
+      joint: 0.02
       mean: 0.01
       cov: 0.02
       corr: 0.02

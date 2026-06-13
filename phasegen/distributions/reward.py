@@ -316,6 +316,14 @@ class JointRewardDistribution:
         """The marginal accumulated-reward distribution of ``R_a`` (``which='a'``) or ``R_b`` (``which='b'``)."""
         return RewardDistribution(self._host, self.reward_a if which == 'a' else self.reward_b)
 
+    @cached_property
+    def _is_diagonal(self) -> bool:
+        """Whether the two rewards are identical, so ``R_a = R_b`` almost surely. The joint law then lives on the
+        diagonal -- a singular measure the smooth 2D representation cannot resolve -- but the joint CDF reduces in
+        closed form to the marginal at ``min(x, y)`` (see :meth:`cdf`)."""
+        st = self._setup
+        return np.array_equal(st['ra'], st['rb'])
+
     def moment(self, order_a: int = 1, order_b: int = 1, center: bool = False) -> float:
         """
         The cross-moment ``E[R_a^{order_a} R_b^{order_b}]`` (uncentered by default), via the exact moment engine —
@@ -398,6 +406,10 @@ class JointRewardDistribution:
         :param y: ``R_b`` value(s).
         :return: Density, scalar or a ``(len(x), len(y))`` grid.
         """
+        if self._is_diagonal:
+            raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
+                                      "almost surely): the law lives on the diagonal and has no 2D density. Use "
+                                      "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         f = np.clip(self._density(xs, ys), 0.0, None)  # clip for display only
         return float(f.ravel()[0]) if f.size == 1 else f
@@ -437,7 +449,14 @@ class JointRewardDistribution:
         Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(0 < R_a <= x,
         R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
         continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)`` (the cosine density integrated in closed form).
+
+        When both rewards are identical (``R_a = R_b`` almost surely, e.g. a bin paired with itself) the joint law
+        is singular on the diagonal; the CDF then reduces exactly to ``P(R <= min(x, y))`` of the shared marginal.
         """
+        if self._is_diagonal:
+            t = min(float(np.atleast_1d(x)[0]), float(np.atleast_1d(y)[0]))
+            # at t = 0 the marginal CDF is the atom P(R = 0) (the de Hoog inversion misses the jump there)
+            return float(self._atoms['both0'] if t <= 0.0 else self.marginal('a').cdf(t))
         return float(self._cdf_grid(np.atleast_1d(x), np.atleast_1d(y))[0, 0])
 
     def plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,

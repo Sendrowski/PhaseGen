@@ -35,15 +35,51 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
     as cached ground truth).
     """
 
-    def __init__(self, moments: np.ndarray):
+    def __init__(self, moments: np.ndarray, samples: np.ndarray = None):
         """
         Initialize the distribution.
 
         :param moments: Per-configuration (non-central) moments of orders ``1, 2, ...``, stacked along the first
             axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
+        :param samples: Optional per-replicate joint SFS branch lengths, shape ``(n_replicates, n_0 + 1, ...)``, used
+            to pre-compute the within-tree joint ground truth (:meth:`cache_joint`); dropped before serialization.
         """
         #: Non-central moments per descendant configuration, indexed by order minus one.
         self._moments: np.ndarray = np.asarray(moments)
+
+        #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint`).
+        self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
+
+        #: Cached within-tree joint ground truth: ``[(config_a, config_b, cross, [(x, y, cdf), ...]), ...]``.
+        self._joint: list = []
+
+    def cross_moment(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+        """Empirical within-tree cross-moment ``E[L_{config_a} · L_{config_b}]`` from the per-replicate samples."""
+        a = self.samples[(slice(None),) + tuple(config_a)]
+        b = self.samples[(slice(None),) + tuple(config_b)]
+        return float((a * b).mean())
+
+    def joint_cdf(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...], x: float, y: float) -> float:
+        """Empirical within-tree joint CDF ``P(L_{config_a} <= x, L_{config_b} <= y)`` from the per-replicate samples."""
+        a = self.samples[(slice(None),) + tuple(config_a)]
+        b = self.samples[(slice(None),) + tuple(config_b)]
+        return float(((a <= x) & (b <= y)).mean())
+
+    def cache_joint(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], quantiles: List[Tuple[float, float]]):
+        """Pre-compute, for each config pair, the empirical cross-moment and the joint CDF at marginal-quantile
+        points, so the joint ground truth is serialized with the comparison and survives :meth:`drop`. Mirrors
+        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint` but indexed by descendant configuration."""
+        self._joint = []
+        for ca, cb in pairs:
+            a = self.samples[(slice(None),) + tuple(ca)]
+            b = self.samples[(slice(None),) + tuple(cb)]
+            points = [(float(np.quantile(a, qa)), float(np.quantile(b, qb)),
+                       self.joint_cdf(ca, cb, np.quantile(a, qa), np.quantile(b, qb))) for qa, qb in quantiles]
+            self._joint.append((tuple(ca), tuple(cb), float((a * b).mean()), points))
+
+    def drop(self):
+        """Drop the (large) per-replicate samples once the joint ground truth has been cached."""
+        self.samples = None
 
     @property
     def mean(self) -> JointSFS:
@@ -720,6 +756,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Joint SFS (non-central) moments per descendant configuration, of orders 1, ..., ``_jsfs_max_order``.
         self.jsfs_moments: np.ndarray | None = None
 
+        #: Per-replicate joint SFS branch lengths (capped subset) for the within-tree joint ground truth.
+        self.jsfs_samples: np.ndarray | None = None
+
         #: Number of replicates.
         self.num_replicates: int = num_replicates
 
@@ -779,6 +818,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
         name_to_index = {name: i for i, name in enumerate(self.demography.pop_names)}
         n_total = num_replicates * self.n_threads
+        # retain a capped subset of per-replicate joint SFS branch lengths (the moments use all replicates; the
+        # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
+        jsfs_sample_cap = self._jsfs_sample_cap // self.n_threads
 
         def simulate_batch(seed: Optional[int]) -> dict:
             """
@@ -812,6 +854,9 @@ class MsprimeCoalescent(AbstractCoalescent):
 
             # joint SFS moment accumulator (non-central moments of orders 1, ..., jsfs_max_order)
             jsfs_acc = np.zeros((jsfs_max_order,) + jsfs_shape)
+
+            # capped per-replicate joint SFS branch lengths for the within-tree joint ground truth
+            jsfs_samples = np.zeros((min(num_replicates, jsfs_sample_cap),) + jsfs_shape) if compute_jsfs else None
 
             # iterate over trees and compute statistics
             ts: tskit.TreeSequence
@@ -916,6 +961,9 @@ class MsprimeCoalescent(AbstractCoalescent):
                         for order in range(jsfs_max_order):
                             jsfs_acc[order] += jsfs_rep ** (order + 1)
 
+                        if i < jsfs_sample_cap:
+                            jsfs_samples[i] = jsfs_rep
+
                 # simulate mutations if specified
                 if self.simulate_mutations:
 
@@ -927,7 +975,8 @@ class MsprimeCoalescent(AbstractCoalescent):
 
             return dict(
                 main=np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T, mutations.T]),
-                jsfs=jsfs_acc
+                jsfs=jsfs_acc,
+                jsfs_samples=jsfs_samples
             )
 
         # parallelize over threads
@@ -951,6 +1000,9 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         # combine the joint SFS moments (summed over replicates) across threads and normalize to moments
         self.jsfs_moments = np.sum([b['jsfs'] for b in batches], axis=0) / n_total if compute_jsfs else None
+
+        # combine the (capped) per-replicate joint SFS branch lengths across threads for the joint ground truth
+        self.jsfs_samples = np.concatenate([b['jsfs_samples'] for b in batches]) if compute_jsfs else None
 
     @staticmethod
     def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:
@@ -992,18 +1044,18 @@ class MsprimeCoalescent(AbstractCoalescent):
         # cache the within-tree joint distribution ground truth (cross-moment + joint CDF at marginal-quantile
         # points) so the full-replicate joint is serialized with the comparison and survives the subsequent drop().
         # The two-locus joint is cached by the dedicated two-locus fixture script (which does not call touch()).
-        # only genuine cross-bin pairs (i < j): the self-pair (i, i) is a singular diagonal distribution
-        # (L_i vs L_i), which the smooth 2D representation cannot resolve and which is not a meaningful 2-SFS
+        # all bin pairs (i <= j), including the self-pair (i, i): there R_a = R_b a.s., so the joint law is singular
+        # on the diagonal but its CDF reduces exactly to the marginal at min(x, y) (handled in JointRewardDistribution)
         if self.lineage_config.n_pops == 1 and self.locus_config.n == 1:
             n = self.lineage_config.n
-            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i + 1, n)],
+            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i, n)],
                                  [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 
         # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for
-        # multi-population, single-locus scenarios, so it is serialized along with the comparison
+        # multi-population, single-locus scenarios, so it is serialized along with the comparison, together with the
+        # within-tree joint distribution ground truth
         if self.lineage_config.n_pops > 1 and self.locus_config.n == 1:
-            # noinspection PyStatementEffect
-            self.jsfs
+            self.cache_jsfs_joint()
 
     def drop(self):
         """
@@ -1017,6 +1069,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # the moments are retained by the cached jsfs distribution (referenced before drop), so this only removes
         # the duplicate reference held on the coalescent
         self.jsfs_moments = None
+        self.jsfs_samples = None
 
         self.tree_height.drop()
         self.total_tree_height.drop()
@@ -1101,6 +1154,9 @@ class MsprimeCoalescent(AbstractCoalescent):
     #: Highest moment order computed for the empirical joint SFS ground truth.
     _jsfs_max_order: int = 3
 
+    #: Max number of per-replicate joint SFS branch lengths retained for the within-tree joint ground truth
+    _jsfs_sample_cap: int = 200000
+
     @cached_property
     def jsfs(self) -> 'EmpiricalJointSFSDistribution':
         """
@@ -1118,7 +1174,24 @@ class MsprimeCoalescent(AbstractCoalescent):
                 "The joint SFS is only available for multi-population, single-locus scenarios."
             )
 
-        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments)
+        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples)
+
+    def cache_jsfs_joint(self):
+        """
+        Cache the within-tree joint distribution ground truth on the joint SFS, then drop the per-replicate samples.
+        The config pairs are the few descendant configurations carrying the most branch length (so the
+        marginal-quantile evaluation points sit well away from any atom at 0), paired all-against-all (including the
+        self-pair). The cross-moment and the joint CDF at marginal-quantile points are then serialized with the
+        comparison and validated at test time via :meth:`Comparison.compare_stat` (the ``joint`` stat).
+        """
+        jsfs = self.jsfs
+        mean = self.jsfs_moments[0]
+        full = tuple(int(s) for s in self.lineage_config.lineages)
+        configs = [c for c in np.ndindex(mean.shape) if 0 < sum(c) < sum(full) and c != full]
+        top = sorted(configs, key=lambda c: mean[c], reverse=True)[:4]
+        pairs = [(top[a], top[b]) for a in range(len(top)) for b in range(a, len(top))]
+        jsfs.cache_joint(pairs, [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
+        jsfs.drop()
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':

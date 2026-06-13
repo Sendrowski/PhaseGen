@@ -1049,6 +1049,17 @@ class JointSFSDistribution(PhaseTypeDistribution):
         cfgs = self._get_configs() if configs is None else list(configs)
         return [(c, JointSFSReward(c)) for c in cfgs]
 
+    def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]):
+        """The joint distribution of the branch lengths of two joint SFS bins *within a tree* — the bivariate object
+        behind the within-tree cross-moment ``E[L_{config_a} · L_{config_b}]`` of the multi-population SFS. Its
+        ``(1, 1)`` cross-moment is that entry and its ``corr`` is the within-tree correlation of the two bins.
+
+        :param config_a: The first descendant configuration (one count per population).
+        :param config_b: The second descendant configuration.
+        :return: The joint accumulated-reward distribution of ``(L_{config_a}, L_{config_b})``.
+        """
+        return super().joint_distribution(JointSFSReward(tuple(config_a)), JointSFSReward(tuple(config_b)))
+
     def plot_cdf(
             self,
             ax: 'plt.Axes' = None,
