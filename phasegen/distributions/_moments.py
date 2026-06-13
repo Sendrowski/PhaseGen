@@ -1,4 +1,6 @@
 """
+Moment evaluation engine: the Van Loan / closed-form / matrix-exponential machinery shared by every
+phase-type distribution, mixed into :class:`PhaseTypeDistribution`.
 """
 
 import itertools
@@ -27,40 +29,46 @@ class MomentEvaluator:
     """Moment-evaluation methods operating on a phase-type distribution (``self``)."""
 
     @staticmethod
-    def _get_van_loan_matrix(R: List[np.ndarray], S: np.ndarray, k: int = 1) -> np.ndarray:
+    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False):
         """
-        Get the block matrix for the given reward matrices and transition matrix.
+        Block upper-bidiagonal Van Loan matrix: the intensity matrix ``S`` on the ``k + 1`` diagonal blocks and the
+        reward matrices ``diag(R[i])`` on the super-diagonal. ``R`` is a list of reward *vectors* (the reward
+        diagonals). Returns a sparse CSR matrix when ``sparse`` (assembled directly, never densifying the
+        ``(k + 1) * n`` block matrix), else a dense array.
 
-        :param R: List of length k of reward matrices
-        :param S: Intensity matrix
+        :param R: List of length k of reward vectors.
+        :param S: Intensity matrix (dense or sparse, matching ``sparse``).
         :param k: The order of the moment.
-        :return: Van Loan matrix which is a block matrix of size (k + 1) * (k + 1)
+        :param sparse: Whether to build a sparse matrix.
+        :return: Van Loan matrix of size ``(k + 1) * (k + 1)`` blocks.
         """
-        # matrix of zeros
-        O = np.zeros_like(S)
+        if sparse:
+            blocks = [[None] * (k + 1) for _ in range(k + 1)]
+            for i in range(k + 1):
+                blocks[i][i] = S
+                if i < k:
+                    blocks[i][i + 1] = sp.diags(R[i])
+            return sp.bmat(blocks, format='csr')
 
-        # create compound matrix
-        return np.block([[S if i == j else R[i] if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)])
+        O = np.zeros_like(S)
+        return np.block([
+            [S if i == j else np.diag(R[i]) if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)
+        ])
 
     @staticmethod
-    def _get_van_loan_matrix_sparse(R: List[np.ndarray], S: 'sp.spmatrix', k: int = 1) -> 'sp.spmatrix':
+    def _lu_solver(A, sparse: bool):
         """
-        Sparse, block-bidiagonal Van Loan matrix: the (sparse) intensity matrix ``S`` on the diagonal and the
-        (diagonal) reward matrices on the super-diagonal. Built directly as a sparse matrix to avoid materializing
-        the dense ``(k + 1) * n`` block matrix.
+        Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``, reusable across
+        right-hand sides (the closed form back-substitutes against the same transient sub-generator repeatedly).
 
-        :param R: List of length k of reward vectors (the diagonals of the reward matrices).
-        :param S: Sparse intensity matrix.
-        :param k: The order of the moment.
-        :return: Sparse Van Loan matrix of size ``(k + 1) * (k + 1)`` blocks.
+        :param A: The matrix to factorize (sparse or dense, matching ``sparse``).
+        :param sparse: Whether to use the sparse factorization.
+        :return: Callable ``b -> x`` solving ``A x = b``.
         """
-        blocks = [[None] * (k + 1) for _ in range(k + 1)]
-        for i in range(k + 1):
-            blocks[i][i] = S
-            if i < k:
-                blocks[i][i + 1] = sp.diags(R[i])
-
-        return sp.bmat(blocks, format='csr')
+        if sparse:
+            return spla.splu(sp.csc_matrix(A)).solve
+        lu = sla.lu_factor(A)
+        return lambda b: sla.lu_solve(lu, b)
 
     @_make_hashable
     @cache
@@ -405,10 +413,10 @@ class MomentEvaluator:
         self._check_numerical_stability(S, 0)
 
         # get reward matrix
-        R = [np.diag(r._get(state_space=self.state_space)) for r in rewards]
+        R = [r._get(state_space=self.state_space) for r in rewards]
 
         # get Van Loan matrix
-        V = self._get_van_loan_matrix(S=S, R=R, k=k)
+        V = self._van_loan_matrix(R, S, k)
 
         # The Van Loan exponential is evaluated over the absorption time, which scales with Ne (the doubling search
         # in ``_get_absorption_time`` deliberately spans many orders of magnitude). For a large time the dense
@@ -432,7 +440,7 @@ class MomentEvaluator:
                     # compute Van Loan matrix for next epoch using regularized intensity matrix
                     S = self._dense_rate_matrix() * lamb
                     self._check_numerical_stability(S, 0)
-                    V = self._get_van_loan_matrix(S=S, R=R, k=k)
+                    V = self._van_loan_matrix(R, S, k)
 
                 # update with remaining time in current epoch
                 Q @= expm(V * (u - u_prev) / lamb)
@@ -488,7 +496,7 @@ class MomentEvaluator:
             S = self.state_space.S * lamb
             self._check_numerical_stability(S, i_epoch)
             r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
-            return self._get_van_loan_matrix_sparse(R=r_vecs, S=sp.csr_matrix(S), k=k).T.tocsr()
+            return self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
 
         Vt = transposed_van_loan()
 
@@ -654,14 +662,11 @@ class MomentEvaluator:
                 "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %d finite epoch(s)",
                 k, len(idx_t), Settings.closed_form_sparse_min_states, len(epochs) - 1
             )
-            solver = spla.splu(sp.csc_matrix(-T))
-            solve = solver.solve
         else:
             self._logger.debug(
                 "closed form (k=%d): dense LU of T (n_t=%d), %d finite epoch(s)", k, len(idx_t), len(epochs) - 1
             )
-            lu = sla.lu_factor(-T)
-            solve = lambda b: sla.lu_solve(lu, b)
+        solve = self._lu_solver(-T, use_action)
 
         # reward diagonals restricted to the transient states (the off-diagonal Van Loan reward blocks are diagonal)
         r_t = [np.asarray(r._get(self.state_space), dtype=float)[idx_t] for r in rewards]
@@ -686,12 +691,12 @@ class MomentEvaluator:
             if use_action:
                 r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
                 S_csr = S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S))
-                V = self._get_van_loan_matrix_sparse(R=r_vecs, S=S_csr, k=k)
+                V = self._van_loan_matrix(r_vecs, S_csr, k, sparse=True)
                 z = Backend.expm_multiply(V * tau, z)
             else:
                 S_dense = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
-                R = [np.diag(r._get(self.state_space)) for r in rewards]
-                V = self._get_van_loan_matrix(S=S_dense, R=R, k=k)
+                R = [r._get(self.state_space) for r in rewards]
+                V = self._van_loan_matrix(R, S_dense, k)
                 z = expm(V * tau) @ z
 
         alpha_ext = np.zeros((k + 1) * n)
@@ -798,10 +803,7 @@ class MomentEvaluator:
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
         neg_t = -self._transient_block(idx_t, sparse=use_action)
-        if use_action:
-            m += spla.splu(sp.csc_matrix(neg_t.T)).solve(p)
-        else:
-            m += sla.solve(neg_t.T, p)
+        m += self._lu_solver(neg_t.T, use_action)(p)
 
         return m, idx_t
 
