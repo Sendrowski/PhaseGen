@@ -142,6 +142,10 @@ logger.addHandler(handler)
 
 from .distributions import PhaseTypeDistribution
 
+from .distributions import RewardDistribution
+
+from .distributions import JointRewardDistribution
+
 from .distributions import Coalescent
 
 from .demography import (
@@ -238,6 +242,8 @@ from .settings import Settings
 
 __all__ = [
     'PhaseTypeDistribution',
+    'RewardDistribution',
+    'JointRewardDistribution',
     'Coalescent',
     'Demography',
     'Epoch',

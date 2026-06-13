@@ -379,7 +379,9 @@ class Comparison(Serializable):
                     t = ms._cache['t']
                     y_ms = ms._cache[stat]
                 else:
-                    t = np.linspace(0, self.ph.tree_height.quantile(0.99), 100)
+                    # grid the distribution being compared over its own support (identical to the tree height for
+                    # tree_height, but wider for e.g. total_branch_length, whose accumulated reward exceeds it)
+                    t = np.linspace(0, ph.quantile(0.99), 100)
                     y_ms = ms_stat(t)
 
                 y_ph = ph_stat(t)

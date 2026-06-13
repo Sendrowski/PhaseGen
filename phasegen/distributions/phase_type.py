@@ -19,6 +19,7 @@ from ._moments import MomentEvaluator
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
+    from .reward import RewardDistribution, JointRewardDistribution
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -97,6 +98,122 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
         Second (non-central) moment.
         """
         return self.moment(k=2, center=False)
+
+    def distribution(self, reward: Reward = None) -> 'RewardDistribution':
+        """
+        Full distribution (CDF / PDF / quantiles) of the accumulated reward to absorption, for an arbitrary
+        reward and demography, via the Laplace-Stieltjes transform and its numerical inversion. Where
+        :attr:`mean` / :meth:`moment` give only the moments of the accumulated reward, this gives its
+        distribution. The reward must be scalar (one value per state); for a spectrum, pass a single bin's reward.
+
+        :param reward: The reward whose accumulation is distributed. Defaults to this distribution's own reward.
+        :return: The accumulated-reward distribution.
+        """
+        from .reward import RewardDistribution
+
+        return RewardDistribution(self, reward)
+
+    def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
+        """
+        Joint distribution of two accumulated rewards — the distributional object behind a cross-moment
+        ``E[R_a R_b]`` (e.g. a pair of SFS bins within a tree, or a two-locus SFS entry across loci). Provides the
+        joint LST, the marginals, and the cross-moments/covariance/correlation; the joint CDF/PDF builds on it.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The joint accumulated-reward distribution.
+        """
+        from .reward import JointRewardDistribution
+
+        return JointRewardDistribution(self, reward_a, reward_b)
+
+    @cached_property
+    def _reward_distribution(self) -> 'RewardDistribution':
+        """The accumulated-reward distribution of this distribution's own reward (cached for repeated CDF/PDF)."""
+        return self.distribution()
+
+    @cached_property
+    def _reward_epoch_data(self) -> dict:
+        """Reward-independent per-epoch transient generators for the accumulated-reward transform, built once and
+        shared across all rewards on this state space (e.g. every bin of a spectrum)."""
+        from .reward import _build_epoch_data
+
+        return _build_epoch_data(self)
+
+    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+        """
+        Cumulative distribution function of the accumulated reward, ``P(R <= t)``, via the Laplace-Stieltjes
+        transform and its numerical inversion (see :class:`RewardDistribution`).
+
+        :param t: Value or values to evaluate the CDF at.
+        :return: Cumulative probability.
+        """
+        return self._reward_distribution.cdf(t)
+
+    def pdf(self, t: float | Sequence[float]) -> float | np.ndarray:
+        """
+        Probability density function of the accumulated reward.
+
+        :param t: Value or values to evaluate the PDF at.
+        :return: Density.
+        """
+        return self._reward_distribution.pdf(t)
+
+    def quantile(self, q: float) -> float:
+        """
+        The ``q``-quantile of the accumulated reward.
+
+        :param q: Quantile in ``[0, 1]``.
+        :return: The quantile.
+        """
+        return self._reward_distribution.quantile(q)
+
+    def _plot_reward_curves(
+            self,
+            kind: str,
+            items: Sequence[Tuple[object, Reward]],
+            ax: 'plt.Axes',
+            x: np.ndarray,
+            n_points: int,
+            show: bool,
+            file: str,
+            clear: bool,
+            title: str
+    ) -> 'plt.Axes':
+        """
+        Plot the CDF or PDF curve of each ``(label, reward)`` in ``items`` on one axes, using the fast COS inversion
+        (sharing the per-epoch generators across all rewards on this state space).
+        """
+        import matplotlib.pyplot as plt
+        from ..visualization import Visualization
+
+        if ax is None:
+            ax = plt.gca()
+            if clear:
+                ax.clear()
+
+        dists = [(label, self.distribution(reward=reward)) for label, reward in items]
+
+        if x is None:
+            x = np.linspace(0, max(d._range() for _, d in dists), n_points)
+        else:
+            x = np.asarray(x, dtype=float)
+
+        for k, (label, d) in enumerate(dists):
+            Visualization.plot(
+                ax=ax,
+                x=x,
+                y=d.cdf_curve(x) if kind == 'cdf' else d.pdf_curve(x),
+                xlabel='accumulated branch length',
+                ylabel='F(x)' if kind == 'cdf' else 'f(x)',
+                label=str(label),
+                file=file,
+                show=(k == len(dists) - 1 and show),
+                clear=clear,
+                title=title
+            )
+
+        return ax
 
     @cached_property
     def demes(self) -> MarginalDemeDistributions:

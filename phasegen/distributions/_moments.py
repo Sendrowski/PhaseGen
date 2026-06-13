@@ -89,7 +89,11 @@ class MomentEvaluator:
         :param A: Square matrix (sparse or dense).
         :return: A permutation array, or ``None`` to fall back to the default ordering.
         """
-        pattern = sp.csr_matrix(A)
+        # the SCC structure depends only on the sparsity pattern; take magnitudes so a complex generator (the
+        # reward-distribution path evaluates ``-T`` at complex reward shifts) is not cast to real by
+        # ``connected_components`` — which would warn and could drop edges whose real part is zero.
+        pattern = sp.csr_matrix(A).copy()
+        pattern.data = np.abs(pattern.data)
         n = pattern.shape[0]
 
         n_scc, labels = csg.connected_components(pattern, directed=True, connection='strong')
@@ -884,6 +888,71 @@ class MomentEvaluator:
         """
         S = self.state_space.S
         return np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
+
+    def _mean_occupation_grid(self, end_times: Sequence[float]) -> np.ndarray:
+        """
+        Expected time spent in each state up to each time in ``end_times``: ``m(t) = alpha int_0^t exp(S u) du``,
+        threaded across epochs. This is the bin-independent quantity shared by every bin of a *mean accumulation*
+        (``accumulate`` with ``k = 1``): each bin's accumulation is ``m(t) . r_bin``, so the whole spectrum's
+        accumulation is one contraction ``m_grid @ R`` over the stacked bin rewards instead of a per-bin solve.
+
+        Read off the augmented generator ``[[S, I], [0, 0]]``: ``[p, m] exp(aug tau) = [p exp(S tau), m + p A]`` with
+        ``A = int_0^tau exp(S u) du``, propagating the entry distribution ``p`` and accruing the occupation ``m``.
+
+        :param end_times: Times at which to evaluate the occupation.
+        :return: Array of shape ``(len(end_times), n_states)``.
+        """
+        end_times = np.asarray(end_times, dtype=float)
+        if np.any(end_times < 0):
+            raise ValueError("Negative end times are not allowed.")
+
+        order = np.argsort(end_times)
+        t_sorted = end_times[order]
+
+        epochs = enumerate(self.demography.epochs)
+        i_epoch, epoch = next(epochs)
+        self.state_space.update_epoch(epoch)
+        n = self.state_space.k
+
+        # the occupation integral is read off the augmented generator ``[[S, I], [0, 0]]``; for large state spaces
+        # apply its (transposed) matrix-exponential action instead of forming the dense 2n x 2n exponential
+        use_action = 2 * n >= Settings.expm_action_min_dim
+
+        def advance(p, m, tau):
+            if tau <= 0:
+                return p, m
+            S = self.state_space.S
+            if use_action:
+                aug = sp.bmat([
+                    [sp.csc_matrix(S), sp.identity(n, format='csc')],
+                    [None, sp.csc_matrix((n, n))],
+                ], format='csc')
+                w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, m]))
+            else:
+                aug = np.zeros((2 * n, 2 * n))
+                aug[:n, :n] = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
+                aug[:n, n:] = np.eye(n)
+                w = np.concatenate([p, m]) @ expm(aug * tau)
+            return w[:n], w[n:]
+
+        p = np.asarray(self.state_space.alpha, dtype=float)
+        m = np.zeros(n)
+        u_prev = 0.0
+        out = np.zeros((len(t_sorted), n))
+
+        for idx, u in enumerate(t_sorted):
+            while u > epoch.end_time:
+                self._check_numerical_stability(self.state_space.S, i_epoch)
+                p, m = advance(p, m, epoch.end_time - u_prev)
+                u_prev = epoch.end_time
+                i_epoch, epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
+            self._check_numerical_stability(self.state_space.S, i_epoch)
+            p, m = advance(p, m, u - u_prev)
+            out[idx] = m
+            u_prev = u
+
+        return out[np.argsort(order)]
 
     def _occupation_times(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """

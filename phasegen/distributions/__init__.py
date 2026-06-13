@@ -16,6 +16,10 @@ from .phase_type import (
     PhaseTypeDistribution,
     TreeHeightDistribution,
 )
+from .reward import (
+    RewardDistribution,
+    JointRewardDistribution,
+)
 from .spectra import (
     SFSDistribution,
     TajimaSFSMixin,
@@ -48,6 +52,8 @@ __all__ = [
     "DensityAwareDistribution",
     "PhaseTypeDistribution",
     "TreeHeightDistribution",
+    "RewardDistribution",
+    "JointRewardDistribution",
     "SFSDistribution",
     "TajimaSFSMixin",
     "UnfoldedSFSDistribution",
