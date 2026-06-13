@@ -107,6 +107,35 @@ def test_lu_solver_dense_and_sparse_solve_correctly():
         np.testing.assert_allclose(solve(b2), np.linalg.solve(A, b2))
 
 
+def test_block_triangular_order_detects_grading_and_falls_back():
+    """The SCC ordering reorders a graded (block-triangular) generator and declines a single-SCC one."""
+    # graded chain: three lineage levels 3->2->1, with a 2-state migration cycle inside level 2 (one SCC of size 2,
+    # the rest singletons) -> a valid block-triangular permutation must exist
+    idx = {'L3': 0, 'L2a': 1, 'L2b': 2, 'L1': 3}
+    A = np.zeros((4, 4))
+    A[idx['L3'], idx['L2a']] = 1.0          # coalescence 3 -> 2
+    A[idx['L2a'], idx['L2b']] = 1.0         # migration within level 2 (cycle)
+    A[idx['L2b'], idx['L2a']] = 1.0         # migration back -> SCC {L2a, L2b}
+    A[idx['L2a'], idx['L1']] = 1.0          # coalescence 2 -> 1
+    A[idx['L2b'], idx['L1']] = 1.0
+    np.fill_diagonal(A, -A.sum(axis=1) - 1.0)   # make it a proper invertible sub-generator
+
+    perm = MomentEvaluator._block_triangular_order(A)
+    assert perm is not None and sorted(perm.tolist()) == [0, 1, 2, 3]
+    # the migration pair lands in a contiguous diagonal block (adjacent in the ordering)
+    pos = {state: int(np.where(perm == i)[0][0]) for state, i in idx.items()}
+    assert abs(pos['L2a'] - pos['L2b']) == 1
+
+    # the NATURAL-ordered solve via this permutation is still correct
+    solve = MomentEvaluator._lu_solver(sp.csc_matrix(A), sparse=True)
+    b = np.array([1.0, 2.0, 3.0, 4.0])
+    np.testing.assert_allclose(solve(b), np.linalg.solve(A, b))
+
+    # a single strongly-connected matrix offers no triangular structure -> fall back (None)
+    cyc = np.array([[-1.0, 1.0], [1.0, -1.0]])
+    assert MomentEvaluator._block_triangular_order(cyc) is None
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # path dispatch (closed-form vs matrix-exponential, dense vs sparse action)
 # ----------------------------------------------------------------------------------------------------------------

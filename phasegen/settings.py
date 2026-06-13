@@ -54,8 +54,13 @@ class Settings:
     #: the sparse matrix-exponential action for its finite-epoch / occupation steps) instead of a dense LU. This is
     #: the closed-form analogue of :attr:`expm_action_min_dim` and, like it, only changes how the result is
     #: computed, never the result. The crossover is on the transient-state count alone (independent of the moment
-    #: order). Set to a very large value to always use the dense path, or to 0 to always use the sparse path.
-    closed_form_sparse_min_states: int = 1200
+    #: order). The sparse LU reorders ``-T`` into block-triangular form via its strongly-connected-component
+    #: condensation (no coalescent transition raises the lineage/block count, so the blocks are the small migration /
+    #: recombination cycles) and factors it with ``NATURAL`` column ordering — near-zero-fill block back-substitution
+    #: — which moves the dense/sparse crossover down to a few hundred transient states across single-deme (acyclic),
+    #: migration, and two-locus spaces. Set to a very large value to always use the dense path, or to 0 to always use
+    #: the sparse path.
+    closed_form_sparse_min_states: int = 256
 
     #: State count at or above which the constructed rate matrix is kept sparse instead of dense. The moment code
     #: works with either, so this is purely a memory/speed tradeoff: a dense matrix is faster where it fits but costs

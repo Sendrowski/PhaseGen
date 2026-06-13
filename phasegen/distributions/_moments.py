@@ -5,6 +5,7 @@ phase-type distribution, mixed into :class:`PhaseTypeDistribution`.
 
 import itertools
 import logging
+from collections import deque
 from ..caching import cache
 from math import comb, factorial
 from typing import List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
@@ -12,6 +13,7 @@ import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
+import scipy.sparse.csgraph as csg
 from ..coalescent_models import StandardCoalescent
 from ..expm import Backend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
@@ -72,17 +74,82 @@ class MomentEvaluator:
         ])
 
     @staticmethod
+    def _block_triangular_order(A) -> Optional[np.ndarray]:
+        """
+        Permutation reordering ``A`` into block-triangular form via its strongly-connected-component condensation
+        (a DAG for any matrix). Applied to the transient sub-generator ``-T`` this exposes the coalescent grading —
+        no transition raises the lineage/block count, so the SCCs are the small within-level cycles (migration,
+        recombination) and most states are singleton SCCs — letting a ``NATURAL``-ordered LU back-substitute over
+        the blocks with near-zero fill instead of paying a general fill-reducing factorization. Derived purely from
+        the sparsity pattern, so it is model- and state-space-agnostic.
+
+        Returns ``None`` when the structure offers no benefit (a single SCC, or one SCC spanning more than half the
+        states), so the caller keeps the default fill-reducing ordering.
+
+        :param A: Square matrix (sparse or dense).
+        :return: A permutation array, or ``None`` to fall back to the default ordering.
+        """
+        pattern = sp.csr_matrix(A)
+        n = pattern.shape[0]
+
+        n_scc, labels = csg.connected_components(pattern, directed=True, connection='strong')
+        if n_scc <= 1:
+            return None
+
+        members = [[] for _ in range(n_scc)]
+        for node, c in enumerate(labels):
+            members[c].append(node)
+
+        # a single dominant SCC means little triangular structure: keep the fill-reducing ordering
+        if max(len(m) for m in members) > n // 2:
+            return None
+
+        # Kahn topological sort of the condensation
+        coo = pattern.tocoo()
+        succ = [set() for _ in range(n_scc)]
+        indeg = np.zeros(n_scc, dtype=int)
+        for u, v in zip(coo.row, coo.col):
+            cu, cv = labels[u], labels[v]
+            if cu != cv and cv not in succ[cu]:
+                succ[cu].add(cv)
+                indeg[cv] += 1
+
+        queue = deque(c for c in range(n_scc) if indeg[c] == 0)
+        order = []
+        while queue:
+            c = queue.popleft()
+            order.append(c)
+            for w in succ[c]:
+                indeg[w] -= 1
+                if indeg[w] == 0:
+                    queue.append(w)
+
+        return np.fromiter((node for c in order for node in members[c]), dtype=int, count=n)
+
+    @staticmethod
     def _lu_solver(A, sparse: bool):
         """
         Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``, reusable across
         right-hand sides (the closed form back-substitutes against the same transient sub-generator repeatedly).
+
+        For the sparse path we first reorder ``A`` into block-triangular form (see :meth:`_block_triangular_order`)
+        and factor it with ``NATURAL`` column ordering, turning the factorization into cheap block back-substitution
+        over the SCCs. The returned callable permutes the right-hand side in and out transparently.
 
         :param A: The matrix to factorize (sparse or dense, matching ``sparse``).
         :param sparse: Whether to use the sparse factorization.
         :return: Callable ``b -> x`` solving ``A x = b``.
         """
         if sparse:
-            return spla.splu(sp.csc_matrix(A)).solve
+            perm = MomentEvaluator._block_triangular_order(A)
+            if perm is None:
+                return spla.splu(sp.csc_matrix(A)).solve
+
+            inv = np.empty_like(perm)
+            inv[perm] = np.arange(perm.size)
+            lu = spla.splu(sp.csr_matrix(A)[perm][:, perm].tocsc(), permc_spec='NATURAL')
+            return lambda b: lu.solve(np.asarray(b)[perm])[inv]
+
         lu = sla.lu_factor(A)
         return lambda b: sla.lu_solve(lu, b)
 
