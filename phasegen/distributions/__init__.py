@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Mapping
-from .caching import cached_property, cache
+from ..caching import cached_property, cache
 from math import factorial
 from typing import Generator, List, Callable, Tuple, Dict, Collection, Iterable, Iterator, Optional, Sequence, Set, \
     Type, Union
@@ -21,19 +21,19 @@ import scipy.sparse.linalg as spla
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
-from .coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
-from .demography import Demography, PopSizeChanges
-from .expm import Backend
-from .lineage import LineageConfig
-from .locus import LocusConfig
-from .rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
+from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
+from ..demography import Demography, PopSizeChanges
+from ..expm import Backend
+from ..lineage import LineageConfig
+from ..locus import LocusConfig
+from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, DemeReward, UnitReward, \
     LocusReward, CombinedReward, FoldedSFSReward, SFSReward, CustomReward, JointSFSReward, TwoLocusSFSReward
-from .serialization import Serializable
-from .settings import Settings
-from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
-from .state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace, JointBlockCountingStateSpace, \
+from ..serialization import Serializable
+from ..settings import Settings
+from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
+from ..state_space import BlockCountingStateSpace, LineageCountingStateSpace, StateSpace, JointBlockCountingStateSpace, \
     TwoLocusBlockCountingStateSpace
-from .utils import parallelize, multiset_permutations
+from ..utils import parallelize, multiset_permutations
 
 expm = Backend.expm
 
@@ -443,7 +443,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         :param title: Title of the plot.
         :return: Axes.
         """
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         if t is None:
             t = np.linspace(0, self.quantile(0.99), 200)
@@ -486,7 +486,7 @@ class DensityAwareDistribution(MomentAwareDistribution, ABC):
         :param dx: Step size for numerical differentiation. By default, the 99th percentile divided by 1e10.
         :return: Axes.
         """
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         if dx is None:
             dx = self.quantile(0.99) / 1e10
@@ -1556,7 +1556,7 @@ class PhaseTypeDistribution(MomentAwareDistribution):
         """
         k = int(k)
 
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         if end_times is None:
             end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
@@ -1963,7 +1963,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param title: Title of the plot.
         :return: Axes.
         """
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         if t is None:
             t = np.linspace(0, self.tree_height.quantile(0.99), 100)
@@ -2220,7 +2220,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :return: Axes.
         """
         import matplotlib.pyplot as plt
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         k = int(k)
 
@@ -2931,7 +2931,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :return: Axes.
         """
         import matplotlib.pyplot as plt
-        from .visualization import Visualization
+        from ..visualization import Visualization
 
         k = int(k)
 
