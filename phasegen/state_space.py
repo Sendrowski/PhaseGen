@@ -299,6 +299,17 @@ class StateSpace(ABC):
         return len(self.states)
 
     @cached_property
+    def absorbing(self) -> np.ndarray:
+        """
+        Boolean mask over :attr:`states` marking the absorbing states, using the state-space absorption predicate
+        (:meth:`_is_absorbing`). Subclasses with a non-default condition — e.g. the two-locus space, where the
+        unlinked dual-MRCA state ``(n, 0) + (0, n)`` is absorbing although :meth:`State.is_absorbing` does not see
+        it — are then classified consistently everywhere (moment paths, occupation times, sampling). Epoch-
+        independent (depends only on the state topology), so it is safe to cache across :meth:`update_epoch`.
+        """
+        return np.array([self._is_absorbing(s) for s in self.states])
+
+    @cached_property
     def transition(self) -> 'Transition':
         """
         Transition.
@@ -545,7 +556,7 @@ class StateSpace(ABC):
         """
         Get color of the state indexed by `i`.
         """
-        if self.states[i].is_absorbing():
+        if self.absorbing[i]:
             return '#f1807e'
 
         if self.alpha[i] > 0:
@@ -615,7 +626,7 @@ class StateSpace(ABC):
 
         # add non-zero edges
         for (source, target), transition in transitions.items():
-            if not source.is_absorbing():
+            if not self._is_absorbing(source):
                 graph.edge(
                     tail_name=format_state(source.data),
                     head_name=format_state(target.data),
@@ -780,7 +791,7 @@ class BlockCountingStateSpace(StateSpace):
         """
         self._logger.debug('Calculating state probabilities conditioned on the number of lineages.')
 
-        absorbing_states = np.where([s.is_absorbing() for s in self.states])[0]
+        absorbing_states = np.where(self.absorbing)[0]
         probs = np.zeros(self.k)
         lineage_counts = np.array([s.lineages.sum() for s in self.states])
         state_indices = np.arange(lineage_counts.shape[0])

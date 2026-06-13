@@ -656,7 +656,7 @@ class MomentEvaluator:
 
         :return: ``(absorbing, reach)`` boolean masks over the states; ``reach`` includes the absorbing states.
         """
-        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        absorbing = self.state_space.absorbing
 
         S = self.state_space.S
         if sp.issparse(S):
@@ -721,7 +721,7 @@ class MomentEvaluator:
         # --- final, unbounded epoch: limit vector z ---
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
-        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        absorbing = self.state_space.absorbing
         idx_t = np.where(~absorbing)[0]
         idx_a = np.where(absorbing)[0]
         e = np.asarray(self.state_space.e)
@@ -835,7 +835,7 @@ class MomentEvaluator:
         epochs = self._get_epochs_until_unbounded()
 
         self.state_space.update_epoch(epochs[-1])
-        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        absorbing = self.state_space.absorbing
         idx_t = np.where(~absorbing)[0]
         nt = len(idx_t)
         use_action = nt >= Settings.closed_form_sparse_min_states
@@ -916,7 +916,7 @@ class MomentEvaluator:
 
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, 0)
-        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        absorbing = self.state_space.absorbing
         idx_t = np.where(~absorbing)[0]
 
         neg_t_inv = sla.inv(-self._transient_block(idx_t))

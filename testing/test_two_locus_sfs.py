@@ -60,6 +60,46 @@ def test_state_space_structure():
     assert any(ss._is_absorbing(s) for s in ss.states)
 
 
+def test_dual_mrca_absorption_predicate_and_closed_form():
+    """Regression: the *unlinked* dual-MRCA state ``(n, 0) + (0, n)`` is absorbing (both loci have reached their
+    MRCA, in separate lineages) but ``State.is_absorbing()`` does not recognise it — only the state-space override
+    ``_is_absorbing`` does. The moment paths must use the override (via the cached ``absorbing`` mask); otherwise
+    that state is treated as a transient sink, the transient sub-generator ``-T`` is singular, the absorption check
+    wrongly reports "does not absorb", and the closed-form last-epoch path is silently skipped. We assert the mask
+    catches it, that every flagged state is a true sink, and that the closed form now applies and agrees with the
+    Van Loan reference for both the mean cross-moment and the derived correlation."""
+    n, r = 4, 0.5
+    ss = pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2.state_space
+
+    state_level = np.array([s.is_absorbing() for s in ss.states])
+    space_level = ss.absorbing
+
+    # the override catches a dual-MRCA absorbing state the State method misses (a strict superset)
+    assert space_level.sum() > state_level.sum()
+    assert np.all(space_level[state_level])
+
+    # every state the override flags absorbing is a genuine sink (no outgoing rate)
+    S = np.asarray(ss.S.todense()) if hasattr(ss.S, "todense") else np.asarray(ss.S)
+    for i in np.where(space_level)[0]:
+        assert (S[i].sum() - S[i, i]) == pytest.approx(0.0, abs=1e-12)
+
+    prev = Settings.closed_form_last_epoch
+    try:
+        # trusted reference: the Van Loan path (closed form disabled)
+        Settings.closed_form_last_epoch = False
+        ref_mean = np.asarray(pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2.mean.data)
+        ref_corr = np.asarray(pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2.corr.data)
+
+        # closed form now recognises certain absorption and engages, matching the reference to machine precision
+        Settings.closed_form_last_epoch = True
+        dist = pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2
+        assert dist._absorption_certain_in_last_epoch()
+        np.testing.assert_allclose(np.asarray(dist.mean.data), ref_mean, atol=1e-12)
+        np.testing.assert_allclose(np.asarray(dist.corr.data), ref_corr, atol=1e-10, equal_nan=True)
+    finally:
+        Settings.closed_form_last_epoch = prev
+
+
 @pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
 @pytest.mark.parametrize("n", [3, 4])
 def test_r_zero_equals_single_locus_cross_moment(name, model, n):

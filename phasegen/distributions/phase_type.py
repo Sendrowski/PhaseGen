@@ -132,7 +132,7 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
 
         n_rewards = len(rewards)
         samples = np.zeros((n_samples, n_rewards))
-        absorbing = np.array([s.is_absorbing() for s in self.state_space.states])
+        absorbing = self.state_space.absorbing
         alpha = self.state_space.alpha
         states_visited = np.zeros_like(alpha)
         R = np.array([r._get(self.state_space) for r in rewards])
