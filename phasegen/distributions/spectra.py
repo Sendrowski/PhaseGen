@@ -24,6 +24,16 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
+def _require_scalar(t):
+    """The per-bin CDF/PDF/quantile of a spectrum is vector-valued over bins at a single argument (like ``mean``);
+    arrays (whole curves) go through ``plot_cdf`` / ``plot_pdf`` instead."""
+    if np.ndim(t) != 0:
+        raise ValueError(
+            "A spectrum's CDF/PDF/quantile is evaluated at a scalar, returning one value per bin (like `mean`). "
+            "For whole curves over a grid, use `plot_cdf` / `plot_pdf`."
+        )
+
+
 class SFSDistribution(PhaseTypeDistribution, ABC):
     """
     Base class for site-frequency spectrum distributions.
@@ -211,10 +221,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
-        accumulation = np.array([
-            self.get_accumulation(k, i, end_times, rewards)
-            for i in indices
-        ])
+        accumulation = self._accumulate_batched(k, indices, end_times, rewards)
+        if accumulation is None:
+            accumulation = np.array([self.get_accumulation(k, i, end_times, rewards) for i in indices])
 
         # pad with zeros
         return np.concatenate([
@@ -222,6 +231,22 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             accumulation,
             np.zeros((self.lineage_config.n - len(indices), len(end_times)))
         ])
+
+    def _accumulate_batched(self, k, indices, end_times, rewards):
+        """Batched *mean* accumulation (``k == 1``, default reward): every bin shares the occupation-up-to-t vector
+        ``m(t)``, so the whole spectrum's accumulation is ``m_grid @ R`` over the stacked bin rewards instead of a
+        per-bin solve. Returns ``None`` (caller falls back to the per-bin path) when not applicable."""
+        if k != 1 or rewards is not None or self._flattening_applies(1):
+            return None
+
+        m_grid = self._mean_occupation_grid(end_times)  # (len(t), n_states)
+        ss = self.state_space
+        R = np.column_stack([
+            np.asarray(CombinedReward([self.reward, self._get_sfs_reward(i)])._get(ss), dtype=float)
+            for i in indices
+        ])
+        self._logger.debug("sfs accumulate (k=1): batched (shared occupation grid over %d bins)", len(indices))
+        return (m_grid @ R).T  # (n_bins, len(t))
 
     def plot_accumulation(
             self,
@@ -295,6 +320,96 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             )
 
         return ax
+
+    def _bin_distribution_items(self, bins: Sequence[int]) -> List[Tuple[int, SFSReward]]:
+        """``(bin, reward)`` pairs for the requested bins (all polymorphic bins by default)."""
+        indices = list(self._get_indices()) if bins is None else [int(b) for b in np.atleast_1d(bins)]
+        return [(i, self._get_sfs_reward(i)) for i in indices]
+
+    def _per_bin(self, fn) -> SFS:
+        """Evaluate the per-bin accumulated-reward statistic ``fn`` over all polymorphic bins, returning an
+        :class:`SFS` of the same shape as :attr:`mean` (monomorphic edge bins padded with 0)."""
+        values = [fn(self.distribution(reward=self._get_sfs_reward(i))) for i in self._get_indices()]
+        return SFS([0] + list(values) + [0] * (self.lineage_config.n - len(values)))
+
+    def joint_distribution(self, i: int, j: int):
+        """The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
+        2-SFS / ``cov`` cross-moment as a bivariate distribution). See :class:`RewardDistribution`'s joint variant.
+
+        :param i: The first frequency class.
+        :param j: The second frequency class.
+        :return: The joint accumulated-reward distribution of ``(L_i, L_j)``.
+        """
+        return super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
+
+    def cdf(self, t: float) -> SFS:
+        """Per-bin CDF at ``t``: an :class:`SFS` whose ``i``-th entry is ``P(L_i <= t)`` (like :attr:`mean`)."""
+        _require_scalar(t)
+        return self._per_bin(lambda d: d.cdf(t))
+
+    def pdf(self, t: float) -> SFS:
+        """Per-bin PDF at ``t``: an :class:`SFS` whose ``i``-th entry is the density of ``L_i`` at ``t``."""
+        _require_scalar(t)
+        return self._per_bin(lambda d: d.pdf(t))
+
+    def quantile(self, q: float) -> SFS:
+        """Per-bin ``q``-quantile: an :class:`SFS` whose ``i``-th entry is the ``q``-quantile of ``L_i``."""
+        _require_scalar(q)
+        return self._per_bin(lambda d: d.quantile(q))
+
+    def plot_cdf(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = 200,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'SFS bin CDFs'
+    ) -> 'plt.Axes':
+        """
+        Plot the cumulative distribution function of every SFS bin at once.
+
+        :param ax: Axes to plot on.
+        :param x: Values to evaluate the CDFs at. By default, an evenly spaced grid up to the largest bin's support.
+        :param bins: The bins (frequency classes) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('cdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
+                                        clear, title)
+
+    def plot_pdf(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = 200,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'SFS bin PDFs'
+    ) -> 'plt.Axes':
+        """
+        Plot the probability density function of every SFS bin at once.
+
+        :param ax: Axes to plot on.
+        :param x: Values to evaluate the PDFs at. By default, an evenly spaced grid up to the largest bin's support.
+        :param bins: The bins (frequency classes) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('pdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
+                                        clear, title)
 
     def get_accumulation(
             self,
@@ -906,6 +1021,88 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
+    def _per_config(self, fn) -> JointSFS:
+        """Evaluate the per-bin accumulated-reward statistic ``fn`` over all (polymorphic) joint bins, returning a
+        :class:`JointSFS` of shape :attr:`shape` (monomorphic bins padded with 0)."""
+        out = np.zeros(self.shape)
+        for config in self._get_configs():
+            out[config] = fn(self.distribution(reward=JointSFSReward(config)))
+        return JointSFS(out, pop_names=self.lineage_config.pop_names)
+
+    def cdf(self, t: float) -> JointSFS:
+        """Per-bin CDF at ``t``: a :class:`JointSFS` whose entry ``c`` is ``P(L_c <= t)`` (like :attr:`mean`)."""
+        _require_scalar(t)
+        return self._per_config(lambda d: d.cdf(t))
+
+    def pdf(self, t: float) -> JointSFS:
+        """Per-bin PDF at ``t``: a :class:`JointSFS` whose entry ``c`` is the density of ``L_c`` at ``t``."""
+        _require_scalar(t)
+        return self._per_config(lambda d: d.pdf(t))
+
+    def quantile(self, q: float) -> JointSFS:
+        """Per-bin ``q``-quantile: a :class:`JointSFS` whose entry ``c`` is the ``q``-quantile of ``L_c``."""
+        _require_scalar(q)
+        return self._per_config(lambda d: d.quantile(q))
+
+    def _config_distribution_items(self, configs: Sequence[Tuple[int, ...]]) -> List[Tuple[Tuple[int, ...], Reward]]:
+        """``(config, reward)`` pairs for the requested joint bins (all polymorphic bins by default)."""
+        cfgs = self._get_configs() if configs is None else list(configs)
+        return [(c, JointSFSReward(c)) for c in cfgs]
+
+    def plot_cdf(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = 200,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'Joint SFS bin CDFs'
+    ) -> 'plt.Axes':
+        """
+        Plot the cumulative distribution function of every joint SFS bin at once.
+
+        :param ax: Axes to plot on.
+        :param x: Values to evaluate the CDFs at. By default, an evenly spaced grid up to the largest bin's support.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('cdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
+                                        clear, title)
+
+    def plot_pdf(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = 200,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            title: str = 'Joint SFS bin PDFs'
+    ) -> 'plt.Axes':
+        """
+        Plot the probability density function of every joint SFS bin at once.
+
+        :param ax: Axes to plot on.
+        :param x: Values to evaluate the PDFs at. By default, an evenly spaced grid up to the largest bin's support.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
+        :param n_points: Number of evaluation points for the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the plot before plotting.
+        :param title: Title of the plot.
+        :return: Axes.
+        """
+        return self._plot_reward_curves('pdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
+                                        clear, title)
+
     def accumulate(
             self,
             k: int,
@@ -926,17 +1123,29 @@ class JointSFSDistribution(PhaseTypeDistribution):
         configs = self._get_configs()
         end_times = np.array(list(end_times))
 
-        accumulation = np.array([
-            PhaseTypeDistribution.accumulate(
-                self,
-                k=k,
-                end_times=end_times,
-                rewards=tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k)),
-                center=center,
-                permute=permute
-            )
-            for config in configs
-        ])
+        # batched mean accumulation (k=1): all configs share the occupation-up-to-t grid m(t), so the whole joint
+        # accumulation is one contraction m_grid @ R over the stacked config rewards
+        if k == 1 and not self._flattening_applies(1):
+            m_grid = self._mean_occupation_grid(end_times)
+            ss = self.state_space
+            R = np.column_stack([
+                np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(ss), dtype=float)
+                for config in configs
+            ])
+            self._logger.debug("jsfs accumulate (k=1): batched (shared occupation grid over %d bins)", len(configs))
+            accumulation = (m_grid @ R).T
+        else:
+            accumulation = np.array([
+                PhaseTypeDistribution.accumulate(
+                    self,
+                    k=k,
+                    end_times=end_times,
+                    rewards=tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k)),
+                    center=center,
+                    permute=permute
+                )
+                for config in configs
+            ])
 
         out = np.zeros(self.shape + (len(end_times),))
         for config, acc in zip(configs, accumulation):
@@ -1151,6 +1360,29 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         Polymorphic SFS bins ``1, ..., n - 1`` (the monomorphic ``0`` and ``n`` bins carry no information).
         """
         return list(range(1, self.lineage_config.n))
+
+    def _no_univariate_distribution(self, *args, **kwargs):
+        """A two-locus SFS entry ``(i, j)`` is the cross-moment ``E[L^0_i · L^1_j]`` — a product of two distinct
+        branch lengths — so it has no single univariate distribution to invert. The marginal per-locus branch-length
+        distributions are the ordinary single-locus SFS bin distributions (``pg.Coalescent(...).sfs``)."""
+        raise NotImplementedError(
+            "A two-locus SFS entry (i, j) is a cross-moment E[L^0_i . L^1_j] (a product of two rewards), so it has "
+            "no single univariate CDF/PDF/quantile. For the marginal branch-length distribution of a frequency "
+            "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf / .plot_cdf / .plot_pdf."
+        )
+
+    cdf = pdf = quantile = plot_cdf = plot_pdf = _no_univariate_distribution
+
+    def joint_distribution(self, i: int, j: int):
+        """The joint distribution of the locus-0 bin-``i`` and locus-1 bin-``j`` branch lengths — the bivariate
+        object behind the two-locus SFS entry ``E[L^0_i L^1_j]``. Its ``(1, 1)`` cross-moment is that entry, and
+        its ``corr`` is the cross-locus correlation.
+
+        :param i: The locus-0 frequency class.
+        :param j: The locus-1 frequency class.
+        :return: The joint accumulated-reward distribution of ``(L^0_i, L^1_j)``.
+        """
+        return PhaseTypeDistribution.joint_distribution(self, TwoLocusSFSReward(0, i), TwoLocusSFSReward(1, j))
 
     @cached_property
     def mean(self) -> TwoLocusSFS:

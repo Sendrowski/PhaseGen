@@ -825,9 +825,12 @@ class CoalescentTestCase(TestCase):
             coal.tree_height.moment(2)
         )
 
-        np.testing.assert_array_equal(
+        # the SFS mean accumulation is batched (shared occupation grid across bins), an independent matrix-
+        # exponential route from the per-bin moment, so they agree to floating point rather than bit-for-bit
+        np.testing.assert_allclose(
             coal.sfs.accumulate(1, [coal.tree_height.t_max])[:, 0],
-            coal.sfs.moment(1).data
+            coal.sfs.moment(1).data,
+            rtol=1e-12, atol=1e-12
         )
 
     def test_precision_regularization_large_N(self):
