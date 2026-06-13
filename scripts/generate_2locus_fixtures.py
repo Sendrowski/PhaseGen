@@ -34,6 +34,13 @@ c.n_threads = 1
 # cache the msprime two-locus SFS ground truth (its own simulation), then null the raw per-replicate samples and the
 # demography to keep the fixture small
 _ = c.ms.sfs2
+
+# cache the two-locus joint distribution ground truth (cross-moment + joint CDF at marginal-quantile points) from the
+# per-replicate locus branch lengths, then drop those (large) samples so only the small ground truth is serialized
+n = c.ph.lineage_config.n
+c.ms.sfs2.cache_joint([(i, j) for i in range(1, n) for j in range(1, n)], [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
+c.ms.sfs2.drop()
+
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'demography'):
     setattr(c.ms, attr, None)
 

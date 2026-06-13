@@ -503,6 +503,20 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
 
+    def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
+        """
+        Pre-compute, for each bin pair, the empirical cross-moment and the joint CDF at marginal-quantile points, so
+        the (1M-replicate) joint ground truth is serialized with the comparison and survives :meth:`drop`. Stored as
+        ``self._joint = [(i, j, cross, [(x, y, cdf), ...]), ...]`` (small, samples-free).
+        """
+        s = self.samples
+        self._joint = [
+            (i, j, float((s[:, i] * s[:, j]).mean()),
+             [(float(np.quantile(s[:, i], qa)), float(np.quantile(s[:, j], qb)),
+               self.joint_cdf(i, j, np.quantile(s[:, i], qa), np.quantile(s[:, j], qb))) for qa, qb in quantiles])
+            for i, j in pairs
+        ]
+
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
         """
@@ -627,6 +641,17 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         :return: The empirical joint probability.
         """
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
+
+    def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
+        """Pre-compute the two-locus joint ground truth (cross-moment and joint CDF at marginal-quantile points)
+        for serialization; same structure as :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`."""
+        self._joint = [
+            (i, j, self.cross_moment(i, j),
+             [(float(np.quantile(self._left[:, i], qa)), float(np.quantile(self._right[:, j], qb)),
+               self.joint_cdf(i, j, np.quantile(self._left[:, i], qa), np.quantile(self._right[:, j], qb)))
+              for qa, qb in quantiles])
+            for i, j in pairs
+        ]
 
 
 class MsprimeCoalescent(AbstractCoalescent):
@@ -963,6 +988,14 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_branch_length.touch(t)
         self.sfs.touch(t)
         self.fsfs.touch(t)
+
+        # cache the within-tree joint distribution ground truth (cross-moment + joint CDF at marginal-quantile
+        # points) so the full-replicate joint is serialized with the comparison and survives the subsequent drop().
+        # The two-locus joint is cached by the dedicated two-locus fixture script (which does not call touch()).
+        if self.lineage_config.n_pops == 1 and self.locus_config.n == 1:
+            n = self.lineage_config.n
+            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i, n)],
+                                 [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 
         # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for
         # multi-population, single-locus scenarios, so it is serialized along with the comparison

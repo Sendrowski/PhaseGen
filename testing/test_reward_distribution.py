@@ -282,6 +282,27 @@ def test_joint_distribution_cross_moment_and_cdf_vs_msprime():
             assert abs(jd.cdf(x, y) - ms.sfs.joint_cdf(i, j, x, y)) < 0.02  # P(L_i <= x, L_j <= y)
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("config", ["1_epoch_n_4", "1_epoch_n_3_2_locus_sfs"])
+def test_joint_distribution_vs_msprime_scenarios(config):
+    """Validate the joint reward distribution against the (full-replicate) msprime ground truth baked into the
+    serialized comparison scenarios: the empirical cross-moment and joint CDF (cached at marginal-quantile points
+    by ``cache_joint`` during scenario generation) vs the analytic ``joint_distribution``."""
+    from phasegen.comparison import Comparison
+
+    c = Comparison.from_file(f"results/comparisons/serialized/{config}.json")
+    if c.ph.locus_config.n == 2:
+        ms_joint, phd = c.ms.sfs2._joint, c.ph.sfs2
+    else:
+        ms_joint, phd = c.ms.sfs._joint, c.ph.sfs
+
+    for i, j, cross, points in ms_joint:
+        jd = phd.joint_distribution(i, j)
+        assert abs(jd.moment(1, 1) - cross) < 0.04 * cross + 0.02, (config, i, j, "cross-moment")
+        for x, y, empirical_cdf in points:
+            assert abs(jd.cdf(x, y) - empirical_cdf) < 0.03, (config, i, j, x, y, "joint CDF")
+
+
 def test_jsfs_bin_distributions_self_consistent_with_mean():
     """Each jSFS per-config distribution is consistent with the (msprime-validated) jSFS mean: ``E[L_c] = mean[c]``.
     The empirical jSFS keeps only moments (not per-config branch-length samples), so direct msprime validation of
