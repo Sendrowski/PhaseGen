@@ -260,7 +260,7 @@ class Comparison(Serializable):
             self,
             ph: PhaseTypeDistribution,
             ms: PhaseTypeDistribution,
-            stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
+            stat: Literal['pdf', 'cdf', 'joint', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
             tol: float,
             title: str = 'stat',
             name: str = ''
@@ -292,11 +292,25 @@ class Comparison(Serializable):
                 ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
                 ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
 
+            elif stat == 'joint':
+                ph_stat = ms_stat = None  # handled directly below from the cached empirical joint ground truth
+
             else:
                 ph_stat = getattr(ph, stat)
                 ms_stat = getattr(ms, stat)
 
-            if isinstance(ph_stat, float):
+            if stat == 'joint':
+
+                # joint reward distribution: the cached empirical joint CDF (per bin pair, at marginal-quantile
+                # points) versus the analytic ``joint_distribution``. The points sit at mid-range quantiles (away
+                # from the near-zero CDF head), so the worst *relative* difference is used, as for the ``cdf`` stat
+                # (the cross-moment itself is already covered by ``cov`` / the two-locus ``mean``).
+                y_ms = np.array([e for _i, _j, _c, points in ms._joint for _x, _y, e in points])
+                y_ph = np.array([ph.joint_distribution(i, j).cdf(x, y)
+                                 for i, j, _c, points in ms._joint for x, y, _e in points])
+                diff = self.rel_diff(y_ms, y_ph).max()
+
+            elif isinstance(ph_stat, float):
 
                 diff = self.rel_diff(ms_stat, ph_stat).max()
 
@@ -431,7 +445,7 @@ class Comparison(Serializable):
         """
 
         # statistic, distribution or nested demes dictionary
-        stat: Literal['pdf', 'cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4']
+        stat: Literal['pdf', 'cdf', 'joint', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4']
 
         # tolerance or dictionary of statistics
         sub: float | dict
