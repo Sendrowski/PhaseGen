@@ -57,7 +57,7 @@ class Settings:
     #: order). Set to a very large value to always use the dense path, or to 0 to always use the sparse path.
     closed_form_sparse_min_states: int = 1200
 
-    #: State count at or above which the constructed rate matrix is kept **sparse** instead of dense. The moment code
+    #: State count at or above which the constructed rate matrix is kept sparse instead of dense. The moment code
     #: works with either, so this is purely a memory/speed tradeoff: a dense matrix is faster where it fits but costs
     #: ``n_states**2`` memory, which becomes prohibitive for large state spaces. The default keeps the dense matrix under ~0.5 GB. Set to a very large value to always build dense, or to 0 to always build sparse.
     dense_rate_matrix_max_states: int = 8000

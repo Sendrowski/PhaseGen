@@ -4,7 +4,7 @@ import itertools
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set
+from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, TYPE_CHECKING
 import numpy as np
 from ..demography import Demography
 from ..expm import Backend
@@ -16,6 +16,9 @@ from ..utils import multiset_permutations
 
 from ._common import _make_hashable
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
+
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')

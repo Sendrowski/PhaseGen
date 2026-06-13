@@ -7,7 +7,7 @@ import itertools
 import logging
 from ..caching import cache
 from math import factorial
-from typing import List, Tuple, Collection, Iterable, Optional, Sequence
+from typing import List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -16,10 +16,16 @@ from ..coalescent_models import StandardCoalescent
 from ..expm import Backend
 from ..rewards import Reward, CustomReward
 from ..settings import Settings
-from ..spectrum import SFS
 from ..state_space import BlockCountingStateSpace
 
 from ._common import _make_hashable
+
+if TYPE_CHECKING:
+    from ..demography import Demography, Epoch
+    from ..lineage import LineageConfig
+    from ..locus import LocusConfig
+    from ..state_space import StateSpace
+    from .phase_type import TreeHeightDistribution
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -27,6 +33,16 @@ logger = logging.getLogger('phasegen')
 
 class MomentEvaluator:
     """Moment-evaluation methods operating on a phase-type distribution (``self``)."""
+
+    # attributes provided by the host PhaseTypeDistribution this mixin is mixed into
+    state_space: 'StateSpace'
+    tree_height: 'TreeHeightDistribution'
+    demography: 'Demography'
+    reward: Reward
+    lineage_config: 'LineageConfig'
+    locus_config: 'LocusConfig'
+    _logger: logging.Logger
+    _absorption_certain_cache: Optional[bool]
 
     @staticmethod
     def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False):

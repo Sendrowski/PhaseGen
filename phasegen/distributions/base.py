@@ -4,10 +4,14 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
-from typing import Iterator, Sequence
+from typing import Iterator, Sequence, TYPE_CHECKING
 import numpy as np
 from ..expm import Backend
 from ..rewards import DemeReward, LocusReward, CombinedReward
+
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
+    from .phase_type import PhaseTypeDistribution
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
