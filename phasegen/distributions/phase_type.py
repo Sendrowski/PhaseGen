@@ -2,10 +2,10 @@
 
 import logging
 from ..caching import cached_property, cache
-from typing import Tuple, Collection, Iterable, Sequence, Union
+from typing import Tuple, Collection, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from tqdm import tqdm
-from ..demography import Demography
+from ..demography import Demography, Epoch
 from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
@@ -16,6 +16,9 @@ from ..state_space import LineageCountingStateSpace, StateSpace
 
 from .base import DensityAwareDistribution, MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution
 from ._moments import MomentEvaluator
+
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -141,7 +144,6 @@ class PhaseTypeDistribution(MomentEvaluator, MomentAwareDistribution):
             rate = 0
             state = np.random.choice(len(alpha), p=alpha)
             epochs = self.demography.epochs
-            traj_probs = [] if record_visits else None
 
             try:
                 # find first non-zero rate epoch

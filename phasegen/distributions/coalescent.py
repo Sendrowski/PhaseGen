@@ -4,7 +4,7 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Dict, Iterable, Sequence, Union
+from typing import List, Tuple, Dict, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
@@ -13,14 +13,16 @@ from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnitReward
 from ..serialization import Serializable
-from ..spectrum import SFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
-from ..utils import parallelize
 
 from ._common import _make_hashable
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
+
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
+    from .empirical import MsprimeCoalescent
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')

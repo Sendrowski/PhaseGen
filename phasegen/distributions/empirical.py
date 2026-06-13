@@ -4,7 +4,7 @@ import itertools
 import logging
 from collections import defaultdict
 from ..caching import cached_property, cache
-from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type
+from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
@@ -16,8 +16,12 @@ from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
 from .base import DensityAwareDistribution
-from .spectra import FoldedSFSDistribution, JointSFSDistribution, SFSDistribution, TajimaSFSMixin, TwoLocusSFSDistribution, UnfoldedSFSDistribution
+from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
 from .coalescent import AbstractCoalescent, Coalescent
+
+if TYPE_CHECKING:
+    import msprime
+    import tskit
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
