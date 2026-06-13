@@ -174,6 +174,22 @@ class CoalescentTestCase(TestCase):
 
         self.assertTrue(np.isfinite(coal.tree_height.mean))
 
+    def test_fully_isolated_demes_raise(self):
+        """
+        Multiple demes each holding lineages but with no migration at all (the default migration-free demography)
+        can never reach a common ancestor across demes, so there is no almost-sure absorption time.
+        """
+        with self.assertRaisesRegex(ValueError, "does not absorb"):
+            _ = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3, 'pop_2': 3}).tree_height.mean
+
+    def test_empty_extra_demes_absorb(self):
+        """
+        The guard must not fire when the extra demes are empty (zero lineages): all lineages live in one deme and
+        coalesce there, so absorption is certain even without migration.
+        """
+        coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0})
+        self.assertTrue(np.isfinite(coal.tree_height.mean))
+
     def test_sfs2_mean_is_cached(self):
         """
         The two-locus SFS distribution and its mean are memoized on the Coalescent when caching is enabled
