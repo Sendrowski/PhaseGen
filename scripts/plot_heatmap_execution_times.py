@@ -111,7 +111,7 @@ fig, ax = plt.subplots(2, 2, figsize=(9, 8))
 
 # warm start
 _ = pg.Coalescent(
-    n={'pop_0': 3, 'pop_1': 3, 'pop_2': 3},
+    n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0},
 ).tree_height.mean
 
 plot_heatmap(
