@@ -478,6 +478,31 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         self._mutations = None
 
+    def cross_moment(self, i: int, j: int) -> float:
+        """
+        Empirical cross-moment ``E[L_i L_j]`` of the branch lengths subtending ``i`` and ``j`` samples, from the
+        per-replicate SFS branch-length samples — the simulated counterpart of
+        :meth:`JointRewardDistribution.moment` ``(1, 1)``.
+
+        :param i: First frequency class.
+        :param j: Second frequency class.
+        :return: The empirical cross-moment.
+        """
+        return float((self.samples[:, i] * self.samples[:, j]).mean())
+
+    def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
+        """
+        Empirical joint CDF ``P(L_i <= x, L_j <= y)`` of two SFS bins, from the per-replicate samples — the
+        simulated counterpart of :meth:`JointRewardDistribution.cdf`.
+
+        :param i: First frequency class.
+        :param j: Second frequency class.
+        :param x: Threshold for ``L_i``.
+        :param y: Threshold for ``L_j``.
+        :return: The empirical joint probability.
+        """
+        return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
+
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
         """
