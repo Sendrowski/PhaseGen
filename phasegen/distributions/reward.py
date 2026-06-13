@@ -424,10 +424,13 @@ class JointRewardDistribution:
         """Joint CDF on the grid ``xs x ys``: the axis atoms (marginal sub-transform inversions, one per grid line)
         plus the analytic continuous box integral."""
         big = 1e8
-        g_a = np.array([self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])  # P(R_a=0,R_b<=y)
-        g_b = np.array([self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])  # P(R_b=0,R_a<=x)
+        # P(R_a=0, R_b<=y) and P(R_b=0, R_a<=x) from inverting the marginal sub-transforms; at the atom edge (t=0)
+        # the de Hoog inversion is unreliable, so use the exact limit P(R_a=0, R_b<=0) = P(R_b=0, R_a<=0) = P(both=0)
+        both0 = self._atoms['both0']
+        g_a = np.array([both0 if y == 0 else self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])
+        g_b = np.array([both0 if x == 0 else self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
         cc = self._cc_box(np.asarray(xs, float), np.asarray(ys, float))
-        return g_b[:, None] + g_a[None, :] - self._atoms['both0'] + cc
+        return g_b[:, None] + g_a[None, :] - both0 + cc
 
     def cdf(self, x, y):
         """
