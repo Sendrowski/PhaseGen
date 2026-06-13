@@ -15,6 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
+                "joint": 0.02,
                 "mean": 0.05
             }
         }
@@ -47,7 +48,7 @@
     },
     "n_assertions": 0,
     "ms": {
-        "py/object": "phasegen.distributions.MsprimeCoalescent",
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
             "py/reduce": [
                 {
@@ -123,7 +124,7 @@
         "simulate_mutations": false,
         "seed": 47,
         "sfs2": {
-            "py/object": "phasegen.distributions.EmpiricalTwoLocusSFSDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
             "_mean": {
                 "py/object": "numpy.ndarray",
                 "data": [
@@ -152,7 +153,131 @@
                         0.0
                     ]
                 ]
-            }
+            },
+            "_left": null,
+            "_right": null,
+            "_joint": [
+                {
+                    "py/tuple": [
+                        1,
+                        1,
+                        6.027958810006039,
+                        [
+                            {
+                                "py/tuple": [
+                                    1.3766481437907816,
+                                    2.0237839686836705,
+                                    0.4
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    2.0237839686836705,
+                                    1.3766481437907816,
+                                    0.4
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    2.4371774824520953,
+                                    2.4371774824520953,
+                                    0.7
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                {
+                    "py/tuple": [
+                        1,
+                        2,
+                        3.006291895137817,
+                        [
+                            {
+                                "py/tuple": [
+                                    1.3766481437907816,
+                                    0.9146551780815999,
+                                    0.36855
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    2.0237839686836705,
+                                    0.5076447765377272,
+                                    0.33244
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    2.4371774824520953,
+                                    1.2026286513856643,
+                                    0.595515
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                {
+                    "py/tuple": [
+                        2,
+                        1,
+                        3.006291895137817,
+                        [
+                            {
+                                "py/tuple": [
+                                    0.5076447765377272,
+                                    2.0237839686836705,
+                                    0.33244
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    0.9146551780815999,
+                                    1.3766481437907816,
+                                    0.36855
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    1.2026286513856643,
+                                    2.4371774824520953,
+                                    0.595515
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                {
+                    "py/tuple": [
+                        2,
+                        2,
+                        1.999858211374746,
+                        [
+                            {
+                                "py/tuple": [
+                                    0.5076447765377272,
+                                    0.9146551780815999,
+                                    0.4
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    0.9146551780815999,
+                                    0.5076447765377272,
+                                    0.4
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    1.2026286513856643,
+                                    1.2026286513856643,
+                                    0.7
+                                ]
+                            }
+                        ]
+                    ]
+                }
+            ]
         }
     }
 }

@@ -15,6 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
+                "joint": 0.02,
                 "mean": 0.05
             }
         }
@@ -47,7 +48,7 @@
     },
     "n_assertions": 0,
     "ms": {
-        "py/object": "phasegen.distributions.MsprimeCoalescent",
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
             "py/reduce": [
                 {
@@ -123,7 +124,7 @@
         "simulate_mutations": false,
         "seed": 52,
         "sfs2": {
-            "py/object": "phasegen.distributions.EmpiricalTwoLocusSFSDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
             "_mean": {
                 "py/object": "numpy.ndarray",
                 "data": [
@@ -143,7 +144,41 @@
                         0.0
                     ]
                 ]
-            }
+            },
+            "_left": null,
+            "_right": null,
+            "_joint": [
+                {
+                    "py/tuple": [
+                        1,
+                        1,
+                        5.650597176491581,
+                        [
+                            {
+                                "py/tuple": [
+                                    1.0218787350538734,
+                                    1.8320212257669946,
+                                    0.343235
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    1.8339490364661692,
+                                    1.0196433125220308,
+                                    0.342575
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    2.4045793487199583,
+                                    2.3970098356167324,
+                                    0.57557
+                                ]
+                            }
+                        ]
+                    ]
+                }
+            ]
         }
     }
 }

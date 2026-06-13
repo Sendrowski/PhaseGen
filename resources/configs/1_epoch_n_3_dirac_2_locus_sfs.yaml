@@ -13,4 +13,5 @@ c: 1
 comparisons:
   tolerance:
     sfs2:
+      joint: 0.02
       mean: 0.06

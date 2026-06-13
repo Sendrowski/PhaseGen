@@ -992,9 +992,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         # cache the within-tree joint distribution ground truth (cross-moment + joint CDF at marginal-quantile
         # points) so the full-replicate joint is serialized with the comparison and survives the subsequent drop().
         # The two-locus joint is cached by the dedicated two-locus fixture script (which does not call touch()).
+        # only genuine cross-bin pairs (i < j): the self-pair (i, i) is a singular diagonal distribution
+        # (L_i vs L_i), which the smooth 2D representation cannot resolve and which is not a meaningful 2-SFS
         if self.lineage_config.n_pops == 1 and self.locus_config.n == 1:
             n = self.lineage_config.n
-            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i, n)],
+            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i + 1, n)],
                                  [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 
         # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for

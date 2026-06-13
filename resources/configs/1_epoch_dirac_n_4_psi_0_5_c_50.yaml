@@ -17,4 +17,5 @@ comparisons:
       mean: 0.01
       var: 0.01
     sfs:
+      joint: 0.02
       mean: 0.1

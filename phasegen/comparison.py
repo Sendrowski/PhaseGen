@@ -308,7 +308,8 @@ class Comparison(Serializable):
                 y_ms = np.array([e for _i, _j, _c, points in ms._joint for _x, _y, e in points])
                 y_ph = np.array([ph.joint_distribution(i, j).cdf(x, y)
                                  for i, j, _c, points in ms._joint for x, y, _e in points])
-                diff = self.rel_diff(y_ms, y_ph).max()
+                # no genuine cross-bin pairs (e.g. n = 2 has a single bin) -> nothing to compare
+                diff = self.rel_diff(y_ms, y_ph).max() if len(y_ms) else 0.0
 
             elif isinstance(ph_stat, float):
 
