@@ -512,7 +512,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         if t is None:
             t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), 200)
 
-        return Visualization.plot(
+        ax = Visualization.plot(
             ax=ax,
             x=t,
             y=self._cdf(t),
@@ -524,6 +524,8 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
             clear=clear,
             title=title
         )
+        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
+        return ax
 
     def _plot_pdf(
             self,

@@ -258,6 +258,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 title=title
             )
 
+        if kind == 'cdf':
+            ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
+
         return ax
 
     @cached_property

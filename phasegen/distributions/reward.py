@@ -164,8 +164,10 @@ class RewardDistribution(CallableDistributionFunctions):
         from ..visualization import Visualization
         if x is None:
             x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
-        return Visualization.plot(ax=ax, x=x, y=self.cdf_curve(x), xlabel='x', ylabel='F(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title or self._titled('CDF'))
+        ax = Visualization.plot(ax=ax, x=x, y=self.cdf_curve(x), xlabel='x', ylabel='F(x)', label=label, file=file,
+                                show=show, clear=clear, title=title or self._titled('CDF'))
+        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
+        return ax
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
                   file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
@@ -602,7 +604,9 @@ class JointRewardDistribution:
 
         if ax is None:
             ax = plt.gca()
-        mesh = ax.pcolormesh(xs, ys, Z.T, shading='auto', cmap='viridis')
+        # a CDF is a probability, so fix its colour scale to [0, 1]
+        vlim = dict(vmin=0.0, vmax=1.0) if kind == 'cdf' else {}
+        mesh = ax.pcolormesh(xs, ys, Z.T, shading='auto', cmap='viridis', **vlim)
         ax.figure.colorbar(mesh, ax=ax)
         ax.set_xlabel('$R_a$')
         ax.set_ylabel('$R_b$')
@@ -740,21 +744,28 @@ class ConditionalRewardDistribution(CallableDistributionFunctions):
         """A plot title incorporating the conditioning :attr:`label` (e.g. ``"R_b | R_a = 0.1 CDF"``)."""
         return f"{self.label} {base}" if self.label else f"Conditional {base.lower()}"
 
+    def _endpoint(self) -> float:
+        """The plot's right end: the configured upper quantile of the conditional (so a heavy tail doesn't stretch
+        the view), bounded by the support."""
+        return min(self._quantile(Settings.plot_endpoint_quantile), self._x_max)
+
     def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
                   file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the conditional CDF."""
         from ..visualization import Visualization
         if t is None:
-            t = np.linspace(0, self._x_max, n_points)
-        return Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label,
-                                  file=file, show=show, clear=clear, title=title or self._titled('CDF'))
+            t = np.linspace(0, self._endpoint(), n_points)
+        ax = Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label,
+                                file=file, show=show, clear=clear, title=title or self._titled('CDF'))
+        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
+        return ax
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
                   file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the conditional (continuous-part) PDF."""
         from ..visualization import Visualization
         if t is None:
-            t = np.linspace(0, self._x_max, n_points)
+            t = np.linspace(0, self._endpoint(), n_points)
         return Visualization.plot(ax=ax, x=t, y=self._pdf(t), xlabel='x', ylabel='f(x)', label=label,
                                   file=file, show=show, clear=clear, title=title or self._titled('PDF'))
 
@@ -763,7 +774,8 @@ class ConditionalRewardDistribution(CallableDistributionFunctions):
         """Plot the conditional quantile function (value versus probability ``q``)."""
         from ..visualization import Visualization
         if q is None:
-            q = np.linspace(0.01, 0.99, n_points)
+            qe = Settings.plot_endpoint_quantile
+            q = np.linspace(1.0 - qe, qe, n_points)
         return Visualization.plot(ax=ax, x=q, y=np.array([self._quantile(float(p)) for p in q]), xlabel='q',
                                   ylabel='quantile', label=label, file=file, show=show, clear=clear,
                                   title=title or self._titled('quantile function'))

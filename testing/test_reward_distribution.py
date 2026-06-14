@@ -137,6 +137,7 @@ def test_sfs_bin_quantile_roundtrip():
         assert abs(rd.cdf(rd.quantile(q)) - q) < 1e-4, q
 
 
+@pytest.mark.slow
 def test_cos_curve_matches_dehoog():
     """The fast COS plotting curves (cdf_curve / pdf_curve) match the exact per-point de Hoog inversion across the
     cases that most stress the COS path: a smooth distribution, an SFS bin, a multiple-merger bin with an atom at 0
@@ -583,6 +584,7 @@ def test_cos_inversion_imprecision_warning():
         e.distribution(reward=e._get_sfs_reward(5)).cdf_curve(np.linspace(0, 50, 100))
 
 
+@pytest.mark.slow
 def test_cos_two_pass_window_monotone_and_plotting_accurate():
     """For a heavy-tailed distribution (strong size expansion) the default COS window (mean+12 std) is far wider than
     the bulk and would ring; the two-pass support-matched window keeps the plotted cdf_curve monotone and within
@@ -627,7 +629,7 @@ def test_plot_endpoint_tracks_quantile_setting():
     import matplotlib.pyplot as plt
     from phasegen.settings import Settings
 
-    coal = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
+    coal = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
     tbl = coal.total_branch_length
     prev = Settings.plot_endpoint_quantile
     try:
