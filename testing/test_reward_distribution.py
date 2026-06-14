@@ -526,8 +526,8 @@ def test_empirical_sfs_distribution_functions_plot():
 
 
 def test_cos_inversion_imprecision_warning():
-    """The COS plotting inversion warns when it is likely imprecise (support window too small / Gibbs ringing), and
-    stays silent on well-behaved curves."""
+    """The COS plotting inversion warns when it is likely imprecise (ringing it cannot resolve / window too small),
+    and stays silent on well-behaved curves."""
     import warnings
 
     d = pg.Coalescent(n=6).total_branch_length.distribution()
@@ -538,9 +538,29 @@ def test_cos_inversion_imprecision_warning():
         d.cdf_curve(np.linspace(0, d._range(), 100))
         d.pdf_curve(np.linspace(0, d._range(), 100))
 
-    # a deliberately tiny support window truncates the tail -> imprecision warning
-    with pytest.warns(UserWarning, match="COS inversion looks imprecise"):
-        d._cos(np.linspace(0, 1, 20), 'pdf', n_terms=16, scale=0.5)
+    # a deliberately tiny support window with refinement disabled -> imprecision warning
+    d = pg.Coalescent(n=6).total_branch_length.distribution()
+    d._cos_max_terms = 8  # disable auto-refinement so the warning fires immediately
+    with pytest.warns(UserWarning, match="COS inversion"):
+        d._cos(np.linspace(0, 1, 20), 'cdf', n_terms=16, scale=0.4)
+
+
+def test_cos_autorefine_and_monotonicity_remove_ripples():
+    """For a heavy-tailed distribution (strong size expansion) the default-term COS rings; the fit auto-refines and
+    the CDF is clamped monotone, so the plotted cdf_curve is non-decreasing and pdf_curve (its derivative) is
+    non-negative -- with no warning for the now-resolved ripple."""
+    import warnings
+
+    sfs = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')  # the ripple is resolved (refine + clamp), so no warning is emitted
+        for i in (1, 5, 9):
+            d = sfs.distribution(reward=sfs._get_sfs_reward(i))
+            x = np.linspace(0, d.quantile(0.95), 300)
+            F = d.cdf_curve(x)
+            f = d.pdf_curve(x)
+            assert np.all(np.diff(F) >= -1e-9)   # CDF monotone (residual ripple clamped away)
+            assert f.min() >= -1e-9              # PDF (derivative of the monotone CDF) non-negative
 
 
 def test_pdf_curve_via_cdf_differentiation_is_smooth():
