@@ -431,6 +431,41 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
     assert jsfs.joint_distribution(ca, ca)._is_diagonal
 
 
+def test_conditional_distribution():
+    """``JointRewardDistribution.conditional`` returns a proper, callable-and-plottable 1D distribution; the law of
+    total expectation ``E[R_b] = ∫ E[R_b | R_a = x] f_a(x) dx`` is recovered, and the self-pair / atom edge cases
+    behave."""
+    import matplotlib
+    matplotlib.use('Agg')
+    from phasegen.distributions.base import DistributionFunction
+
+    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 2)
+    ma, mb = jd.marginal('a'), jd.marginal('b')
+
+    # a proper distribution: CDF monotone from ~0 to 1, quantile is its inverse, callable + plottable
+    c = jd.conditional('a', 1.0)
+    assert isinstance(c.cdf, DistributionFunction)
+    grid = np.linspace(0, c._x_max, 50)
+    F = c.cdf(grid)
+    assert np.all(np.diff(F) > -1e-6) and F[0] == pytest.approx(c.atom0, abs=2e-3) and F[-1] == pytest.approx(1, abs=2e-3)
+    assert c.cdf(c.quantile(0.5)) == pytest.approx(0.5, abs=1e-3)
+    c.pdf.plot(show=False)
+    c.cdf.plot(show=False)
+    c.quantile.plot(show=False)
+
+    # law of total expectation: integrate the conditional mean against the marginal density of R_a
+    xs = np.linspace(0.05, ma._range(scale=8), 60)
+    cond_means = [np.trapezoid(np.linspace(0, jd.conditional('a', x)._x_max, 400)
+                               * jd.conditional('a', x)._pdf(np.linspace(0, jd.conditional('a', x)._x_max, 400)),
+                               np.linspace(0, jd.conditional('a', x)._x_max, 400)) for x in xs]
+    e_recon = np.trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
+    assert e_recon == pytest.approx(mb._cumulants()[0], rel=0.05)
+
+    # a self-pair conditional is a point mass at ``value`` -> not representable, raises
+    with pytest.raises(NotImplementedError):
+        pg.Coalescent(n=6).sfs.joint_distribution(2, 2).conditional('a', 1.0)
+
+
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
 def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     """``pdf.plot`` / ``cdf.plot`` / ``quantile.plot`` draw one curve per bin on a single axes (unfolded/folded)."""

@@ -41,7 +41,7 @@ import scipy.sparse.linalg as spla
 
 from ..rewards import Reward
 from ..settings import Settings
-from .base import DistributionFunction
+from .base import CallableDistributionFunctions, DistributionFunction
 from ._moments import MomentEvaluator
 
 if TYPE_CHECKING:
@@ -511,3 +511,157 @@ class JointRewardDistribution:
         if show:
             plt.show()
         return ax
+
+    def conditional(self, on: str = 'a', value: float = 0.0) -> 'ConditionalRewardDistribution':
+        """
+        The 1D conditional distribution of the *other* reward given ``R_{on} = value``.
+
+        For ``value > 0`` this is the continuous conditional density -- a slice of the 2D cosine density at the
+        conditioning value, normalized by the marginal density there -- plus the atom ``P(R_other = 0 | R_{on} =
+        value)`` (non-zero only when the other bin can be empty). For ``value = 0`` it conditions on the atom event
+        ``{R_{on} = 0}`` (which must have positive probability). The returned object is a callable-and-plottable 1D
+        distribution like any other (``cdf`` / ``pdf`` / ``quantile``).
+
+        :param on: Which reward to condition on, ``'a'`` or ``'b'``.
+        :param value: The conditioning value (``>= 0``).
+        :return: The conditional distribution of the other reward.
+        """
+        if on not in ('a', 'b'):
+            raise ValueError("`on` must be 'a' or 'b'.")
+        if value is None or value < 0:
+            raise ValueError("`value` must be non-negative.")
+        if self._is_diagonal:
+            raise NotImplementedError("The conditional of a self-pair is a point mass at `value` (R_a = R_b a.s.).")
+
+        big = 1e8
+        other_name = 'b' if on == 'a' else 'a'
+
+        # condition on the atom {R_on = 0}: the sub-distribution of the other reward there, normalized by its mass
+        if value == 0:
+            atom = self._atoms['a0' if on == 'a' else 'b0']
+            if atom < 1e-9:
+                raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
+            other = self.marginal(other_name)
+            sub = (lambda s: self.lst(big, s)) if on == 'a' else (lambda s: self.lst(s, big))
+            return ConditionalRewardDistribution(
+                cdf=lambda y: other._invert(lambda s: sub(s) / s, float(y)) / atom,
+                pdf=lambda y: other._invert(sub, float(y)) / atom,
+                x_max=other._range(),
+                atom0=self._atoms['both0'] / atom,
+                label=f"R_{other_name} | R_{on} = 0"
+            )
+
+        # condition on R_on = value > 0: the conditional continuous density is a 1D cosine series (the slice of the
+        # 2D cosine coefficients at ``value``) divided by the marginal density there; the leftover mass is the atom
+        st = self._cos2d
+        if on == 'a':
+            marg, freqs, support = self.marginal('a'), st['ub'], st['bb']
+            coeffs = np.cos(st['ua'] * value) @ st['A']
+        else:
+            marg, freqs, support = self.marginal('b'), st['ua'], st['ba']
+            coeffs = st['A'] @ np.cos(st['ub'] * value)
+
+        f_marg = marg.pdf(value)
+        if f_marg <= 0:
+            raise ValueError(f"The marginal density at R_{on} = {value} is zero; cannot condition there.")
+
+        coeffs = coeffs / f_marg
+        # continuous mass on (0, support]; the remainder is the atom P(R_other = 0 | R_on = value)
+        mass = coeffs[0] * support + (coeffs[1:] / freqs[1:]) @ np.sin(freqs[1:] * support)
+        atom0 = float(np.clip(1.0 - mass, 0.0, 1.0))
+
+        def pdf(y: float) -> float:
+            return float(coeffs @ np.cos(freqs * min(max(y, 0.0), support)))
+
+        def cdf(y: float) -> float:
+            yy = min(max(y, 0.0), support)
+            return float(atom0 + coeffs[0] * yy + (coeffs[1:] / freqs[1:]) @ np.sin(freqs[1:] * yy))
+
+        return ConditionalRewardDistribution(cdf, pdf, support, atom0, f"R_{other_name} | R_{on} = {value:g}")
+
+
+class ConditionalRewardDistribution(CallableDistributionFunctions):
+    """
+    A 1D conditional distribution of one reward given a fixed value of the other (see
+    :meth:`JointRewardDistribution.conditional`). It may carry an atom at 0 (the conditioned bin can still be
+    empty). Its ``cdf`` / ``pdf`` / ``quantile`` are callable and plottable like any other distribution function.
+    """
+
+    def __init__(self, cdf, pdf, x_max: float, atom0: float = 0.0, label: str = ''):
+        """
+        :param cdf: Scalar CDF callback ``F(y)``.
+        :param pdf: Scalar (continuous) density callback ``f(y)``.
+        :param x_max: Upper end of the support (for plotting and quantile bracketing).
+        :param atom0: Probability mass at ``0``.
+        :param label: A human-readable label (e.g. ``"R_b | R_a = 1.2"``).
+        """
+        self._cdf_fn = cdf
+        self._pdf_fn = pdf
+        self._x_max = float(x_max)
+        #: Probability mass at 0.
+        self.atom0 = float(atom0)
+        #: Human-readable label.
+        self.label = label
+
+    def _cdf(self, t):
+        """Cumulative distribution function ``P(R <= t)``. Scalar or array-valued."""
+        if np.ndim(t) > 0:
+            return np.array([self._cdf(float(x)) for x in np.asarray(t)])
+        if t < 0:
+            raise ValueError("Negative values are not allowed.")
+        return float(np.clip(self._cdf_fn(float(t)), 0.0, 1.0))
+
+    def _pdf(self, t, **kwargs):
+        """Probability density of the continuous part. Scalar or array-valued (the atom at 0 is in :attr:`atom0`)."""
+        if np.ndim(t) > 0:
+            return np.array([self._pdf(float(x)) for x in np.asarray(t)])
+        return float(max(self._pdf_fn(float(t)), 0.0))
+
+    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
+        """The ``q``-quantile via bisection on the (monotone) CDF; values ``q <= atom0`` map to the atom at 0."""
+        if not 0 <= q <= 1:
+            raise ValueError("Quantile must be between 0 and 1.")
+        if q <= self.atom0:
+            return 0.0
+
+        lo, hi = 0.0, self._x_max
+        for _ in range(max_iter):
+            mid = 0.5 * (lo + hi)
+            if self._cdf(mid) < q:
+                lo = mid
+            else:
+                hi = mid
+            if hi - lo < precision:
+                break
+        return 0.5 * (lo + hi)
+
+    def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None,
+                  title: str = 'Conditional CDF') -> 'plt.Axes':
+        """Plot the conditional CDF."""
+        from ..visualization import Visualization
+        if t is None:
+            t = np.linspace(0, self._x_max, n_points)
+        return Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label or self.label,
+                                  file=file, show=show, clear=clear, title=title)
+
+    def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None,
+                  title: str = 'Conditional PDF') -> 'plt.Axes':
+        """Plot the conditional (continuous-part) PDF."""
+        from ..visualization import Visualization
+        if t is None:
+            t = np.linspace(0, self._x_max, n_points)
+        return Visualization.plot(ax=ax, x=t, y=self._pdf(t), xlabel='x', ylabel='f(x)', label=label or self.label,
+                                  file=file, show=show, clear=clear, title=title)
+
+    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
+                       file: str = None, clear: bool = True, label: str = None,
+                       title: str = 'Conditional quantile function') -> 'plt.Axes':
+        """Plot the conditional quantile function (value versus probability ``q``)."""
+        from ..visualization import Visualization
+        if q is None:
+            q = np.linspace(0.01, 0.99, n_points)
+        return Visualization.plot(ax=ax, x=q, y=np.array([self._quantile(float(p)) for p in q]), xlabel='q',
+                                  ylabel='quantile', label=label or self.label, file=file, show=show, clear=clear,
+                                  title=title)
