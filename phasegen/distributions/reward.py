@@ -232,8 +232,16 @@ class RewardDistribution:
         return self._cos(x, 'cdf', n_terms=n_terms)
 
     def pdf_curve(self, x, n_terms: int = 192) -> np.ndarray:
-        """Fast PDF over a whole grid ``x`` via COS inversion (for plotting; see :meth:`_cos`)."""
-        return self._cos(x, 'pdf', n_terms=n_terms)
+        """
+        Fast PDF over a whole grid ``x`` (for plotting). Computed as the numerical derivative of the COS *CDF* curve
+        rather than the raw cosine density sum: integration suppresses the high-frequency Gibbs ripples, so the
+        (stable) CDF differentiates to a much smoother PDF than the directly-reconstructed density — at the cost of a
+        mild, grid-dependent smoothing (use the per-point :meth:`pdf` / de Hoog for exact values).
+        """
+        x = np.asarray(x, dtype=float)
+        if x.size < 2:
+            return self._cos(x, 'pdf', n_terms=n_terms)
+        return np.gradient(self._cos(x, 'cdf', n_terms=n_terms), x)
 
 
 def _build_epoch_data(host) -> dict:

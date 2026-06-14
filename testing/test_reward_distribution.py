@@ -534,6 +534,26 @@ def test_cos_inversion_imprecision_warning():
         d._cos(np.linspace(0, 1, 20), 'pdf', n_terms=16, scale=0.5)
 
 
+def test_pdf_curve_via_cdf_differentiation_is_smooth():
+    """pdf_curve differentiates the (stable) COS CDF instead of summing the raw cosine density, so it stays smooth
+    even when the direct density rings (wide support range / heavy tail). Validated on a strong-expansion
+    demography and against the per-point de Hoog density."""
+    d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).total_branch_length.distribution()
+    b = d._range()
+    x = np.linspace(0, b, 300)
+    pdf = d.pdf_curve(x)          # derivative of the COS CDF
+    raw = d._cos(x, 'pdf')        # raw cosine density (rings)
+    peak = pdf.max()
+
+    # the differentiated PDF undershoots far less than the raw cosine density (ripples integrated out)
+    assert pdf.min() / peak > -0.005
+    assert pdf.min() / peak > raw.min() / raw.max()
+
+    # and it still agrees with the exact per-point de Hoog density
+    xs = np.linspace(0.05 * b, 0.5 * b, 8)
+    assert np.abs(np.interp(xs, x, pdf) - d.pdf(xs)).max() < 0.03 * peak
+
+
 def test_parallelize_spawn_guard_message(monkeypatch):
     """When the worker pool cannot bootstrap (e.g. a non-import-safe entry point under the macOS 'spawn' start
     method), ``parallelize`` replaces the opaque multiprocessing error with actionable guidance."""
