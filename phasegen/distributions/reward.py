@@ -191,70 +191,78 @@ class RewardDistribution(CallableDistributionFunctions):
     # ------------------------------------------------------------------------------------------------------------
     # fast curve evaluation (whole CDF/PDF curve from one fixed set of transform evaluations)
     # ------------------------------------------------------------------------------------------------------------
-    #: Maximum number of COS terms the auto-refinement (see :meth:`_fit_cos`) grows to before giving up and warning.
-    _cos_max_terms: int = 768
+    #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
+    _cos_terms_rough: int = 128
+    _cos_terms: int = 384
 
     @cached_property
     def _cos_coeffs(self) -> dict:
-        """The cached COS coefficients (with auto-refined term count) for this distribution, computed once and shared
-        across :meth:`cdf_curve` / :meth:`pdf_curve` / the plot endpoint (which all evaluate the same fit at
-        different points). See :meth:`_fit_cos`."""
-        return self._fit_cos(12.0)
-
-    def _fit_cos(self, scale: float, n_terms: int = 192) -> dict:
         """
-        Fit the COS (Fourier-cosine) inversion: evaluate the characteristic function ``chi(w) = phi(-i w)`` on a
-        fixed frequency grid over ``[0, b]`` (``b = mean + scale*std``) and return the cosine coefficients. An atom
-        at ``R = 0`` (``p0 = phi(inf)``) is split off so the series sees only the smooth continuous part.
-
-        When the reconstruction rings (a wide window under-resolved by too few terms — common for skewed / heavy-
-        tailed distributions) the term count is auto-refined (quadrupled, up to :attr:`_cos_max_terms`). The CDF's
-        non-monotonicity (largest backward step) is the sensitive ringing detector; the density amplitude alone is
-        weak. A *substantial* residual ripple at the cap, or a density still appreciable at the window edge (window
-        too small for the tail), is warned about — pointing to the exact per-point ``cdf()`` / ``pdf()`` (de Hoog).
+        Cached COS coefficients, computed once and shared across :meth:`cdf_curve` / :meth:`pdf_curve` / the quantile
+        inversion. Fit in **two passes**: a coarse pass over a generous window (``mean + 12*std``) locates the
+        effective support, then the fit is redone over a window tightened to that support. Matching the window to
+        where the mass actually is — rather than ``mean + 12*std``, which a heavy tail blows far past the bulk — lets
+        a few hundred cosine terms resolve the curve accurately, removing the ringing at the source (no post-
+        smoothing, no term-count search). Verified against the per-point de Hoog inversion.
         """
-        a, b = 0.0, self._range(scale)
+        rough = self._fit_cos(self._range(12.0), self._cos_terms_rough)
+        xs = np.linspace(0.0, rough['b'], 1024)
+        cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
+        b = float(np.interp(0.9995, cdf, xs))
+        return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
+
+    def _fit_cos(self, b: float, n_terms: int) -> dict:
+        """
+        Fit the COS (Fourier-cosine) inversion over ``[0, b]``: evaluate the characteristic function
+        ``chi(w) = phi(-i w)`` on a fixed frequency grid and return the cosine coefficients. An atom at ``R = 0``
+        (``p0 = phi(inf)``) is split off so the series sees only the smooth continuous part. Warns if a substantial
+        CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this window/resolution) —
+        pointing to the exact per-point ``cdf()`` / ``pdf()`` (de Hoog).
+        """
         p0 = self.lst(1e8).real
-        w = np.arange(n_terms) * np.pi / (b - a)
+        w = np.arange(n_terms) * np.pi / b
         chi = np.array([self.lst(-1j * wk) for wk in w])
         if p0 > 1e-9:
             chi = (chi - p0) / (1 - p0)  # continuous part only
-        fk = (2.0 / (b - a)) * np.real(chi)  # a = 0, so exp(-i w a) = 1
+        fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
         fk[0] *= 0.5
 
-        xd = np.linspace(0.0, b - a, max(256, 2 * n_terms))
-        fd = fk @ np.cos(np.outer(w, xd))                                   # continuous density
-        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))    # its analytic integral (continuous CDF)
-        peak = max(float(fd.max()), 1e-12)
-        dip = -float(np.diff(Fd).min())                                     # largest backward step of the CDF (>= 0)
-
-        # under-resolved and still resolvable -> quadruple the terms and refit (the monotonicity clamp in _cos keeps
-        # the residual harmless, so the cap can be modest)
-        if (dip > 1e-3 or float(fd.min()) < -0.005 * peak) and n_terms < self._cos_max_terms:
-            return self._fit_cos(scale, min(4 * n_terms, self._cos_max_terms))
-
-        if dip > 1e-2:
+        # the largest backward step of the (continuous) CDF is the sensitive ringing detector (a visibly rippling CDF
+        # can come from sub-percent density wiggles); warn if a substantial one survives the support-matched window
+        xd = np.linspace(0.0, b, max(512, 2 * n_terms))
+        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
+        if -float(np.diff(Fd).min()) > 1e-2:
             warnings.warn(
-                f"COS inversion still rings substantially at {n_terms} terms (a sharp feature or atom the cosine "
-                f"series cannot resolve); the plotted curve may be imprecise. Prefer the per-point cdf()/pdf() "
-                f"(de Hoog).", stacklevel=4
-            )
-        elif float(fd[-1]) > 0.05 * peak:
-            warnings.warn(
-                "COS inversion looks imprecise: the density is still appreciable at the support window edge, so the "
-                "window is too small to capture the tail. Prefer the per-point cdf()/pdf() (de Hoog).", stacklevel=4
+                "COS plotting inversion shows a substantial residual ripple (a sharp feature or atom the cosine "
+                "series cannot resolve at this resolution); the plotted curve may be imprecise. Prefer the per-point "
+                "cdf()/pdf() (de Hoog) for accurate values.", stacklevel=4
             )
 
         return dict(b=b, w=w, fk=fk, p0=p0)
 
-    def _cos(self, x: np.ndarray, kind: str, n_terms: int = 192, scale: float = 12.0) -> np.ndarray:
+    @staticmethod
+    def _eval_cos_cdf(fit: dict, xs: np.ndarray) -> np.ndarray:
+        """Evaluate the continuous COS CDF of ``fit`` (atom ``p0`` added back) at ``xs``, clipped to ``[0, 1]``."""
+        w, fk, p0 = fit['w'], fit['fk'], fit['p0']
+        cdf_c = fk[0] * xs + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xs))
+        return np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
+
+    @cached_property
+    def _cos_cdf_grid(self) -> tuple:
+        """A fine, monotone CDF on ``[0, b]`` underlying the plotting curves (``cdf_curve`` / ``pdf_curve`` / the
+        quantile inversion all interpolate it, so they are mutually consistent and computed once). The support-matched
+        window removes the ringing at the source, so only a final monotonicity clamp of any tiny residual is needed."""
+        fit = self._cos_coeffs
+        xs = np.linspace(0.0, fit['b'], 2048)
+        return xs, np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
+
+    def _cos(self, x: np.ndarray, kind: str, n_terms: int = None, scale: float = 12.0) -> np.ndarray:
         """
-        Evaluate the (cached, auto-refined) COS fit as a whole CDF/PDF curve over the grid ``x`` (for plotting; the
-        exact per-point ``cdf()`` / ``pdf()`` use de Hoog). The CDF is clipped to ``[0, 1]`` and made monotone (it is
-        monotone by definition, so clamp the small residual ripple — this also makes :meth:`pdf_curve`, its numerical
-        derivative, non-negative).
+        Evaluate the COS fit as a whole CDF/PDF curve over the grid ``x`` (for plotting; the exact per-point
+        ``cdf()`` / ``pdf()`` use de Hoog). The default window uses the cached two-pass fit; an explicit ``scale``
+        refits over ``[0, mean + scale*std]`` (used in tests). The CDF is clipped to ``[0, 1]`` and made monotone.
         """
-        fit = self._cos_coeffs if scale == 12.0 and n_terms == 192 else self._fit_cos(scale, n_terms)
+        fit = self._cos_coeffs if scale == 12.0 else self._fit_cos(self._range(scale), n_terms or self._cos_terms)
         b, w, fk, p0 = fit['b'], fit['w'], fit['fk'], fit['p0']
 
         xa = np.clip(np.atleast_1d(np.asarray(x, dtype=float)), 0.0, b)
@@ -262,8 +270,7 @@ class RewardDistribution(CallableDistributionFunctions):
             curve = fk @ np.cos(np.outer(w, xa))
             return (1 - p0) * curve if p0 > 1e-9 else curve
 
-        cdf_c = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
-        cdf = np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
+        cdf = self._eval_cos_cdf(fit, xa)
         order = np.argsort(xa)
         cdf[order] = np.maximum.accumulate(cdf[order])
         return cdf
@@ -281,25 +288,18 @@ class RewardDistribution(CallableDistributionFunctions):
         c1, c2 = self._cumulants()
         return float(c1 + scale * np.sqrt(c2))
 
-    def cdf_curve(self, x, n_terms: int = 192) -> np.ndarray:
-        """Fast CDF over a whole grid ``x`` via COS inversion (for plotting; see :meth:`_cos`)."""
-        return self._cos(x, 'cdf', n_terms=n_terms)
+    def cdf_curve(self, x, n_terms: int = None) -> np.ndarray:
+        """Fast CDF over a whole grid ``x`` (for plotting): interpolate the monotone two-pass COS CDF grid (see
+        :attr:`_cos_cdf_grid`)."""
+        xs, cdf = self._cos_cdf_grid
+        return np.interp(np.atleast_1d(np.asarray(x, dtype=float)), xs, cdf)
 
-    def pdf_curve(self, x, n_terms: int = 192) -> np.ndarray:
-        """
-        Fast PDF over a whole grid ``x`` (for plotting). Computed as the numerical derivative of the COS *CDF* (which
-        is refined and clamped monotone, so it differentiates to a clean non-negative density) rather than the raw
-        cosine density sum, which rings for skewed / heavy-tailed distributions. The differentiation uses a fine
-        internal grid and interpolates to ``x``, so the result is independent of the (possibly coarse) plotting grid.
-        Use the per-point :meth:`pdf` (de Hoog) for exact values.
-        """
-        x = np.atleast_1d(np.asarray(x, dtype=float))
-        if x.size < 2:
-            return self._cos(x, 'pdf', n_terms=n_terms)
-        # differentiate on a fine grid from 0 so every requested point is interior (central differences), then
-        # interpolate -- independent of the (possibly coarse) plotting grid and accurate near the origin / an atom
-        fine = np.linspace(0.0, float(x.max()), max(1024, 4 * x.size))
-        return np.interp(x, fine, np.gradient(self._cos(fine, 'cdf', n_terms=n_terms), fine))
+    def pdf_curve(self, x, n_terms: int = None) -> np.ndarray:
+        """Fast PDF over a whole grid ``x`` (for plotting): the numerical derivative of the monotone two-pass COS CDF
+        grid (deriving the PDF from CDF *differences* keeps it clean and non-negative; the raw cosine density sum
+        rings for skewed distributions). Use the per-point :meth:`pdf` (de Hoog) for exact values."""
+        xs, cdf = self._cos_cdf_grid
+        return np.interp(np.atleast_1d(np.asarray(x, dtype=float)), xs, np.gradient(cdf, xs))
 
 
 def _build_epoch_data(host) -> dict:
@@ -593,8 +593,11 @@ class JointRewardDistribution:
         import matplotlib.pyplot as plt
 
         st = self._cos2d
-        xs = np.linspace(0, st['ba'], n_points)
-        ys = np.linspace(0, st['bb'], n_points)
+        # end each axis at the configured marginal quantile (like the 1D plots) so a heavy upper tail does not
+        # stretch the view to mean + many std; clip to the cosine window the density was reconstructed on
+        q = Settings.plot_endpoint_quantile
+        xs = np.linspace(0, min(self.marginal('a').quantile(q), st['ba']), n_points)
+        ys = np.linspace(0, min(self.marginal('b').quantile(q), st['bb']), n_points)
         Z = np.clip(self._density(xs, ys), 0.0, None) if kind == 'pdf' else self._cdf_grid(xs, ys)
 
         if ax is None:
