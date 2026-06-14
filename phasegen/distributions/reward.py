@@ -561,25 +561,35 @@ class JointRewardDistribution:
 
     @property
     def pdf(self) -> DistributionFunction:
-        """Joint density of ``(R_a, R_b)``: callable (``pdf(x, y)``) and plottable as a heatmap (``pdf.plot()``)."""
-        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf')
+        """Joint density of ``(R_a, R_b)``: callable (``pdf(x, y)``) and plottable as a heatmap (``pdf.plot()``) or a
+        3D surface (``pdf.plot_surface()``)."""
+        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf', surface=self._plot_pdf_surface)
 
     @property
     def cdf(self) -> DistributionFunction:
-        """Joint CDF of ``(R_a, R_b)``: callable (``cdf(x, y)``) and plottable as a heatmap (``cdf.plot()``)."""
-        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf')
+        """Joint CDF of ``(R_a, R_b)``: callable (``cdf(x, y)``) and plottable as a heatmap (``cdf.plot()``) or a
+        3D surface (``cdf.plot_surface()``)."""
+        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf', surface=self._plot_cdf_surface)
 
-    def _plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,
-                  title: str = None) -> 'plt.Axes':
+    def _title(self, kind: str) -> str:
+        """Joint plot title incorporating the bin :attr:`label` when set."""
+        return f"Joint {kind.upper()} {self.label}" if self.label else f"Joint reward {kind.upper()}"
+
+    def _plot_pdf(self, ax=None, n_points: int = 120, show: bool = True, file: str = None, title: str = None):
         """Heatmap of the joint (continuous) density of ``(R_a, R_b)``."""
-        base = f"Joint PDF {self.label}" if self.label else 'Joint reward PDF'
-        return self._plot_joint('pdf', ax, n_points, show, file, title or base)
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False)
 
-    def _plot_cdf(self, ax: 'plt.Axes' = None, n_points: int = 60, show: bool = True, file: str = None,
-                  title: str = None) -> 'plt.Axes':
+    def _plot_cdf(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None):
         """Heatmap of the joint CDF of ``(R_a, R_b)``."""
-        base = f"Joint CDF {self.label}" if self.label else 'Joint reward CDF'
-        return self._plot_joint('cdf', ax, n_points, show, file, title or base)
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False)
+
+    def _plot_pdf_surface(self, ax=None, n_points: int = 80, show: bool = True, file: str = None, title: str = None):
+        """3D surface of the joint (continuous) density of ``(R_a, R_b)``."""
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True)
+
+    def _plot_cdf_surface(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None):
+        """3D surface of the joint CDF of ``(R_a, R_b)``."""
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True)
 
     def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
         """Deprecated: use ``.pdf.plot()`` instead."""
@@ -591,7 +601,7 @@ class JointRewardDistribution:
         warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self._plot_cdf(*args, **kwargs)
 
-    def _plot_joint(self, kind, ax, n_points, show, file, title):
+    def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False):
         import matplotlib.pyplot as plt
 
         st = self._cos2d
@@ -601,13 +611,20 @@ class JointRewardDistribution:
         xs = np.linspace(0, min(self.marginal('a').quantile(q), st['ba']), n_points)
         ys = np.linspace(0, min(self.marginal('b').quantile(q), st['bb']), n_points)
         Z = np.clip(self._density(xs, ys), 0.0, None) if kind == 'pdf' else self._cdf_grid(xs, ys)
+        zlim = dict(vmin=0.0, vmax=1.0) if kind == 'cdf' else {}  # a CDF is a probability -> fix its scale to [0, 1]
 
-        if ax is None:
-            ax = plt.gca()
-        # a CDF is a probability, so fix its colour scale to [0, 1]
-        vlim = dict(vmin=0.0, vmax=1.0) if kind == 'cdf' else {}
-        mesh = ax.pcolormesh(xs, ys, Z.T, shading='auto', cmap='viridis', **vlim)
-        ax.figure.colorbar(mesh, ax=ax)
+        if surface:
+            if ax is None:
+                ax = plt.figure().add_subplot(projection='3d')
+            ax.plot_surface(*np.meshgrid(xs, ys), Z.T, cmap='viridis', **zlim)
+            ax.set_zlabel('F(R_a, R_b)' if kind == 'cdf' else 'f(R_a, R_b)')
+            if kind == 'cdf':
+                ax.set_zlim(0.0, 1.0)  # a CDF spans [0, 1]
+        else:
+            if ax is None:
+                ax = plt.gca()
+            mesh = ax.pcolormesh(xs, ys, Z.T, shading='auto', cmap='viridis', **zlim)
+            ax.figure.colorbar(mesh, ax=ax)
         ax.set_xlabel('$R_a$')
         ax.set_ylabel('$R_b$')
         ax.set_title(title)

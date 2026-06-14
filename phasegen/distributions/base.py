@@ -31,14 +31,16 @@ class DistributionFunction:
     ``plot_pdf`` / ``plot_cdf`` methods (now deprecated aliases for ``.pdf.plot()`` / ``.cdf.plot()``).
     """
 
-    def __init__(self, evaluate: Callable, plot: Callable, kind: str = ''):
+    def __init__(self, evaluate: Callable, plot: Callable, kind: str = '', surface: Callable = None):
         """
         :param evaluate: The evaluation callback (the former ``cdf`` / ``pdf`` / ``quantile`` method body).
         :param plot: The plotting callback (the former ``plot_cdf`` / ``plot_pdf`` body, or a quantile-function plot).
         :param kind: One of ``'cdf'``, ``'pdf'``, ``'quantile'`` (for ``repr``).
+        :param surface: Optional 3D-surface plotting callback, only for bivariate (joint) distributions.
         """
         self._evaluate = evaluate
         self._plot = plot
+        self._surface = surface
         #: The kind of function: ``'cdf'``, ``'pdf'`` or ``'quantile'``.
         self.kind = kind
 
@@ -49,6 +51,13 @@ class DistributionFunction:
     def plot(self, *args, **kwargs):
         """Plot the distribution function (delegates to the wrapped plotter)."""
         return self._plot(*args, **kwargs)
+
+    def plot_surface(self, *args, **kwargs):
+        """3D surface plot (bivariate / joint distributions only)."""
+        if self._surface is None:
+            raise NotImplementedError("plot_surface() is only available for bivariate (joint) distributions; for a "
+                                      "univariate distribution use plot().")
+        return self._surface(*args, **kwargs)
 
     def __repr__(self):
         return f"<{self.kind or 'distribution'} function: call to evaluate, .plot() to draw>"

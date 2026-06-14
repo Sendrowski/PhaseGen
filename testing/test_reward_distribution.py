@@ -397,6 +397,23 @@ def test_joint_distribution_2d_density_and_cdf():
     jd.cdf.plot(show=False, n_points=15)
 
 
+def test_joint_plot_surface():
+    """A joint distribution can be drawn as a 3D surface (``pdf.plot_surface()`` / ``cdf.plot_surface()``) as well as
+    a heatmap; a univariate distribution has no surface plot (raises)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 2)
+    for fn in (jd.pdf, jd.cdf):
+        ax = fn.plot_surface(show=False)
+        assert ax.name == '3d'
+    plt.close('all')
+
+    with pytest.raises(NotImplementedError):
+        pg.Coalescent(n=6).sfs.bin(2).pdf.plot_surface(show=False)
+
+
 def test_joint_reward_distribution_two_locus():
     """The two-locus joint distribution recovers the 2-SFS entry ``E[L^0_i L^1_j]`` and its correlation."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
