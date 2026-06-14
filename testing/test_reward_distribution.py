@@ -216,11 +216,15 @@ def test_sfs_cdf_pdf_quantile_are_per_bin_vectors():
     # not the tree-height distribution (the previous silent footgun)
     assert np.asarray(F.data)[1] != pytest.approx(float(coal.tree_height.cdf(2.0)), abs=1e-6)
 
-    # quantile and pdf are vectors too; arrays (curves) are rejected (use plot_cdf/plot_pdf)
+    # quantile and pdf are vectors too at a scalar argument
     assert np.asarray(sfs.quantile(0.5).data).shape == np.asarray(sfs.mean.data).shape
     assert np.asarray(sfs.pdf(1.0).data).shape == np.asarray(sfs.mean.data).shape
-    with pytest.raises(ValueError):
-        sfs.cdf(np.array([1.0, 2.0]))
+
+    # an array of evaluation points is vectorized -> a (len(t), n + 1) stack of per-bin spectra (e.g. sfs.pdf([1, 2]))
+    for fn, pts in [(sfs.cdf, [1.0, 2.0]), (sfs.pdf, [1.0, 2.0, 3.0]), (sfs.quantile, [0.3, 0.6])]:
+        arr = np.asarray(fn(pts))
+        assert arr.shape == (len(pts), coal.n + 1)
+        assert np.allclose(arr[0], np.asarray(fn(pts[0]).data))  # row 0 == scalar evaluation
 
 
 def test_jsfs_cdf_is_per_bin_matrix():
@@ -231,6 +235,11 @@ def test_jsfs_cdf_is_per_bin_matrix():
     F = jsfs.cdf(1.0)
     assert np.asarray(F.data).shape == np.asarray(jsfs.mean.data).shape
     assert np.all(np.asarray(F.data) >= -1e-9) and np.all(np.asarray(F.data) <= 1 + 1e-9)
+
+    # an array of points is vectorized to a (len(t),) + shape stack
+    arr = np.asarray(jsfs.cdf([1.0, 2.0]))
+    assert arr.shape == (2,) + jsfs.mean.data.shape
+    assert np.allclose(arr[0], np.asarray(F.data))
 
 
 def test_two_locus_sfs_has_no_univariate_distribution():

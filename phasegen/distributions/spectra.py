@@ -24,16 +24,6 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-def _require_scalar(t):
-    """The per-bin CDF/PDF/quantile of a spectrum is vector-valued over bins at a single argument (like ``mean``);
-    arrays (whole curves) go through ``plot_cdf`` / ``plot_pdf`` instead."""
-    if np.ndim(t) != 0:
-        raise ValueError(
-            "A spectrum's CDF/PDF/quantile is evaluated at a scalar, returning one value per bin (like `mean`). "
-            "For whole curves over a grid, use `plot_cdf` / `plot_pdf`."
-        )
-
-
 class SFSDistribution(PhaseTypeDistribution, ABC):
     """
     Base class for site-frequency spectrum distributions.
@@ -326,11 +316,16 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         indices = list(self._get_indices()) if bins is None else [int(b) for b in np.atleast_1d(bins)]
         return [(i, self._get_sfs_reward(i)) for i in indices]
 
-    def _per_bin(self, fn) -> SFS:
-        """Evaluate the per-bin accumulated-reward statistic ``fn`` over all polymorphic bins, returning an
-        :class:`SFS` of the same shape as :attr:`mean` (monomorphic edge bins padded with 0)."""
-        values = [fn(self.distribution(reward=self._get_sfs_reward(i))) for i in self._get_indices()]
-        return SFS([0] + list(values) + [0] * (self.lineage_config.n - len(values)))
+    def _per_bin(self, kind: str, t) -> 'SFS | np.ndarray':
+        """Evaluate the per-bin accumulated-reward function ``kind`` (``'cdf'`` / ``'pdf'`` / ``'quantile'``) at ``t``.
+        For a scalar ``t`` this returns an :class:`SFS` (one value per bin, like :attr:`mean`, monomorphic edges 0);
+        for an array of points it returns a ``(len(t), n + 1)`` array stacking those per-bin vectors."""
+        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        out = np.zeros((t_arr.size, self.lineage_config.n + 1))
+        for i in self._get_indices():
+            d = self.distribution(reward=self._get_sfs_reward(i))
+            out[:, i] = [getattr(d, kind)(float(v)) for v in t_arr]
+        return SFS(out[0]) if np.ndim(t) == 0 else out
 
     def joint_distribution(self, i: int, j: int):
         """The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
@@ -342,20 +337,18 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         return super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
 
-    def _cdf(self, t: float) -> SFS:
-        """Per-bin CDF at ``t``: an :class:`SFS` whose ``i``-th entry is ``P(L_i <= t)`` (like :attr:`mean`)."""
-        _require_scalar(t)
-        return self._per_bin(lambda d: d.cdf(t))
+    def _cdf(self, t) -> 'SFS | np.ndarray':
+        """Per-bin CDF ``P(L_i <= t)``. Scalar ``t`` -> an :class:`SFS` (like :attr:`mean`); an array of points ->
+        a ``(len(t), n + 1)`` array."""
+        return self._per_bin('cdf', t)
 
-    def _pdf(self, t: float, **kwargs) -> SFS:
-        """Per-bin PDF at ``t``: an :class:`SFS` whose ``i``-th entry is the density of ``L_i`` at ``t``."""
-        _require_scalar(t)
-        return self._per_bin(lambda d: d.pdf(t))
+    def _pdf(self, t, **kwargs) -> 'SFS | np.ndarray':
+        """Per-bin PDF (density of ``L_i`` at ``t``). Scalar -> :class:`SFS`; array -> ``(len(t), n + 1)``."""
+        return self._per_bin('pdf', t)
 
-    def _quantile(self, q: float) -> SFS:
-        """Per-bin ``q``-quantile: an :class:`SFS` whose ``i``-th entry is the ``q``-quantile of ``L_i``."""
-        _require_scalar(q)
-        return self._per_bin(lambda d: d.quantile(q))
+    def _quantile(self, q) -> 'SFS | np.ndarray':
+        """Per-bin ``q``-quantile. Scalar -> :class:`SFS`; array -> ``(len(q), n + 1)``."""
+        return self._per_bin('quantile', q)
 
     def _plot_cdf(
             self,
@@ -1048,28 +1041,28 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
-    def _per_config(self, fn) -> JointSFS:
-        """Evaluate the per-bin accumulated-reward statistic ``fn`` over all (polymorphic) joint bins, returning a
-        :class:`JointSFS` of shape :attr:`shape` (monomorphic bins padded with 0)."""
-        out = np.zeros(self.shape)
+    def _per_config(self, kind: str, t) -> 'JointSFS | np.ndarray':
+        """Evaluate the per-bin accumulated-reward function ``kind`` (``'cdf'`` / ``'pdf'`` / ``'quantile'``) at ``t``.
+        Scalar ``t`` -> a :class:`JointSFS` of shape :attr:`shape` (monomorphic bins 0); an array of points ->
+        a ``(len(t),) + shape`` array stacking those per-bin spectra."""
+        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        out = np.zeros((t_arr.size,) + self.shape)
         for config in self._get_configs():
-            out[config] = fn(self.distribution(reward=JointSFSReward(config)))
-        return JointSFS(out, pop_names=self.lineage_config.pop_names)
+            d = self.distribution(reward=JointSFSReward(config))
+            out[(slice(None),) + config] = [getattr(d, kind)(float(v)) for v in t_arr]
+        return JointSFS(out[0], pop_names=self.lineage_config.pop_names) if np.ndim(t) == 0 else out
 
-    def _cdf(self, t: float) -> JointSFS:
-        """Per-bin CDF at ``t``: a :class:`JointSFS` whose entry ``c`` is ``P(L_c <= t)`` (like :attr:`mean`)."""
-        _require_scalar(t)
-        return self._per_config(lambda d: d.cdf(t))
+    def _cdf(self, t) -> 'JointSFS | np.ndarray':
+        """Per-bin CDF ``P(L_c <= t)``. Scalar -> :class:`JointSFS` (like :attr:`mean`); array -> ``(len(t),)+shape``."""
+        return self._per_config('cdf', t)
 
-    def _pdf(self, t: float, **kwargs) -> JointSFS:
-        """Per-bin PDF at ``t``: a :class:`JointSFS` whose entry ``c`` is the density of ``L_c`` at ``t``."""
-        _require_scalar(t)
-        return self._per_config(lambda d: d.pdf(t))
+    def _pdf(self, t, **kwargs) -> 'JointSFS | np.ndarray':
+        """Per-bin PDF (density of ``L_c`` at ``t``). Scalar -> :class:`JointSFS`; array -> ``(len(t),)+shape``."""
+        return self._per_config('pdf', t)
 
-    def _quantile(self, q: float) -> JointSFS:
-        """Per-bin ``q``-quantile: a :class:`JointSFS` whose entry ``c`` is the ``q``-quantile of ``L_c``."""
-        _require_scalar(q)
-        return self._per_config(lambda d: d.quantile(q))
+    def _quantile(self, q) -> 'JointSFS | np.ndarray':
+        """Per-bin ``q``-quantile. Scalar -> :class:`JointSFS`; array -> ``(len(q),)+shape``."""
+        return self._per_config('quantile', q)
 
     def _config_distribution_items(self, configs: Sequence[Tuple[int, ...]]) -> List[Tuple[Tuple[int, ...], Reward]]:
         """``(config, reward)`` pairs for the requested joint bins (all polymorphic bins by default)."""
