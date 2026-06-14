@@ -127,6 +127,11 @@ class AbstractCoalescent(ABC):
         self.end_time: float = end_time
 
     @property
+    def n(self) -> int:
+        """Total number of sampled lineages across all populations."""
+        return self.lineage_config.n
+
+    @property
     @abstractmethod
     def tree_height(self) -> DensityAwareDistribution:
         """

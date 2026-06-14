@@ -489,6 +489,33 @@ def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     plt.close('all')
 
 
+def test_empirical_sfs_distribution_functions_plot():
+    """Regression: the empirical (msprime) SFS exposes the same callable-and-plottable pdf/cdf/quantile as the
+    analytic one (one curve per polymorphic bin) -- e.g. ``MsprimeCoalescent(...).sfs.pdf.plot()`` -- including on a
+    multi-epoch decline demography. This used to raise because the SFS samples are per-bin (2-D)."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    coal = MsprimeCoalescent(parallelize=False, n=10,
+                             demography=pg.Demography(pop_sizes={0: 1, 1: 0.01}), num_replicates=200)
+
+    for kind in ('pdf', 'cdf', 'quantile'):
+        _, ax = plt.subplots()
+        getattr(coal.sfs, kind).plot(ax=ax, show=False)
+        assert len(ax.get_lines()) == coal.n - 1  # one curve per polymorphic bin (MsprimeCoalescent exposes ``n``)
+    plt.close('all')
+
+    # the empirical density must not spike from over-fine histogram binning (a sane, sample-adaptive bin count)
+    _, ax = plt.subplots()
+    pg_coal = MsprimeCoalescent(parallelize=False, n=10, demography=pg.Demography(pop_sizes={0: 1}),
+                                num_replicates=500)
+    pg_coal.sfs.pdf.plot(ax=ax, show=False)
+    assert max(line.get_ydata().max() for line in ax.get_lines()) < 50  # not the ~1200 of 10000-bin histograms
+    plt.close('all')
+
+
 def test_distribution_functions_are_callable_and_plottable():
     """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
     expose ``.plot()``. The former ``plot_pdf``/``plot_cdf`` still work but warn (deprecated)."""

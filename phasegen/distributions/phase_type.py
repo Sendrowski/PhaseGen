@@ -230,7 +230,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             elif kind == 'pdf':
                 y = d.pdf_curve(x)
             else:
-                y = np.array([d.quantile(float(q)) for q in x])
+                # quantile function: invert the (fast) COS CDF curve by interpolation rather than a per-point
+                # bisection (which would re-run the de Hoog inversion at every probability and bin)
+                xx = np.linspace(0, d._range(), 512)
+                y = np.interp(x, d.cdf_curve(xx), xx)
 
             Visualization.plot(
                 ax=ax,
@@ -684,6 +687,13 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         x2 = x1 + dx
 
         return (self._cdf(x2) - self._cdf(x1)) / dx
+
+    # the tree height has an exact (expm-based) CDF that stays robust on ill-conditioned demographies, so plot via
+    # the exact path (DensityAwareDistribution) rather than the COS/LST reward-curve path used for the other
+    # phase-type distributions (whose CDF is itself the de Hoog inversion)
+    _plot_cdf = DensityAwareDistribution._plot_cdf
+    _plot_pdf = DensityAwareDistribution._plot_pdf
+    _plot_quantile = DensityAwareDistribution._plot_quantile
 
     @cached_property
     def t_max(self) -> float:

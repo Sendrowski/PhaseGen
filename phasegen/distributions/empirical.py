@@ -506,6 +506,61 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
 
+    def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins):
+        """
+        Plot the per-bin empirical pdf / cdf / quantile (one curve per polymorphic SFS bin), the empirical
+        counterpart of :meth:`SFSDistribution._plot_cdf` etc. The inherited (1D) plotters cannot be used because the
+        SFS samples are per-bin (2D), so we draw each bin's column separately.
+        """
+        from ..visualization import Visualization
+        import matplotlib.pyplot as plt
+
+        samples = np.asarray(self.samples)
+        if bins is None:
+            bins = range(1, samples.shape[1] - 1)  # polymorphic bins (drop the monomorphic edges)
+        per = [(i, EmpiricalDistribution(samples[:, i])) for i in bins]
+
+        if ax is None:
+            ax = plt.gca()
+            if clear:
+                ax.clear()
+
+        if grid is None:
+            grid = np.linspace(0.01, 0.99, n_points) if kind == 'quantile' \
+                else np.linspace(0, max(d._quantile(0.99) for _, d in per), n_points)
+
+        # the empirical density is a histogram; the default ``n_bins`` (10000, for 1M-replicate comparison caching)
+        # spikes for the finite samples typical of interactive use, so pick a sane, sample-size-adaptive bin count
+        n_bins_pdf = int(np.clip(np.sqrt(samples.shape[0]), 20, 100))
+
+        ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
+        xlabel = 'q' if kind == 'quantile' else 't'
+        for k, (i, d) in enumerate(per):
+            if kind == 'cdf':
+                y = d._cdf(grid)
+            elif kind == 'pdf':
+                y = d._pdf(grid, n_bins=n_bins_pdf)
+            else:
+                y = np.array([d._quantile(float(q)) for q in grid])
+            Visualization.plot(ax=ax, x=grid, y=y, xlabel=xlabel, ylabel=ylabel, label=str(i), file=file,
+                               show=(k == len(per) - 1 and show), clear=clear, title=title)
+        return ax
+
+    def _plot_cdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
+                  title='SFS bin CDFs'):
+        """Plot the empirical CDF of every (polymorphic) SFS bin at once."""
+        return self._plot_per_bin('cdf', ax, t, n_points, show, file, clear, title, bins)
+
+    def _plot_pdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
+                  title='SFS bin PDFs', **kwargs):
+        """Plot the empirical PDF of every (polymorphic) SFS bin at once."""
+        return self._plot_per_bin('pdf', ax, t, n_points, show, file, clear, title, bins)
+
+    def _plot_quantile(self, ax=None, q=None, bins=None, n_points=99, show=True, file=None, clear=True,
+                       title='SFS bin quantile functions'):
+        """Plot the empirical quantile function of every (polymorphic) SFS bin at once."""
+        return self._plot_per_bin('quantile', ax, q, n_points, show, file, clear, title, bins)
+
     def drop(self):
         """
         Drop simulated samples.
