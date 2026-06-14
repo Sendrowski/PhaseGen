@@ -440,6 +440,36 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
     assert jsfs.joint_distribution(ca, ca)._is_diagonal
 
 
+def test_bin_returns_callable_plottable_1d_distribution():
+    """``sfs.bin(i)`` / ``jsfs.bin(i, j)`` return the bin's 1D branch-length distribution as a callable-and-plottable
+    RewardDistribution, consistent with the per-bin spectrum; the two-locus SFS has no such per-entry 1D law."""
+    import matplotlib
+    matplotlib.use('Agg')
+    from phasegen.distributions.base import DistributionFunction
+    from phasegen.distributions.reward import RewardDistribution
+
+    coal = pg.Coalescent(n=6)
+    b = coal.sfs.bin(2)
+    assert isinstance(b, RewardDistribution)
+    assert isinstance(b.cdf, DistributionFunction)
+    # consistent with the per-bin spectrum value, and callable + plottable
+    assert b.cdf(1.3) == pytest.approx(np.asarray(coal.sfs.cdf(1.3).data)[2], abs=1e-9)
+    assert b.quantile(0.5) == pytest.approx(np.asarray(coal.sfs.quantile(0.5).data)[2], abs=1e-6)
+    b.pdf.plot(show=False)
+    b.cdf.plot(show=False)
+    b.quantile.plot(show=False)
+
+    # the joint SFS bin takes one index per population (e.g. jsfs.bin(1, 0))
+    dem = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1})
+    jb = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).jsfs.bin(1, 0)
+    assert isinstance(jb, RewardDistribution) and jb.cdf(1.0) >= 0
+
+    # the two-locus SFS entry (i, j) is a cross-moment, not a single 1D distribution
+    with pytest.raises(NotImplementedError):
+        pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.bin(1, 1)
+
+
 def test_conditional_distribution():
     """``JointRewardDistribution.conditional`` returns a proper, callable-and-plottable 1D distribution; the law of
     total expectation ``E[R_b] = ∫ E[R_b | R_a = x] f_a(x) dx`` is recovered, and the self-pair / atom edge cases

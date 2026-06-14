@@ -327,6 +327,15 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             out[:, i] = [getattr(d, kind)(float(v)) for v in t_arr]
         return SFS(out[0]) if np.ndim(t) == 0 else out
 
+    def bin(self, i: int) -> 'RewardDistribution':
+        """The 1D distribution of bin ``i``'s branch length ``L_i`` — a callable-and-plottable
+        :class:`RewardDistribution` (e.g. ``sfs.bin(2).pdf.plot()``, ``sfs.bin(2).quantile(0.9)``).
+
+        :param i: The frequency class.
+        :return: The accumulated-reward distribution of ``L_i``.
+        """
+        return self.distribution(reward=self._get_sfs_reward(i))
+
     def joint_distribution(self, i: int, j: int):
         """The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
         2-SFS / ``cov`` cross-moment as a bivariate distribution). See :class:`RewardDistribution`'s joint variant.
@@ -1069,6 +1078,16 @@ class JointSFSDistribution(PhaseTypeDistribution):
         cfgs = self._get_configs() if configs is None else list(configs)
         return [(c, JointSFSReward(c)) for c in cfgs]
 
+    def bin(self, *config: int) -> 'RewardDistribution':
+        """The 1D branch-length distribution of the joint SFS bin with the given per-population descendant counts —
+        a callable-and-plottable :class:`RewardDistribution` (e.g. ``jsfs.bin(1, 0).pdf.plot()``). The number of
+        indices is the number of populations.
+
+        :param config: The descendant configuration (one count per population).
+        :return: The accumulated-reward distribution of ``L_{config}``.
+        """
+        return self.distribution(reward=JointSFSReward(tuple(config)))
+
     def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]):
         """The joint distribution of the branch lengths of two joint SFS bins *within a tree* — the bivariate object
         behind the within-tree cross-moment ``E[L_{config_a} · L_{config_b}]`` of the multi-population SFS. Its
@@ -1429,7 +1448,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf / .plot_cdf / .plot_pdf."
         )
 
-    cdf = pdf = quantile = plot_cdf = plot_pdf = _no_univariate_distribution
+    cdf = pdf = quantile = plot_cdf = plot_pdf = bin = _no_univariate_distribution
 
     def joint_distribution(self, i: int, j: int):
         """The joint distribution of the locus-0 bin-``i`` and locus-1 bin-``j`` branch lengths — the bivariate

@@ -50,11 +50,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger('phasegen')
 
 
-class RewardDistribution:
+class RewardDistribution(CallableDistributionFunctions):
     """
     Full distribution of the accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption, via the
     Laplace-Stieltjes transform and numerical inversion. Handles arbitrary (non-negative) rewards, zero-reward
     states, and arbitrary piecewise time-homogeneous demographies (so it is multi-epoch-native).
+
+    Its ``cdf`` / ``pdf`` / ``quantile`` are callable-and-plottable :class:`DistributionFunction`s (see
+    :class:`CallableDistributionFunctions`); this is the 1D object returned by ``SFSDistribution.bin`` etc.
     """
 
     def __init__(self, dist: 'PhaseTypeDistribution', reward: Reward = None):
@@ -107,21 +110,21 @@ class RewardDistribution:
 
         return float(mp.invertlaplace(F, t, method='dehoog'))
 
-    def cdf(self, t):
+    def _cdf(self, t):
         """Cumulative distribution function ``P(R <= t)``. Scalar or array-valued."""
         if np.ndim(t) > 0:
-            return np.array([self.cdf(float(x)) for x in np.asarray(t)])
+            return np.array([self._cdf(float(x)) for x in np.asarray(t)])
         if t < 0:
             raise ValueError("Negative values are not allowed.")
         return self._invert(lambda s: self.lst(s) / s, float(t))  # L[CDF] = phi(s) / s
 
-    def pdf(self, t):
+    def _pdf(self, t, **kwargs):
         """Probability density function. Scalar or array-valued."""
         if np.ndim(t) > 0:
-            return np.array([self.pdf(float(x)) for x in np.asarray(t)])
+            return np.array([self._pdf(float(x)) for x in np.asarray(t)])
         return self._invert(self.lst, float(t))  # L[pdf] = phi(s)
 
-    def quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
+    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
         """The ``q``-quantile ``inf{x : F(x) >= q}`` via bisection on the (monotone) CDF."""
         if not 0 <= q <= 1:
             raise ValueError("Quantile must be between 0 and 1.")
@@ -132,7 +135,7 @@ class RewardDistribution:
         mean = (1.0 - self.lst(h).real) / h
         lo, hi = 0.0, max(mean, 1.0)
         for _ in range(max_iter):
-            if self.cdf(hi) >= q:
+            if self._cdf(hi) >= q:
                 break
             hi *= 2
         else:
@@ -140,7 +143,7 @@ class RewardDistribution:
 
         for _ in range(max_iter):
             mid = 0.5 * (lo + hi)
-            if self.cdf(mid) < q:
+            if self._cdf(mid) < q:
                 lo = mid
             else:
                 hi = mid
@@ -148,6 +151,36 @@ class RewardDistribution:
                 break
 
         return 0.5 * (lo + hi)
+
+    def _plot_cdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = 'CDF') -> 'plt.Axes':
+        """Plot the CDF curve (fast COS inversion) up to the configured plot-endpoint quantile."""
+        from ..visualization import Visualization
+        if x is None:
+            x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
+        return Visualization.plot(ax=ax, x=x, y=self.cdf_curve(x), xlabel='x', ylabel='F(x)', label=label, file=file,
+                                  show=show, clear=clear, title=title)
+
+    def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = 'PDF') -> 'plt.Axes':
+        """Plot the PDF curve (derivative of the COS CDF) up to the configured plot-endpoint quantile."""
+        from ..visualization import Visualization
+        if x is None:
+            x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
+        return Visualization.plot(ax=ax, x=x, y=self.pdf_curve(x), xlabel='x', ylabel='f(x)', label=label, file=file,
+                                  show=show, clear=clear, title=title)
+
+    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
+                       file: str = None, clear: bool = True, label: str = None,
+                       title: str = 'Quantile function') -> 'plt.Axes':
+        """Plot the quantile function (value versus probability), inverting the fast COS CDF curve."""
+        from ..visualization import Visualization
+        qe = Settings.plot_endpoint_quantile
+        if q is None:
+            q = np.linspace(1.0 - qe, qe, n_points)
+        grid = np.linspace(0, self._range(), 512)
+        return Visualization.plot(ax=ax, x=q, y=np.interp(q, self.cdf_curve(grid), grid), xlabel='q',
+                                  ylabel='quantile', label=label, file=file, show=show, clear=clear, title=title)
 
     # ------------------------------------------------------------------------------------------------------------
     # fast curve evaluation (whole CDF/PDF curve from one fixed set of transform evaluations)
