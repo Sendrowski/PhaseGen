@@ -71,6 +71,8 @@ class RewardDistribution(CallableDistributionFunctions):
         self.demography = dist.demography
         self.reward = reward if reward is not None else dist.reward
         self._logger = logger.getChild(self.__class__.__name__)
+        #: Optional human-readable label (e.g. ``"SFS bin 3"``) used in plot titles; set by ``bin()`` etc.
+        self.label: Optional[str] = None
 
     @cached_property
     def _setup(self):
@@ -152,27 +154,30 @@ class RewardDistribution(CallableDistributionFunctions):
 
         return 0.5 * (lo + hi)
 
+    def _titled(self, base: str) -> str:
+        """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set."""
+        return f"{self.label} {base}" if self.label else base
+
     def _plot_cdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = 'CDF') -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the CDF curve (fast COS inversion) up to the configured plot-endpoint quantile."""
         from ..visualization import Visualization
         if x is None:
             x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
         return Visualization.plot(ax=ax, x=x, y=self.cdf_curve(x), xlabel='x', ylabel='F(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title)
+                                  show=show, clear=clear, title=title or self._titled('CDF'))
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = 'PDF') -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the PDF curve (derivative of the COS CDF) up to the configured plot-endpoint quantile."""
         from ..visualization import Visualization
         if x is None:
             x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
         return Visualization.plot(ax=ax, x=x, y=self.pdf_curve(x), xlabel='x', ylabel='f(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title)
+                                  show=show, clear=clear, title=title or self._titled('PDF'))
 
     def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None,
-                       title: str = 'Quantile function') -> 'plt.Axes':
+                       file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the quantile function (value versus probability), inverting the fast COS CDF curve."""
         from ..visualization import Visualization
         qe = Settings.plot_endpoint_quantile
@@ -180,7 +185,8 @@ class RewardDistribution(CallableDistributionFunctions):
             q = np.linspace(1.0 - qe, qe, n_points)
         grid = np.linspace(0, self._range(), 512)
         return Visualization.plot(ax=ax, x=q, y=np.interp(q, self.cdf_curve(grid), grid), xlabel='q',
-                                  ylabel='quantile', label=label, file=file, show=show, clear=clear, title=title)
+                                  ylabel='quantile', label=label, file=file, show=show, clear=clear,
+                                  title=title or self._titled('quantile function'))
 
     # ------------------------------------------------------------------------------------------------------------
     # fast curve evaluation (whole CDF/PDF curve from one fixed set of transform evaluations)
@@ -380,6 +386,8 @@ class JointRewardDistribution:
         self.reward_a = reward_a
         self.reward_b = reward_b
         self._logger = logger.getChild(self.__class__.__name__)
+        #: Optional human-readable label (e.g. ``"bins (1, 2)"``) used in plot titles; set by ``joint_distribution()``.
+        self.label: Optional[str] = None
 
     @cached_property
     def _setup(self):
@@ -560,14 +568,16 @@ class JointRewardDistribution:
         return DistributionFunction(self._cdf, self._plot_cdf, 'cdf')
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, n_points: int = 120, show: bool = True, file: str = None,
-                  title: str = 'Joint reward PDF') -> 'plt.Axes':
+                  title: str = None) -> 'plt.Axes':
         """Heatmap of the joint (continuous) density of ``(R_a, R_b)``."""
-        return self._plot_joint('pdf', ax, n_points, show, file, title)
+        base = f"Joint PDF {self.label}" if self.label else 'Joint reward PDF'
+        return self._plot_joint('pdf', ax, n_points, show, file, title or base)
 
     def _plot_cdf(self, ax: 'plt.Axes' = None, n_points: int = 60, show: bool = True, file: str = None,
-                  title: str = 'Joint reward CDF') -> 'plt.Axes':
+                  title: str = None) -> 'plt.Axes':
         """Heatmap of the joint CDF of ``(R_a, R_b)``."""
-        return self._plot_joint('cdf', ax, n_points, show, file, title)
+        base = f"Joint CDF {self.label}" if self.label else 'Joint reward CDF'
+        return self._plot_joint('cdf', ax, n_points, show, file, title or base)
 
     def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
         """Deprecated: use ``.pdf.plot()`` instead."""
@@ -723,33 +733,34 @@ class ConditionalRewardDistribution(CallableDistributionFunctions):
                 break
         return 0.5 * (lo + hi)
 
+    def _titled(self, base: str) -> str:
+        """A plot title incorporating the conditioning :attr:`label` (e.g. ``"R_b | R_a = 0.1 CDF"``)."""
+        return f"{self.label} {base}" if self.label else f"Conditional {base.lower()}"
+
     def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None,
-                  title: str = 'Conditional CDF') -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the conditional CDF."""
         from ..visualization import Visualization
         if t is None:
             t = np.linspace(0, self._x_max, n_points)
-        return Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label or self.label,
-                                  file=file, show=show, clear=clear, title=title)
+        return Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label,
+                                  file=file, show=show, clear=clear, title=title or self._titled('CDF'))
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None,
-                  title: str = 'Conditional PDF') -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the conditional (continuous-part) PDF."""
         from ..visualization import Visualization
         if t is None:
             t = np.linspace(0, self._x_max, n_points)
-        return Visualization.plot(ax=ax, x=t, y=self._pdf(t), xlabel='x', ylabel='f(x)', label=label or self.label,
-                                  file=file, show=show, clear=clear, title=title)
+        return Visualization.plot(ax=ax, x=t, y=self._pdf(t), xlabel='x', ylabel='f(x)', label=label,
+                                  file=file, show=show, clear=clear, title=title or self._titled('PDF'))
 
     def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None,
-                       title: str = 'Conditional quantile function') -> 'plt.Axes':
+                       file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
         """Plot the conditional quantile function (value versus probability ``q``)."""
         from ..visualization import Visualization
         if q is None:
             q = np.linspace(0.01, 0.99, n_points)
         return Visualization.plot(ax=ax, x=q, y=np.array([self._quantile(float(p)) for p in q]), xlabel='q',
-                                  ylabel='quantile', label=label or self.label, file=file, show=show, clear=clear,
-                                  title=title)
+                                  ylabel='quantile', label=label, file=file, show=show, clear=clear,
+                                  title=title or self._titled('quantile function'))

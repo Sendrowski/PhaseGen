@@ -334,7 +334,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param i: The frequency class.
         :return: The accumulated-reward distribution of ``L_i``.
         """
-        return self.distribution(reward=self._get_sfs_reward(i))
+        d = self.distribution(reward=self._get_sfs_reward(i))
+        d.label = f"SFS bin {i}"
+        return d
 
     def joint_distribution(self, i: int, j: int):
         """The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
@@ -344,7 +346,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param j: The second frequency class.
         :return: The joint accumulated-reward distribution of ``(L_i, L_j)``.
         """
-        return super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
+        jd = super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
+        jd.label = f"SFS bins ({i}, {j})"
+        return jd
 
     def _cdf(self, t) -> 'SFS | np.ndarray':
         """Per-bin CDF ``P(L_i <= t)``. Scalar ``t`` -> an :class:`SFS` (like :attr:`mean`); an array of points ->
@@ -1086,7 +1090,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param config: The descendant configuration (one count per population).
         :return: The accumulated-reward distribution of ``L_{config}``.
         """
-        return self.distribution(reward=JointSFSReward(tuple(config)))
+        d = self.distribution(reward=JointSFSReward(tuple(config)))
+        d.label = f"jSFS bin {tuple(config)}"
+        return d
 
     def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]):
         """The joint distribution of the branch lengths of two joint SFS bins *within a tree* — the bivariate object
@@ -1097,7 +1103,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param config_b: The second descendant configuration.
         :return: The joint accumulated-reward distribution of ``(L_{config_a}, L_{config_b})``.
         """
-        return super().joint_distribution(JointSFSReward(tuple(config_a)), JointSFSReward(tuple(config_b)))
+        jd = super().joint_distribution(JointSFSReward(tuple(config_a)), JointSFSReward(tuple(config_b)))
+        jd.label = f"jSFS bins {tuple(config_a)} x {tuple(config_b)}"
+        return jd
 
     def _plot_cdf(
             self,
@@ -1459,7 +1467,9 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         :param j: The locus-1 frequency class.
         :return: The joint accumulated-reward distribution of ``(L^0_i, L^1_j)``.
         """
-        return PhaseTypeDistribution.joint_distribution(self, TwoLocusSFSReward(0, i), TwoLocusSFSReward(1, j))
+        jd = PhaseTypeDistribution.joint_distribution(self, TwoLocusSFSReward(0, i), TwoLocusSFSReward(1, j))
+        jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
+        return jd
 
     @cached_property
     def mean(self) -> TwoLocusSFS:
