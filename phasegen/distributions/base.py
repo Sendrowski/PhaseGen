@@ -40,9 +40,13 @@ class DistributionFunction:
         """
         self._evaluate = evaluate
         self._plot = plot
-        self._surface = surface
         #: The kind of function: ``'cdf'``, ``'pdf'`` or ``'quantile'``.
         self.kind = kind
+        # only bivariate (joint) distributions get a 3D surface plotter; for univariate ones the method is simply
+        # absent (no meaningless ``plot_surface`` exposed)
+        if surface is not None:
+            #: 3D surface plot (bivariate / joint distributions only).
+            self.plot_surface = surface
 
     def __call__(self, *args, **kwargs):
         """Evaluate the distribution function (delegates to the wrapped evaluator)."""
@@ -51,13 +55,6 @@ class DistributionFunction:
     def plot(self, *args, **kwargs):
         """Plot the distribution function (delegates to the wrapped plotter)."""
         return self._plot(*args, **kwargs)
-
-    def plot_surface(self, *args, **kwargs):
-        """3D surface plot (bivariate / joint distributions only)."""
-        if self._surface is None:
-            raise NotImplementedError("plot_surface() is only available for bivariate (joint) distributions; for a "
-                                      "univariate distribution use plot().")
-        return self._surface(*args, **kwargs)
 
     def __repr__(self):
         return f"<{self.kind or 'distribution'} function: call to evaluate, .plot() to draw>"

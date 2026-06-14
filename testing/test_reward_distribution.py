@@ -410,8 +410,8 @@ def test_joint_plot_surface():
         assert ax.name == '3d'
     plt.close('all')
 
-    with pytest.raises(NotImplementedError):
-        pg.Coalescent(n=6).sfs.bin(2).pdf.plot_surface(show=False)
+    # a univariate distribution has no surface plot -- the method is simply not exposed
+    assert not hasattr(pg.Coalescent(n=6).sfs.bin(2).pdf, 'plot_surface')
 
 
 def test_joint_reward_distribution_two_locus():
