@@ -516,6 +516,43 @@ def test_empirical_sfs_distribution_functions_plot():
     plt.close('all')
 
 
+def test_cos_inversion_imprecision_warning():
+    """The COS plotting inversion warns when it is likely imprecise (support window too small / Gibbs ringing), and
+    stays silent on well-behaved curves."""
+    import warnings
+
+    d = pg.Coalescent(n=6).total_branch_length.distribution()
+
+    # well-behaved curves must not warn (otherwise the warning is noise on every plot)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        d.cdf_curve(np.linspace(0, d._range(), 100))
+        d.pdf_curve(np.linspace(0, d._range(), 100))
+
+    # a deliberately tiny support window truncates the tail -> imprecision warning
+    with pytest.warns(UserWarning, match="COS inversion looks imprecise"):
+        d._cos(np.linspace(0, 1, 20), 'pdf', n_terms=16, scale=0.5)
+
+
+def test_parallelize_spawn_guard_message(monkeypatch):
+    """When the worker pool cannot bootstrap (e.g. a non-import-safe entry point under the macOS 'spawn' start
+    method), ``parallelize`` replaces the opaque multiprocessing error with actionable guidance."""
+    from phasegen import utils
+
+    class _FakePool:
+        def __enter__(self):
+            raise RuntimeError("An attempt has been made to start a new process before the current process has "
+                               "finished its bootstrapping phase.")
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(utils.mp, 'get_context', lambda *a, **k: type('Ctx', (), {'Pool': lambda self: _FakePool()})())
+
+    with pytest.raises(RuntimeError, match="import-safe"):
+        utils.parallelize(func=lambda x: x, data=[1, 2, 3], parallelize=True, pbar=False)
+
+
 def test_distribution_functions_are_callable_and_plottable():
     """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
     expose ``.plot()``. The former ``plot_pdf``/``plot_cdf`` still work but warn (deprecated)."""

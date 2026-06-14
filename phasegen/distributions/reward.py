@@ -177,6 +177,8 @@ class RewardDistribution:
         fk[0] *= 0.5
         xa = np.clip(x, a, b) - a
 
+        self._warn_if_imprecise(fk, w, b - a, n_terms)
+
         if kind == 'pdf':
             curve = fk @ np.cos(np.outer(w, xa))
             return (1 - p0) * curve if p0 > 1e-9 else curve
@@ -185,6 +187,32 @@ class RewardDistribution:
         cdf_c = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
         cdf = p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c
         return np.clip(cdf, 0.0, 1.0)
+
+    @staticmethod
+    def _warn_if_imprecise(fk: np.ndarray, w: np.ndarray, span: float, n_terms: int):
+        """
+        Flag a likely-imprecise COS reconstruction from the continuous density on a coarse grid. Two failure modes:
+        a strongly *negative* density is Gibbs ringing near a sharp feature/atom; an appreciable density at the
+        *window edge* means the support window (or the number of terms) is too small to capture the tail. In both
+        cases the per-point ``cdf()`` / ``pdf()`` (de Hoog) should be preferred.
+        """
+        xd = np.linspace(0.0, span, 65)
+        fd = fk @ np.cos(np.outer(w, xd))
+        peak = max(float(fd.max()), 1e-12)
+
+        if float(fd.min()) < -0.05 * peak:
+            warnings.warn(
+                "COS inversion looks imprecise: the reconstructed density is substantially negative (Gibbs ringing "
+                "near a sharp feature or atom). Prefer the per-point cdf()/pdf() (de Hoog) for accurate values.",
+                stacklevel=4
+            )
+        elif float(fd[-1]) > 0.05 * peak:
+            warnings.warn(
+                f"COS inversion looks imprecise: the density is still appreciable at the support window edge, so the "
+                f"window or the number of terms ({n_terms}) is too small to capture the tail. Prefer the per-point "
+                f"cdf()/pdf() (de Hoog) for accurate values.",
+                stacklevel=4
+            )
 
     def _cumulants(self) -> tuple:
         """Mean and variance of the accumulated reward from the LST near 0 (``phi(0) = 1``): ``c1 = -phi'(0)``,

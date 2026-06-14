@@ -52,9 +52,22 @@ def parallelize(
     if parallelize and len(data) > 1:
         # spawn on macOS (fork there deadlocks once numba/Accelerate are loaded); platform default elsewhere
         ctx = mp.get_context('spawn') if sys.platform == 'darwin' else mp.get_context()
-        # consume the lazy imap iterator while the pool is still open
-        with ctx.Pool() as pool:
-            return np.array(list(with_pbar(pool.imap(func, data))), dtype=dtype)
+        try:
+            # consume the lazy imap iterator while the pool is still open
+            with ctx.Pool() as pool:
+                return np.array(list(with_pbar(pool.imap(func, data))), dtype=dtype)
+        except RuntimeError as e:
+            # ``spawn`` re-imports the caller's module in every worker; if the entry point is not import-safe the
+            # worker re-runs the top-level code (re-spawning, repeated side effects such as plots) and multiprocessing
+            # raises an opaque "bootstrapping phase" error. Replace it with actionable guidance.
+            if 'bootstrapping phase' in str(e) or 'freeze_support' in str(e):
+                raise RuntimeError(
+                    "Could not start worker processes for parallelize=True. On this platform the workers use the "
+                    "'spawn' start method, which re-imports your script, so the entry point must be import-safe. "
+                    "Either pass parallelize=False (recommended for interactive or plotting use), or guard the "
+                    "top-level code of your script with `if __name__ == '__main__':`."
+                ) from e
+            raise
 
     return np.array(list(with_pbar(map(func, data))), dtype=dtype)
 
