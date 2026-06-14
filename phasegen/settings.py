@@ -72,6 +72,12 @@ class Settings:
     #: Raise it if you have the memory for a larger space.
     max_state_space_size: int = 1_000_000
 
+    #: Upper quantile used as the default right end of CDF/PDF/quantile plots. The plot grid runs from 0 to this
+    #: quantile so the view is not stretched by a heavy upper tail (mean + many standard deviations can extend far
+    #: past where the mass is, especially for skewed distributions). Lower it to zoom in on the bulk, raise it
+    #: (towards 1) to show more of the tail.
+    plot_endpoint_quantile: float = 0.95
+
     @staticmethod
     @contextmanager
     def set_pbar(enabled: bool = True):

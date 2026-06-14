@@ -9,6 +9,7 @@ from typing import Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
 from ..expm import Backend
 from ..rewards import DemeReward, LocusReward, CombinedReward
+from ..settings import Settings
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
@@ -469,7 +470,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if q is None:
-            q = np.linspace(0.01, 0.99, 99)
+            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, 99)
 
         return Visualization.plot(
             ax=ax,
@@ -509,7 +510,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self._quantile(0.99), 200)
+            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), 200)
 
         return Visualization.plot(
             ax=ax,
@@ -552,10 +553,10 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if dx is None:
-            dx = self._quantile(0.99) / 1e10
+            dx = self._quantile(Settings.plot_endpoint_quantile) / 1e10
 
         if t is None:
-            t = np.linspace(0, self._quantile(0.99), 200)
+            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), 200)
 
         return Visualization.plot(
             ax=ax,

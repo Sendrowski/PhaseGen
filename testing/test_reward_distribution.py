@@ -563,6 +563,47 @@ def test_pdf_curve_via_cdf_differentiation_is_smooth():
     assert np.abs(np.interp(xs, x, pdf) - d.pdf(xs)).max() < 0.03 * peak
 
 
+def test_plot_endpoint_tracks_quantile_setting():
+    """The default cdf/pdf plot endpoint is ``Settings.plot_endpoint_quantile``-quantile, so a heavy upper tail does
+    not stretch the view to mean + many std; the setting controls it."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from phasegen.settings import Settings
+
+    coal = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
+    tbl = coal.total_branch_length
+    prev = Settings.plot_endpoint_quantile
+    try:
+        Settings.plot_endpoint_quantile = 0.95
+
+        # spectrum (reward-curve path): endpoint ~ max bin 0.95-quantile, far below the mean+12std support range
+        q = float(np.asarray(coal.sfs.quantile(0.95).data).max())
+        stretched = max(coal.sfs.distribution(reward=coal.sfs._get_sfs_reward(i))._range()
+                        for i in coal.sfs._get_indices())
+        _, ax = plt.subplots()
+        coal.sfs.pdf.plot(ax=ax, show=False)
+        xmax = max(line.get_xdata().max() for line in ax.get_lines())
+        assert xmax == pytest.approx(q, rel=0.1)
+        assert xmax < 0.5 * stretched
+
+        # univariate (exact path) endpoint = the configured quantile
+        _, ax = plt.subplots()
+        tbl.cdf.plot(ax=ax, show=False)
+        assert ax.get_lines()[0].get_xdata().max() == pytest.approx(tbl.quantile(0.95), rel=0.1)
+        plt.close('all')
+
+        # raising the setting extends the view further into the tail
+        endpoint_95 = tbl.quantile(0.95)
+        Settings.plot_endpoint_quantile = 0.999
+        _, ax = plt.subplots()
+        tbl.cdf.plot(ax=ax, show=False)
+        assert ax.get_lines()[0].get_xdata().max() > endpoint_95
+        plt.close('all')
+    finally:
+        Settings.plot_endpoint_quantile = prev
+
+
 def test_parallelize_spawn_guard_message(monkeypatch):
     """When the worker pool cannot bootstrap (e.g. a non-import-safe entry point under the macOS 'spawn' start
     method), ``parallelize`` replaces the opaque multiprocessing error with actionable guidance."""

@@ -215,9 +215,19 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         dists = [(label, self.distribution(reward=reward)) for label, reward in items]
 
         if x is None:
-            # the quantile function lives on the probability axis q in (0, 1); cdf/pdf on the reward-value axis
-            x = np.linspace(0.01, 0.99, n_points) if kind == 'quantile' \
-                else np.linspace(0, max(d._range() for _, d in dists), n_points)
+            q_end = Settings.plot_endpoint_quantile
+            if kind == 'quantile':
+                # the quantile function lives on the probability axis q in (0, 1)
+                x = np.linspace(1.0 - q_end, q_end, n_points)
+            else:
+                # right end = the configured upper quantile, so a heavy upper tail does not stretch the view (mean +
+                # many std can extend far past the mass). Derived cheaply from the COS CDF (one curve per bin) rather
+                # than the per-point de Hoog quantile.
+                end = max(
+                    float(np.interp(q_end, d.cdf_curve(grid := np.linspace(0, d._range(), 256)), grid))
+                    for _, d in dists
+                )
+                x = np.linspace(0, end, n_points)
         else:
             x = np.asarray(x, dtype=float)
 
