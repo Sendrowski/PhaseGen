@@ -199,6 +199,17 @@ slow_configs = [
     '1_epoch_n_6_2_locus_sfs',
     '3_epoch_n_5_beta_2_locus_sfs',
     '3_epoch_n_6_beta_2_locus_sfs',
+    # the joint-SFS comparison builds the joint state space and runs the COS / de Hoog joint distribution per bin
+    # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the full
+    # msprime joint validation runs in the slow suite, while the fast suite keeps the analytic joint covered by
+    # ``test_jsfs_joint_distribution_*`` (and the within-tree / two-locus joint by the cheap single-locus configs)
+    '1_epoch_2_pops_n_4_jsfs',
+    '3_epoch_2_pops_n_4_jsfs',
+    '1_epoch_3_pops_n_3_jsfs',
+    '1_epoch_2_pops_n_6_asym_jsfs',
+    '1_epoch_beta_2_pops_n_4_jsfs',
+    '1_epoch_dirac_2_pops_n_4_jsfs',
+    '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_6_jsfs',
     '1_epoch_2_pops_n_8_jsfs',
     '2_epoch_n_8_tajima',

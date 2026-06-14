@@ -22,7 +22,7 @@
             },
             "total_branch_length": {
                 "pdf": 0.02,
-                "cdf": 0.02,
+                "cdf": 0.04,
                 "mean": 0.01,
                 "var": 0.05
             },
