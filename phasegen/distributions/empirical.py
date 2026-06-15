@@ -66,6 +66,14 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         b = self.samples[(slice(None),) + tuple(config_b)]
         return float(((a <= x) & (b <= y)).mean())
 
+    def joint_pdf(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...], x: float, y: float,
+                  hx: float, hy: float) -> float:
+        """Empirical within-tree joint density via the centred box difference of the joint CDF (the simulated
+        counterpart of :meth:`JointRewardDistribution.pdf`); singular on the diagonal (``config_a == config_b``)."""
+        c = self.joint_cdf
+        return float((c(config_a, config_b, x + hx, y + hy) - c(config_a, config_b, x + hx, y - hy)
+                      - c(config_a, config_b, x - hx, y + hy) + c(config_a, config_b, x - hx, y - hy)) / (4 * hx * hy))
+
     def cache_joint(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], quantiles: List[Tuple[float, float]]):
         """Pre-compute, for each config pair, the empirical cross-moment and the joint CDF at marginal-quantile
         points, so the joint ground truth is serialized with the comparison and survives :meth:`drop`. Mirrors
@@ -74,8 +82,14 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         for ca, cb in pairs:
             a = self.samples[(slice(None),) + tuple(ca)]
             b = self.samples[(slice(None),) + tuple(cb)]
-            points = [(float(np.quantile(a, qa)), float(np.quantile(b, qb)),
-                       self.joint_cdf(ca, cb, np.quantile(a, qa), np.quantile(b, qb))) for qa, qb in quantiles]
+            hx = 0.15 * (np.quantile(a, 0.75) - np.quantile(a, 0.25)) or 1e-6
+            hy = 0.15 * (np.quantile(b, 0.75) - np.quantile(b, 0.25)) or 1e-6
+            diag = tuple(ca) == tuple(cb)  # the joint law is singular on the diagonal -> no density
+            points = []
+            for qa, qb in quantiles:
+                x, y = float(np.quantile(a, qa)), float(np.quantile(b, qb))
+                pdf = float('nan') if diag else self.joint_pdf(ca, cb, x, y, hx, hy)
+                points.append((x, y, self.joint_cdf(ca, cb, x, y), pdf))
             self._joint.append((tuple(ca), tuple(cb), float((a * b).mean()), points))
 
     def drop(self):
@@ -817,16 +831,27 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
 
+    def joint_pdf(self, i: int, j: int, x: float, y: float, hx: float, hy: float) -> float:
+        """Empirical two-locus joint density via the centred box difference of the joint CDF (the simulated
+        counterpart of the cross-locus :meth:`JointRewardDistribution.pdf`). Non-singular even for ``i == j`` (the two
+        loci are distinct random variables)."""
+        c = self.joint_cdf
+        return float((c(i, j, x + hx, y + hy) - c(i, j, x + hx, y - hy)
+                      - c(i, j, x - hx, y + hy) + c(i, j, x - hx, y - hy)) / (4 * hx * hy))
+
     def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
-        """Pre-compute the two-locus joint ground truth (cross-moment and joint CDF at marginal-quantile points)
-        for serialization; same structure as :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`."""
-        self._joint = [
-            (i, j, self.cross_moment(i, j),
-             [(float(np.quantile(self._left[:, i], qa)), float(np.quantile(self._right[:, j], qb)),
-               self.joint_cdf(i, j, np.quantile(self._left[:, i], qa), np.quantile(self._right[:, j], qb)))
-              for qa, qb in quantiles])
-            for i, j in pairs
-        ]
+        """Pre-compute the two-locus joint ground truth (cross-moment and joint CDF *and density* at marginal-quantile
+        points) for serialization; same structure as :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`."""
+        self._joint = []
+        for i, j in pairs:
+            li, rj = self._left[:, i], self._right[:, j]
+            hx = 0.15 * (np.quantile(li, 0.75) - np.quantile(li, 0.25)) or 1e-6
+            hy = 0.15 * (np.quantile(rj, 0.75) - np.quantile(rj, 0.25)) or 1e-6
+            points = []
+            for qa, qb in quantiles:
+                x, y = float(np.quantile(li, qa)), float(np.quantile(rj, qb))
+                points.append((x, y, self.joint_cdf(i, j, x, y), self.joint_pdf(i, j, x, y, hx, hy)))
+            self._joint.append((i, j, self.cross_moment(i, j), points))
 
 
 class MsprimeCoalescent(AbstractCoalescent):
