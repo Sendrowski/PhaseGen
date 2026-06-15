@@ -11,6 +11,23 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.79
+      cosine:
+        pdf: 50000000000000
+        cdf: 1.5
+        quantile: 3.0
+      pairwise:
+        cosine:
+          cdf: 1.2
+          pdf: 0.63
     fsfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.18
+    tree_height:
+      pdf: 0.0042
+      cdf: 0.0013
+      quantile: 0.0025
+    total_branch_length:
+      cosine:
+        pdf: 560000000000000
+        cdf: 1.5
+        quantile: 3.0

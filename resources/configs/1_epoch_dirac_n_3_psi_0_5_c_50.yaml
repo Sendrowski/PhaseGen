@@ -10,12 +10,25 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 1
-      cdf: 0.01
-      mean: 0.01
-      var: 0.01
+      pdf: 0.0028
+      cdf: 0.0016
+      mean: 0.0019
+      var: 0.0034
+      quantile: 0.0087
     total_branch_length:
-      mean: 0.01
-      var: 0.01
+      mean: 0.0018
+      var: 0.003
+      cosine:
+        pdf: 0.005
+        cdf: 0.0015
+        quantile: 0.011
     sfs:
-      mean: 0.1
+      mean: 0.002
+      cosine:
+        pdf: 0.003
+        cdf: 0.0012
+        quantile: 0.017
+      pairwise:
+        cosine:
+          cdf: 0.0014
+          pdf: 0.0035

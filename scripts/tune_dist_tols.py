@@ -22,7 +22,7 @@ yaml.preserve_quotes = True
 yaml.width = 4096
 
 KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm3', 'm4',
-         'theta_pi', 'theta_w', 'tajimas_d'}
+         'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs'}
 MODES = {'cosine', 'de_hoog'}
 
 
