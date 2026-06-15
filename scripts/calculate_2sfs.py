@@ -10,11 +10,6 @@ __date__ = "2024-02-11"
 import matplotlib.pyplot as plt
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     file_counts = snakemake.input.counts
     file_4fold = snakemake.input.get('fourfold', '')

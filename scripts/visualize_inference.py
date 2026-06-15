@@ -7,11 +7,6 @@ __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2024-03-30"
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     file = snakemake.input[0]
     out_demography = snakemake.output.demography

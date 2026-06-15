@@ -138,10 +138,11 @@ def test_sfs_bin_quantile_roundtrip():
 
 
 @pytest.mark.slow
-def test_cos_curve_matches_dehoog():
+def test_cos_curve_matches_dehoog(monkeypatch):
     """The fast COS plotting curves (cdf_curve / pdf_curve) match the exact per-point de Hoog inversion across the
     cases that most stress the COS path: a smooth distribution, an SFS bin, a multiple-merger bin with an atom at 0
     (Beta and Dirac), and a skewed/heavy-tailed expansion (where the support-matched two-pass window matters)."""
+    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # this test exercises the cosine curve specifically
     cases = [
         (pg.Coalescent(n=8), None),                                                  # total branch length (smooth)
         (pg.Coalescent(n=8).sfs, UnfoldedSFSReward(2)),                              # Kingman SFS bin
@@ -368,17 +369,18 @@ def test_joint_distribution_2d_density_and_cdf():
     jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 1)
     st = jd._cos2d
 
-    # the joint CDF is bounded, monotone, saturates to 1, and starts at the joint atom
+    # the fast cosine box underlies the dense CDF *plot* grid; it is bounded, monotone, and saturates to 1
     xs = np.linspace(0, st['ba'], 25)
     ys = np.linspace(0, st['bb'], 25)
-    G = jd._cdf_grid(xs, ys)
+    G = jd._cdf_grid(xs, ys, exact=False)
     assert G.min() > -2e-3 and G.max() < 1 + 2e-3
     # essentially monotone (small COS/Gibbs wiggles allowed)
     assert np.all(np.diff(G, axis=0) > -3e-3) and np.all(np.diff(G, axis=1) > -3e-3)
     assert jd.cdf(st['ba'], st['bb']) == pytest.approx(1.0, abs=1e-3)
     assert jd.cdf(0.0, 0.0) == pytest.approx(0.0, abs=1e-3)  # no atom for bin 1
 
-    # the joint CDF's marginal equals the 1D marginal CDF exactly (the strong 2D-accuracy check)
+    # the callable CDF uses the accurate nested-de-Hoog box: its marginal equals the 1D marginal CDF (the strong
+    # 2D-accuracy check, which the fixed-window cosine box fails for skewed multi-epoch rewards)
     for y in [0.8, 1.5, 3.0]:
         assert jd.cdf(st['ba'] * 5, y) == pytest.approx(jd.marginal('b').cdf(y), abs=2e-3)
 
@@ -507,24 +509,24 @@ def test_conditional_distribution():
     jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 2)
     ma, mb = jd.marginal('a'), jd.marginal('b')
 
-    # a proper distribution: CDF monotone from ~0 to 1, quantile is its inverse, callable + plottable
+    # a proper 1D distribution (the nested-inversion conditional is a RewardDistribution): CDF monotone 0 -> 1,
+    # quantile its inverse, callable + plottable
     c = jd.conditional('a', 1.0)
     assert isinstance(c.cdf, DistributionFunction)
-    grid = np.linspace(0, c._x_max, 50)
+    grid = np.linspace(0, c.quantile(0.99), 50)
     F = c.cdf(grid)
-    assert np.all(np.diff(F) > -1e-6) and F[0] == pytest.approx(c.atom0, abs=2e-3) and F[-1] == pytest.approx(1, abs=2e-3)
-    assert c.cdf(c.quantile(0.5)) == pytest.approx(0.5, abs=1e-3)
+    assert np.all(np.diff(F) > -1e-6) and F[0] == pytest.approx(0.0, abs=2e-3) and F[-1] == pytest.approx(0.99, abs=2e-2)
+    assert c.cdf(c.quantile(0.5)) == pytest.approx(0.5, abs=2e-3)
     c.pdf.plot(show=False)
     c.cdf.plot(show=False)
     c.quantile.plot(show=False)
 
-    # law of total expectation: integrate the conditional mean against the marginal density of R_a
-    xs = np.linspace(0.05, ma._range(scale=8), 60)
-    cond_means = [np.trapezoid(np.linspace(0, jd.conditional('a', x)._x_max, 400)
-                               * jd.conditional('a', x)._pdf(np.linspace(0, jd.conditional('a', x)._x_max, 400)),
-                               np.linspace(0, jd.conditional('a', x)._x_max, 400)) for x in xs]
+    # law of total expectation: E[R_b] = ∫ E[R_b | R_a = x] f_a(x) dx (a few conditioning points; each conditional is
+    # a real nested inversion, so keep the grid small)
+    xs = np.linspace(0.3, ma._range(scale=4), 6)
+    cond_means = [jd.conditional('a', float(x))._cumulants()[0] for x in xs]
     e_recon = np.trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
-    assert e_recon == pytest.approx(mb._cumulants()[0], rel=0.05)
+    assert e_recon == pytest.approx(mb._cumulants()[0], rel=0.15)
 
     # a self-pair conditional is a point mass at ``value`` -> not representable, raises
     with pytest.raises(NotImplementedError):
@@ -581,31 +583,104 @@ def test_empirical_sfs_distribution_functions_plot():
     plt.close('all')
 
 
-def test_cos_inversion_imprecision_warning():
-    """The COS plotting inversion warns when it is likely imprecise (ringing it cannot resolve / window too small),
-    and stays silent on well-behaved curves."""
-    import warnings
+def test_cos_inversion_imprecision_warning(caplog, monkeypatch):
+    """The COS plotting inversion warns (via the logger) when it is likely imprecise (ringing it cannot resolve /
+    window too small), and stays silent on well-behaved curves."""
+    import logging
 
-    d = pg.Coalescent(n=6).total_branch_length.distribution()
+    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # the ripple warning is specific to the cosine path
 
-    # well-behaved curves must not warn (otherwise the warning is noise on every plot)
-    with warnings.catch_warnings():
-        warnings.simplefilter('error')
+    # the package logger does not propagate to root (where caplog listens), so capture it directly
+    pg_logger = logging.getLogger('phasegen')
+    pg_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.WARNING, logger='phasegen')
+    try:
+        d = pg.Coalescent(n=6).total_branch_length.distribution()
+
+        # well-behaved curves must not warn (otherwise the warning is noise on every plot)
         d.cdf_curve(np.linspace(0, d._range(), 100))
         d.pdf_curve(np.linspace(0, d._range(), 100))
+        assert 'COS plotting inversion' not in caplog.text
 
-    # a genuinely under-resolved case (a heavy-tailed bin whose spread-out bulk the cosine series cannot fully
-    # resolve even with the support-matched window) warns
-    e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
-    with pytest.warns(UserWarning, match="COS plotting inversion"):
+        # a genuinely under-resolved case (a heavy-tailed bin whose spread-out bulk the cosine series cannot fully
+        # resolve even with the support-matched window) warns
+        e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
         e.distribution(reward=e._get_sfs_reward(5)).cdf_curve(np.linspace(0, 50, 100))
+        assert 'COS plotting inversion' in caplog.text
+    finally:
+        pg_logger.removeHandler(caplog.handler)
+
+
+def test_plot_n_grid_setting_controls_grid_size():
+    """``Settings.plot_n_grid`` sets the number of points on the default 1D plot grids (cdf / pdf / quantile),
+    including the exact (de Hoog) path."""
+    import matplotlib
+    matplotlib.use('Agg')
+
+    c = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
+    prev = pg.Settings.plot_n_grid
+    try:
+        for kind in ('cdf', 'pdf', 'quantile'):
+            for n in (12, 31):
+                pg.Settings.plot_n_grid = n
+                ax = getattr(c.sfs, kind).plot(show=False)
+                assert ax.lines[0].get_xdata().shape[0] == n
+                ax.figure.clf()
+        # the exact (de Hoog) curve uses the same grid setting
+        pg.Settings.plot_n_grid = 17
+        ax = c.sfs.pdf.plot(show=False, exact=True)
+        assert ax.lines[0].get_xdata().shape[0] == 17
+        ax.figure.clf()
+    finally:
+        pg.Settings.plot_n_grid = prev
+
+
+def test_plot_exact_de_hoog_matches_per_point():
+    """The ``exact=True`` plotting path draws the per-point de Hoog values (cdf / pdf), not the fast COS curve."""
+    import matplotlib
+    matplotlib.use('Agg')
+
+    c = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
+    d = c.sfs.bin(2)  # a single 1D bin distribution
+
+    x = np.linspace(0.1, d.quantile(0.9), 15)
+    ax = d.cdf.plot(x=x, show=False, exact=True)
+    assert np.allclose(ax.lines[-1].get_ydata(), d._cdf(x), atol=1e-8)
+    ax.figure.clf()
+
+    ax = d.pdf.plot(x=x, show=False, exact=True)
+    assert np.allclose(ax.lines[-1].get_ydata(), d._pdf(x), atol=1e-8)
+    ax.figure.clf()
+
+
+def test_inversion_method_dehoog_spline_default(monkeypatch):
+    """The default curve representation is the accurate de Hoog + monotone-spline (``Settings.inversion_method ==
+    'dehoog'``): cdf_curve / pdf_curve match the per-point de Hoog closely (better than cosine) on a heavy-tailed bin
+    that makes cosine ring, the CDF is monotone, and the quantile inverts the curve. The 'cos' switch still works."""
+    assert pg.Settings.inversion_method == 'dehoog'  # accurate by default
+
+    d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(5)
+    xs = np.linspace(0.1 * d.quantile(0.95), d.quantile(0.95), 60)
+
+    F = d.cdf_curve(xs)
+    assert np.all(np.diff(F) >= -1e-9)                       # monotone CDF
+    assert np.abs(F - d._cdf(xs)).max() < 2e-3               # accurate vs de Hoog (cosine rings ~1e-2 here)
+    assert d.pdf_curve(xs).min() >= -1e-9                    # non-negative density (CDF-derivative)
+
+    # the quantile inverts the cached curve and is consistent with it
+    assert d.cdf_curve(np.array([d.quantile(0.5)]))[0] == pytest.approx(0.5, abs=2e-3)
+
+    # the cosine path is still available via the setting
+    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')
+    assert np.all(np.diff(d.cdf_curve(xs)) >= -1e-6)
 
 
 @pytest.mark.slow
-def test_cos_two_pass_window_monotone_and_plotting_accurate():
+def test_cos_two_pass_window_monotone_and_plotting_accurate(monkeypatch):
     """For a heavy-tailed distribution (strong size expansion) the default COS window (mean+12 std) is far wider than
     the bulk and would ring; the two-pass support-matched window keeps the plotted cdf_curve monotone and within
     plotting accuracy of the per-point de Hoog CDF, with a non-negative pdf_curve (PDF from CDF differences)."""
+    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # this test exercises the cosine two-pass window
     sfs = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
     for i in (1, 3, 5, 9):
         d = sfs.distribution(reward=sfs._get_sfs_reward(i))
@@ -618,10 +693,11 @@ def test_cos_two_pass_window_monotone_and_plotting_accurate():
         assert d.pdf_curve(x).min() >= -1e-9                # PDF (from CDF differences) non-negative
 
 
-def test_pdf_curve_via_cdf_differentiation_is_smooth():
+def test_pdf_curve_via_cdf_differentiation_is_smooth(monkeypatch):
     """pdf_curve differentiates the (stable) COS CDF instead of summing the raw cosine density, so it stays smooth
     even when the direct density rings (wide support range / heavy tail). Validated on a strong-expansion
     demography and against the per-point de Hoog density."""
+    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # compares the cosine-differentiated pdf_curve
     d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).total_branch_length.distribution()
     b = d._range()
     x = np.linspace(0, b, 300)

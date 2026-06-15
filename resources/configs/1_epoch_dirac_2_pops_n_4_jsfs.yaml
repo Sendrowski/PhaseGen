@@ -19,5 +19,6 @@ migration_rates:
 comparisons:
   tolerance:
     jsfs:
-      joint: 0.03
+      pairwise:
+        cdf: 0.03
       mean: 0.03

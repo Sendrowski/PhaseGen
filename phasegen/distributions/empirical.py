@@ -15,7 +15,8 @@ from ..locus import LocusConfig
 from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
-from .base import DensityAwareDistribution
+from .base import DensityAwareDistribution, MarginalPDF, MarginalCPD, \
+    MarginalQuantileFunction
 from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
 from .coalescent import AbstractCoalescent, Coalescent
 
@@ -143,10 +144,16 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         super().touch()
 
+        # probability grid for the quantile function (kept off the extreme tails, where the empirical quantile is
+        # noisy and -- for SFS bins with an atom at 0 -- flat at 0 below the atom mass)
+        q = np.linspace(0.05, 0.95, 50)
+
         self._cache = dict(
             t=t,
             cdf=self.cdf(t),
-            pdf=self.pdf(t)
+            pdf=self.pdf(t),
+            q=q,
+            quantile=self.quantile(q)
         )
 
     def drop(self):
@@ -222,7 +229,9 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param t: Time.
         :return: Cumulative probability.
         """
-        x = np.sort(self.samples)
+        # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
+        # which would sort across bins within a replicate and produce a meaningless ECDF
+        x = np.sort(self.samples, axis=0)
         y = np.arange(1, len(self.samples) + 1) / len(self.samples)
 
         if x.ndim == 1:
@@ -240,12 +249,14 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param q: Quantile.
         :return: Quantile.
         """
-        return np.quantile(self.samples, q=q)
+        # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
+        # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
+        return np.quantile(self.samples, q=q, axis=0)
 
     def _pdf(
             self,
             t: float | np.ndarray,
-            n_bins: int = 10000,
+            n_bins: int = None,
             sigma: float = None,
             samples: np.ndarray = None,
             **kwargs: dict
@@ -254,7 +265,11 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         Density function.
 
         :param sigma: Sigma for Gaussian filter.
-        :param n_bins: Number of bins.
+        :param n_bins: Number of histogram bins; ``None`` (default) uses ``~sqrt(#positive samples)`` (clipped to
+            [100, 2000]). The histogram is a Poisson-noisy estimator -- ~1/sqrt(count) per bin -- so an over-fine
+            binning (e.g. the old fixed 10000 on 1e6 samples) injects ~10% per-bin noise that makes the empirical pdf
+            spuriously disagree with the smooth analytic one; ``sqrt(N)`` bins denoise it (~3x lower mean error here)
+            while preserving the peak, whereas Gaussian filtering the coarse output grid blunts the mode.
         :param t: Time.
         :param samples: Samples.
         :return: Density.
@@ -264,10 +279,21 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         if samples.ndim == 2:
             return np.array([self._pdf(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
 
-        hist, bin_edges = np.histogram(samples, range=(0, max(samples)), bins=n_bins, density=True)
+        # exclude the atom at 0 (the point mass P(R = 0), e.g. an SFS bin with no subtending branch): histogram only
+        # the continuous (positive) part and rescale by the positive fraction, so the result estimates the continuous
+        # sub-density f(t), t > 0 -- which integrates to P(R > 0), matching the analytic pdf (also atom-excluded) --
+        # instead of spiking in the first bin and dwarfing the rest of the curve
+        t = np.atleast_1d(t)
+        positive = samples[samples > 0]
+        if positive.size == 0:
+            return np.zeros_like(t, dtype=float)
+        frac = positive.size / samples.size
+        nb = n_bins if n_bins is not None else int(np.clip(np.sqrt(positive.size), 100, 2000))
+        hist, bin_edges = np.histogram(positive, range=(0, max(positive)), bins=nb, density=True)
+        hist = hist * frac
 
         # determine bins for u
-        bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, n_bins - 1, dtype=int))
+        bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, nb - 1, dtype=int))
 
         # use proper bins for y values
         y = hist[bins]
@@ -442,6 +468,25 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     """
     SFS phase-type distribution based on realisations.
     """
+    # per-bin empirical pdf/cdf/quantile -> marginal flavours
+    _pdf_function = MarginalPDF
+    _cdf_function = MarginalCPD
+    _quantile_function = MarginalQuantileFunction
+
+    @property
+    def pdf(self) -> MarginalPDF:
+        """Per-bin empirical probability density functions (histogram estimates): callable and plottable."""
+        return super().pdf
+
+    @property
+    def cdf(self) -> MarginalCPD:
+        """Per-bin empirical cumulative distribution functions: callable and plottable."""
+        return super().cdf
+
+    @property
+    def quantile(self) -> MarginalQuantileFunction:
+        """Per-bin empirical quantile functions: callable and plottable."""
+        return super().quantile
 
     def _tajima_n(self) -> int:
         # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
@@ -594,19 +639,58 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
 
+    def joint_pdf(self, i: int, j: int, x: float, y: float, hx: float, hy: float) -> float:
+        """
+        Empirical joint density ``f(x, y)`` of two SFS bins, as the mixed second difference of the empirical joint
+        CDF over a box of half-widths ``hx``/``hy`` (a box-kernel estimate) -- the simulated counterpart of
+        :meth:`JointRewardDistribution.pdf`.
+        """
+        return float((self.joint_cdf(i, j, x + hx, y + hy) - self.joint_cdf(i, j, x + hx, y - hy)
+                      - self.joint_cdf(i, j, x - hx, y + hy) + self.joint_cdf(i, j, x - hx, y - hy)) / (4 * hx * hy))
+
     def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
         """
-        Pre-compute, for each bin pair, the empirical cross-moment and the joint CDF at marginal-quantile points, so
-        the (1M-replicate) joint ground truth is serialized with the comparison and survives :meth:`drop`. Stored as
-        ``self._joint = [(i, j, cross, [(x, y, cdf), ...]), ...]`` (small, samples-free).
+        Pre-compute, for each bin pair, the empirical cross-moment and the joint CDF *and density* at marginal-quantile
+        points, so the (1M-replicate) joint ground truth is serialized with the comparison and survives :meth:`drop`.
+        Stored as ``self._joint = [(i, j, cross, [(x, y, cdf, pdf), ...]), ...]`` (small, samples-free). The density is
+        only defined off the diagonal (the joint law is singular when ``i == j``), so it is ``nan`` for self-pairs.
         """
         s = self.samples
-        self._joint = [
-            (i, j, float((s[:, i] * s[:, j]).mean()),
-             [(float(np.quantile(s[:, i], qa)), float(np.quantile(s[:, j], qb)),
-               self.joint_cdf(i, j, np.quantile(s[:, i], qa), np.quantile(s[:, j], qb))) for qa, qb in quantiles])
-            for i, j in pairs
-        ]
+        self._joint = []
+        for i, j in pairs:
+            # box half-widths for the density estimate: a fraction of each bin's inter-quartile range
+            hx = 0.15 * (np.quantile(s[:, i], 0.75) - np.quantile(s[:, i], 0.25)) or 1e-6
+            hy = 0.15 * (np.quantile(s[:, j], 0.75) - np.quantile(s[:, j], 0.25)) or 1e-6
+            points = []
+            for qa, qb in quantiles:
+                x = float(np.quantile(s[:, i], qa))
+                y = float(np.quantile(s[:, j], qb))
+                cdf = self.joint_cdf(i, j, x, y)
+                pdf = float('nan') if i == j else self.joint_pdf(i, j, x, y, hx, hy)
+                points.append((x, y, cdf, pdf))
+            self._joint.append((i, j, float((s[:, i] * s[:, j]).mean()), points))
+
+    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+        """
+        Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
+        bin's support up to its ``q_max`` quantile), for the full-grid surface comparison. The density is the mixed
+        second difference of the CDF grid (grid spacing = bandwidth). Stored as
+        ``self._joint_surface = [(i, j, xs, ys, cdf_grid, pdf_grid), ...]`` and serialized with the comparison.
+        """
+        s = self.samples
+        n = s.shape[0]
+        self._joint_surface = []
+        for i, j in pairs:
+            li, lj = s[:, i], s[:, j]
+            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
+            ys = np.linspace(0.0, float(np.quantile(lj, q_max)), n_grid)
+            # empirical joint CDF on the grid: P(L_i <= x_a, L_j <= y_b) = (1/N) sum_r 1{li_r<=x_a} 1{lj_r<=y_b}
+            a = (li[:, None] <= xs[None, :]).astype(float)  # (N, X)
+            b = (lj[:, None] <= ys[None, :]).astype(float)  # (N, Y)
+            cdf = (a.T @ b) / n                             # (X, Y)
+            # density via the mixed second difference of the CDF surface (no separate bandwidth needed)
+            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
+            self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:

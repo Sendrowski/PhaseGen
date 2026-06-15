@@ -7,6 +7,7 @@ pop_sizes:
   pop_0:
     0: 1
 model: standard
+seed: 42
 comparisons:
   tolerance:
     sfs:

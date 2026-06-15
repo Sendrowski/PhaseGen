@@ -1,9 +1,13 @@
 """
 Compare statistics between PhaseGen and Msprime.
 """
+import ast
+import contextlib
+import copy
 import itertools
 import logging
 import os
+import time
 from .caching import cached_property
 from typing import Iterable, Dict, Literal, List
 
@@ -129,6 +133,9 @@ class Comparison(Serializable):
         #: Number of assertions made
         self.n_assertions: int = 0
 
+        #: Wall-clock runtime (seconds) of the phasegen side of each compared statistic, keyed by its title.
+        self.runtimes: dict = {}
+
     @staticmethod
     def from_yaml(file: str) -> 'Comparison':
         """
@@ -239,11 +246,13 @@ class Comparison(Serializable):
 
         return diff
 
-    def _save_and_show(self, name: str, pad=2):
+    def _save_and_show(self, name: str, pad=2, extra_right: float = 0.0):
         """
         Save and show the figure if a figure path is set.
 
         :param name: File name for the saved figure.
+        :param extra_right: Extra whitespace (inches) added to the right of the tight bounding box (e.g. for the 3D
+            surface panels, whose rightmost axis labels otherwise sit flush against the edge).
         """
         plt.tight_layout(pad=pad)
 
@@ -251,7 +260,20 @@ class Comparison(Serializable):
             if not os.path.exists(self.figure_path):
                 os.makedirs(self.figure_path)
 
-            plt.savefig(self.figure_path + f'/{name}.png', dpi=self.dpi)
+            path = self.figure_path + f'/{name}.png'
+            # bbox_inches='tight' expands the saved bounding box to include every artist -- tight_layout alone does not
+            # account for 3D z-axis labels, so the rightmost surface panel's axis label would otherwise be clipped
+            bbox = 'tight'
+            if extra_right:
+                try:  # extend the tight bbox on the right only (a uniform pad_inches would pad all four sides)
+                    from matplotlib.transforms import Bbox
+                    fig = plt.gcf()
+                    fig.canvas.draw()
+                    tb = fig.get_tightbbox(fig.canvas.get_renderer()).padded(0.1)
+                    bbox = Bbox.from_extents(tb.x0, tb.y0, tb.x1 + extra_right, tb.y1)
+                except Exception:
+                    bbox = 'tight'
+            plt.savefig(path, dpi=self.dpi, bbox_inches=bbox)
 
         plt.show()
         plt.close('all')
@@ -260,10 +282,11 @@ class Comparison(Serializable):
             self,
             ph: PhaseTypeDistribution,
             ms: PhaseTypeDistribution,
-            stat: Literal['pdf', 'cdf', 'joint', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
+            stat: Literal['pdf', 'cdf', 'pairwise_cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4'],
             tol: float,
             title: str = 'stat',
-            name: str = ''
+            name: str = '',
+            mode: str = None
     ):
         """
         Compare the given distributions and return their difference.
@@ -277,155 +300,376 @@ class Comparison(Serializable):
         """
         title = f"{title}: {stat}"
         name = f"{name}_{stat}"
+        t0 = time.perf_counter()  # time the phasegen-side evaluation + diff of this statistic
 
-        with mpl.rc_context({'axes.titlesize': 7}):
+        if stat in ['m3', 'm4']:
+            ph_stat = ph.moment(int(stat[1]), center=False)
+            ms_stat = getattr(ms, stat)
 
-            if stat in ['m3', 'm4']:
-                ph_stat = ph.moment(int(stat[1]), center=False)
-                ms_stat = getattr(ms, stat)
+        elif stat == 'mutation_configs':
 
-            elif stat == 'mutation_configs':
+            ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
+            ms_it = ms.get_mutation_configs()
 
-                ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
-                ms_it = ms.get_mutation_configs()
+            ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
+            ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
 
-                ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
-                ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
+        elif stat in ('pairwise_cdf', 'pairwise_pdf'):
+            ph_stat = ms_stat = None  # handled directly below from the cached empirical pairwise ground truth
 
-            elif stat == 'joint':
-                ph_stat = ms_stat = None  # handled directly below from the cached empirical joint ground truth
+        else:
+            ph_stat = getattr(ph, stat)
+            ms_stat = getattr(ms, stat)
 
+        diff = 0.0
+        plot = None  # deferred visualisation: invoked with the final result message, so the plot title == the log line
+
+        if stat in ('pairwise_cdf', 'pairwise_pdf'):
+
+            # within-tree pairwise joint distribution of bin pairs at marginal-quantile points: the cached
+            # empirical joint CDF P(L_i <= x, L_j <= y) / density f(x, y) versus the analytic ``joint_distribution``.
+            # The points sit at mid-range quantiles (away from the near-zero head). The joint density is singular on
+            # the diagonal, so self-pairs (i == j) are skipped for the pdf.
+            kind = 'cdf' if stat == 'pairwise_cdf' else 'pdf'
+            col = 2 if kind == 'cdf' else 3  # column in the cached point tuple (x, y, cdf, pdf)
+            y_ms, y_ph = [], []
+            for i, j, _c, points in ms._joint:
+                if kind == 'pdf' and i == j:
+                    continue  # no 2D density on the diagonal
+                jd = ph.joint_distribution(i, j)
+                for point in points:
+                    x, y = point[0], point[1]
+                    # skip atom-edge points (x or y at 0): a mostly-empty high-frequency bin's quantile points
+                    # collapse onto the atom there, where the empirical "density" is a degenerate spike (the atom
+                    # mass in one grid cell -> millions) and the continuous comparison is meaningless
+                    if x <= 0 or y <= 0:
+                        continue
+                    y_ms.append(point[col])
+                    # default (no mode): validate the accurate de Hoog inversion, since the 2D default is the fast
+                    # cosine; a de_hoog/cosine wrapper overrides it
+                    m2d = self._mode_2d(mode, 'dehoog')
+                    y_ph.append(jd.cdf(x, y, mode=m2d) if kind == 'cdf' else jd.pdf(x, y, mode=m2d))
+            y_ms, y_ph = np.array(y_ms, dtype=float), np.array(y_ph, dtype=float)
+            # no genuine cross-bin pairs (e.g. n = 2 has a single bin) -> nothing to compare. The CDF (bounded in
+            # [0, 1]) uses its worst *absolute* difference; the density the mode-normalised mean absolute difference.
+            if not len(y_ms):
+                diff = 0.0
+            elif kind == 'cdf':
+                diff = float(np.abs(y_ms - y_ph).max())
             else:
-                ph_stat = getattr(ph, stat)
-                ms_stat = getattr(ms, stat)
+                diff = self._pdf_diff(y_ms, y_ph)
 
-            if stat == 'joint':
+            if self.visualize and len(y_ms):
+                def plot(msg, y_ms=y_ms, y_ph=y_ph, kind=kind):
+                    # agreement scatter: each point is one (bin pair, quantile-point) joint CDF / density; perfect
+                    # agreement lies on the identity line
+                    plt.scatter(y_ms, y_ph, s=25, alpha=0.7)
+                    hi = 1.0 if kind == 'cdf' else float(max(y_ms.max(), y_ph.max(), 1e-9))
+                    plt.plot([0, hi], [0, hi], 'k--', linewidth=1, alpha=0.6)
+                    plt.xlabel('msprime')
+                    plt.ylabel('phasegen')
+                    if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
+                    self._save_and_show(name)
 
-                # joint reward distribution: the cached empirical joint CDF (per bin pair, at marginal-quantile
-                # points) versus the analytic ``joint_distribution``. The points sit at mid-range quantiles (away
-                # from the near-zero CDF head), so the worst *relative* difference is used, as for the ``cdf`` stat
-                # (the cross-moment itself is already covered by ``cov`` / the two-locus ``mean``).
-                y_ms = np.array([e for _i, _j, _c, points in ms._joint for _x, _y, e in points])
-                y_ph = np.array([ph.joint_distribution(i, j).cdf(x, y)
-                                 for i, j, _c, points in ms._joint for x, y, _e in points])
-                # no genuine cross-bin pairs (e.g. n = 2 has a single bin) -> nothing to compare
-                diff = self.rel_diff(y_ms, y_ph).max() if len(y_ms) else 0.0
+        elif isinstance(ph_stat, float):
 
-            elif isinstance(ph_stat, float):
+            diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                diff = self.rel_diff(ms_stat, ph_stat).max()
+        elif stat == 'mutation_configs':
+            configs = [x[0] for x in ph_stat]
+            ms_stat = np.array([x[1] for x in ms_stat])
+            ph_stat = np.array([x[1] for x in ph_stat])
+            diff = self.rel_diff(ms_stat, ph_stat).mean()
 
-            elif stat == 'mutation_configs':
-                configs = [x[0] for x in ph_stat]
-                ms_stat = np.array([x[1] for x in ms_stat])
-                ph_stat = np.array([x[1] for x in ph_stat])
-                diff = self.rel_diff(ms_stat, ph_stat).mean()
-
-                if self.visualize:
+            if self.visualize:
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs):
                     plt.plot(ph_stat, label='phasegen')
                     plt.plot(ms_stat, label='msprime')
-
                     plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
-
                     plt.legend()
-                    if self.show_title: plt.title(title)
-
+                    if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
                     self._save_and_show(name)
 
-            # assume we have an SFS
-            elif isinstance(ph_stat, Iterable):
+        # assume we have an SFS
+        elif isinstance(ph_stat, Iterable):
 
-                # whether this is a joint (multi-population) SFS, which may be rectangular or higher-dimensional
-                is_joint = isinstance(ph_stat, JointSFS)
+            # whether this is a joint (multi-population) SFS, which may be rectangular or higher-dimensional
+            is_joint = isinstance(ph_stat, JointSFS)
 
-                ms_stat = np.array(list(ms_stat))
-                ph_stat = np.array(list(ph_stat))
-                diff = self.rel_diff(ms_stat, ph_stat).max()
+            ms_stat = np.array(list(ms_stat))
+            ph_stat = np.array(list(ph_stat))
+            diff = self.rel_diff(ms_stat, ph_stat).max()
 
-                if self.visualize:
-                    if is_joint:
-
-                        # plot the joint SFS as side-by-side heatmaps, but only when it is 2-dimensional
-                        if ph_stat.ndim == 2:
-                            plt.close('all')  # avoid empty plots
-                            fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
-
-                            if self.show_title: plt.suptitle(title)
-
-                            axs[0].set_title('phasegen')
-                            axs[1].set_title('msprime')
-
-                            JointSFS(ph_stat).plot(ax=axs[0], show=False)
-                            JointSFS(ms_stat).plot(ax=axs[1], show=False)
-
-                            self._save_and_show(name, pad=1.5)
-
-                    elif ph_stat.ndim == 1:
-
-                        s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
-
-                        s.plot(title=title if self.show_title else None, show=False)
-                        plt.legend(fontsize=10)
-
-                        self._save_and_show(name)
-
-                    # assume we have a square 2-dimensional statistic (e.g. a 2-SFS); ``n = 2`` (a 3x3 matrix with a
-                    # single polymorphic bin) is a legitimate two-locus SFS and surface-plots fine
-                    elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
-
+            if self.visualize:
+                if is_joint and ph_stat.ndim == 2:
+                    # plot the joint SFS as side-by-side heatmaps, but only when it is 2-dimensional
+                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
                         plt.close('all')  # avoid empty plots
-                        fig, axs = plt.subplots(ncols=2, subplot_kw={"projection": "3d"}, figsize=(8, 5))
-
-                        if self.show_title: plt.suptitle(title)
-
-                        axs[0].set_title('phasegen', fontdict={'fontsize': 16})
-                        axs[1].set_title('msprime', fontdict={'fontsize': 16})
-
-                        SFS2(ph_stat).plot_surface(ax=axs[0], show=False)
-                        SFS2(ms_stat).plot_surface(ax=axs[1], show=False)
-
+                        fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
+                        if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
+                        axs[0].set_title('phasegen', fontsize=self.title_fontsize)
+                        axs[1].set_title('msprime', fontsize=self.title_fontsize)
+                        JointSFS(ph_stat).plot(ax=axs[0], show=False)
+                        JointSFS(ms_stat).plot(ax=axs[1], show=False)
                         self._save_and_show(name, pad=1.5)
 
-            # assume we have a PDF or CDF
-            elif stat in ['pdf', 'cdf']:
+                elif not is_joint and ph_stat.ndim == 1:
+                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                        s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
+                        s.plot(title=msg if self.show_title else None, show=False)
+                        plt.legend(fontsize=10)
+                        self._save_and_show(name)
 
-                # use cached values if available
-                if hasattr(ms, '_cache') and stat in ms._cache:
-                    t = ms._cache['t']
-                    y_ms = ms._cache[stat]
-                else:
-                    # grid the distribution being compared over its own support (identical to the tree height for
-                    # tree_height, but wider for e.g. total_branch_length, whose accumulated reward exceeds it)
-                    t = np.linspace(0, ph.quantile(0.99), 100)
-                    y_ms = ms_stat(t)
+                # a square 2-dimensional statistic (an SFS covariance / correlation matrix or a 2-SFS); n = 2 (a 3x3
+                # matrix with a single polymorphic bin) is a legitimate two-locus SFS. Drawn as phasegen / msprime /
+                # element-wise relative-difference surfaces.
+                elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
+                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                        idx = np.arange(len(ph_stat))
+                        self._plot_surface_triple(
+                            idx, idx, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
+                            xlabel='frequency class i', ylabel='frequency class j',
+                            title=msg if self.show_title else None, name=name)
 
-                y_ph = ph_stat(t)
+        # assume we have a PDF, CDF or quantile function
+        elif stat in ['pdf', 'cdf', 'quantile']:
 
-                if self.visualize:
-                    plt.plot(t, y_ph, label='phasegen', linewidth=1.5, alpha=0.7)
-                    plt.plot(t, y_ms, label='msprime', linewidth=1.5, alpha=0.7)
-                    plt.xlabel('time')
+            # the quantile function lives on the probability axis q in (0, 1); the pdf/cdf on the value axis t
+            grid_key = 'q' if stat == 'quantile' else 't'
 
-                    plt.legend()
-                    if self.show_title: plt.title(title)
-
-                    self._save_and_show(name)
-
-                diff = np.abs(y_ms - y_ph).mean() if stat == 'pdf' else self.rel_diff(y_ms, y_ph)[2:].max()
-
+            # use cached values if available
+            if hasattr(ms, '_cache') and stat in ms._cache:
+                t = ms._cache[grid_key]
+                y_ms = np.asarray(ms._cache[stat])
+            elif stat == 'quantile':
+                t = np.linspace(0.05, 0.95, 50)
+                y_ms = np.asarray(ms_stat(t))
             else:
-                raise ValueError(f"Unknown type {type(ph_stat)}.")
+                # grid the distribution being compared over its own support (identical to the tree height for
+                # tree_height, but wider for e.g. total_branch_length, whose accumulated reward exceeds it). For an
+                # SFS the quantile is per-bin, so take the widest bin's support.
+                t = np.linspace(0, float(np.max(ph.quantile(0.99))), 100)
+                y_ms = np.asarray(ms_stat(t))
 
-        if not diff <= tol:
-            self.logger.critical(f"{title}: {diff} > {tol}")
+            curve = 'cdf_curve' if stat == 'cdf' else 'pdf_curve'
+            with self._inversion_mode(mode):  # route the curve inversion through de_hoog/cosine when a mode is set
+                if stat == 'quantile':
+                    # invert the cached CDF curve rather than the per-point de Hoog bisection (~2 s per point for
+                    # accumulated rewards such as total_branch_length)
+                    y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None)
+                elif mode is not None and hasattr(ph, 'bin'):
+                    # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
+                    # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
+                    nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
+                    y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
+                                     else np.asarray(getattr(ph.bin(b), curve)(t), dtype=float)
+                                     for b in range(nb)])
+                elif mode is not None and hasattr(ph, '_reward_distribution') \
+                        and hasattr(ph._reward_distribution, curve):
+                    # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
+                    y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t), dtype=float)
+                else:
+                    y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
 
-            if self.do_assertion:
-                raise AssertionError(f"Relative difference {diff} exceeds threshold {tol} for {title}.")
+            # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
+            # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
+            per_bin = y_ph.ndim == 2 or y_ms.ndim == 2
+            if per_bin:
+                if y_ph.ndim == 2 and y_ph.shape[-1] != len(t):
+                    y_ph = y_ph.T
+                if y_ms.ndim == 2 and y_ms.shape[-1] != len(t):
+                    y_ms = y_ms.T
+                y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
+
+            # the first couple of points sit on the near-zero head (and the per-bin atom at 0, P(L_i=0)>0), where the
+            # difference is unstable -- so they are discarded. Metric: the CDF (bounded in [0,1]) uses the worst
+            # *absolute* difference; the pdf the mode-normalised mean absolute difference (:meth:`_pdf_diff`); the
+            # quantile the worst *relative* difference. Computed before the deferred plot so the result message (which
+            # the plot uses as its title) is available.
+            if stat == 'pdf':
+                ms_p = y_ms[:, 2:] if per_bin else y_ms
+                ph_p = y_ph[:, 2:] if per_bin else y_ph
+                diff = self._pdf_diff(ms_p, ph_p)
+            elif stat == 'cdf':
+                d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
+                diff = float(np.abs(d).max())
+            else:  # quantile
+                rd = self.rel_diff(y_ms, y_ph)
+                diff = float((rd[:, 2:] if per_bin else rd[2:]).max())
+
+            if self.visualize:
+                def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin):
+                    xlabel = 'q' if stat == 'quantile' else 'time'
+                    if per_bin:
+                        # drop the first grid point: an SFS bin's atom at 0 spikes the empirical pdf / jumps the cdf
+                        tp, yph_p, yms_p = t[1:], y_ph[:, 1:], y_ms[:, 1:]
+                        series = [(yph_p[k], yms_p[k], self._pointwise_diff(stat, yph_p[k], yms_p[k]), f'bin {k + 1}')
+                                  for k in range(yph_p.shape[0])]
+                    else:
+                        tp = t
+                        series = [(y_ph, y_ms, self._pointwise_diff(stat, y_ph, y_ms), '')]
+                    self._plot_curves_with_diff(tp, series, xlabel, msg if self.show_title else None, name)
+
         else:
-            self.logger.info(f"{title}: {diff} <= {tol}")
+            raise ValueError(f"Unknown type {type(ph_stat)}.")
 
+        runtime = time.perf_counter() - t0
+        self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
+        self.runtimes[title] = runtime
+
+        msg = self._result_message(title, diff, tol, self._diff_label(stat), runtime)
+        if self.visualize and plot is not None:
+            plot(msg)
+        self._log_result(msg, diff, tol)
+
+    #: Standard thinned grid size per axis for the slow per-point **de Hoog 2D surface** comparison (≈ every other
+    #: node of the 25-point empirical grid). Fixed, not config-exposed: the empirical stays cached on the full grid and
+    #: is subsampled to the same nodes, so de Hoog surfaces cost ~(13/25)^2 of the full grid with no second cache.
+    DE_HOOG_2D_GRID: int = 13
+
+    def _de_hoog_thin(self, n_full: int) -> np.ndarray:
+        """Indices of an evenly-spaced thinned subset of a length-``n_full`` axis for the de Hoog 2D surface (see
+        :attr:`DE_HOOG_2D_GRID`); all indices if the standard size is not smaller."""
+        n = self.DE_HOOG_2D_GRID
+        if n >= n_full:
+            return np.arange(n_full)
+        return np.unique(np.linspace(0, n_full - 1, n).round().astype(int))
+
+    @staticmethod
+    def _diff_label(stat: str) -> str:
+        """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
+        uses the worst *absolute* difference, the pdf a *mean absolute difference normalised by the peak (mode) of the
+        reference density*, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative* difference."""
+        return {'cdf': 'max abs', 'pairwise_cdf': 'max abs',
+                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode'}.get(stat, 'max rel')
+
+    @staticmethod
+    def _pdf_diff(y_ref, y_ph) -> float:
+        """Scale-free density discrepancy: the mean absolute difference normalised by the **peak (mode)** of the
+        reference density. A raw absolute difference is meaningless for a pdf because its scale follows the support
+        width: a broad distribution can have a mode as low as ~1e-3, so a small absolute error is a large *relative*
+        one (and tolerances would not transfer across scenarios). The mode is used as the scale rather than the mean
+        density, which would be tail-dependent (extending the grid into the tail lowers the mean and inflates the
+        ratio). Falls back to the raw mean absolute difference if the reference is degenerate (all ~0)."""
+        y_ref, y_ph = np.asarray(y_ref, dtype=float), np.asarray(y_ph, dtype=float)
+        den = float(np.abs(y_ref).max())
+        num = float(np.abs(y_ref - y_ph).mean())
+        return num / den if den > 0 else num
+
+    def _result_message(self, title: str, diff: float, tol: float, label: str, runtime: float) -> str:
+        """Assign this comparison the next sequential index and format the one-line result message used *identically*
+        as the log line and the plot title: ``#i <title>: <diff> <=|> <tol> (<metric>, <runtime>s)``."""
+        self._comp_index = getattr(self, '_comp_index', 0) + 1
+        op = '<=' if diff <= tol else '>'
+        return f"#{self._comp_index} {title}: {diff:.5f} {op} {tol} ({label}, {runtime:.3f}s)"
+
+    def _log_result(self, msg: str, diff: float, tol: float):
+        """Log a comparison result (critical if it exceeds the tolerance, info otherwise); under ``do_assertion``
+        raise on failure and count the assertion."""
+        if not diff <= tol:
+            self.logger.critical(msg)
+            if self.do_assertion:
+                raise AssertionError(msg)
+        else:
+            self.logger.info(msg)
         if self.do_assertion:
             self.n_assertions += 1
+
+    @staticmethod
+    def _mode_2d(mode: str, default: str) -> str:
+        """Map a comparison inversion mode to the joint (2D) ``mode`` keyword (``'dehoog'`` / ``'cos'``) passed to
+        ``jd.pdf`` / ``jd.cdf``: ``de_hoog`` -> ``'dehoog'`` (nested de Hoog), ``cosine`` -> ``'cos'`` (cosine
+        expansion); ``None`` keeps the call site's ``default``."""
+        return {'de_hoog': 'dehoog', 'cosine': 'cos'}.get(mode, default)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _inversion_mode(mode: str):
+        """Temporarily force the 1D curve inversion (``Settings.inversion_method``) to the comparison mode -- so a
+        ``de_hoog`` / ``cosine`` wrapper routes the curve-based pdf/cdf/quantile accordingly. No-op for ``None``."""
+        if mode is None:
+            yield
+            return
+        from .settings import Settings
+        old = Settings.inversion_method
+        Settings.inversion_method = 'dehoog' if mode == 'de_hoog' else 'cos'
+        try:
+            yield
+        finally:
+            Settings.inversion_method = old
+
+    @staticmethod
+    def _parse_collection_key(k: str) -> list | None:
+        """Parse a quoted collection key (``"[...]"`` / ``"{...}"``) into its list of elements, or ``None`` if ``k`` is
+        not a collection literal. Beyond the ``ast.literal_eval``-able forms (``"[1, 3, 9]"``, ``"[(1, 3), (2, 3)]"``)
+        this also accepts **bare-identifier** elements (``"[cosine, de_hoog]"``, broadcasting a sub-spec over both
+        inversion modes), which ``ast.literal_eval`` rejects -- those are split on top-level commas and kept as strings.
+        """
+        s = k.strip()
+        if s[:1] not in ('[', '{') or s[-1:] not in (']', '}'):
+            return None
+        try:
+            parsed = ast.literal_eval(s)
+            return list(parsed) if isinstance(parsed, (list, set)) else None
+        except (ValueError, SyntaxError):
+            pass
+
+        # bare-identifier collection (e.g. mode names): split the body on commas at bracket depth 0
+        elems, depth, start = [], 0, 0
+        body = s[1:-1]
+        for idx, ch in enumerate(body):
+            if ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif ch == ',' and depth == 0:
+                elems.append(body[start:idx])
+                start = idx + 1
+        elems.append(body[start:])
+
+        out = []
+        for part in elems:
+            part = part.strip()
+            if not part:
+                return None
+            try:
+                out.append(ast.literal_eval(part))
+            except (ValueError, SyntaxError):
+                out.append(part)  # bare string element (e.g. an inversion-mode name)
+        return out
+
+    @staticmethod
+    def _expand_keys(data: dict) -> dict:
+        """
+        Normalise a (possibly terse) comparison-tolerance subtree by expanding **collection keys** that broadcast their
+        sub-spec over several elements -- e.g. (note: YAML cannot use a bare ``[...]``/``{...}`` as a key, so quote it)::
+
+            "[1, 3, 9]": {pdf: 0.01}          ->  1: {pdf: 0.01}, 3: {pdf: 0.01}, 9: {pdf: 0.01}
+            "[(1, 2), (1, 9)]": {cdf: 0.02}   ->  "(1, 2)": {cdf: 0.02}, "(1, 9)": {cdf: 0.02}
+
+        A quoted key that ``ast.literal_eval``s to a **list or set** is expanded over its elements (an ``int`` becomes a
+        bin key, a ``tuple`` becomes an ``"(i, j)"`` pair-string key); a bare ``tuple`` (``"(1, 2)"``) stays a single
+        pair. Broadcasting is a deep copy, and an already-present target is merged into (later wins on conflicts).
+        Applied recursively, leaving non-collection keys untouched.
+        """
+        out = {}
+
+        def _put(key, value):
+            value = Comparison._expand_keys(value) if isinstance(value, dict) else value
+            if key in out and isinstance(out[key], dict) and isinstance(value, dict):
+                out[key] = {**out[key], **value}
+            else:
+                out[key] = copy.deepcopy(value)
+
+        for k, v in data.items():
+            parsed = Comparison._parse_collection_key(k) if isinstance(k, str) else None
+            if parsed is not None:
+                for elem in parsed:
+                    _put(f"({elem[0]}, {elem[1]})" if isinstance(elem, tuple) else elem, v)
+            else:
+                _put(k, v)
+
+        return out
 
     def _compare_stat_recursively(
             self,
@@ -433,7 +677,8 @@ class Comparison(Serializable):
             ms: PhaseTypeDistribution | MarginalDistributions,
             data: dict,
             title: str = 'stat',
-            name: str = ''
+            name: str = '',
+            mode: str = None
     ):
         """
         Compare the given statistics recursively.
@@ -446,15 +691,22 @@ class Comparison(Serializable):
         """
 
         # statistic, distribution or nested demes dictionary
-        stat: Literal['pdf', 'cdf', 'joint', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4']
+        stat: Literal['pdf', 'cdf', 'pairwise_cdf', 'mean', 'var', 'std', 'cov', 'corr', 'demes', 'loci', 'm3', 'm4']
 
         # tolerance or dictionary of statistics
         sub: float | dict
 
         for stat, sub in data.items():
 
+            # an explicit inversion-mode wrapper: route the nested stats through de Hoog or the cosine expansion
+            # (``de_hoog`` -> nested inversion / mode='dehoog'; ``cosine`` -> the fast cosine path / mode='cos'). When
+            # absent (``mode is None``) the original per-statistic default is used, so existing configs are unchanged.
+            if stat in ('de_hoog', 'cosine'):
+                self._compare_stat_recursively(ph=ph, ms=ms, data=sub, title=f"{title}: {stat}",
+                                               name=f"{name}_{stat}", mode=stat)
+
             # if the statistic is nested, recurse
-            if isinstance(ph, MarginalDistributions) and not hasattr(ph, stat):
+            elif isinstance(ph, MarginalDistributions) and not hasattr(ph, stat):
                 if isinstance(ph, MarginalDemeDistributions):
                     items = self.ph.demography.pop_names
                 elif isinstance(ph, MarginalLocusDistributions):
@@ -470,7 +722,8 @@ class Comparison(Serializable):
                         stat=stat,
                         tol=sub,
                         title=f"{title}: {item}",
-                        name=f"{name}_{item}"
+                        name=f"{name}_{item}",
+                        mode=mode
                     )
 
             elif stat in ['demes', 'loci']:
@@ -480,8 +733,32 @@ class Comparison(Serializable):
                     ms=getattr(ms, stat),
                     data=sub,
                     title=f"{title}: {stat}",
-                    name=f"{name}_{stat}"
+                    name=f"{name}_{stat}",
+                    mode=mode
                 )
+
+            elif stat == 'pairwise':
+
+                # nested pairwise group. 'cdf'/'pdf' aggregate the within-tree joint comparison across all bin pairs
+                # at marginal-quantile points; a pair key like '(1, 2)' carries {cdf, pdf} tolerances for the
+                # full-grid surface comparison of that single pair (each optionally wrapped in a de_hoog/cosine mode).
+                for key, subtol in sub.items():
+                    if key in ('de_hoog', 'cosine'):
+                        self._compare_stat_recursively(ph=ph, ms=ms, data={'pairwise': subtol},
+                                                       title=f"{title}: {key}", name=f"{name}_{key}", mode=key)
+                    elif key in ('cdf', 'pdf'):
+                        self.compare_stat(ph=ph, ms=ms, stat=f'pairwise_{key}', tol=subtol, title=title, name=name,
+                                          mode=mode)
+                    else:
+                        pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                        self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=subtol, title=title, name=name,
+                                                       mode=mode)
+
+            elif isinstance(stat, int) or (isinstance(stat, str) and stat.lstrip('-').isdigit()):
+
+                # per-bin SFS targeting: ``sfs: {i}: {stat}`` compares only spectrum bin ``i`` (its mean/var and its
+                # 1D pdf/cdf/quantile), rather than the spectrum-wide statistic
+                self._compare_sfs_bin(ph=ph, ms=ms, i=int(stat), tols=sub, title=title, name=name, mode=mode)
 
             else:
 
@@ -491,8 +768,70 @@ class Comparison(Serializable):
                     stat=stat,
                     tol=sub,
                     title=title,
-                    name=name
+                    name=name,
+                    mode=mode
                 )
+
+    def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None):
+        """
+        Compare a single SFS bin's statistics (config ``sfs: {i}: {stat}``) against the msprime ground truth: the
+        scalar ``mean`` / ``var`` of bin ``i``, and its 1D ``pdf`` / ``cdf`` / ``quantile`` (bin ``i``'s reward
+        distribution vs the cached empirical per-bin curves). The per-statistic metric matches the spectrum-wide
+        comparison: the CDF uses the worst absolute difference, the pdf the mean absolute difference, and the
+        quantile / mean / var a relative difference (the near-zero head is dropped for the curves, as elsewhere).
+        A ``de_hoog`` / ``cosine`` key under the bin routes its sub-stats through that inversion (``mode``).
+        """
+        for stat, tol in tols.items():
+            # an inversion-mode wrapper (``sfs: {i}: {de_hoog|cosine}: {stat}``) routes the bin's curves accordingly
+            if stat in ('de_hoog', 'cosine'):
+                self._compare_sfs_bin(ph=ph, ms=ms, i=i, tols=tol, title=f"{title}: {stat}", name=f"{name}_{stat}",
+                                      mode=stat)
+                continue
+            t0 = time.perf_counter()
+            sub_title = f"{title}: {i}: {stat}"
+
+            if stat in ('mean', 'var', 'std'):
+                ph_arr = getattr(ph, stat)
+                ph_val = float(np.asarray(ph_arr.data if hasattr(ph_arr, 'data') else list(ph_arr)).ravel()[i])
+                ms_val = float(np.asarray(list(getattr(ms, stat))).ravel()[i])
+                diff = float(self.rel_diff(np.array([ms_val]), np.array([ph_val])).max())
+
+            elif stat in ('pdf', 'cdf', 'quantile'):
+                # the empirical per-bin curves were cached over a grid by ``touch``; orient to (n_bins, len(grid))
+                grid_key = 'q' if stat == 'quantile' else 't'
+                t = np.asarray(ms._cache[grid_key], dtype=float)
+                y_ms_all = np.asarray(ms._cache[stat], dtype=float)
+                if y_ms_all.ndim == 2 and y_ms_all.shape[-1] != len(t):
+                    y_ms_all = y_ms_all.T
+                y_ms = y_ms_all[i]
+                d = ph.bin(i)  # only this bin's distribution (the spectrum-wide quantile would compute every bin)
+                with self._inversion_mode(mode):  # route the bin's curve inversion through de_hoog/cosine when set
+                    if stat == 'quantile':
+                        y_ph = np.array([float(d.quantile(float(q))) for q in t])
+                        diff = float(self.rel_diff(y_ms, y_ph)[2:].max())
+                    else:
+                        y_ph = np.asarray(d.cdf_curve(t) if stat == 'cdf' else d.pdf_curve(t), dtype=float)
+                        diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
+                                else self._pdf_diff(y_ms[2:], y_ph[2:]))
+
+            else:
+                raise ValueError(f"Unsupported per-bin SFS statistic '{stat}' for bin {i} "
+                                 f"(use mean / var / pdf / cdf / quantile).")
+
+            runtime = time.perf_counter() - t0
+            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
+            self.runtimes[sub_title] = runtime
+            msg = self._result_message(sub_title, diff, tol, self._diff_label(stat), runtime)
+
+            if self.visualize and stat in ('pdf', 'cdf', 'quantile'):
+                # drop the first point: an atom-bearing bin's empirical pdf spikes there (the P(L=0) mass binned into
+                # one narrow cell), which otherwise squashes the whole curve; the cdf/quantile lose only the t=0 edge
+                sl = slice(1, None)
+                series = [(y_ph[sl], y_ms[sl], self._pointwise_diff(stat, y_ph[sl], y_ms[sl]), '')]
+                self._plot_curves_with_diff(t[sl], series, 'q' if stat == 'quantile' else 'time',
+                                            msg if self.show_title else None, f"{name}_{i}_{stat}")
+
+            self._log_result(msg, diff, tol)
 
     @staticmethod
     def _eval_statistic(coal, stat: str, args: list) -> float:
@@ -506,15 +845,255 @@ class Comparison(Serializable):
         diff = self.rel_diff(ms, ph)
 
         if not diff <= tol:
-            self.logger.critical(f"{title}: {diff} > {tol}")
+            self.logger.critical(f"{title}: {diff:.5f} > {tol}")
 
             if self.do_assertion:
-                raise AssertionError(f"Relative difference {diff} exceeds threshold {tol} for {title}.")
+                raise AssertionError(f"Relative difference {diff:.5f} exceeds threshold {tol} for {title}.")
         else:
-            self.logger.info(f"{title}: {diff} <= {tol}")
+            self.logger.info(f"{title}: {diff:.5f} <= {tol}")
 
         if self.do_assertion:
             self.n_assertions += 1
+
+    @staticmethod
+    def _quantile_values(ph, q, n_bins: int = None) -> np.ndarray:
+        """
+        Quantile values of ``ph`` at probabilities ``q`` via its own quantile (which bisects the cached CDF curve --
+        the de Hoog spline by default). An earlier version interpolated the inverse on a uniform grid over
+        ``[0, mean + 12 std]``; for a heavily skewed reward (a time-inhomogeneous demography spanning 0 to many tens)
+        that grid is far too coarse near the origin, giving large errors at small ``q`` -- so the quantile is now
+        evaluated directly (the cached spline makes the bisection cheap). Returns a 1-D array for a scalar
+        distribution, or ``(len(q), n_bins)`` for a spectrum (one column per bin; the monomorphic edge bins are held
+        at 0).
+
+        :param ph: The phase-type distribution (scalar, or a spectrum exposing :meth:`bin`).
+        :param q: Probabilities at which to evaluate the quantile.
+        :param n_bins: Number of spectrum bins (incl. the monomorphic edges); ``None`` for a scalar distribution.
+        """
+        q = np.asarray(q, dtype=float)
+
+        # the spectrum's public quantile is vectorised over probabilities and returns one column per bin (monomorphic
+        # edges held at 0); the scalar distributions' quantile is a per-probability callable, so loop it
+        if n_bins is not None:
+            return np.asarray(ph.quantile(q), dtype=float)
+        return np.array([float(ph.quantile(float(qq))) for qq in q])
+
+    def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None):
+        """
+        Full-grid comparison of the within-tree joint distribution of one bin pair ``(i, j)``: the analytic
+        ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
+        ``cdf`` and ``pdf`` requested in ``tols`` it asserts the worst element-wise difference over the grid and (when
+        visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference. A
+        ``de_hoog`` / ``cosine`` key under the pair routes the surfaces through that inversion (``mode='dehoog'/'cos'``).
+        """
+        # per-pair inversion-mode wrappers, e.g. '(1, 2): {de_hoog: {cdf, pdf}, cosine: {cdf, pdf}}'
+        if any(k in ('de_hoog', 'cosine') for k in tols):
+            for k, sub in tols.items():
+                wrapped = k in ('de_hoog', 'cosine')
+                self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=sub if wrapped else {k: sub},
+                                               title=f"{title}: {k}" if wrapped else title,
+                                               name=f"{name}_{k}" if wrapped else name,
+                                               mode=k if wrapped else mode)
+            return
+
+        i, j = pair
+        entry = next((e for e in getattr(ms, '_joint_surface', []) if (e[0], e[1]) == (i, j)), None)
+        if entry is None:
+            raise ValueError(f"No cached empirical surface for pair {pair}; regenerate the comparison fixture.")
+        _i, _j, xs, ys, cdf_ms, pdf_ms = entry
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        jd = ph.joint_distribution(i, j)
+
+        # skip the first two grid points on each axis: there the joint law has its atom edge (P=0 head for the cdf,
+        # the empirical pdf's one-sided boundary difference), where phasegen and msprime disagree spuriously
+        sx = sy = slice(2, None)
+
+        for kind in ('cdf', 'pdf'):
+            if kind not in tols:
+                continue
+            t0 = time.perf_counter()
+
+            # the joint cdf/pdf on the whole grid; default (no mode) uses the fast cosine inversion -- a per-point
+            # de Hoog grid is far slower -- and the atom-edge head where the cosine box is biased is dropped below
+            # (the first two points per axis). A de_hoog/cosine wrapper overrides the inversion.
+            m2d = self._mode_2d(mode, 'cos')
+            dehoog = m2d == 'dehoog'
+            # the per-point de Hoog surface is slow (one nested inversion per grid node); evaluate it on a thinned
+            # subset of the standard grid (the empirical is subsampled to the same nodes). The fast cosine path stays
+            # on the full grid.
+            gx, gy = (self._de_hoog_thin(len(xs)), self._de_hoog_thin(len(ys))) if dehoog \
+                else (np.arange(len(xs)), np.arange(len(ys)))
+            xs_d, ys_d = xs[gx], ys[gy]
+            ms_grid = (cdf_ms if kind == 'cdf' else pdf_ms)
+            grid_ms = np.asarray(ms_grid, dtype=float)[np.ix_(gx, gy)]
+            grid_ph = np.asarray(jd.cdf(xs_d, ys_d, mode=m2d) if kind == 'cdf'
+                                 else jd.pdf(xs_d, ys_d, mode=m2d), dtype=float)
+
+            xs_p, ys_p = xs_d[sx], ys_d[sy]
+            grid_ph, grid_ms = grid_ph[sx, sy], grid_ms[sx, sy]
+
+            # the CDF (bounded in [0, 1]) uses the worst absolute element-wise difference; the density uses the
+            # scale-free relative-L1 metric (its absolute scale follows the support, so a raw absolute diff does not
+            # transfer -- see ``_pdf_diff``)
+            diff = float(np.abs(grid_ph - grid_ms).max()) if kind == 'cdf' else self._pdf_diff(grid_ms, grid_ph)
+            sub_title = f"{title}: pairwise {pair} {kind}"  # the mode (if any) is already in ``title``
+            runtime = time.perf_counter() - t0
+            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
+            self.runtimes[sub_title] = runtime
+            msg = self._result_message(sub_title, diff, tols[kind], self._diff_label(f'pairwise_{kind}'), runtime)
+
+            if self.visualize:
+                # the difference surface is coloured blue at 0 up to red at the saturation level. For the CDF (bounded
+                # in [0,1]) it shows the *absolute* difference (a probability-mass error, matching the assertion); the
+                # density shows the per-point absolute difference normalised by the peak (mode) of the reference
+                # density, which averages to the scalar metric asserted on (see ``_pdf_diff`` / ``_plot_surface_triple``).
+                if kind == 'cdf':
+                    diff_grid, dlabel, dzlabel = np.abs(grid_ms - grid_ph), 'absolute difference', 'abs. diff'
+                else:
+                    den = max(float(np.abs(grid_ms).max()), 1e-300)
+                    diff_grid = np.abs(grid_ms - grid_ph) / den
+                    dlabel, dzlabel = 'normalized abs. difference', 'norm. abs'
+                self._plot_surface_triple(xs_p, ys_p, grid_ph, grid_ms, diff_grid, zlabel=kind.upper(),
+                                          title=msg if self.show_title else None,
+                                          name=f"{name}_pairwise_{i}_{j}_{kind}", diff_label=dlabel,
+                                          diff_zlabel=dzlabel)
+
+            self._log_result(msg, diff, tols[kind])
+
+    #: Relative-difference level at which the difference surface's colormap saturates to red (blue at 0).
+    surface_diff_saturation: float = 0.1
+
+    #: Minimum vertical (z-axis) span of a difference-surface panel, so a tiny diff is not auto-zoomed into noise.
+    min_diff_axis_height: float = 0.01
+
+    #: Font sizes for comparison-plot subplot titles and figure suptitles (slightly above the matplotlib defaults).
+    title_fontsize: int = 13
+    suptitle_fontsize: int = 15
+
+    def _pointwise_diff(self, stat: str, y_ph: np.ndarray, y_ms: np.ndarray) -> np.ndarray:
+        """Per-point discrepancy curve matching the asserted metric for ``stat``: absolute for the CDF, mode-normalised
+        absolute for the pdf (so it shares the density's mean/mode scale), relative otherwise (quantile)."""
+        y_ph, y_ms = np.asarray(y_ph, float), np.asarray(y_ms, float)
+        if stat == 'cdf':
+            return np.abs(y_ph - y_ms)
+        if stat == 'pdf':
+            return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).max()), 1e-300)
+        return np.asarray(self.rel_diff(y_ms, y_ph), float)
+
+    def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str):
+        """Two panels side by side: left overlays phasegen (solid) vs msprime (dashed) for each ``series`` entry
+        ``(y_ph, y_ms, diff, label)``; right shows each per-point ``diff`` as a line **coloured by its magnitude**
+        (the same ``coolwarm`` scale saturating at :attr:`surface_diff_saturation` as the surface diff plots, with a
+        shared colorbar), the diff axis floored to that saturation so a tiny diff is not zoomed into noise."""
+        import matplotlib.pyplot as plt
+        from matplotlib.collections import LineCollection
+
+        t = np.asarray(t, float)
+        sat = self.surface_diff_saturation
+        fig, (axc, axd) = plt.subplots(ncols=2, figsize=(13, 5))
+        norm = plt.Normalize(0.0, sat)
+        ymax, lc = sat, None
+        for y_ph, y_ms, diff, label in series:
+            line, = axc.plot(t, y_ph, linewidth=1.5, alpha=0.8, label=f'{label} (phasegen)' if label else 'phasegen')
+            axc.plot(t, y_ms, '--', color=line.get_color(), linewidth=1.2, alpha=0.8,
+                     label=f'{label} (msprime)' if label else 'msprime')
+            d = np.asarray(diff, float)
+            pts = np.array([t, d]).T.reshape(-1, 1, 2)
+            segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+            lc = LineCollection(segs, cmap='coolwarm', norm=norm)
+            lc.set_array(0.5 * (d[:-1] + d[1:]))  # colour each segment by its difference height
+            lc.set_linewidth(1.6)
+            axd.add_collection(lc)
+            ymax = max(ymax, float(np.nanmax(d)))
+
+        axc.set_xlabel(xlabel)
+        axc.legend(fontsize=7 if len(series) > 1 else 10)
+        axd.set_xlim(float(t.min()), float(t.max()))
+        axd.set_ylim(0.0, ymax)  # floored to the saturation level (sat) unless the diff exceeds it
+        axd.set_xlabel(xlabel)
+        axd.set_ylabel('difference')
+        axd.set_title('difference', fontsize=self.title_fontsize)
+        if lc is not None:
+            fig.colorbar(lc, ax=axd)
+        if title and self.show_title:
+            fig.suptitle(title, fontsize=self.suptitle_fontsize)
+        self._save_and_show(name)
+
+    def _plot_surface_triple(self, xs, ys, grid_ph, grid_ms, diff_grid, zlabel: str, title: str, name: str,
+                             xlabel: str = 'L_i', ylabel: str = 'L_j', diff_label: str = 'relative difference',
+                             diff_zlabel: str = 'rel. diff'):
+        """Draw phasegen / msprime / difference surfaces side by side over the ``xs x ys`` grid. The two distributions
+        use a sequential colormap; the third is the element-wise difference (``diff_grid``: relative by default, or
+        absolute for a CDF), coloured blue at 0 up to red at :attr:`surface_diff_saturation` (so it reads red wherever
+        phasegen and msprime disagree by that much or more)."""
+        plt.close('all')  # avoid empty plots
+        # a taller figure: the 3D axes fill more of it, shrinking the whitespace margins between the three panels
+        fig, axs = plt.subplots(ncols=3, subplot_kw={'projection': '3d'}, figsize=(13, 5.5))
+        X, Y = np.meshgrid(xs, ys)
+        sat = self.surface_diff_saturation
+
+        for ax, grid, sub, cmap, zlab, lim in zip(
+                axs, (grid_ph, grid_ms, diff_grid), ('phasegen', 'msprime', diff_label),
+                ('viridis', 'viridis', 'coolwarm'), (zlabel, zlabel, diff_zlabel), (None, None, (0.0, sat))
+        ):
+            kw = dict(vmin=lim[0], vmax=lim[1]) if lim else {}
+            ax.plot_surface(X, Y, np.asarray(grid).T, cmap=cmap, **kw)
+            ax.set_title(sub, fontsize=self.title_fontsize)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_zlabel(zlab)
+
+        # share one vertical scale across the phasegen and msprime panels (the max of the two) so they are directly
+        # comparable rather than each auto-scaled to its own height
+        zmin = min(float(np.nanmin(grid_ph)), float(np.nanmin(grid_ms)))
+        zmax = max(float(np.nanmax(grid_ph)), float(np.nanmax(grid_ms)))
+        if zmax > zmin:
+            axs[0].set_zlim(zmin, zmax)
+            axs[1].set_zlim(zmin, zmax)
+
+        # floor the difference panel's vertical span to ``min_diff_axis_height`` so a tiny diff is not auto-zoomed up
+        # into what looks like a large disagreement (the colour scale already saturates at ``surface_diff_saturation``)
+        axs[2].set_zlim(0.0, max(self.min_diff_axis_height, float(np.nanmax(diff_grid))))
+
+        if title:
+            plt.suptitle(title, fontsize=self.suptitle_fontsize)
+
+        self._save_and_show(name, pad=2.8, extra_right=1.2)
+
+    def _pairwise_surface_pairs(self) -> dict:
+        """The per-distribution bin pairs that request a full-grid pairwise surface comparison (the non-``cdf``/``pdf``
+        keys under a ``pairwise`` group), parsed from the comparison config -- used to cache their empirical grids."""
+        out = {}
+        for dist, data in self._expand_keys(self.comparisons.get('tolerance', {})).items():
+            pairwise = data.get('pairwise') if isinstance(data, dict) else None
+            if not isinstance(pairwise, dict):
+                continue
+
+            # pair keys are everything that is not an aggregate stat ('cdf'/'pdf'); they may sit directly under
+            # ``pairwise`` or be nested under a de_hoog/cosine mode wrapper, so descend into those
+            pairs = []
+
+            def _collect(d):
+                for k, v in d.items():
+                    if k in ('cdf', 'pdf'):
+                        continue
+                    if k in ('de_hoog', 'cosine') and isinstance(v, dict):
+                        _collect(v)
+                    else:
+                        pairs.append(ast.literal_eval(k) if isinstance(k, str) else tuple(k))
+
+            _collect(pairwise)
+            if pairs:
+                out[dist] = list(dict.fromkeys(pairs))  # de-dupe, preserve order
+        return out
+
+    def cache_ground_truth(self):
+        """Cache the msprime ground truth needed by the configured comparisons: the standard per-statistic caches
+        (:meth:`MsprimeCoalescent.touch`) plus any full-grid pairwise surface grids the config requests. Call before
+        :meth:`MsprimeCoalescent.drop` so the grids are serialized with the comparison."""
+        self.ms.touch()
+        for dist, pairs in self._pairwise_surface_pairs().items():
+            getattr(self.ms, dist).cache_joint_surface(pairs)
 
     def compare(self, title: str = ''):
         """
@@ -524,7 +1103,13 @@ class Comparison(Serializable):
         :raises AssertionError: If `do_assertion is True and the distributions differ by more than the given tolerance.
             ValueError: if the type is unknown.
         """
-        for dist, data in self.comparisons['tolerance'].items():
+        # enlarge titles globally so plots delegated to the distribution/spectrum ``.plot()`` methods (which set their
+        # own titles at the matplotlib default) match the comparison's own explicitly-sized titles/suptitles
+        plt.rcParams['axes.titlesize'] = self.title_fontsize
+        plt.rcParams['figure.titlesize'] = self.suptitle_fontsize
+        self._comp_index = 0  # sequential comparison counter, prepended as '#i' to each result message / plot title
+
+        for dist, data in self._expand_keys(self.comparisons['tolerance']).items():
             self._compare_stat_recursively(
                 ph=getattr(self.ph, dist),
                 ms=getattr(self.ms, dist),

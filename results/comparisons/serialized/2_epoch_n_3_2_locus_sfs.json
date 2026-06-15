@@ -48,7 +48,7 @@
     },
     "n_assertions": 0,
     "ms": {
-        "py/object": "phasegen.distributions.MsprimeCoalescent",
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
             "py/reduce": [
                 {
@@ -124,7 +124,7 @@
         "simulate_mutations": false,
         "seed": 44,
         "sfs2": {
-            "py/object": "phasegen.distributions.EmpiricalTwoLocusSFSDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
             "_mean": {
                 "py/object": "numpy.ndarray",
                 "data": [

@@ -15,7 +15,9 @@
     "comparisons": {
         "tolerance": {
             "jsfs": {
-                "joint": 0.03,
+                "pairwise": {
+                    "cdf": 0.03
+                },
                 "mean": 0.02,
                 "var": 0.05,
                 "m2": 0.05,

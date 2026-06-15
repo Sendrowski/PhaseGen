@@ -19,69 +19,257 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
+def adaptive_grid(f, a: float, b: float, n_init: int = 9, tol: float = None, max_points: int = None):
+    """
+    Adaptively sample a scalar function ``f`` on ``[a, b]``, concentrating evaluations where the curve bends.
+
+    Starts from a coarse uniform grid and repeatedly bisects any interval whose midpoint value deviates from the
+    straight chord between its endpoints by more than ``tol`` times the function's range. For an expensive ``f`` (the
+    per-point de Hoog inversion) this hits a given visual accuracy with far fewer evaluations than a uniform grid --
+    e.g. it resolves the near-zero atom spike of an SFS bin density that a uniform grid would miss.
+
+    :param f: Scalar function to sample (called as ``f(x)`` for a float ``x``).
+    :param a: Left endpoint.
+    :param b: Right endpoint.
+    :param n_init: Number of initial uniform points (>= 2).
+    :param tol: Relative deviation tolerance; defaults to :attr:`Settings.plot_adaptive_tol`.
+    :param max_points: Maximum number of evaluations; defaults to :attr:`Settings.plot_n_grid`.
+    :return: Sorted ``(x, y)`` arrays.
+    """
+    from collections import deque
+
+    tol = Settings.plot_adaptive_tol if tol is None else tol
+    max_points = Settings.plot_n_grid if max_points is None else max_points
+
+    xs = list(np.linspace(a, b, n_init))
+    ys = [float(f(x)) for x in xs]
+    thr = tol * max(max(ys) - min(ys), 1e-300)
+
+    # work queue of intervals; bisect those whose midpoint departs from the chord by more than the threshold
+    stack = deque((xs[i], ys[i], xs[i + 1], ys[i + 1]) for i in range(len(xs) - 1))
+    ex, ey = [], []
+    while stack and len(xs) + len(ex) < max_points:
+        xl, yl, xr, yr = stack.popleft()
+        xm = 0.5 * (xl + xr)
+        ym = float(f(xm))
+        ex.append(xm)
+        ey.append(ym)
+        if abs(ym - 0.5 * (yl + yr)) > thr:
+            stack.append((xl, yl, xm, ym))
+            stack.append((xm, ym, xr, yr))
+
+    x = np.array(xs + ex)
+    y = np.array(ys + ey)
+    order = np.argsort(x)
+    return x[order], y[order]
+
+
 class DistributionFunction:
     """
-    A distribution function -- a ``pdf``, ``cdf`` or ``quantile`` -- that is both **callable** and **plottable**.
+    A distribution function -- callable (evaluate) and plottable -- returned by a distribution's ``pdf`` / ``cdf`` /
+    ``quantile`` property.
 
-    Calling it evaluates the function exactly as the former method did (e.g. ``coal.sfs.pdf(t)`` returns the per-bin
-    densities at ``t``), while :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` draws every bin's density curve at
-    once, and for a bivariate distribution ``coal.sfs2.joint_distribution(i, j).pdf.plot()`` draws the 2D heatmap).
+    Calling it evaluates the function (e.g. ``coal.sfs.pdf(t)`` returns the per-bin densities at ``t``), while
+    :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` overlays every bin's density curve).
 
-    Returned by the ``pdf`` / ``cdf`` / ``quantile`` properties of the distributions; it supersedes the former
-    ``plot_pdf`` / ``plot_cdf`` methods (now deprecated aliases for ``.pdf.plot()`` / ``.cdf.plot()``).
+    This base class is rarely used directly: each property returns one of the thin typed subclasses
+    (:class:`PDF` / :class:`CPD` / :class:`QuantileFunction`, in plain,
+    ``Marginal...``, ``Joint...`` and ``Conditional...`` flavours). They behave identically but carry distinct
+    docstrings describing *what* the function is and *how* it is computed, and -- being real classes with real
+    :meth:`plot` / :meth:`__call__` methods -- they let IDEs resolve ``.plot`` to a definition and surface those
+    docstrings (unlike a dynamically bound attribute). Supersedes the former ``plot_pdf`` / ``plot_cdf`` methods (now
+    deprecated aliases).
+
+    :param evaluate: The evaluation callback (the distribution's ``_cdf`` / ``_pdf`` / ``_quantile``).
+    :param plot: The plotting callback (the distribution's ``_plot_cdf`` / ``_plot_pdf`` / ``_plot_quantile``).
     """
+    #: Short kind label (``'pdf'`` / ``'cdf'`` / ``'quantile'``), set by the kind subclasses; used in ``repr``.
+    kind: str = ''
 
-    def __init__(self, evaluate: Callable, plot: Callable, kind: str = '', surface: Callable = None):
-        """
-        :param evaluate: The evaluation callback (the former ``cdf`` / ``pdf`` / ``quantile`` method body).
-        :param plot: The plotting callback (the former ``plot_cdf`` / ``plot_pdf`` body, or a quantile-function plot).
-        :param kind: One of ``'cdf'``, ``'pdf'``, ``'quantile'`` (for ``repr``).
-        :param surface: Optional 3D-surface plotting callback, only for bivariate (joint) distributions.
-        """
+    def __init__(self, evaluate: Callable, plot: Callable):
         self._evaluate = evaluate
         self._plot = plot
-        #: The kind of function: ``'cdf'``, ``'pdf'`` or ``'quantile'``.
-        self.kind = kind
-        # only bivariate (joint) distributions get a 3D surface plotter; for univariate ones the method is simply
-        # absent (no meaningless ``plot_surface`` exposed)
-        if surface is not None:
-            #: 3D surface plot (bivariate / joint distributions only).
-            self.plot_surface = surface
 
     def __call__(self, *args, **kwargs):
-        """Evaluate the distribution function (delegates to the wrapped evaluator)."""
+        """Evaluate the distribution function at the given point(s) (forwards to the distribution's evaluator)."""
         return self._evaluate(*args, **kwargs)
 
-    def plot(self, *args, **kwargs):
-        """Plot the distribution function (delegates to the wrapped plotter)."""
+    def plot(self, *args, **kwargs) -> 'plt.Axes':
+        """
+        Plot the distribution function (forwards to the distribution's plotter). Accepted arguments depend on the
+        distribution; common ones are ``exact`` (use the slower per-point de Hoog inversion instead of the fast COS
+        curve), ``bins`` / ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution),
+        ``ax`` / ``show`` / ``file`` / ``title``.
+        """
         return self._plot(*args, **kwargs)
 
     def __repr__(self):
-        return f"<{self.kind or 'distribution'} function: call to evaluate, .plot() to draw>"
+        return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
+
+
+class _SurfacePlottable:
+    """Mixin adding :meth:`plot_surface` for bivariate (joint) distribution functions (a 3D surface in addition to the
+    2D heatmap drawn by :meth:`plot`). Univariate function classes deliberately lack it."""
+
+    def __init__(self, evaluate: Callable, plot: Callable, surface: Callable):
+        super().__init__(evaluate, plot)
+        self._plot_surface = surface
+
+    def plot_surface(self, *args, **kwargs) -> 'plt.Axes':
+        """Plot the joint distribution function as a 3D surface (bivariate / joint distributions only)."""
+        return self._plot_surface(*args, **kwargs)
+
+
+# --- function kinds -------------------------------------------------------------------------------------------------
+
+class PDF(DistributionFunction):
+    """Probability density function ``f(x)``.
+
+    - **Callable** ``pdf(x)``: per-point numerical Laplace inversion (de Hoog) of the accumulated-reward density
+      transform ``phi(s)`` (the exact matrix-exponential density for the tree height; a histogram for empirical
+      samples).
+    - **Plot** ``pdf.plot()``: the fast two-pass Fourier-cosine (COS) curve -- the numerical derivative of the COS CDF
+      -- or, with ``exact=True``, the per-point callable above.
+    """
+    kind = 'pdf'
+
+
+class CPD(DistributionFunction):
+    """Cumulative distribution function ``F(x) = P(X <= x)``.
+
+    - **Callable** ``cdf(x)``: per-point de Hoog inversion of ``phi(s) / s`` (the exact matrix exponential for the tree
+      height; the empirical CDF for samples).
+    - **Plot** ``cdf.plot()``: the fast two-pass Fourier-cosine (COS) curve, or the per-point callable with
+      ``exact=True``.
+    """
+    kind = 'cdf'
+
+
+class QuantileFunction(DistributionFunction):
+    """Quantile function ``Q(q) = inf{x : F(x) >= q}`` (the inverse CDF).
+
+    - **Callable** ``quantile(q)``: bisection on the (de Hoog / exact) CDF, or the sample quantile for empirical data.
+    - **Plot** ``quantile.plot()``: inverts the fast COS CDF curve by interpolation (or the per-point bisection with
+      ``exact=True``).
+    """
+    kind = 'quantile'
+
+
+# --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
+
+class MarginalPDF(PDF):
+    """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin).
+
+    - **Callable** ``pdf(x)``: each bin's density by per-point de Hoog inversion of that bin's reward transform;
+      returns the value for every bin.
+    - **Plot** ``pdf.plot()``: overlays every bin's fast COS density curve (or the per-point de Hoog with
+      ``exact=True``).
+    """
+
+
+class MarginalCPD(CPD):
+    """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
+
+    - **Callable** ``cdf(x)``: each bin's ``P(L_i <= x)`` by per-point de Hoog inversion of ``phi(s) / s``.
+    - **Plot** ``cdf.plot()``: overlays every bin's fast COS CDF curve (or per-point de Hoog with ``exact=True``).
+    """
+
+
+class MarginalQuantileFunction(QuantileFunction):
+    """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin).
+
+    - **Callable** ``quantile(q)``: each bin's quantile by bisection on its de Hoog CDF.
+    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast COS CDF curve.
+    """
+
+
+# --- joint (bivariate) flavours -------------------------------------------------------------------------------------
+
+class JointPDF(_SurfacePlottable, PDF):
+    """Joint density ``f(x, y)`` of two rewards / bins (the within-tree 2-SFS).
+
+    - **Callable** ``pdf(x, y)``: the continuous-continuous part of the joint law, by the fast 2D Fourier-cosine (COS)
+      expansion of the joint transform ``Phi(s_a, s_b)`` by default, or the nested de Hoog inversion (mixed derivative
+      of a spline through the box CDF) under ``Settings.inversion_method_2d == 'dehoog'`` (``mode='dehoog'`` / ``'cos'``
+      overrides per call). Accepts scalars or arrays.
+    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density (a dense grid),
+      or -- with ``mode='dehoog'`` -- the nested de Hoog inversion.
+    """
+
+
+class JointCPD(_SurfacePlottable, CPD):
+    """Joint CDF ``F(x, y) = P(R_a <= x, R_b <= y)`` of two rewards / bins.
+
+    - **Callable** ``cdf(x, y)``: the axis atoms (per-point de Hoog of the marginal sub-transforms ``Phi(., inf)`` /
+      ``Phi(inf, .)``) plus the continuous box -- the fast analytically integrated 2D cosine box by default, or a
+      direct nested de Hoog inversion under ``Settings.inversion_method_2d == 'dehoog'`` (accurate even for skewed
+      multi-epoch rewards; ``mode='dehoog'`` / ``'cos'`` overrides per call). Accepts scalars or arrays.
+    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box CDF, or -- with
+      ``mode='dehoog'`` -- the nested de Hoog box.
+    """
+
+
+class JointQuantileFunction(QuantileFunction):
+    """Quantile function of a bivariate distribution. Provided for symmetry only: a joint/2D quantile is not
+    well-defined, so joint distributions expose marginal/conditional quantiles instead."""
+
+
+# --- conditional flavours -------------------------------------------------------------------------------------------
+
+class ConditionalPDF(PDF):
+    """Density of one reward conditional on another (e.g. ``R_b | R_a = a``).
+
+    - **Callable** ``pdf(y)``: per-point de Hoog inversion of the nested-inversion conditional transform
+      ``phi_cond(s) = G(s) / G(0)``, where ``G`` is the inner Gaver-Stehfest inversion along the conditioned axis.
+    - **Plot** ``pdf.plot()``: the per-point de Hoog density over a grid (the conditional transform is already nested).
+    """
+
+
+class ConditionalCPD(CPD):
+    """CDF of one reward conditional on another (e.g. ``R_b | R_a = a``).
+
+    - **Callable** ``cdf(y)``: per-point de Hoog inversion of ``phi_cond(s) / s`` for the nested-inversion conditional
+      transform ``phi_cond(s) = G(s) / G(0)`` (``G`` via inner Gaver-Stehfest).
+    - **Plot** ``cdf.plot()``: the per-point de Hoog CDF over a grid.
+    """
+
+
+class ConditionalQuantileFunction(QuantileFunction):
+    """Quantile function of one reward conditional on another (e.g. ``R_b | R_a = a``).
+
+    - **Callable** ``quantile(q)``: bisection on the conditional de Hoog CDF.
+    - **Plot** ``quantile.plot()``: the conditional quantile over a probability grid.
+    """
 
 
 class CallableDistributionFunctions:
     """
-    Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable :class:`DistributionFunction`
-    properties. Each concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the
-    plotters ``_plot_pdf`` / ``_plot_cdf`` / ``_plot_quantile``; this mixin wires them together and keeps the former
-    ``plot_pdf`` / ``plot_cdf`` methods working as (deprecated) aliases.
+    Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable distribution-function properties. Each
+    concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the plotters ``_plot_pdf`` /
+    ``_plot_cdf`` / ``_plot_quantile``; this mixin wires them together. Subclasses pick the *flavour* of the returned
+    function objects by overriding :attr:`_pdf_function` / :attr:`_cdf_function` / :attr:`_quantile_function` (e.g. a
+    spectrum returns the ``Marginal...`` flavours, a conditional the ``Conditional...`` flavours), which is what gives
+    IDEs the right type and docstring. Also keeps the former ``plot_pdf`` / ``plot_cdf`` methods as deprecated aliases.
     """
+    #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
+    _pdf_function = PDF
+    _cdf_function = CPD
+    _quantile_function = QuantileFunction
 
     @property
-    def cdf(self) -> DistributionFunction:
+    def cdf(self) -> CPD:
         """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()``)."""
-        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf')
+        return self._cdf_function(self._cdf, self._plot_cdf)
 
     @property
-    def pdf(self) -> DistributionFunction:
+    def pdf(self) -> PDF:
         """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()``)."""
-        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf')
+        return self._pdf_function(self._pdf, self._plot_pdf)
 
     @property
-    def quantile(self) -> DistributionFunction:
+    def quantile(self) -> QuantileFunction:
         """Quantile function: callable (``quantile(q)``) and plottable (``quantile.plot()``)."""
-        return DistributionFunction(self._quantile, self._plot_quantile, 'quantile')
+        return self._quantile_function(self._quantile, self._plot_quantile)
 
     def plot_cdf(self, *args, **kwargs):
         """Deprecated: use :attr:`cdf`.plot() instead."""
@@ -476,7 +664,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if q is None:
-            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, 99)
+            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, Settings.plot_n_grid)
 
         return Visualization.plot(
             ax=ax,
@@ -516,7 +704,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), 200)
+            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
 
         ax = Visualization.plot(
             ax=ax,
@@ -564,7 +752,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
             dx = self._quantile(Settings.plot_endpoint_quantile) / 1e10
 
         if t is None:
-            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), 200)
+            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
 
         return Visualization.plot(
             ax=ax,

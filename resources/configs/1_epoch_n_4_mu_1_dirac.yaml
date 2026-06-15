@@ -9,6 +9,7 @@ pop_sizes:
 model: dirac
 psi: 0.5
 c: 1
+seed: 42
 comparisons:
   tolerance:
     sfs:

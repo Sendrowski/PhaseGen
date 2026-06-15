@@ -5,6 +5,7 @@ pop_sizes:
     0: 10000000
     10000000: 50000000
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:

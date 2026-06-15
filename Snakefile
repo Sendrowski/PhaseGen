@@ -80,6 +80,21 @@ rule create_comparison:
     script:
         "scripts/create_comparison.py"
 
+# Cheaply re-embed a config's comparison tolerances / statistic selection into its EXISTING serialized fixture,
+# reusing the cached msprime ground truth (no re-simulation). The fixture is an input and is updated in place; the
+# touch-marker output makes snakemake re-run this whenever the config YAML changes (the rerun trigger), so a tolerance
+# edit is synced with `snakemake results/comparisons/serialized/.<config>.tolerances_synced`. Use create_comparison
+# instead when a simulation parameter changed or a new pairwise surface pair must be cached (the script aborts then).
+rule update_tolerances:
+    input:
+        "resources/configs/{config}.yaml"
+    output:
+        touch("results/comparisons/serialized/.{config}.tolerances_synced")
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/update_tolerances.py"
+
 # create joint-SFS comparisons (the jsfs-specific caching that create_comparison cannot handle)
 rule create_jsfs_comparison:
     input:

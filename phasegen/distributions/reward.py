@@ -30,6 +30,7 @@ automatically by the inversion.
 """
 import logging
 import warnings
+import functools
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
@@ -41,8 +42,9 @@ import scipy.sparse.linalg as spla
 
 from ..rewards import Reward
 from ..settings import Settings
-from .base import CallableDistributionFunctions, DistributionFunction
-from ._moments import MomentEvaluator
+from .base import CallableDistributionFunctions, JointPDF, JointCPD, \
+    ConditionalPDF, ConditionalCPD, ConditionalQuantileFunction
+from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
     from .phase_type import PhaseTypeDistribution
@@ -99,10 +101,19 @@ class RewardDistribution(CallableDistributionFunctions):
     def lst(self, s: complex) -> complex:
         """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
         st = self._setup
-        return _lst_from_shift(s * st['r'], st['alpha'], st['T_epochs'], st['sparse'])
+        return _lst_from_shift(s * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
 
     def _invert(self, transform, t: float) -> float:
-        """Numerical Laplace inversion (de Hoog) of ``transform`` evaluated at ``t``."""
+        """
+        Numerical Laplace inversion (de Hoog) of ``transform`` evaluated at ``t``.
+
+        de Hoog evaluates ``transform`` at ``2 * degree + 1`` contour nodes (each a linear solve over the transient
+        sub-generator -- the dominant cost for large state spaces) and combines them with an ill-conditioned QD
+        recurrence that needs mpmath's extended precision. The degree is :attr:`Settings.dehoog_degree` (cost is
+        linear in it; accuracy is non-monotonic, peaking near 15). (Parallelising the independent node solves across
+        threads was tried and did not pay off -- the per-node matrix assembly holds the GIL, so the solves do not
+        parallelise; whole-curve speed comes from the Fourier-cosine plotting path instead.)
+        """
         if t <= 0:
             return 0.0
 
@@ -110,7 +121,7 @@ class RewardDistribution(CallableDistributionFunctions):
             val = transform(complex(s))
             return mp.mpc(val.real, val.imag)
 
-        return float(mp.invertlaplace(F, t, method='dehoog'))
+        return float(mp.invertlaplace(F, t, method='dehoog', degree=Settings.dehoog_degree))
 
     def _cdf(self, t):
         """Cumulative distribution function ``P(R <= t)``. Scalar or array-valued."""
@@ -127,10 +138,40 @@ class RewardDistribution(CallableDistributionFunctions):
         return self._invert(self.lst, float(t))  # L[pdf] = phi(s)
 
     def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
-        """The ``q``-quantile ``inf{x : F(x) >= q}`` via bisection on the (monotone) CDF."""
+        """
+        The ``q``-quantile ``inf{x : F(x) >= q}`` by bisection on the cached (monotone) CDF *curve* -- the accurate de
+        Hoog spline by default, or the cosine curve under ``Settings.inversion_method == 'cos'``. The curve is built
+        once, so each bisection step is a cheap evaluation (the per-point de Hoog bisection it replaces cost a full
+        inversion per step). For ``q`` in the far tail beyond the curve's support it falls back to that de Hoog
+        bisection.
+        """
         if not 0 <= q <= 1:
             raise ValueError("Quantile must be between 0 and 1.")
 
+        # at or below the atom mass P(R = 0) the quantile is exactly 0; return it directly rather than letting the
+        # bisection converge to a few-1e-9 residue (which makes a relative comparison against an exact 0 blow up)
+        if q <= float(self.cdf_curve(0.0)[0]):
+            return 0.0
+
+        b = self._range(scale=12.0)
+        if float(self.cdf_curve(b)[0]) < q:  # beyond the cached curve's support -> exact de Hoog bracketing bisection
+            return self._quantile_dehoog(q, precision, max_iter)
+
+        lo, hi = 0.0, b
+        for _ in range(max_iter):
+            mid = 0.5 * (lo + hi)
+            if float(self.cdf_curve(mid)[0]) < q:
+                lo = mid
+            else:
+                hi = mid
+            if hi - lo < precision:
+                break
+
+        return 0.5 * (lo + hi)
+
+    def _quantile_dehoog(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
+        """Exact ``q``-quantile by bisection on the per-point de Hoog ``_cdf`` (a full inversion per step). The robust
+        fallback for the far tail, where the cached CDF curve does not reach ``q``."""
         # bracket: grow the upper bound until its CDF exceeds q (seed from the reward's mean via the LST,
         # E[R] = -phi'(0), so we start near the right scale and only double a few times)
         h = 1e-3
@@ -158,35 +199,56 @@ class RewardDistribution(CallableDistributionFunctions):
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set."""
         return f"{self.label} {base}" if self.label else base
 
-    def _plot_cdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the CDF curve (fast COS inversion) up to the configured plot-endpoint quantile."""
+    def _plot_cdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = None,
+                  exact: bool = False) -> 'plt.Axes':
+        """Plot the CDF up to the configured plot-endpoint quantile (fast COS inversion, or per-point de Hoog when
+        ``exact=True``)."""
         from ..visualization import Visualization
-        if x is None:
-            x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
-        ax = Visualization.plot(ax=ax, x=x, y=self.cdf_curve(x), xlabel='x', ylabel='F(x)', label=label, file=file,
+        from .base import adaptive_grid
+        if x is None and exact:
+            # de Hoog is expensive per point -> place the points adaptively where the curve bends
+            x, y = adaptive_grid(self._cdf, 0.0, self._quantile(Settings.plot_endpoint_quantile), max_points=n_points)
+        else:
+            if x is None:
+                x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
+            y = self._cdf(x) if exact else self.cdf_curve(x)
+        ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
                                 show=show, clear=clear, title=title or self._titled('CDF'))
         ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
         return ax
 
-    def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the PDF curve (derivative of the COS CDF) up to the configured plot-endpoint quantile."""
+    def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
+                  file: str = None, clear: bool = True, label: str = None, title: str = None,
+                  exact: bool = False) -> 'plt.Axes':
+        """Plot the PDF up to the configured plot-endpoint quantile (derivative of the COS CDF, or per-point de Hoog
+        when ``exact=True``)."""
         from ..visualization import Visualization
-        if x is None:
-            x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points)
-        return Visualization.plot(ax=ax, x=x, y=self.pdf_curve(x), xlabel='x', ylabel='f(x)', label=label, file=file,
+        from .base import adaptive_grid
+        if x is None and exact:
+            x, y = adaptive_grid(self._pdf, 0.0, self._quantile(Settings.plot_endpoint_quantile), max_points=n_points)
+        else:
+            if x is None:
+                x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
+            y = self._pdf(x) if exact else self.pdf_curve(x)
+        return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
                                   show=show, clear=clear, title=title or self._titled('PDF'))
 
-    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the quantile function (value versus probability), inverting the fast COS CDF curve."""
+    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
+                       file: str = None, clear: bool = True, label: str = None, title: str = None,
+                       exact: bool = False) -> 'plt.Axes':
+        """Plot the quantile function (value versus probability), inverting the fast COS CDF curve (or the per-point
+        de Hoog bisection when ``exact=True``)."""
         from ..visualization import Visualization
         qe = Settings.plot_endpoint_quantile
         if q is None:
-            q = np.linspace(1.0 - qe, qe, n_points)
-        grid = np.linspace(0, self._range(), 512)
-        return Visualization.plot(ax=ax, x=q, y=np.interp(q, self.cdf_curve(grid), grid), xlabel='q',
+            q = np.linspace(1.0 - qe, qe, n_points or Settings.plot_n_grid)
+        if exact:
+            y = np.array([self._quantile(float(p)) for p in np.atleast_1d(q)])
+        else:
+            grid = np.linspace(0, self._range(), 512)
+            y = np.interp(q, self.cdf_curve(grid), grid)
+        return Visualization.plot(ax=ax, x=q, y=y, xlabel='q',
                                   ylabel='quantile', label=label, file=file, show=show, clear=clear,
                                   title=title or self._titled('quantile function'))
 
@@ -234,10 +296,10 @@ class RewardDistribution(CallableDistributionFunctions):
         xd = np.linspace(0.0, b, max(512, 2 * n_terms))
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
         if -float(np.diff(Fd).min()) > 1e-2:
-            warnings.warn(
+            self._logger.warning(
                 "COS plotting inversion shows a substantial residual ripple (a sharp feature or atom the cosine "
                 "series cannot resolve at this resolution); the plotted curve may be imprecise. Prefer the per-point "
-                "cdf()/pdf() (de Hoog) for accurate values.", stacklevel=4
+                "cdf()/pdf() (de Hoog) for accurate values."
             )
 
         return dict(b=b, w=w, fk=fk, p0=p0)
@@ -290,18 +352,53 @@ class RewardDistribution(CallableDistributionFunctions):
         c1, c2 = self._cumulants()
         return float(c1 + scale * np.sqrt(c2))
 
+    @cached_property
+    def _dehoog_spline(self) -> dict:
+        """
+        Accurate, cheap-to-query cached curve: a monotone PCHIP spline of the *continuous* CDF through de Hoog
+        Laplace-inversion values at adaptively placed points (the atom ``P(R = 0)`` split off first, as in the cosine
+        path). Being de-Hoog-anchored it is accurate everywhere -- no Gibbs ringing on sharp / heavy-tailed features --
+        and the PDF is its analytic derivative (smooth, non-negative, integrating back to the CDF). The default backing
+        of :meth:`cdf_curve` / :meth:`pdf_curve` (see :attr:`Settings.inversion_method`).
+        """
+        from .base import adaptive_grid
+        from scipy.interpolate import PchipInterpolator
+
+        p0 = self.lst(1e8).real  # atom at R = 0
+        b = self._range(scale=12.0)  # cheap cumulant-based support end (avoids depending on _quantile -> the spline)
+
+        def g(x):  # continuous CDF: (F(x) - p0) / (1 - p0); the de Hoog F includes the atom
+            f = self._cdf(x)
+            return (f - p0) / (1 - p0) if p0 > 1e-9 else f
+
+        x, y = adaptive_grid(g, 0.0, b, tol=Settings.inversion_tol)
+        y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)  # de Hoog CDF is monotone up to tiny inversion noise
+        return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
+
     def cdf_curve(self, x, n_terms: int = None) -> np.ndarray:
-        """Fast CDF over a whole grid ``x`` (for plotting): interpolate the monotone two-pass COS CDF grid (see
-        :attr:`_cos_cdf_grid`)."""
-        xs, cdf = self._cos_cdf_grid
-        return np.interp(np.atleast_1d(np.asarray(x, dtype=float)), xs, cdf)
+        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). Uses the accurate de Hoog + monotone-spline
+        representation (:attr:`_dehoog_spline`) by default, or the faster two-pass COS grid when
+        ``Settings.inversion_method == 'cos'``."""
+        xa = np.atleast_1d(np.asarray(x, dtype=float))
+        if Settings.inversion_method == 'cos':
+            xs, cdf = self._cos_cdf_grid
+            return np.interp(xa, xs, cdf)
+        st = self._dehoog_spline
+        g = np.clip(st['spline'](np.clip(xa, 0.0, st['b'])), 0.0, 1.0)
+        return st['p0'] + (1 - st['p0']) * g if st['p0'] > 1e-9 else g
 
     def pdf_curve(self, x, n_terms: int = None) -> np.ndarray:
-        """Fast PDF over a whole grid ``x`` (for plotting): the numerical derivative of the monotone two-pass COS CDF
-        grid (deriving the PDF from CDF *differences* keeps it clean and non-negative; the raw cosine density sum
-        rings for skewed distributions). Use the per-point :meth:`pdf` (de Hoog) for exact values."""
-        xs, cdf = self._cos_cdf_grid
-        return np.interp(np.atleast_1d(np.asarray(x, dtype=float)), xs, np.gradient(cdf, xs))
+        """Fast PDF over a whole grid ``x`` (for plotting / many-query use): the derivative of the CDF representation
+        (the de Hoog + monotone-spline by default, or the two-pass COS grid when ``Settings.inversion_method == 'cos'``).
+        Deriving the PDF from the CDF keeps it clean and non-negative; use the per-point :meth:`pdf` (de Hoog) for the
+        exact pointwise density."""
+        xa = np.atleast_1d(np.asarray(x, dtype=float))
+        if Settings.inversion_method == 'cos':
+            xs, cdf = self._cos_cdf_grid
+            return np.interp(xa, xs, np.gradient(cdf, xs))
+        st = self._dehoog_spline
+        d = np.clip(st['spline'].derivative()(np.clip(xa, 0.0, st['b'])), 0.0, None)
+        return (1 - st['p0']) * d if st['p0'] > 1e-9 else d
 
 
 def _build_epoch_data(host) -> dict:
@@ -322,7 +419,12 @@ def _build_epoch_data(host) -> dict:
         host._check_numerical_stability(ss.S, 0)
         T_epochs.append((host._transient_block(idx, sparse=sparse), epoch.start_time, epoch.end_time))
 
-    return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs)
+    # the block-triangular ordering of the final (unbounded) epoch's sub-generator depends only on its sparsity
+    # pattern, which is fixed across the many shifted solves of the de Hoog inversion; compute it once here so the
+    # per-node factorization can reuse it (the SCC analysis is the dominant cost of the sparse solve)
+    lu_perm = MomentEvaluator._block_triangular_order(T_epochs[-1][0]) if sparse else None
+
+    return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs, lu_perm=lu_perm)
 
 
 def _exit_rates(T) -> np.ndarray:
@@ -330,7 +432,7 @@ def _exit_rates(T) -> np.ndarray:
     return -np.asarray(T @ np.ones(T.shape[0])).ravel()
 
 
-def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool) -> complex:
+def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool, perm=_AUTO_PERM) -> complex:
     """
     Accumulated-reward LST evaluated with an arbitrary diagonal *shift vector* ``shift`` (the reward enters the
     generator only as ``-diag(shift)``). For one reward ``shift = s diag(r)``; for two rewards (the joint
@@ -339,6 +441,10 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
     ``E[e^{-<shift-as-accumulated>}] = c + a (diag(shift) - T_m)^{-1} (-T_m 1)``, with ``[a, c]`` the transient /
     absorbed mass pushed through the finite epochs (augmented with the absorbing state, reward 0, so absorbed mass
     keeps its frozen weight).
+
+    ``perm`` is the precomputed block-triangular ordering of the final epoch's sub-generator (pattern-fixed across
+    shifts), passed through to :meth:`MomentEvaluator._lu_solver` so repeated evaluations (the de Hoog nodes) skip the
+    per-solve SCC analysis.
     """
     nt = len(alpha)
     vec = np.concatenate([alpha, [0.0]]).astype(complex)
@@ -361,7 +467,7 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
     a, c = vec[:nt], vec[nt]
     Tm = T_epochs[-1][0]
     A = (sp.diags(shift) if sparse else np.diag(shift)) - Tm
-    solve = MomentEvaluator._lu_solver(A, sparse)
+    solve = MomentEvaluator._lu_solver(A, sparse, perm)
     return complex(c + a @ solve(_exit_rates(Tm)))
 
 
@@ -377,6 +483,26 @@ class JointRewardDistribution:
     multi-epoch-native. Setting one argument to zero recovers a marginal; mixed derivatives at the origin recover
     the cross-moments. The joint CDF/PDF (2D inversion) and the product distribution are views built on top.
     """
+    #: Number of cosine terms per axis for the 2D Fourier-cosine joint density (:attr:`_cos2d`). The cost is the square
+    #: of this (an ``n x n`` coefficient matrix of joint-LST evaluations), so it is smaller than the 1D term count; at
+    #: 128 the heatmap/surface ringing is ~0.5% of the peak (vs ~2.5% at 64). For a de-Hoog-accurate (non-ringing) but
+    #: far slower density, use ``pdf.plot_surface(mode='dehoog')`` (nested de Hoog inversion).
+    _cos2d_terms: int = 128
+
+    #: Window half-width for the 2D Fourier-cosine expansion, in std-units past the mean per axis (``b = mean + scale *
+    #: std``). The cosine resolves at the single scale ``b / n_terms``, so an over-wide window wastes resolution on a
+    #: near-empty tail and *under-resolves the near-origin* rise (the source of the near-axis CDF bias). Validated
+    #: against msprime across scenarios, ``scale = 5`` is the robust optimum -- it covers the query range (~the 0.95-
+    #: 0.99 marginal quantile) with margin yet keeps the resolution fine: ~2-3.5x more accurate near the origin than
+    #: the old ``10`` and close to de Hoog, at no extra cost. Too small (<=3) truncates real tail mass and aliases.
+    _cos2d_window_scale: float = 5.0
+
+    #: Per-axis node count of the uniform grid on which the cosine 2D **density** is taken as a mixed *finite
+    #: difference* of the cosine box CDF (:meth:`_cc_box`), then cubic-interpolated to the query points -- mirroring the
+    #: 1D cosine ``pdf_curve`` (a finite difference of its CDF), so the PDF is consistently the numerical derivative of
+    #: the CDF and free of the raw cosine sum's residual Gibbs negativity. The grid spans the queried range, so the
+    #: step adapts to it; ``_cc_box`` is analytic and cheap, so this is essentially free.
+    _cos2d_pdf_grid: int = 50
 
     def __init__(self, dist: 'PhaseTypeDistribution', reward_a: Reward, reward_b: Reward):
         """
@@ -410,7 +536,8 @@ class JointRewardDistribution:
     def lst(self, s_a: complex, s_b: complex) -> complex:
         """The joint LST ``Phi(s_a, s_b) = E[e^{-s_a R_a - s_b R_b}]`` via the combined generator shift."""
         st = self._setup
-        return _lst_from_shift(s_a * st['ra'] + s_b * st['rb'], st['alpha'], st['T_epochs'], st['sparse'])
+        return _lst_from_shift(s_a * st['ra'] + s_b * st['rb'], st['alpha'], st['T_epochs'], st['sparse'],
+                               st['lu_perm'])
 
     def marginal(self, which: str = 'a') -> RewardDistribution:
         """The marginal accumulated-reward distribution of ``R_a`` (``which='a'``) or ``R_b`` (``which='b'``)."""
@@ -467,7 +594,7 @@ class JointRewardDistribution:
         sees the smooth part: ``cf_cc(w_a, w_b) = Phi(-i w_a, -i w_b) - Phi(-i w_a, inf) - Phi(inf, -i w_b) +
         P(both = 0)``. Returns the coefficient matrix and the (zero-based) ranges/frequencies.
         """
-        n_terms, scale, big = 64, 10.0, 1e8
+        n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, 1e8
         p00 = self._atoms['both0']
         ca, va = self.marginal('a')._cumulants()
         cb, vb = self.marginal('b')._cumulants()
@@ -486,24 +613,153 @@ class JointRewardDistribution:
             A[i] = (2.0 / ba) * (2.0 / bb) * 0.5 * np.real(pp + pm)  # lower limits are 0, so exp(-i w a) = 1
         A[0, :] *= 0.5
         A[:, 0] *= 0.5
+
+        # Lanczos sigma-filter: scale each coefficient by sigma_k sigma_l with sigma_k = sinc(k / n_terms). This damps
+        # the high-frequency terms responsible for Gibbs ringing near the origin edge (the residual negative wiggle in
+        # the density and the surface/heatmap), empirically the only robust fix -- window tightening trades one bin's
+        # error for another's and grid-averaging two windows does not cancel the ring (it is pinned to the origin, not
+        # a shiftable interference pattern). The k=0 coefficient is untouched (sinc(0)=1), and the total box mass
+        # depends only on it (the cos antiderivatives vanish at the window edge for k>=1), so the filter is
+        # mass-preserving: it leaves :meth:`_cc_box` (the CDF) essentially unchanged while removing the density ringing.
+        sigma = np.sinc(np.arange(n_terms) / n_terms)
+        A *= np.outer(sigma, sigma)
         return dict(ba=ba, bb=bb, ua=ua, ub=ub, A=A)
 
-    def _density(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """The continuous joint density on the outer grid ``xs x ys`` (shape ``(len(xs), len(ys))``), as the raw
-        cosine sum (may be slightly negative from Gibbs near edges; callers clip only for display, never for
-        integration, which would bias the mass/moments)."""
+    @cached_property
+    def _cos2d_wiggle_check(self) -> float:
+        """One-time accuracy / wiggle check for the 2D Fourier-cosine inversion (the analogue of the 1D cosine ripple
+        warning in :meth:`_fit_cos`). The cosine error is concentrated **near the axes / origin** (empirically 5-10x
+        the interior across non-homogeneous demographies; the Lanczos filter keeps the *bulk* density essentially
+        non-negative, so interior ringing is not a reliable separate signal). The robust detector is therefore a
+        *margin* one: the cosine joint CDF must reduce to the **accurate 1D marginal CDF** as the other coordinate
+        grows, so a large near-origin discrepancy means the series cannot resolve a sharp / skewed near-origin feature
+        (e.g. a heavy-tailed multi-epoch reward) and is biased there. This fires for the value-inaccurate cases and
+        stays quiet when the CDF / quantiles are accurate. Computed from the local cosine coefficients (no ``_cc_box``
+        / ``_density`` call -> no recursion) plus a few de Hoog marginal solves. Logs once (cached); returns the worst
+        absolute near-origin CDF discrepancy.
+        """
         st = self._cos2d
-        cx = np.cos(np.outer(st['ua'], xs))
-        cy = np.cos(np.outer(st['ub'], ys))
-        return cx.T @ st['A'] @ cy
+        big = 1e8
+        ma = self.marginal('a')
+        xs = np.linspace(0.0, float(ma.quantile(0.4)), 5)[1:]  # near-origin small-x points, where the bias concentrates
+        # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
+        box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
+        g_b = np.array([ma._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
+        cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
+        true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
+        err = float(np.abs(cos_cdf - true_cdf).max())
+        if err > 0.03:
+            self._logger.warning(
+                "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
+                "exact 1D marginal by up to %.1f%% there (a sharp / skewed near-origin feature the cosine series "
+                "cannot capture, so the heatmap/surface rings and is biased). Use pdf(...) / cdf(...) with "
+                "mode='dehoog', or set Settings.inversion_method_2d='dehoog', for accurate values.", err * 100,
+            )
+        return err
 
-    def _pdf(self, x, y):
+    def _density(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """The continuous joint density on the outer grid ``xs x ys`` (shape ``(len(xs), len(ys))``), as the **mixed
+        finite difference of the cosine box CDF** (:meth:`_cc_box`) on a uniform grid spanning the queried range, then
+        cubic-interpolated to ``xs x ys``. This mirrors the 1D cosine ``pdf_curve`` (a finite difference of its CDF):
+        the PDF is consistently the numerical derivative of the cosine CDF, which avoids the raw cosine sum's residual
+        Gibbs negativity. ``_cc_box`` is analytic (closed-form cosine antiderivatives), so this is cheap."""
+        from scipy.interpolate import RectBivariateSpline
+
+        _ = self._cos2d_wiggle_check  # one-time ringing/under-resolution warning (cached)
+        xs = np.atleast_1d(np.asarray(xs, dtype=float))
+        ys = np.atleast_1d(np.asarray(ys, dtype=float))
+        n = max(6, self._cos2d_pdf_grid)
+        gx = np.linspace(0.0, max(float(xs.max()), 1e-9) * 1.1, n)
+        gy = np.linspace(0.0, max(float(ys.max()), 1e-9) * 1.1, n)
+        hx, hy = gx[1] - gx[0], gy[1] - gy[0]
+        # box CDF on the grid (vanishes on the axes), then the mixed central second difference at the interior nodes
+        F = np.zeros((n, n))
+        F[1:, 1:] = self._cc_box(gx[1:], gy[1:])
+        dens = (F[2:, 2:] - F[2:, :-2] - F[:-2, 2:] + F[:-2, :-2]) / (4.0 * hx * hy)
+        k = min(3, dens.shape[0] - 1)
+        return RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k)(xs, ys)
+
+    def _nested_invert(self, xs: np.ndarray, ys: np.ndarray, kind: str, M: int = 8) -> np.ndarray:
+        """
+        A continuous-continuous joint quantity on the grid ``xs x ys`` by **direct nested Laplace inversion** of the
+        joint transform (no cosine expansion). The marginal atoms are first removed by inclusion-exclusion
+        (``cc(s_a, s_b) = Phi(s_a, s_b) - Phi(s_a, inf) - Phi(inf, s_b) + P(both=0)``), so the transform decays and the
+        inversion sees a genuine 2D density transform. ``kind`` selects what is inverted:
+
+        - ``'pdf'``: ``cc`` -> the density ``f(x, y)``;
+        - ``'cdf'``: ``cc / (s_a s_b)`` -> the box integral ``int_0^x int_0^y f`` (dividing a transform by ``s`` is
+          integration).
+
+        For each ``y`` the inner inversion in ``s_b`` is Gaver-Stehfest (it must accept the *complex* ``s_a`` the outer
+        inversion probes it at); the outer inversion in ``s_a`` is de Hoog (far more tolerant of the inner result's
+        double-precision noise than a second Stehfest, which would amplify it catastrophically). A full inner Stehfest
+        per outer de Hoog node per grid point makes this much slower than the cosine path, so use a coarse grid.
+
+        The two inclusion-exclusion marginal terms depend on a single argument each, and the node sets repeat across
+        the grid (de Hoog ``s_a`` down each column, Stehfest ``s_b`` across each row), so they are memoised grid-wide
+        (turning the 3 LST solves per ``cc`` into ~1); the full 2D term is distinct per node pair and is not cached.
+        """
+        xs = np.atleast_1d(np.asarray(xs, dtype=float))
+        ys = np.atleast_1d(np.asarray(ys, dtype=float))
+        big, both0 = 1e8, self._atoms['both0']
+        integrate = kind == 'cdf'  # divide the transform by s on each axis to integrate the density into a box CDF
+
+        marg_a = functools.lru_cache(maxsize=None)(lambda s_a: self.lst(s_a, big))
+        marg_b = functools.lru_cache(maxsize=None)(lambda s_b: self.lst(big, s_b))
+
+        def cc(s_a: complex, s_b: complex) -> complex:
+            """The continuous-continuous transform (marginal atoms removed by inclusion-exclusion)."""
+            return self.lst(s_a, s_b) - marg_a(s_a) - marg_b(s_b) + both0
+
+        out = np.zeros((xs.size, ys.size))
+        for j, y in enumerate(ys):
+            if y <= 0:
+                continue  # both the density and the box vanish on the axis
+            # inner Stehfest inversion of cc(s_a, .) in s_b at y; for the CDF the extra 1/s_b (inner) and 1/s_a (outer)
+            # integrate the density up to (x, y). The outer de Hoog evaluates it at complex s_a.
+            def G(s_a: complex, _y: float = float(y)) -> complex:
+                inner = _stehfest_invert(lambda s_b: cc(s_a, s_b) / s_b if integrate else cc(s_a, s_b), _y, M)
+                return inner / s_a if integrate else inner
+
+            def F(s, _G=G):  # de Hoog wants the transform as an mpmath complex
+                v = _G(complex(s))
+                return mp.mpc(v.real, v.imag)
+
+            for i, x in enumerate(xs):
+                if x <= 0:
+                    continue
+                # mpmath's default degree (20) is kept here rather than Settings.dehoog_degree: the outer inversion
+                # sees the noisy inner Stehfest result, and a lower degree spikes near the origin (a higher one in the
+                # far tail) -- the default is the more stable middle ground for this nested, noise-carrying input.
+                out[i, j] = float(mp.invertlaplace(F, float(x), method='dehoog'))
+        return out
+
+    def _density_nested(self, xs: np.ndarray, ys: np.ndarray, M: int = 8) -> np.ndarray:
+        """The continuous joint density by direct nested inversion -- the accurate (slow) ``exact`` counterpart of the
+        cosine :meth:`_density`, and the de Hoog ``pdf``. Clipped to non-negative. See :meth:`_nested_invert`."""
+        return np.clip(self._nested_invert(xs, ys, 'pdf', M), 0.0, None)
+
+    @staticmethod
+    def _use_dehoog(mode: str) -> bool:
+        """Resolve a 2D inversion ``mode`` to a de-Hoog/cosine choice: ``'dehoog'`` -> True, ``'cos'`` -> False, and
+        ``None`` follows :attr:`Settings.inversion_method_2d`."""
+        m = Settings.inversion_method_2d if mode is None else mode
+        if m not in ('dehoog', 'cos'):
+            raise ValueError(f"mode must be 'dehoog', 'cos', or None (follow Settings.inversion_method_2d); got {m!r}.")
+        return m == 'dehoog'
+
+    def _pdf(self, x, y, mode: str = None):
         """
         Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
         atom mass on the axes where a reward is zero (see :attr:`_atoms`); a non-empty SFS bin pair has none there.
 
+        ``mode`` selects the inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` the accurate nested de Hoog;
+        ``None`` (the default) follows :attr:`Settings.inversion_method_2d` (default ``'cos'``). The de Hoog density is
+        the mixed derivative of a spline through the clean nested-de-Hoog box CDF (see :meth:`_density_nested`).
+
         :param x: ``R_a`` value(s).
         :param y: ``R_b`` value(s).
+        :param mode: ``'dehoog'`` / ``'cos'``, or ``None`` to follow :attr:`Settings.inversion_method_2d`.
         :return: Density, scalar or a ``(len(x), len(y))`` grid.
         """
         if self._is_diagonal:
@@ -511,7 +767,7 @@ class JointRewardDistribution:
                                       "almost surely): the law lives on the diagonal and has no 2D density. Use "
                                       "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
-        f = np.clip(self._density(xs, ys), 0.0, None)  # clip for display only
+        f = self._density_nested(xs, ys) if self._use_dehoog(mode) else np.clip(self._density(xs, ys), 0.0, None)
         return float(f.ravel()[0]) if f.size == 1 else f
 
     @staticmethod
@@ -527,69 +783,98 @@ class JointRewardDistribution:
     def _cc_box(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         """The continuous-continuous box probabilities ``int_0^x int_0^y f_cc`` on the grid ``xs x ys``, evaluated
         *analytically* from the cosine coefficients (exact, unlike a grid quadrature of the oscillatory density)."""
+        _ = self._cos2d_wiggle_check  # one-time ringing/under-resolution warning (cached)
         st = self._cos2d
         Ix = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba']))   # (len_x, N)
         Iy = self._cos_antideriv(st['ub'], np.minimum(ys, st['bb']))   # (len_y, N)
         return Ix @ st['A'] @ Iy.T                                     # (len_x, len_y)
 
-    def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """Joint CDF on the grid ``xs x ys``: the axis atoms (marginal sub-transform inversions, one per grid line)
-        plus the analytic continuous box integral."""
+    def _cc_box_dehoog(self, xs: np.ndarray, ys: np.ndarray, M: int = 8) -> np.ndarray:
+        """The continuous-continuous box CDF ``int_0^x int_0^y f_cc`` by direct nested inversion -- the accurate
+        counterpart of the cosine :meth:`_cc_box`. The cosine box reconstructs the density on a single fixed window
+        ``[0, b_a] x [0, b_b]``; for a heavily skewed reward (e.g. a multi-epoch demography whose std greatly exceeds
+        its mean, so the window spans 0 to many tens) a fixed number of cosine terms cannot resolve the sharp
+        near-origin rise, and the box is badly wrong at small ``x``/``y`` (it does not even reduce to the marginal as
+        the other coordinate grows). De Hoog adapts its contour per point, so it has no such limit. See
+        :meth:`_nested_invert`."""
+        return self._nested_invert(xs, ys, 'cdf', M)
+
+    def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray, dehoog: bool = True) -> np.ndarray:
+        """Joint CDF on the grid ``xs x ys``: the axis atoms (marginal sub-transform inversions, one per grid line,
+        always per-point de Hoog) plus the continuous box integral. ``dehoog`` selects the box method: the accurate
+        nested de Hoog (:meth:`_cc_box_dehoog`, the default -- correct even for skewed multi-epoch rewards) or the fast
+        cosine box (:meth:`_cc_box`, for dense plotting grids where the near-origin bias is an acceptable tradeoff)."""
         big = 1e8
+        xs, ys = np.asarray(xs, float), np.asarray(ys, float)
         # P(R_a=0, R_b<=y) and P(R_b=0, R_a<=x) from inverting the marginal sub-transforms; at the atom edge (t=0)
         # the de Hoog inversion is unreliable, so use the exact limit P(R_a=0, R_b<=0) = P(R_b=0, R_a<=0) = P(both=0)
         both0 = self._atoms['both0']
         g_a = np.array([both0 if y == 0 else self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])
         g_b = np.array([both0 if x == 0 else self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
-        cc = self._cc_box(np.asarray(xs, float), np.asarray(ys, float))
+        cc = self._cc_box_dehoog(xs, ys) if dehoog else self._cc_box(xs, ys)
         return g_b[:, None] + g_a[None, :] - both0 + cc
 
-    def _cdf(self, x, y):
+    def _cdf(self, x, y, mode: str = None):
         """
         Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(0 < R_a <= x,
         R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
-        continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)`` (the cosine density integrated in closed form).
+        continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)``. ``mode`` selects the box method: ``'cos'`` the fast
+        cosine box, ``'dehoog'`` the accurate nested de Hoog (no near-origin bias for skewed multi-epoch rewards);
+        ``None`` (the default) follows :attr:`Settings.inversion_method_2d` (default ``'cos'``). Accepts scalars or
+        arrays, returning a scalar or the ``(len(x), len(y))`` grid.
 
         When both rewards are identical (``R_a = R_b`` almost surely, e.g. a bin paired with itself) the joint law
         is singular on the diagonal; the CDF then reduces exactly to ``P(R <= min(x, y))`` of the shared marginal.
         """
+        xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         if self._is_diagonal:
-            t = min(float(np.atleast_1d(x)[0]), float(np.atleast_1d(y)[0]))
+            m = self.marginal('a')
             # at t = 0 the marginal CDF is the atom P(R = 0) (the de Hoog inversion misses the jump there)
-            return float(self._atoms['both0'] if t <= 0.0 else self.marginal('a').cdf(t))
-        return float(self._cdf_grid(np.atleast_1d(x), np.atleast_1d(y))[0, 0])
+            G = np.array([[float(self._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
+                           for yy in ys] for xx in xs])
+        else:
+            G = self._cdf_grid(xs, ys, dehoog=self._use_dehoog(mode))
+        return float(G.ravel()[0]) if G.size == 1 else G
 
     @property
-    def pdf(self) -> DistributionFunction:
+    def pdf(self) -> JointPDF:
         """Joint density of ``(R_a, R_b)``: callable (``pdf(x, y)``) and plottable as a heatmap (``pdf.plot()``) or a
         3D surface (``pdf.plot_surface()``)."""
-        return DistributionFunction(self._pdf, self._plot_pdf, 'pdf', surface=self._plot_pdf_surface)
+        return JointPDF(self._pdf, self._plot_pdf, self._plot_pdf_surface)
 
     @property
-    def cdf(self) -> DistributionFunction:
+    def cdf(self) -> JointCPD:
         """Joint CDF of ``(R_a, R_b)``: callable (``cdf(x, y)``) and plottable as a heatmap (``cdf.plot()``) or a
         3D surface (``cdf.plot_surface()``)."""
-        return DistributionFunction(self._cdf, self._plot_cdf, 'cdf', surface=self._plot_cdf_surface)
+        return JointCPD(self._cdf, self._plot_cdf, self._plot_cdf_surface)
 
     def _title(self, kind: str) -> str:
         """Joint plot title incorporating the bin :attr:`label` when set."""
         return f"Joint {kind.upper()} {self.label}" if self.label else f"Joint reward {kind.upper()}"
 
-    def _plot_pdf(self, ax=None, n_points: int = 120, show: bool = True, file: str = None, title: str = None):
-        """Heatmap of the joint (continuous) density of ``(R_a, R_b)``."""
-        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False)
+    def _plot_pdf(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
+                  mode: str = 'cos'):
+        """Heatmap of the joint (continuous) density of ``(R_a, R_b)``. ``mode='dehoog'`` uses the accurate nested
+        de Hoog inversion (a coarser default grid); the default ``'cos'`` uses the fast cosine reconstruction."""
+        n_points = n_points or (25 if self._use_dehoog(mode) else 120)
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False, mode=mode)
 
-    def _plot_cdf(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None):
+    def _plot_cdf(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None,
+                  mode: str = 'cos'):
         """Heatmap of the joint CDF of ``(R_a, R_b)``."""
-        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False)
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False, mode=mode)
 
-    def _plot_pdf_surface(self, ax=None, n_points: int = 80, show: bool = True, file: str = None, title: str = None):
-        """3D surface of the joint (continuous) density of ``(R_a, R_b)``."""
-        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True)
+    def _plot_pdf_surface(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
+                          mode: str = 'cos'):
+        """3D surface of the joint (continuous) density of ``(R_a, R_b)``. ``mode='dehoog'`` uses the accurate nested
+        de Hoog inversion (a coarser default grid); the default ``'cos'`` uses the fast cosine reconstruction."""
+        n_points = n_points or (25 if self._use_dehoog(mode) else 80)
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True, mode=mode)
 
-    def _plot_cdf_surface(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None):
+    def _plot_cdf_surface(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None,
+                          mode: str = 'cos'):
         """3D surface of the joint CDF of ``(R_a, R_b)``."""
-        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True)
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True, mode=mode)
 
     def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
         """Deprecated: use ``.pdf.plot()`` instead."""
@@ -601,16 +886,30 @@ class JointRewardDistribution:
         warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self._plot_cdf(*args, **kwargs)
 
-    def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False):
+    def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False, mode='cos'):
         import matplotlib.pyplot as plt
 
+        dehoog = self._use_dehoog(mode)
         st = self._cos2d
         # end each axis at the configured marginal quantile (like the 1D plots) so a heavy upper tail does not
         # stretch the view to mean + many std; clip to the cosine window the density was reconstructed on
         q = Settings.plot_endpoint_quantile
         xs = np.linspace(0, min(self.marginal('a').quantile(q), st['ba']), n_points)
         ys = np.linspace(0, min(self.marginal('b').quantile(q), st['bb']), n_points)
-        Z = np.clip(self._density(xs, ys), 0.0, None) if kind == 'pdf' else self._cdf_grid(xs, ys)
+        if kind == 'cdf':
+            # the axis atoms are always inverted per point (de Hoog); ``mode`` selects the continuous box method --
+            # the fast cosine box for the dense default grid, or the accurate (but per-point, slow) nested de Hoog box
+            if dehoog:
+                self._logger.info("Computing the joint CDF box by direct nested inversion on a %dx%d grid; this is "
+                                  "slow.", len(xs), len(ys))
+            Z = self._cdf_grid(xs, ys, dehoog=dehoog)
+        elif dehoog:
+            # nested de Hoog density (mixed derivative of a spline through the box CDF); slow, hence the coarse grid
+            self._logger.info("Computing the joint density by nested de Hoog inversion on a %dx%d grid; this is slow.",
+                              len(xs), len(ys))
+            Z = self._density_nested(xs, ys)
+        else:
+            Z = np.clip(self._density(xs, ys), 0.0, None)
         zlim = dict(vmin=0.0, vmax=1.0) if kind == 'cdf' else {}  # a CDF is a probability -> fix its scale to [0, 1]
 
         if surface:
@@ -634,7 +933,7 @@ class JointRewardDistribution:
             plt.show()
         return ax
 
-    def conditional(self, on: str = 'a', value: float = 0.0) -> 'ConditionalRewardDistribution':
+    def conditional(self, on: str = 'a', value: float = 0.0) -> RewardDistribution:
         """
         The 1D conditional distribution of the *other* reward given ``R_{on} = value``.
 
@@ -655,144 +954,118 @@ class JointRewardDistribution:
         if self._is_diagonal:
             raise NotImplementedError("The conditional of a self-pair is a point mass at `value` (R_a = R_b a.s.).")
 
-        big = 1e8
         other_name = 'b' if on == 'a' else 'a'
 
-        # condition on the atom {R_on = 0}: the sub-distribution of the other reward there, normalized by its mass
+        # condition on the atom {R_on = 0}: the sub-distribution of the other reward there, normalised by its mass.
+        # _AtomConditional reuses the full RewardDistribution machinery (de Hoog, adaptive-spline curves, quantile,
+        # plotting), like _NestedConditional does for value > 0 -- so both conditional cases share one accurate path.
         if value == 0:
-            atom = self._atoms['a0' if on == 'a' else 'b0']
-            if atom < 1e-9:
-                raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
-            other = self.marginal(other_name)
-            sub = (lambda s: self.lst(big, s)) if on == 'a' else (lambda s: self.lst(s, big))
-            return ConditionalRewardDistribution(
-                cdf=lambda y: other._invert(lambda s: sub(s) / s, float(y)) / atom,
-                pdf=lambda y: other._invert(sub, float(y)) / atom,
-                x_max=other._range(),
-                atom0=self._atoms['both0'] / atom,
-                label=f"R_{other_name} | R_{on} = 0"
-            )
+            return _AtomConditional(self, on, f"R_{other_name} | R_{on} = 0")
 
-        # condition on R_on = value > 0: the conditional continuous density is a 1D cosine series (the slice of the
-        # 2D cosine coefficients at ``value``) divided by the marginal density there; the leftover mass is the atom
-        st = self._cos2d
-        if on == 'a':
-            marg, freqs, support = self.marginal('a'), st['ub'], st['bb']
-            coeffs = np.cos(st['ua'] * value) @ st['A']
-        else:
-            marg, freqs, support = self.marginal('b'), st['ua'], st['ba']
-            coeffs = st['A'] @ np.cos(st['ub'] * value)
-
-        f_marg = marg.pdf(value)
-        if f_marg <= 0:
-            raise ValueError(f"The marginal density at R_{on} = {value} is zero; cannot condition there.")
-
-        coeffs = coeffs / f_marg
-        # continuous mass on (0, support]; the remainder is the atom P(R_other = 0 | R_on = value)
-        mass = coeffs[0] * support + (coeffs[1:] / freqs[1:]) @ np.sin(freqs[1:] * support)
-        atom0 = float(np.clip(1.0 - mass, 0.0, 1.0))
-
-        def pdf(y: float) -> float:
-            return float(coeffs @ np.cos(freqs * min(max(y, 0.0), support)))
-
-        def cdf(y: float) -> float:
-            yy = min(max(y, 0.0), support)
-            return float(atom0 + coeffs[0] * yy + (coeffs[1:] / freqs[1:]) @ np.sin(freqs[1:] * yy))
-
-        return ConditionalRewardDistribution(cdf, pdf, support, atom0, f"R_{other_name} | R_{on} = {value:g}")
+        # condition on R_on = value > 0: a proper 1D distribution via nested inversion (see _NestedConditional),
+        # which reuses the full RewardDistribution machinery (de Hoog, two-pass COS curves, atom, plotting)
+        return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
 
 
-class ConditionalRewardDistribution(CallableDistributionFunctions):
+class _AtomConditional(RewardDistribution):
     """
-    A 1D conditional distribution of one reward given a fixed value of the other (see
-    :meth:`JointRewardDistribution.conditional`). It may carry an atom at 0 (the conditioned bin can still be
-    empty). Its ``cdf`` / ``pdf`` / ``quantile`` are callable and plottable like any other distribution function.
+    The 1D conditional of the *other* reward given ``R_{on} = 0`` -- conditioning on the **atom** ``{R_on = 0}``: the
+    sub-distribution of the other reward there, normalised by the atom mass ``P(R_on = 0)``. Its LST is the marginal
+    sub-transform restricted to that atom (``Phi(inf, .)`` for ``on='a'``, ``Phi(., inf)`` for ``on='b'``) divided by
+    the atom mass, so it plugs straight into the full :class:`RewardDistribution` machinery -- de Hoog ``cdf``/``pdf``,
+    the adaptive-grid + monotone-spline curves, quantile and plotting -- exactly like :class:`_NestedConditional` does
+    for the ``value > 0`` case, so both conditional cases share one accurate path. The residual atom at 0
+    (``P(both = 0) / P(R_on = 0)``) surfaces automatically as ``p0 = lst(inf)``.
     """
+    _pdf_function = ConditionalPDF
+    _cdf_function = ConditionalCPD
+    _quantile_function = ConditionalQuantileFunction
 
-    def __init__(self, cdf, pdf, x_max: float, atom0: float = 0.0, label: str = ''):
-        """
-        :param cdf: Scalar CDF callback ``F(y)``.
-        :param pdf: Scalar (continuous) density callback ``f(y)``.
-        :param x_max: Upper end of the support (for plotting and quantile bracketing).
-        :param atom0: Probability mass at ``0``.
-        :param label: A human-readable label (e.g. ``"R_b | R_a = 1.2"``).
-        """
-        self._cdf_fn = cdf
-        self._pdf_fn = pdf
-        self._x_max = float(x_max)
-        #: Probability mass at 0.
-        self.atom0 = float(atom0)
-        #: Human-readable label.
+    def __init__(self, joint: 'JointRewardDistribution', on: str, label: str = ''):
+        atom = joint._atoms['a0' if on == 'a' else 'b0']
+        if atom < 1e-9:
+            raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
+        big = 1e8
+        self._joint = joint
+        self._on = on
+        self._atom = atom
+        self._sub = (lambda s: joint.lst(big, s)) if on == 'a' else (lambda s: joint.lst(s, big))
+        self._logger = logger.getChild(self.__class__.__name__)
         self.label = label
 
-    def _cdf(self, t):
-        """Cumulative distribution function ``P(R <= t)``. Scalar or array-valued."""
-        if np.ndim(t) > 0:
-            return np.array([self._cdf(float(x)) for x in np.asarray(t)])
-        if t < 0:
-            raise ValueError("Negative values are not allowed.")
-        return float(np.clip(self._cdf_fn(float(t)), 0.0, 1.0))
+    def lst(self, s: complex) -> complex:
+        """Conditional LST: the marginal sub-transform on the atom ``{R_on = 0}``, normalised by the atom mass."""
+        return self._sub(s) / self._atom
 
-    def _pdf(self, t, **kwargs):
-        """Probability density of the continuous part. Scalar or array-valued (the atom at 0 is in :attr:`atom0`)."""
-        if np.ndim(t) > 0:
-            return np.array([self._pdf(float(x)) for x in np.asarray(t)])
-        return float(max(self._pdf_fn(float(t)), 0.0))
 
-    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
-        """The ``q``-quantile via bisection on the (monotone) CDF; values ``q <= atom0`` map to the atom at 0."""
-        if not 0 <= q <= 1:
-            raise ValueError("Quantile must be between 0 and 1.")
-        if q <= self.atom0:
-            return 0.0
+_STEHFEST_WEIGHTS: dict = {}
 
-        lo, hi = 0.0, self._x_max
-        for _ in range(max_iter):
-            mid = 0.5 * (lo + hi)
-            if self._cdf(mid) < q:
-                lo = mid
-            else:
-                hi = mid
-            if hi - lo < precision:
-                break
-        return 0.5 * (lo + hi)
 
-    def _titled(self, base: str) -> str:
-        """A plot title incorporating the conditioning :attr:`label` (e.g. ``"R_b | R_a = 0.1 CDF"``)."""
-        return f"{self.label} {base}" if self.label else f"Conditional {base.lower()}"
+def _stehfest_weights(M: int) -> list:
+    """Gaver-Stehfest weights ``V_k`` (``k = 1..2M``), cached per order ``M``."""
+    if M not in _STEHFEST_WEIGHTS:
+        V = []
+        for k in range(1, 2 * M + 1):
+            s = mp.mpf(0)
+            for j in range((k + 1) // 2, min(k, M) + 1):
+                s += (mp.mpf(j) ** M * mp.factorial(2 * j) /
+                      (mp.factorial(M - j) * mp.factorial(j) * mp.factorial(j - 1) *
+                       mp.factorial(k - j) * mp.factorial(2 * j - k)))
+            V.append((-1) ** (k + M) * s)
+        _STEHFEST_WEIGHTS[M] = V
+    return _STEHFEST_WEIGHTS[M]
 
-    def _endpoint(self) -> float:
-        """The plot's right end: the configured upper quantile of the conditional (so a heavy tail doesn't stretch
-        the view), bounded by the support."""
-        return min(self._quantile(Settings.plot_endpoint_quantile), self._x_max)
 
-    def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the conditional CDF."""
-        from ..visualization import Visualization
-        if t is None:
-            t = np.linspace(0, self._endpoint(), n_points)
-        ax = Visualization.plot(ax=ax, x=t, y=self._cdf(t), xlabel='x', ylabel='F(x)', label=label,
-                                file=file, show=show, clear=clear, title=title or self._titled('CDF'))
-        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
-        return ax
+def _stehfest_invert(transform, t: float, M: int = 8) -> complex:
+    """
+    Gaver-Stehfest numerical Laplace inversion of ``transform`` at ``t``, evaluated in extended precision. Unlike
+    mpmath's de Hoog / Talbot (which assume a real-valued transform), this uses purely *real* nodes
+    ``s = k ln2 / t`` with real weights, so it inverts a **complex-valued** transform to a complex result — needed
+    for the nested conditional, whose inner transform is complex when the outer argument is (the COS frequencies).
+    """
+    a = mp.log(2) / t
+    with mp.workdps(max(mp.mp.dps, 3 * M + 10)):
+        return complex(a * mp.fsum(Vk * mp.mpc(transform(complex(k * a)))
+                                   for k, Vk in enumerate(_stehfest_weights(M), start=1)))
 
-    def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = 200, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the conditional (continuous-part) PDF."""
-        from ..visualization import Visualization
-        if t is None:
-            t = np.linspace(0, self._endpoint(), n_points)
-        return Visualization.plot(ax=ax, x=t, y=self._pdf(t), xlabel='x', ylabel='f(x)', label=label,
-                                  file=file, show=show, clear=clear, title=title or self._titled('PDF'))
 
-    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = 99, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None, title: str = None) -> 'plt.Axes':
-        """Plot the conditional quantile function (value versus probability ``q``)."""
-        from ..visualization import Visualization
-        if q is None:
-            qe = Settings.plot_endpoint_quantile
-            q = np.linspace(1.0 - qe, qe, n_points)
-        return Visualization.plot(ax=ax, x=q, y=np.array([self._quantile(float(p)) for p in q]), xlabel='q',
-                                  ylabel='quantile', label=label, file=file, show=show, clear=clear,
-                                  title=title or self._titled('quantile function'))
+class _NestedConditional(RewardDistribution):
+    """
+    The 1D conditional distribution of one reward given ``R_{on} = value`` (``value > 0``), built by **nested
+    inversion**: invert the conditioned dimension at ``value`` to get the other reward's conditional Laplace
+    transform, then reuse the full :class:`RewardDistribution` machinery (de Hoog ``cdf``/``pdf``, two-pass COS
+    plotting curves, atom handling, quantile, plotting).
+
+    The conditional LST is ``phi(s) = G(s) / G(0)`` where ``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ]`` is the
+    inner (Gaver-Stehfest) inversion of the joint transform ``Phi`` along the conditioned axis at ``value``, and
+    ``G(0)`` is the marginal density of the conditioning reward there (the normaliser). This resolves the conditional
+    exactly, unlike the coarse 2D-cosine slice.
+    """
+    _pdf_function = ConditionalPDF
+    _cdf_function = ConditionalCPD
+    _quantile_function = ConditionalQuantileFunction
+
+    def __init__(self, joint: 'JointRewardDistribution', on: str, value: float, label: str = ''):
+        self._joint = joint
+        self._on = on
+        self._value = float(value)
+        self._stehfest_M = 8
+        self._logger = logger.getChild(self.__class__.__name__)
+        self.label = label
+
+        g0 = self._G(0.0).real  # = marginal density of the conditioning reward at ``value`` (the normaliser)
+        if g0 <= 1e-300:
+            raise ValueError(f"The marginal density at R_{on} = {value} is zero; cannot condition there.")
+        self._G0 = g0
+
+    def _G(self, s: complex) -> complex:
+        """``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ](value)`` (inner inversion along the conditioned axis)."""
+        if self._on == 'b':
+            f = lambda u: self._joint.lst(s, u)
+        else:
+            f = lambda u: self._joint.lst(u, s)
+        return _stehfest_invert(f, self._value, self._stehfest_M)
+
+    def lst(self, s: complex) -> complex:
+        """The conditional Laplace-Stieltjes transform ``phi(s) = G(s) / G(0)``."""
+        return self._G(complex(s)) / self._G0

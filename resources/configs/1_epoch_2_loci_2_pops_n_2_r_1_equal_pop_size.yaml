@@ -16,6 +16,7 @@ migration_rates:
   !!python/tuple [ 'pop_1', 'pop_0' ]:
     0: 1
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:

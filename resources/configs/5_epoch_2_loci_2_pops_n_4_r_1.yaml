@@ -23,6 +23,7 @@ migration_rates:
     0.3: 0.5
     0.94: 0.124
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:

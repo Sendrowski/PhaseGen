@@ -11,11 +11,6 @@ import matplotlib.pyplot as plt
 from phasegen.comparison import Comparison
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     n = snakemake.params.n
     times = snakemake.params.times

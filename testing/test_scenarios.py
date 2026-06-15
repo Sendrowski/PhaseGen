@@ -77,6 +77,10 @@ configs = [
     '1_epoch_2_loci_n_4_r_1',
     '1_epoch_n_2',
     '1_epoch_n_4',
+    '2_epoch_n_4_growth',
+    '2_epoch_n_4_decline',
+    '2_epoch_n_10_growth',
+    '2_epoch_n_10_decline',
     '2_epoch_n_5',
     '2_epoch_n_2',
     '2_epoch_rapid_decline_n_5',
@@ -187,6 +191,8 @@ def generate_tests(config: str):
 # scenarios that take several seconds to run. Unlike ``configs_suspended`` (which are not run at all), these are
 # still collected but marked ``slow`` so they can be deselected with ``-m "not slow"`` to keep the regular suite fast.
 slow_configs = [
+    '2_epoch_n_10_growth',
+    '2_epoch_n_10_decline',
     '1_epoch_n_3_2_locus_sfs',
     '1_epoch_n_4_2_locus_sfs',
     '2_epoch_n_3_2_locus_sfs',

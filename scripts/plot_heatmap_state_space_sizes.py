@@ -12,10 +12,6 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
     testing = False
     out = snakemake.output[0]
 except NameError:

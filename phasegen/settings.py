@@ -76,7 +76,54 @@ class Settings:
     #: quantile so the view is not stretched by a heavy upper tail (mean + many standard deviations can extend far
     #: past where the mass is, especially for skewed distributions). Lower it to zoom in on the bulk, raise it
     #: (towards 1) to show more of the tail.
-    plot_endpoint_quantile: float = 0.95
+    plot_endpoint_quantile: float = 0.9
+
+    #: Default number of grid points for the 1D distribution-function plots (cdf / pdf / quantile curves). Raise it
+    #: for smoother curves, lower it for faster plotting. The 2D joint heatmaps/surfaces keep their own (coarser)
+    #: per-axis resolution for performance.
+    plot_n_grid: int = 200
+
+    #: How the **1D** cached curve representation (``cdf_curve`` / ``pdf_curve`` and the quantile-curve inversion
+    #: behind the plots and any many-query application use) is built, for univariate / marginal / conditional reward
+    #: distributions. ``'cos'`` (default) uses the fast Fourier-cosine series: ~13x quicker to build than de Hoog, with
+    #: a clean finite-difference-derived PDF, at the cost of a small (~1% sub-grid) near-origin bias on sharp / heavy-
+    #: tailed features (an SFS bin's near-zero peak). ``'dehoog'`` builds an accurate monotone PCHIP spline through de
+    #: Hoog Laplace-inversion values at adaptive points -- accurate everywhere (no Gibbs ringing) but ~13x slower to
+    #: build -- as the high-precision opt-in. The exact per-point ``cdf()`` / ``pdf()`` (de Hoog) are unaffected.
+    inversion_method: str = 'cos'
+
+    #: How the **2D** joint density / CDF callables (``JointRewardDistribution.pdf`` / ``cdf``) are inverted.
+    #: ``'cos'`` (default) uses the fast 2D Fourier-cosine expansion (built once, then cheap per point); ``'dehoog'``
+    #: uses the accurate per-point nested inversion (inner Gaver-Stehfest, outer de Hoog), which has no fixed-window
+    #: bias for skewed multi-epoch rewards but costs a full inversion per point. It defaults to ``'cos'`` (unlike the
+    #: 1D default) because the 2D de Hoog samples the CDF on a grid and is slow; pass ``exact=True`` / ``exact=False``
+    #: to a call to override per query. The de Hoog *density* is the mixed derivative of a spline through the (clean)
+    #: nested-de-Hoog box CDF on an adaptive grid (mirroring the 1D ``pdf_curve``), never a direct density inversion
+    #: (which is numerically unusable). The 2D *plots* always use the fast cosine grid unless ``exact=True`` is passed.
+    inversion_method_2d: str = 'cos'
+
+    #: Relative tolerance for building the accurate de Hoog + monotone-spline curve representation (the default
+    #: ``cdf_curve`` / ``pdf_curve`` and the quantile-by-bisection on it). The adaptive build refines until the
+    #: spline matches the de Hoog inversion to about this fraction of the range, then every query is a cheap spline
+    #: evaluation. Tighter -> more accurate (and more de Hoog solves in the one-time build); the default ~1e-3 gives a
+    #: CDF / quantile accuracy of a few 1e-5. Distinct from :attr:`plot_adaptive_tol`, which only sets the (coarser)
+    #: visual grid of the per-point ``exact=True`` plots.
+    inversion_tol: float = 1e-3
+
+    #: Relative tolerance for the adaptive plot grid used by the exact (de Hoog) ``cdf()`` / ``pdf()`` plots. The grid
+    #: starts coarse and bisects any interval whose midpoint deviates from the chord by more than this fraction of the
+    #: curve's range, concentrating the expensive de Hoog evaluations where the curve bends (e.g. the near-zero atom
+    #: spike of an SFS bin) instead of wasting them on flat tails. Lower it for finer curves, raise it for fewer
+    #: evaluations; the point count is still capped at :attr:`plot_n_grid`.
+    plot_adaptive_tol: float = 2e-3
+
+    #: Degree of the de Hoog numerical Laplace inversion used by the exact per-point ``cdf()`` / ``pdf()`` (and
+    #: ``exact=True`` plots). The inversion evaluates the transform at ``2 * degree + 1`` contour nodes (each a linear
+    #: solve), so the cost is linear in the degree. Accuracy is *non-monotonic*: it improves up to ~15 (near machine
+    #: precision) and then degrades as the ill-conditioned QD recurrence amplifies roundoff at fixed precision. The
+    #: default of 15 is the sweet spot -- both more accurate and faster than mpmath's own default (20). Lower it
+    #: (e.g. 8-10) for a further speed-up at still-excellent accuracy (~1e-9 to 1e-11).
+    dehoog_degree: int = 15
 
     @staticmethod
     @contextmanager

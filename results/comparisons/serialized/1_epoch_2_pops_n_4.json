@@ -15,7 +15,9 @@
     "comparisons": {
         "tolerance": {
             "sfs": {
-                "joint": 0.02
+                "pairwise": {
+                    "cdf": 0.02
+                }
             }
         }
     },
@@ -7295,7 +7297,7 @@
                 },
                 "__dict__": {}
             },
-            "joint": {
+            "pairwise_cdf": {
                 "py/object": "phasegen.spectrum.JointSFS",
                 "data": {
                     "py/object": "numpy.ndarray",
@@ -12393,7 +12395,7 @@
                 },
                 "__dict__": {}
             },
-            "joint": {
+            "pairwise_cdf": {
                 "py/object": "phasegen.spectrum.JointSFS",
                 "data": {
                     "py/object": "numpy.ndarray",

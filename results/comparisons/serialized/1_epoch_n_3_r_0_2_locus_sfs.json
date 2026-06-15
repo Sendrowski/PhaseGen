@@ -15,7 +15,9 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
-                "joint": 0.02,
+                "pairwise": {
+                    "cdf": 0.02
+                },
                 "mean": 0.05
             }
         }

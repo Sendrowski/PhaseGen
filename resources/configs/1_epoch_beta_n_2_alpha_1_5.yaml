@@ -5,6 +5,7 @@ pop_sizes:
     0: 1
 model: beta
 alpha: 1.5
+seed: 42
 comparisons:
   tolerance:
     tree_height:
@@ -16,7 +17,8 @@ comparisons:
       mean: 0.01
       var: 0.01
     sfs:
-      joint: 0.02
+      pairwise:
+        cdf: 0.02
       mean: 0.01
       cov: 0.05
       corr: 0.02

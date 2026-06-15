@@ -6,6 +6,7 @@ pop_sizes:
 model: dirac
 psi: 0.5
 c: 50
+seed: 42
 comparisons:
   tolerance:
     tree_height:

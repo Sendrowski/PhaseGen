@@ -7,6 +7,7 @@ pop_sizes:
     1: 0.8
     1.4: 10
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:
@@ -20,7 +21,8 @@ comparisons:
       mean: 0.01
       var: 0.01
     sfs:
-      joint: 0.02
+      pairwise:
+        cdf: 0.02
       mean: 0.01
       cov: 0.01
       corr: 0.02

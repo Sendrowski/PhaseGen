@@ -5,6 +5,7 @@ pop_sizes:
     0: 1
     1: 0.001
 model: standard
+seed: 42
 comparisons:
   tolerance:
     # hard to compare PDF and CDF here

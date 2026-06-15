@@ -7,11 +7,6 @@ __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-03-11"
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     file = snakemake.input[0]
     out = snakemake.output[0]
@@ -30,8 +25,8 @@ c = Comparison.from_yaml(file)
 if testing:
     c.parallelize = parallelize
 
-# touch msprime stats to cache them
-c.ms.touch()
+# cache the msprime ground truth (per-statistic caches + any configured pairwise surface grids)
+c.cache_ground_truth()
 
 # drop simulated data
 c.ms.drop()

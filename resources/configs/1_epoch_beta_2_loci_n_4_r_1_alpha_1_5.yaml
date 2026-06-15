@@ -7,6 +7,7 @@ pop_sizes:
     0: 1
 model: beta
 alpha: 1.5
+seed: 42
 comparisons:
   tolerance:
     tree_height:

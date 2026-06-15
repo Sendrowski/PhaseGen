@@ -98,7 +98,7 @@
     },
     "n_assertions": 0,
     "ms": {
-        "py/object": "phasegen.distributions.MsprimeCoalescent",
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
             "py/reduce": [
                 {
@@ -177,7 +177,7 @@
         "simulate_mutations": false,
         "seed": null,
         "tree_height": {
-            "py/object": "phasegen.distributions.EmpiricalPhaseTypeDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
                 "py/reduce": [
                     {
@@ -564,9 +564,9 @@
                 "data": 0.48325063172454924
             },
             "demes": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "pop_0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/reduce": [
                             {
@@ -832,7 +832,7 @@
                     }
                 },
                 "pop_1": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -1089,7 +1089,7 @@
                     }
                 },
                 "pop_2": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -1355,9 +1355,9 @@
                 }
             },
             "loci": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -1659,7 +1659,7 @@
             }
         },
         "total_tree_height": {
-            "py/object": "phasegen.distributions.EmpiricalPhaseTypeDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
                 "py/id": 31
             },
@@ -1933,9 +1933,9 @@
                 "data": 0.48325063172454924
             },
             "demes": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "pop_0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -2192,7 +2192,7 @@
                     }
                 },
                 "pop_1": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -2449,7 +2449,7 @@
                     }
                 },
                 "pop_2": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -2715,9 +2715,9 @@
                 }
             },
             "loci": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -3019,7 +3019,7 @@
             }
         },
         "total_branch_length": {
-            "py/object": "phasegen.distributions.EmpiricalPhaseTypeDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
                 "py/id": 31
             },
@@ -3293,9 +3293,9 @@
                 "data": 3.2464256539296694
             },
             "demes": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "pop_0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -3552,7 +3552,7 @@
                     }
                 },
                 "pop_1": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -3809,7 +3809,7 @@
                     }
                 },
                 "pop_2": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -4075,9 +4075,9 @@
                 }
             },
             "loci": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -4379,7 +4379,7 @@
             }
         },
         "sfs": {
-            "py/object": "phasegen.distributions.EmpiricalPhaseTypeSFSDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
                 "py/reduce": [
                     {
@@ -5841,7 +5841,7 @@
             },
             "n": 6,
             "_sfs_dist": {
-                "py/type": "phasegen.distributions.UnfoldedSFSDistribution"
+                "py/type": "phasegen.distributions.spectra.UnfoldedSFSDistribution"
             },
             "_samples": null,
             "_mutations": null,
@@ -7042,7 +7042,7 @@
             "generated_mass": 0,
             "demes": {
                 "pop_0": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/reduce": [
                             {
@@ -8716,7 +8716,7 @@
                     }
                 },
                 "pop_1": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/id": 232
                     },
@@ -10381,7 +10381,7 @@
                     }
                 },
                 "pop_2": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/id": 232
                     },
@@ -12055,9 +12055,9 @@
                 }
             },
             "loci": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },
@@ -13905,7 +13905,7 @@
             }
         },
         "fsfs": {
-            "py/object": "phasegen.distributions.EmpiricalPhaseTypeSFSDistribution",
+            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
                 "py/id": 224
             },
@@ -15358,7 +15358,7 @@
             },
             "n": 6,
             "_sfs_dist": {
-                "py/type": "phasegen.distributions.FoldedSFSDistribution"
+                "py/type": "phasegen.distributions.spectra.FoldedSFSDistribution"
             },
             "_samples": null,
             "_mutations": null,
@@ -16559,7 +16559,7 @@
             "generated_mass": 0,
             "demes": {
                 "pop_0": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/id": 232
                     },
@@ -18224,7 +18224,7 @@
                     }
                 },
                 "pop_1": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/id": 232
                     },
@@ -19889,7 +19889,7 @@
                     }
                 },
                 "pop_2": {
-                    "py/object": "phasegen.distributions.EmpiricalSFSDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
                         "py/id": 232
                     },
@@ -21563,9 +21563,9 @@
                 }
             },
             "loci": {
-                "py/object": "phasegen.distributions.DictContainer",
+                "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
-                    "py/object": "phasegen.distributions.EmpiricalDistribution",
+                    "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
                         "py/id": 43
                     },

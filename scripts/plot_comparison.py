@@ -9,11 +9,6 @@ __date__ = "2023-03-11"
 import numpy as np
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     file = snakemake.input[0]
     n = snakemake.params.n

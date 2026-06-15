@@ -9,6 +9,7 @@ pop_sizes:
     4.2: 8
     7.5: 2.3
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:
