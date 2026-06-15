@@ -13,23 +13,12 @@ comparisons:
       cdf: 0.01
       mean: 0.01
       var: 0.02
-      quantile: 0.5
     total_branch_length:
+      pdf: 0.02
+      cdf: 0.02
       mean: 0.01
       var: 0.02
-      cosine:
-        pdf: 0.5
-        cdf: 0.5
-        quantile: 0.5
     sfs:
       mean: 0.01
       cov: 0.02
       corr: 0.02
-      cosine:
-        pdf: 0.5
-        cdf: 0.5
-        quantile: 0.5
-      pairwise:
-        cosine:
-          cdf: 0.5
-          pdf: 0.5
