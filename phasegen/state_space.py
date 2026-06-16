@@ -1147,76 +1147,69 @@ class Transition:
                     'Coalescence with recombination is only implemented for LineageCountingStateSpace.'
                 )
 
-            if not isinstance(self.state_space.model, StandardCoalescent):
-                raise NotImplementedError('Coalescence with recombination is only implemented for StandardCoalescent.')
-
-            bins = dict(
-                linked=source.linked[0],
-                unlinked1=source.unlinked[0],
-                unlinked2=source.unlinked[1]
-            )
+            # Coalescence over the three linkage categories per deme -- linked (ancestral at both loci), unlinked at
+            # locus 0, unlinked at locus 1 -- via the model's general merger machinery (``_get_rate_block_counting``),
+            # exactly as :meth:`_coalesce_joint` does for the block-counting space. This supports multiple-merger
+            # models (Beta/Dirac) in addition to the standard coalescent: the model returns rate 0 for the mergers it
+            # does not allow (e.g. any k > 2 under the standard coalescent), so those combinations are skipped and the
+            # Kingman case reduces to the pairwise linked / unlinked / mixed / locus coalescences. The block-triangular
+            # LU ordering is unaffected (coalescence still strictly reduces the total lineage count, so the generator
+            # stays acyclic / orderable -- the ordering is recomputed from the sparsity pattern).
+            model = self.state_space.model
 
             for deme in range(source.n_demes):
 
-                time_scale = self.state_space.model._get_timescale(pop_sizes[deme])
+                time_scale = model._get_timescale(pop_sizes[deme])
 
-                for ((class1, counts1), (class2, counts2)) in product(bins.items(), repeat=2):
+                # category counts in this deme: [linked, unlinked at locus 0, unlinked at locus 1]
+                cats = np.array([source.linked[0, deme, 0], source.unlinked[0, deme, 0], source.unlinked[1, deme, 0]])
+                present = np.where(cats > 0)[0]
+                total = int(cats.sum())
+
+                # enumerate how many lineages merge from each present category (at least two in total)
+                for comb in product(*[range(int(cats[i]) + 1) for i in present]):
+                    comb = np.array(comb)
+                    if comb.sum() < 2:
+                        continue
+
+                    mask = comb > 0
+                    rate = model._get_rate_block_counting(n=total, b=cats[present][mask], k=comb[mask])
+
+                    # skip combinations the model does not support (e.g. k > 2 under the standard coalescent)
+                    if rate == 0:
+                        continue
+
+                    merge = np.zeros(3, dtype=int)
+                    merge[present] = comb
+                    n_linked, n_unlinked1, n_unlinked2 = (int(x) for x in merge)
+
+                    # the merged lineage is ancestral at locus 0 if any merging lineage was (linked or unlinked-1),
+                    # and at locus 1 if any was (linked or unlinked-2)
+                    anc0 = n_linked + n_unlinked1 > 0
+                    anc1 = n_linked + n_unlinked2 > 0
 
                     target = source.copy()
+                    # remove the merging lineages
+                    target.lineages[0, deme, 0] -= n_linked + n_unlinked1
+                    target.lineages[1, deme, 0] -= n_linked + n_unlinked2
+                    target.linked[0, deme, 0] -= n_linked
+                    target.linked[1, deme, 0] -= n_linked
+                    # add the single merged lineage back, in its resulting category
+                    if anc0 and anc1:        # ancestral at both loci -> linked
+                        target.lineages[0, deme, 0] += 1
+                        target.lineages[1, deme, 0] += 1
+                        target.linked[0, deme, 0] += 1
+                        target.linked[1, deme, 0] += 1
+                        kind = 'locus_coalescence' if n_linked == 0 else \
+                            ('mixed_coalescence' if n_unlinked1 or n_unlinked2 else 'linked_coalescence')
+                    elif anc0:               # ancestral at locus 0 only -> unlinked-1
+                        target.lineages[0, deme, 0] += 1
+                        kind = 'unlinked_coalescence'
+                    else:                    # ancestral at locus 1 only -> unlinked-2
+                        target.lineages[1, deme, 0] += 1
+                        kind = 'unlinked_coalescence'
 
-                    # linked or unlinked coalescence
-                    if class1 == class2:
-                        # we need at least 2 lineages to coalesce
-                        if np.any(counts1[deme] < 2):
-                            continue
-
-                        # if the classes are the same, the counts are the same
-                        rate = self.state_space.model._get_rate(b=counts1[deme, 0], k=2)
-
-                        # unlinked coalescence in locus 1
-                        if 'unlinked1' in class1:
-
-                            target.lineages[0, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
-
-                        # unlinked coalescence in locus 2
-                        elif 'unlinked2' in class1:
-
-                            target.lineages[1, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
-
-                        # linked coalescence in both loci
-                        elif np.all(source.linked[:, deme] > 0):
-
-                            target.lineages[:, deme] -= 1
-                            target.linked[:, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'linked_coalescence')
-
-                    # mixed or locus coalescence
-                    # use lower than operator to ensure we only consider each case once
-                    elif class1 < class2:
-                        if counts1[deme] < 1 or counts2[deme] < 1:
-                            continue
-
-                        rate = counts1[deme, 0] * counts2[deme, 0]
-
-                        # mixed coalescence of linked and unlinked lineages
-                        if 'linked' in (class1, class2) and ('unlinked' in class1 or 'unlinked' in class2):
-                            locus = 0 if '1' in class1 or '1' in class2 else 1
-
-                            # condition already checked above
-                            if target.lineages[locus, deme, 0] > 1:
-                                target.lineages[locus, deme, 0] -= 1
-
-                                self.add_target(targets, target, rate / time_scale, 'mixed_coalescence')
-
-                        # locus coalescence of unlinked lineages
-                        else:
-                            # make sure we have unlinked lineages in both loci
-                            if np.all(source.unlinked[:, deme, 0] > 0):
-                                target.linked[:, deme, 0] += 1
-
-                                self.add_target(targets, target, rate / time_scale, 'locus_coalescence')
+                    self.add_target(targets, target, rate / time_scale, kind)
 
             return targets
 
