@@ -14,4 +14,8 @@ alpha: 1.5
 comparisons:
   tolerance:
     sfs2:
+      pairwise:
+        cosine:
+          cdf: 0.5
+          pdf: 0.5
       mean: 0.05

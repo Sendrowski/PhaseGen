@@ -54,10 +54,10 @@ c.ms.cache_jsfs_joint()
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples', 'demography'):
     setattr(c.ms, attr, None)
 
-# verify the analytical joint SFS agrees with the cached truth within the configured tolerances (the 'joint' stat is
-# not a ``.data`` spectrum -- it is validated at test time via Comparison.compare_stat -- so skip it here)
+# verify the analytical joint SFS agrees with the cached truth within the configured tolerances (the 'joint' and
+# 'pairwise' stats are not ``.data`` spectra -- they are validated at test time via Comparison.compare_stat -- so skip)
 for stat, tol in c.comparisons['tolerance']['jsfs'].items():
-    if stat == 'joint':
+    if stat in ('joint', 'pairwise'):
         continue
     diff = Comparison.rel_diff(np.array(get_stat(c.ms.jsfs, stat)), np.array(get_stat(c.ph.jsfs, stat))).max()
     print(f'{stat:>5}: rel_diff.max={diff:.4f} tol={tol} [{"ok" if diff <= tol else "FAIL"}]', flush=True)
