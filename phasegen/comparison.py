@@ -532,8 +532,7 @@ class Comparison(Serializable):
                 d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
                 diff = float(np.abs(d).max())
             else:  # quantile
-                rd = self.rel_diff(y_ms, y_ph)
-                diff = float((rd[:, 2:] if per_bin else rd[2:]).max())
+                diff = self._quantile_diff(y_ms, y_ph)
 
             if self.visualize:
                 def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin):
@@ -593,6 +592,22 @@ class Comparison(Serializable):
         den = float(np.abs(y_ref).max())
         num = float(np.abs(y_ref - y_ph).mean())
         return num / den if den > 0 else num
+
+    @staticmethod
+    def _quantile_diff(y_ms, y_ph) -> float:
+        """Worst *relative* difference between an empirical and analytic quantile curve, excluding points on the
+        distribution's **atom**. For an SFS bin with a positive atom P(L_i = 0) the inverse CDF is exactly 0 for every
+        probability below the atom mass, so the relative difference between two near-zero quantiles straddling that
+        flat region saturates near 2 (``|a-b| / ((|a|+|b|)/2)`` with one value ~0) -- an atom-boundary artifact, not an
+        inversion error. Points where either curve is below 1e-6 of the curve scale are dropped, as is the near-zero
+        head (first two grid points, as elsewhere); the continuous region above the atom is compared as usual. With no
+        off-atom points left (a fully degenerate bin) the difference is 0."""
+        y_ms, y_ph = np.asarray(y_ms, dtype=float), np.asarray(y_ph, dtype=float)
+        rd = np.asarray(Comparison.rel_diff(y_ms, y_ph), dtype=float)
+        scale = max(float(np.abs(y_ph).max()), float(np.abs(y_ms).max()), 1e-300)
+        keep = (np.abs(y_ph) > 1e-6 * scale) & (np.abs(y_ms) > 1e-6 * scale)
+        keep[..., :2] = False  # near-zero head
+        return float(rd[keep].max()) if keep.any() else 0.0
 
     def _result_message(self, title: str, diff: float, tol: float, label: str, runtime: float) -> str:
         """Assign this comparison the next sequential index and format the one-line result message used *identically*
@@ -872,7 +887,7 @@ class Comparison(Serializable):
                 with self._inversion_mode(mode):  # route the bin's curve inversion through de_hoog/cosine when set
                     if stat == 'quantile':
                         y_ph = np.array([float(d.quantile(float(q))) for q in t])
-                        diff = float(self.rel_diff(y_ms, y_ph)[2:].max())
+                        diff = self._quantile_diff(y_ms, y_ph)
                     else:
                         y_ph = np.asarray(d.cdf_curve(t) if stat == 'cdf' else d.pdf_curve(t), dtype=float)
                         diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'

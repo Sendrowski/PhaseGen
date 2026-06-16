@@ -37,7 +37,7 @@
                 "cosine": {
                     "pdf": 0.0019,
                     "cdf": 0.0011,
-                    "quantile": 3.0
+                    "quantile": 0.37
                 },
                 "pairwise": {
                     "cosine": {

@@ -15,19 +15,19 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 1,
-                "cdf": 1,
-                "mean": 0.01,
-                "var": 0.02
+                "pdf": 0.0041,
+                "cdf": 0.0015,
+                "mean": 0.002,
+                "var": 0.0043
             },
             "total_branch_length": {
-                "mean": 0.01,
-                "var": 0.02
+                "mean": 0.0018,
+                "var": 0.0042
             },
             "sfs": {
-                "mean": 0.01,
-                "cov": 0.02,
-                "corr": 0.02
+                "mean": 0.0023,
+                "cov": 0.0061,
+                "corr": 0.0042
             }
         }
     },

@@ -4,11 +4,15 @@ n:
 num_replicates: 1000000
 record_migration: true
 migration_rates:
-  !!python/tuple [ 'pop_0', 'pop_1' ]:
-    0: 0
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 0
     100: 1
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 0
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 0
     100: 1
 pop_sizes:
   pop_0:
@@ -21,15 +25,15 @@ comparisons:
   tolerance:
     tree_height:
       demes:
-        cov: 0.01
-      pdf: 0.001
-      cdf: 2
-      mean: 0.01
-      var: 0.02
+        cov: 0.003
+      pdf: 0.00068
+      cdf: 0.0017
+      mean: 0.0005
+      var: 0.0014
     total_branch_length:
-      mean: 0.01
-      var: 0.02
+      mean: 0.0005
+      var: 0.0014
     sfs:
-      mean: 0.01
-      cov: 0.02
-      corr: 0.02
+      mean: 0.0005
+      cov: 0.0014
+      corr: 0.0005

@@ -22,8 +22,8 @@
                 "loci": {
                     "pairwise": {
                         "cosine": {
-                            "cdf": 0.5,
-                            "pdf": 0.5
+                            "cdf": 0.00065,
+                            "pdf": 0.15
                         }
                     },
                     "mean": 0.01,
@@ -38,8 +38,8 @@
                 "loci": {
                     "pairwise": {
                         "cosine": {
-                            "cdf": 0.5,
-                            "pdf": 0.5
+                            "cdf": 0.00065,
+                            "pdf": 0.15
                         }
                     },
                     "mean": 0.01,

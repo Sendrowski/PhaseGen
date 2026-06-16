@@ -39,9 +39,9 @@
                 "tajimas_d": 0.011,
                 "[1, 4, 9]": {
                     "cosine": {
-                        "pdf": 0.5,
-                        "cdf": 0.5,
-                        "quantile": 0.5
+                        "pdf": 0.018,
+                        "cdf": 0.0012,
+                        "quantile": 0.29
                     }
                 }
             }

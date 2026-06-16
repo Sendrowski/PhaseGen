@@ -19,7 +19,7 @@ comparisons:
       loci:
         pairwise:
           cosine:
-            cdf: 0.5
+            cdf: 0.019
             pdf: 0.5
         mean: 0.01
         var: 0.05
@@ -31,8 +31,8 @@ comparisons:
       loci:
         pairwise:
           cosine:
-            cdf: 0.5
-            pdf: 0.5
+            cdf: 0.0045
+            pdf: 0.46
         mean: 0.01
         var: 0.05
         cov: 0.011

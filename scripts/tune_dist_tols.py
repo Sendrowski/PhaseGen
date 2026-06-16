@@ -6,6 +6,7 @@ phasegen is deterministic, so the observed diff is reproducible -- 1.5x gives mo
     python scripts/tune_dist_tols.py <config_name> [<config_name> ...]
 
 Leaves with no matching observed diff are left untouched. Run AFTER regenerating the fixture(s)."""
+import ast
 import logging
 import math
 import re
@@ -67,21 +68,52 @@ def observed(name: str) -> dict:
     return obs
 
 
-def title_for(path: list) -> str:
-    """Map a YAML tolerance-leaf key path to the comparison's title (sans scenario prefix)."""
+def _collection(key: str):
+    """If a YAML key is a bracketed collection literal (an SFS bin list ``[1, 4, 9]`` or a pairwise pair list
+    ``[(1, 2), (1, 9)]``), return its elements, else ``None``."""
+    if not (isinstance(key, str) and key.startswith('[') and key.endswith(']')):
+        return None
+    try:
+        v = ast.literal_eval(key)
+        return list(v) if isinstance(v, (list, tuple)) else None
+    except (ValueError, SyntaxError):
+        return None
+
+
+def title_for(path: list) -> list:
+    """Map a YAML tolerance-leaf key path to the comparison title(s) it covers (sans scenario prefix). Returns a
+    *list*: a collection key (an SFS bin list or an explicit pairwise pair list) expands to one title per element, all
+    sharing the single tolerance leaf (the tuner then takes the worst observed across them)."""
+    path = [str(p) for p in path]
+    kind = path[-1]
+    mode = next((p for p in path if p in MODES), None)
+    coll = next((_collection(p) for p in path if _collection(p) is not None), None)
+
     if 'pairwise' in path:
         i = path.index('pairwise')
         stat = ': '.join(path[:i])
-        kind = path[-1]
-        modes = [p for p in path[i + 1:-1] if p in MODES]
-        mid = (': ' + ': '.join(modes)) if modes else ''
-        # a cross-locus joint (``...: loci: pairwise: ...``) is logged as ``loci_pairwise_{kind}``, not ``pairwise_*``
+        md = (mode + ': ') if mode else ''
+        if coll is not None:
+            # an explicit pairwise pair list is logged per pair as ``stat: mode: pairwise (i, j) kind``
+            return [f"{stat}: {md}pairwise ({p[0]}, {p[1]}) {kind}" for p in coll]
+        # aggregate pairwise: ``stat: mode: {loci_,}pairwise_kind`` (cross-locus joints log ``loci_pairwise_*``)
         prefix = 'loci_pairwise' if 'loci' in path[:i] else 'pairwise'
-        return f"{stat}{mid}: {prefix}_{kind}"
-    return ': '.join(path)
+        mid = (': ' + mode) if mode else ''
+        return [f"{stat}{mid}: {prefix}_{kind}"]
+
+    if coll is not None:
+        # an SFS bin list ``sfs: [1, 4, 9]: mode: kind`` is logged per bin as ``sfs: mode: bin: kind``
+        root = path[0]
+        md = (mode + ': ') if mode else ''
+        return [f"{root}: {md}{b}: {kind}" for b in coll]
+
+    return [': '.join(path)]
 
 
-def retune(name: str) -> int:
+def retune(name: str, tighten_only: bool = False) -> int:
+    """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff). With ``tighten_only`` the
+    leaf is set to ``min(current, nudge(observed))`` so a tolerance can only ever be tightened, never loosened -- used
+    to drive down stale/degenerate (over-loose) tolerances without risking a currently-tight, barely-passing leaf."""
     obs = observed(name)
     p = f"resources/configs/{name}.yaml"
     with open(p) as f:
@@ -97,10 +129,14 @@ def retune(name: str) -> int:
             if hasattr(v, 'items'):
                 walk(v, kp)
             elif str(k) in KINDS:
-                t = title_for(kp)
-                if t in obs:
-                    node[k] = nudge(obs[t])
-                    changed[0] += 1
+                matched = [obs[t] for t in title_for(kp) if t in obs]
+                if matched:
+                    new = nudge(max(matched))  # one leaf can cover several titles (bin/pair list) -> worst observed
+                    if tighten_only and isinstance(v, (int, float)):
+                        new = min(float(v), new)
+                    if new != v:
+                        node[k] = new
+                        changed[0] += 1
 
     walk(tol, [])
     with open(p, 'w') as f:
@@ -109,6 +145,8 @@ def retune(name: str) -> int:
 
 
 if __name__ == '__main__':
-    for name in sys.argv[1:]:
-        n = retune(name)
-        print(f"tuned {n:>3} tolerances in {name}")
+    args = sys.argv[1:]
+    tighten_only = '--tighten-only' in args
+    for name in [a for a in args if not a.startswith('--')]:
+        n = retune(name, tighten_only=tighten_only)
+        print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}")
