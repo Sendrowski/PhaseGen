@@ -13,13 +13,13 @@ comparisons:
     sfs:
       mutation_configs: 0.79
       cosine:
-        pdf: 50000000000000
-        cdf: 1.5
-        quantile: 3.0
+        pdf: 0.0018
+        cdf: 0.0016
+        quantile: 0.086
       pairwise:
         cosine:
-          cdf: 1.2
-          pdf: 0.63
+          cdf: 0.0023
+          pdf: 0.16
     fsfs:
       mutation_configs: 0.18
     tree_height:
@@ -28,6 +28,6 @@ comparisons:
       quantile: 0.0025
     total_branch_length:
       cosine:
-        pdf: 560000000000000
-        cdf: 1.5
-        quantile: 3.0
+        pdf: 0.0075
+        cdf: 0.00083
+        quantile: 0.0016
