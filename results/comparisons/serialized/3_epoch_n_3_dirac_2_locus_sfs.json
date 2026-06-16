@@ -1,0 +1,211 @@
+{
+    "py/object": "phasegen.comparison.Comparison",
+    "logger": {
+        "py/reduce": [
+            {
+                "py/function": "logging.getLogger"
+            },
+            {
+                "py/tuple": [
+                    "phasegen.Comparison"
+                ]
+            }
+        ]
+    },
+    "comparisons": {
+        "tolerance": {
+            "sfs2": {
+                "pairwise": {
+                    "cosine": {
+                        "cdf": 0.0025,
+                        "pdf": 0.22
+                    }
+                },
+                "mean": 0.0026
+            }
+        }
+    },
+    "n": {
+        "pop_0": 3
+    },
+    "pop_sizes": {
+        "pop_0": {
+            "json://0": 1,
+            "json://0.5": 0.3,
+            "json://1.5": 2.0
+        }
+    },
+    "migration_rates": {},
+    "n_loci": 2,
+    "recombination_rate": 1.0,
+    "num_replicates": 200000,
+    "mutation_rate": null,
+    "record_migration": false,
+    "simulate_mutations": false,
+    "mass_threshold": 0.9,
+    "end_time": null,
+    "n_threads": 1,
+    "parallelize": false,
+    "seed": 54,
+    "alpha": 1.5,
+    "psi": 0.5,
+    "c": 1,
+    "model": {
+        "py/object": "phasegen.coalescent_models.DiracCoalescent",
+        "psi": 0.5,
+        "c": 1,
+        "scale_time": true,
+        "_standard": {
+            "py/object": "phasegen.coalescent_models.StandardCoalescent"
+        }
+    },
+    "n_assertions": 0,
+    "runtimes": {},
+    "ms": {
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
+        "_logger": {
+            "py/reduce": [
+                {
+                    "py/function": "logging.getLogger"
+                },
+                {
+                    "py/tuple": [
+                        "phasegen.MsprimeCoalescent"
+                    ]
+                }
+            ]
+        },
+        "lineage_config": {
+            "py/object": "phasegen.lineage.LineageConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LineageConfig"
+                        ]
+                    }
+                ]
+            },
+            "lineages": {
+                "py/object": "numpy.ndarray",
+                "data": [
+                    3
+                ]
+            },
+            "n": 3,
+            "n_pops": 1,
+            "pop_names": [
+                "pop_0"
+            ]
+        },
+        "locus_config": {
+            "py/object": "phasegen.locus.LocusConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LocusConfig"
+                        ]
+                    }
+                ]
+            },
+            "n": 2,
+            "n_unlinked": 0,
+            "recombination_rate": 1.0,
+            "_allow_coalescence": true
+        },
+        "model": {
+            "py/id": 11
+        },
+        "demography": null,
+        "end_time": null,
+        "sfs_lengths": null,
+        "total_branch_lengths": null,
+        "heights": null,
+        "mutations": null,
+        "jsfs_moments": null,
+        "jsfs_samples": null,
+        "num_replicates": 200000,
+        "mutation_rate": null,
+        "n_threads": 1,
+        "parallelize": false,
+        "record_migration": false,
+        "simulate_mutations": false,
+        "seed": 54,
+        "sfs2": {
+            "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
+            "_mean": {
+                "py/object": "numpy.ndarray",
+                "data": [
+                    [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    [
+                        0.0,
+                        1.1173519837532413,
+                        0.22682822163623426,
+                        0.0
+                    ],
+                    [
+                        0.0,
+                        0.2270612209290736,
+                        0.08902205300756247,
+                        0.0
+                    ],
+                    [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                ]
+            },
+            "_left": null,
+            "_right": null,
+            "_joint": [
+                {
+                    "py/tuple": [
+                        1,
+                        2,
+                        0.22682822163623817,
+                        [
+                            {
+                                "py/tuple": [
+                                    0.794551548224043,
+                                    0.3047036236748181,
+                                    0.183605,
+                                    1.2397794854717308
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    1.0573337317488398,
+                                    0.16928041376457093,
+                                    0.17464,
+                                    0.9966335960804757
+                                ]
+                            },
+                            {
+                                "py/tuple": [
+                                    1.240209945040183,
+                                    0.3738091464336258,
+                                    0.42877,
+                                    0.4882157818637458
+                                ]
+                            }
+                        ]
+                    ]
+                }
+            ]
+        }
+    }
+}

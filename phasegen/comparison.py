@@ -43,8 +43,10 @@ def _cap_to_representative(joint: list, k: int = 3) -> list:
         for x in (e[0], e[1]):
             if x not in items:
                 items.append(x)
+    # ``_representative_pairs`` yields up to 3 pairs (low-low / low-high / mid-high); take the first ``k`` so the
+    # cap is actually honoured (k < 3 keeps heavy joint inversions, e.g. multi-epoch MMC jSFS, cheap)
     reps = set()
-    for a, b in _representative_pairs(items):
+    for a, b in _representative_pairs(items)[:k]:
         reps.add((a, b))
         reps.add((b, a))
     sel = [e for e in joint if (e[0], e[1]) in reps]
@@ -365,7 +367,7 @@ class Comparison(Serializable):
             # pair-independent, so a representative handful suffices and keeps the analytic cost bounded). The fixture
             # may cache more pairs (older fixtures cached all O(n^2) / the top-4 jSFS configs); we just evaluate a
             # representative subset of them -- no re-simulation needed.
-            ms_joint = _cap_to_representative(ms_joint)
+            ms_joint = _cap_to_representative(ms_joint, getattr(self, '_max_pairwise_pairs', 3))
             y_ms, y_ph = [], []
             for i, j, _c, points in ms_joint:
                 if kind == 'pdf' and i == j:
@@ -1170,6 +1172,12 @@ class Comparison(Serializable):
         plt.rcParams['axes.titlesize'] = self.title_fontsize
         plt.rcParams['figure.titlesize'] = self.suptitle_fontsize
         self._comp_index = 0  # sequential comparison counter, prepended as '#i' to each result message / plot title
+
+        # cap on the number of representative pairwise bin-pairs evaluated for the joint distribution (default 3). The
+        # joint accuracy is pair-independent, so heavy scenarios (e.g. multi-epoch MMC jSFS, whose 2D-cosine inversion
+        # is the dominant cost) can set ``max_pairwise_pairs: 1`` to keep the fast suite cheap while still validating
+        # the joint distribution under that scenario.
+        self._max_pairwise_pairs = self.comparisons.get('max_pairwise_pairs', 3)
 
         for dist, data in self._expand_keys(self.comparisons['tolerance']).items():
             self._compare_stat_recursively(

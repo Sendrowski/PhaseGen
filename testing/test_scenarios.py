@@ -32,6 +32,7 @@ configs = [
     '1_epoch_n_5_2_locus_sfs',
     '1_epoch_n_6_2_locus_sfs',
     '3_epoch_n_3_beta_2_locus_sfs',
+    '3_epoch_n_3_dirac_2_locus_sfs',
     '1_epoch_n_4_mu_1',
     '1_epoch_3_pops_n_7_mu_0_1',
     '1_epoch_2_pops_n_4_mu_1',
@@ -124,6 +125,8 @@ configs = [
     '1_epoch_2_pops_n_6_asym_jsfs',
     '1_epoch_beta_2_pops_n_4_jsfs',
     '1_epoch_dirac_2_pops_n_4_jsfs',
+    '3_epoch_beta_2_pops_n_4_jsfs',
+    '3_epoch_dirac_2_pops_n_4_jsfs',
     '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_8_jsfs',
     '3_epoch_3_pops_n_5_jsfs',
@@ -216,12 +219,12 @@ slow_configs = [
     # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the full
     # msprime joint validation runs in the slow suite, while the fast suite keeps the analytic joint covered by
     # ``test_jsfs_joint_distribution_*`` (and the within-tree / two-locus joint by the cheap single-locus configs)
-    '1_epoch_2_pops_n_4_jsfs',
+    # NB: the n=2+2 jSFS dist configs (standard/Beta/Dirac, ~20 states, ~9s each) are kept in the *fast* suite so
+    # the msprime jSFS joint distribution is covered across coalescent models; only the larger/multi-epoch/3-pop
+    # jSFS scenarios below stay slow.
     '3_epoch_2_pops_n_4_jsfs',
     '1_epoch_3_pops_n_3_jsfs',
     '1_epoch_2_pops_n_6_asym_jsfs',
-    '1_epoch_beta_2_pops_n_4_jsfs',
-    '1_epoch_dirac_2_pops_n_4_jsfs',
     '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_6_jsfs',
     '1_epoch_2_pops_n_8_jsfs',

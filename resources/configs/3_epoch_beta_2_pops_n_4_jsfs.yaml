@@ -1,0 +1,37 @@
+n:
+  pop_0: 2
+  pop_1: 2
+num_replicates: 1000000
+seed: 144
+model: beta
+alpha: 1.5
+pop_sizes:
+  pop_0:
+    0: 1
+    0.5: 0.5
+  pop_1:
+    0: 1
+    0.5: 2
+migration_rates:
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 0.5
+    0.8: 1.5
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 0.5
+    0.8: 1.5
+comparisons:
+  # the multi-epoch MMC jSFS 2D-cosine joint inversion is the dominant cost; one representative bin-pair still
+  # validates the joint distribution under this scenario, keeping the fast suite cheap (see _cap_to_representative)
+  max_pairwise_pairs: 1
+  tolerance:
+    jsfs:
+      pairwise:
+        cosine:
+          cdf: 0.0015
+          pdf: 0.39
+      mean: 0.0078
+      var: 0.0095
