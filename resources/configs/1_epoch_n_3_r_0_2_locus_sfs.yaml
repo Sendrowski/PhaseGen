@@ -13,6 +13,6 @@ comparisons:
     sfs2:
       pairwise:
         cosine:
-          cdf: 0.5
-          pdf: 0.5
-      mean: 0.05
+          cdf: 0.0026
+          pdf: 0.016
+      mean: 0.007
