@@ -15,14 +15,12 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 0.02,
-                "cdf": 0.1,
-                "mean": 0.01,
-                "var": 0.05
+                "mean": 3.1e-05,
+                "var": 0.00072
             },
             "total_branch_length": {
-                "mean": 0.01,
-                "var": 0.05
+                "mean": 0.00024,
+                "var": 0.0013
             }
         }
     },

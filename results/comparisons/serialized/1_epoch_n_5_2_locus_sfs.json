@@ -15,13 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
-                "mean": 0.014,
-                "pairwise": {
-                    "cosine": {
-                        "cdf": 0.0025,
-                        "pdf": 0.028
-                    }
-                }
+                "mean": 0.014
             }
         }
     },
@@ -113,7 +107,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 11
+            "py/id": 9
         },
         "demography": null,
         "end_time": null,

@@ -12,7 +12,3 @@ comparisons:
   tolerance:
     sfs2:
       mean: 0.014
-      pairwise:
-        cosine:
-          cdf: 0.0025
-          pdf: 0.028

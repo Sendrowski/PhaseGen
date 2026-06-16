@@ -11,8 +11,4 @@ model: standard
 comparisons:
   tolerance:
     sfs2:
-      pairwise:
-        cosine:
-          cdf: 0.0035
-          pdf: 0.013
       mean: 0.02

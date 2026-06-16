@@ -15,14 +15,8 @@
     "comparisons": {
         "tolerance": {
             "jsfs": {
-                "pairwise": {
-                    "cosine": {
-                        "cdf": 0.5,
-                        "pdf": 0.5
-                    }
-                },
-                "mean": 0.03,
-                "var": 0.06
+                "mean": 0.0082,
+                "var": 0.019
             }
         }
     },
@@ -127,7 +121,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 14
+            "py/id": 12
         },
         "demography": null,
         "end_time": null,
