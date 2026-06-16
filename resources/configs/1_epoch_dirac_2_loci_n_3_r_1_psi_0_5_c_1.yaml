@@ -1,0 +1,29 @@
+n: 3
+n_loci: 2
+recombination_rate: 1
+num_replicates: 1000000
+pop_sizes:
+  pop_0:
+    0: 1
+model: dirac
+psi: 0.5
+c: 1
+seed: 42
+comparisons:
+  tolerance:
+    tree_height:
+      mean: 0.002
+      var: 0.005
+      loci:
+        mean: 0.01
+        var: 0.05
+        cov: 0.0053
+        corr: 0.0019
+    total_branch_length:
+      mean: 0.002
+      var: 0.0029
+      loci:
+        mean: 0.01
+        var: 0.05
+        cov: 0.0045
+        corr: 0.0023
