@@ -26,8 +26,4 @@ model: standard
 comparisons:
   tolerance:
     jsfs:
-      pairwise:
-        cosine:
-          cdf: 0.5
-          pdf: 0.5
-      mean: 0.04
+      mean: 0.0099

@@ -20,6 +20,13 @@ from phasegen.comparison import Comparison
 yaml = YAML()
 yaml.preserve_quotes = True
 yaml.width = 4096
+# jSFS/multi-pop configs carry ``!!python/tuple`` migration-rate keys; without explicit round-trip handling ruamel
+# rewrites them as plain (unhashable) lists, which breaks the ``yaml.full_load`` in ``Comparison.from_yaml``. Register
+# the tag so load/dump preserves the tuple keys verbatim.
+yaml.constructor.add_constructor(
+    'tag:yaml.org,2002:python/tuple', lambda loader, node: tuple(loader.construct_sequence(node)))
+yaml.representer.add_representer(
+    tuple, lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', list(data)))
 
 KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm3', 'm4',
          'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs'}
