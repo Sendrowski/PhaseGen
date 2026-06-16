@@ -36,9 +36,19 @@ c.n_threads = 1
 _ = c.ms.sfs2
 
 # cache the two-locus joint distribution ground truth (cross-moment + joint CDF at marginal-quantile points) from the
-# per-replicate locus branch lengths, then drop those (large) samples so only the small ground truth is serialized
+# per-replicate locus branch lengths, then drop those (large) samples so only the small ground truth is serialized.
+# Only a few *representative* cross-locus bin pairs (low-low / low-high / mid-high) rather than all O(n^2) pairs: the
+# all-pairs aggregate is prohibitively slow for larger n (the 2D cosine build per pair on the two-locus state space
+# took ~60 min/pass at n=6), while a fixed handful is cheap and exercises the informative regimes.
 n = c.ph.lineage_config.n
-c.ms.sfs2.cache_joint([(i, j) for i in range(1, n) for j in range(1, n)], [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
+hi = n - 1
+if hi >= 3:
+    rep_pairs = [(1, 2), (1, hi), (2, hi)]
+elif hi == 2:
+    rep_pairs = [(1, 2)]
+else:
+    rep_pairs = [(1, 1)]
+c.ms.sfs2.cache_joint(rep_pairs, [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 c.ms.sfs2.drop()
 
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'demography'):
