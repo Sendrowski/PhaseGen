@@ -9,9 +9,9 @@ pop_sizes:
   pop_1:
     0: 1.5
 migration_rates:
-  ['pop_0', 'pop_1']:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 0.75
-  ['pop_1', 'pop_0']:
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
     0: 0.75
 model: standard
 comparisons:
