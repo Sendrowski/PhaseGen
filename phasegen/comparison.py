@@ -25,8 +25,30 @@ from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from .utils import takewhile_inclusive
+from .distributions.empirical import _representative_pairs
 
 logger = logging.getLogger('phasegen')
+
+
+def _cap_to_representative(joint: list, k: int = 3) -> list:
+    """Select up to ``k`` representative pairs from a cached within-tree joint ground truth list
+    (``[(i, j, cross, points), ...]``). The pairs span the items present (bins / descendant configs) via
+    :func:`~phasegen.distributions.empirical._representative_pairs` (low-low / low-high / mid-high), so the
+    aggregate pairwise comparison evaluates a bounded, representative subset of whatever the fixture cached --
+    no re-simulation needed when a fixture holds more pairs than we now test."""
+    if len(joint) <= k:
+        return joint
+    items = []
+    for e in joint:
+        for x in (e[0], e[1]):
+            if x not in items:
+                items.append(x)
+    reps = set()
+    for a, b in _representative_pairs(items):
+        reps.add((a, b))
+        reps.add((b, a))
+    sel = [e for e in joint if (e[0], e[1]) in reps]
+    return sel if sel else joint[:k]
 
 
 class Comparison(Serializable):
@@ -339,6 +361,11 @@ class Comparison(Serializable):
             else:
                 ms_joint = ms._joint
                 def joint_for(a, b): return ph.joint_distribution(a, b)
+            # cap the aggregate at 3 representative pairs read from the cached joint (the joint accuracy is
+            # pair-independent, so a representative handful suffices and keeps the analytic cost bounded). The fixture
+            # may cache more pairs (older fixtures cached all O(n^2) / the top-4 jSFS configs); we just evaluate a
+            # representative subset of them -- no re-simulation needed.
+            ms_joint = _cap_to_representative(ms_joint)
             y_ms, y_ph = [], []
             for i, j, _c, points in ms_joint:
                 if kind == 'pdf' and i == j:

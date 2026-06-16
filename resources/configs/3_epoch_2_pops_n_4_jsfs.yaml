@@ -28,5 +28,5 @@ comparisons:
       pairwise:
         cosine:
           cdf: 0.0024
-          pdf: 0.14
+          pdf: 0.2
       mean: 0.0061

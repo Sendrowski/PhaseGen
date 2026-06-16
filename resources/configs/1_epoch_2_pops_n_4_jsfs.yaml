@@ -24,6 +24,6 @@ comparisons:
       pairwise:
         cosine:
           cdf: 0.0027
-          pdf: 0.33
+          pdf: 0.21
       mean: 0.0051
       var: 0.013
