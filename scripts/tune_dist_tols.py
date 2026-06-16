@@ -75,7 +75,9 @@ def title_for(path: list) -> str:
         kind = path[-1]
         modes = [p for p in path[i + 1:-1] if p in MODES]
         mid = (': ' + ': '.join(modes)) if modes else ''
-        return f"{stat}{mid}: pairwise_{kind}"
+        # a cross-locus joint (``...: loci: pairwise: ...``) is logged as ``loci_pairwise_{kind}``, not ``pairwise_*``
+        prefix = 'loci_pairwise' if 'loci' in path[:i] else 'pairwise'
+        return f"{stat}{mid}: {prefix}_{kind}"
     return ': '.join(path)
 
 
