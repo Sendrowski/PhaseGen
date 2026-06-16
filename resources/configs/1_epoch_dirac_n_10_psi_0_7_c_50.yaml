@@ -26,7 +26,13 @@ comparisons:
       mean: 0.0071
       cov: 0.059
       corr: 0.048
-      cosine:
-        pdf: 0.0037
-        cdf: 0.0022
-        quantile: 0.17
+      '[1, 4, 9]':
+        cosine:
+          pdf: 0.5
+          cdf: 0.5
+          quantile: 0.5
+      pairwise:
+        cosine:
+          '[(1, 2), (1, 9), (2, 9)]':
+            cdf: 0.5
+            pdf: 0.5
