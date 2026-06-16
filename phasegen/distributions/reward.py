@@ -99,6 +99,13 @@ class RewardDistribution(CallableDistributionFunctions):
 
         return dict(r=r, tau=self._host._time_scale, **data)
 
+    @property
+    def _time_scale(self) -> float:
+        """The inversion time-scale (average Ne at ``t = 0``; ``1.0`` outside the large-N regime), read straight from
+        the host. Decoupled from :attr:`_setup` so the conditional flavours -- whose ``lst`` is a nested transform
+        with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``."""
+        return getattr(getattr(self, '_host', None), '_time_scale', 1.0)
+
     def lst(self, s: complex) -> complex:
         """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
         st = self._setup
@@ -178,7 +185,7 @@ class RewardDistribution(CallableDistributionFunctions):
         # bracket: grow the upper bound until its CDF exceeds q (seed from the reward's mean via the LST,
         # E[R] = -phi'(0), so we start near the right scale and only double a few times). The step is scaled by
         # ``1/tau`` so the seed evaluation does not overflow for large-N demographies (see ``_cumulants``).
-        h = 1e-3 / self._setup['tau']
+        h = 1e-3 / self._time_scale
         mean = (1.0 - self.lst(h).real) / h
         lo, hi = 0.0, max(mean, 1.0)
         for _ in range(max_iter):
@@ -348,7 +355,7 @@ class RewardDistribution(CallableDistributionFunctions):
         ``c2 = phi''(0) - phi'(0)^2``. Cheap (three transform evaluations); used to set the COS / plot range. The
         finite-difference step is scaled by ``1/tau`` (``tau ~`` the reward scale for large N) so that ``h * R`` stays
         small and ``phi(-h) = E[e^{h R}]`` does not overflow for large-N demographies."""
-        h = 1e-4 / self._setup['tau']
+        h = 1e-4 / self._time_scale
         d1 = (self.lst(h).real - self.lst(-h).real) / (2 * h)
         d2 = (self.lst(h).real - 2.0 + self.lst(-h).real) / h ** 2
         return -d1, max(d2 - d1 ** 2, 1e-12)
@@ -1035,6 +1042,10 @@ class _AtomConditional(RewardDistribution):
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
         big = 1e8
         self._joint = joint
+        # the conditional reuses the host's state space / time-scale (its ``lst`` is the marginal sub-transform; there
+        # is no own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``)
+        self._host = joint._host
+        self.state_space = joint._host.state_space
         self._on = on
         self._atom = atom
         self._sub = (lambda s: joint.lst(big, s)) if on == 'a' else (lambda s: joint.lst(s, big))
@@ -1095,6 +1106,10 @@ class _NestedConditional(RewardDistribution):
 
     def __init__(self, joint: 'JointRewardDistribution', on: str, value: float, label: str = ''):
         self._joint = joint
+        # the conditional reuses the host's state space / time-scale (its ``lst`` is the nested transform; there is no
+        # own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``)
+        self._host = joint._host
+        self.state_space = joint._host.state_space
         self._on = on
         self._value = float(value)
         self._stehfest_M = 8
