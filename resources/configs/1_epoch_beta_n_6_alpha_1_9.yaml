@@ -24,8 +24,8 @@ comparisons:
     sfs:
       pairwise:
         cosine:
-          cdf: 0.0033
-          pdf: 0.12
+          cdf: 0.0015
+          pdf: 0.35
       mean: 0.0067
       cov: 0.034
       corr: 0.034

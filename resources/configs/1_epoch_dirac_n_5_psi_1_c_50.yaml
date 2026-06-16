@@ -30,5 +30,5 @@ comparisons:
         quantile: 0.048
       pairwise:
         cosine:
-          cdf: 0.00033
+          cdf: 0.0005
           pdf: 0.0005

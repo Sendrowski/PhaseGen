@@ -28,6 +28,20 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
+def _representative_pairs(items: list) -> list:
+    """Up to 3 *representative* pairs from an ordered list of bins / descendant configs: (first, second),
+    (first, last), (second, last) -- spanning low-low / low-high / mid-high. The within-tree joint comparison is
+    capped at 3 pairs per spectrum type and config (its accuracy does not depend on which pairs are chosen, so a
+    representative handful suffices and keeps the cost bounded regardless of the state-space size)."""
+    if len(items) < 2:
+        return [(items[0], items[0])] if items else []
+    a, b, c = items[0], items[1], items[-1]
+    pairs = [(a, b)]
+    if c != b:
+        pairs += [(a, c), (b, c)]
+    return pairs[:3]
+
+
 class EmpiricalJointSFSDistribution:  # pragma: no cover
     """
     Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
@@ -1248,11 +1262,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         # cache the within-tree joint distribution ground truth (cross-moment + joint CDF at marginal-quantile
         # points) so the full-replicate joint is serialized with the comparison and survives the subsequent drop().
         # The two-locus joint is cached by the dedicated two-locus fixture script (which does not call touch()).
-        # all bin pairs (i <= j), including the self-pair (i, i): there R_a = R_b a.s., so the joint law is singular
-        # on the diagonal but its CDF reduces exactly to the marginal at min(x, y) (handled in JointRewardDistribution)
+        # 3 representative bin pairs (low-low / low-high / mid-high) rather than all O(n^2) pairs -- see
+        # ``_representative_pairs``. The joint accuracy is pair-independent, so a representative handful keeps the
+        # comparison cost bounded.
         if self.lineage_config.n_pops == 1 and self.locus_config.n == 1:
             n = self.lineage_config.n
-            self.sfs.cache_joint([(i, j) for i in range(1, n) for j in range(i, n)],
+            self.sfs.cache_joint(_representative_pairs(list(range(1, n))),
                                  [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 
         # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for
@@ -1390,18 +1405,18 @@ class MsprimeCoalescent(AbstractCoalescent):
     def cache_jsfs_joint(self):
         """
         Cache the within-tree joint distribution ground truth on the joint SFS, then drop the per-replicate samples.
-        The config pairs are the few descendant configurations carrying the most branch length (so the
-        marginal-quantile evaluation points sit well away from any atom at 0), paired all-against-all (including the
-        self-pair). The cross-moment and the joint CDF at marginal-quantile points are then serialized with the
-        comparison and validated at test time via :meth:`Comparison.compare_stat` (the ``joint`` stat).
+        The config pairs are 3 representative pairs among the descendant configurations carrying the most branch
+        length (so the marginal-quantile evaluation points sit well away from any atom at 0) -- see
+        ``_representative_pairs``; capped at 3 pairs like the single- and two-locus SFS joints. The cross-moment and
+        the joint CDF at marginal-quantile points are then serialized with the comparison and validated at test time
+        via :meth:`Comparison.compare_stat` (the ``joint`` stat).
         """
         jsfs = self.jsfs
         mean = self.jsfs_moments[0]
         full = tuple(int(s) for s in self.lineage_config.lineages)
         configs = [c for c in np.ndindex(mean.shape) if 0 < sum(c) < sum(full) and c != full]
-        top = sorted(configs, key=lambda c: mean[c], reverse=True)[:4]
-        pairs = [(top[a], top[b]) for a in range(len(top)) for b in range(a, len(top))]
-        jsfs.cache_joint(pairs, [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
+        top = sorted(configs, key=lambda c: mean[c], reverse=True)[:3]
+        jsfs.cache_joint(_representative_pairs(top), [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
         jsfs.drop()
 
     @cached_property

@@ -19,7 +19,7 @@ comparisons:
         quantile: 0.14
       pairwise:
         cosine:
-          cdf: 0.0016
+          cdf: 0.0013
           pdf: 0.15
     fsfs:
       mutation_configs: 0.16
