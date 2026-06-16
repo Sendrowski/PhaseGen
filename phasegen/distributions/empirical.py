@@ -406,6 +406,11 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Samples by deme and locus
         self._samples = samples
 
+        #: Cross-locus joint distribution ground truth (cross-moment + joint CDF/density at marginal-quantile points),
+        #: populated by :meth:`cache_loci_joint` before the samples are dropped, then serialized with the comparison.
+        #: Same ``[(l1, l2, cross, [(x, y, cdf, pdf), ...]), ...]`` structure the SFS pairwise uses.
+        self._loci_joint: list = []
+
         # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -476,6 +481,41 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         loci.corr = self.loci_corr
 
         return loci
+
+    def _locus_samples(self, locus: int) -> np.ndarray:
+        """Per-replicate accumulated reward at a single locus (summed over demes), matching :attr:`loci`."""
+        return self._samples[locus].sum(axis=0)
+
+    def cross_moment_loci(self, l1: int, l2: int) -> float:
+        """Empirical cross-locus moment ``E[R^{l1} R^{l2}]`` from the per-replicate per-locus samples — the simulated
+        counterpart of :meth:`MarginalLocusDistributions.joint_distribution` ``.moment(1, 1)``."""
+        return float((self._locus_samples(l1) * self._locus_samples(l2)).mean())
+
+    def joint_cdf(self, l1: int, l2: int, x: float, y: float) -> float:
+        """Empirical cross-locus joint CDF ``P(R^{l1} <= x, R^{l2} <= y)`` from the per-replicate per-locus samples."""
+        return float(((self._locus_samples(l1) <= x) & (self._locus_samples(l2) <= y)).mean())
+
+    def joint_pdf(self, l1: int, l2: int, x: float, y: float, hx: float, hy: float) -> float:
+        """Empirical cross-locus joint density via the centred box difference of the joint CDF (non-singular for
+        ``l1 != l2`` -- two distinct loci)."""
+        c = self.joint_cdf
+        return float((c(l1, l2, x + hx, y + hy) - c(l1, l2, x + hx, y - hy)
+                      - c(l1, l2, x - hx, y + hy) + c(l1, l2, x - hx, y - hy)) / (4 * hx * hy))
+
+    def cache_loci_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
+        """Pre-compute the cross-locus joint ground truth (cross-moment and joint CDF *and* density at marginal-quantile
+        points) into ``self._loci_joint`` for serialization; same structure as
+        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`, indexed by locus pair."""
+        self._loci_joint = []
+        for l1, l2 in pairs:
+            a, b = self._locus_samples(l1), self._locus_samples(l2)
+            hx = 0.15 * (np.quantile(a, 0.75) - np.quantile(a, 0.25)) or 1e-6
+            hy = 0.15 * (np.quantile(b, 0.75) - np.quantile(b, 0.25)) or 1e-6
+            points = []
+            for qa, qb in quantiles:
+                x, y = float(np.quantile(a, qa)), float(np.quantile(b, qb))
+                points.append((x, y, self.joint_cdf(l1, l2, x, y), self.joint_pdf(l1, l2, x, y, hx, hy)))
+            self._loci_joint.append((l1, l2, self.cross_moment_loci(l1, l2), points))
 
 
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
@@ -1220,6 +1260,13 @@ class MsprimeCoalescent(AbstractCoalescent):
         # within-tree joint distribution ground truth
         if self.lineage_config.n_pops > 1 and self.locus_config.n == 1:
             self.cache_jsfs_joint()
+
+        # cache the cross-locus joint distribution ground truth (per-locus tree height / total branch length at the
+        # two loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
+        # survives the subsequent drop(). The single pair (0, 1) at mid-range marginal quantiles.
+        if self.locus_config.n == 2:
+            for dist in (self.tree_height, self.total_branch_length):
+                dist.cache_loci_joint([(0, 1)], [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 
     def drop(self):
         """

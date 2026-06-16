@@ -494,6 +494,29 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         return np.array([[self.get_corr(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
+    def joint_distribution(self, locus1: int, locus2: int) -> 'JointRewardDistribution':
+        """
+        Joint distribution of the accumulated reward at ``locus1`` and at ``locus2`` — e.g. the per-locus tree height
+        or total branch length at two loci separated by recombination. This is the distributional object behind the
+        cross-locus covariance :meth:`get_cov`/:meth:`get_corr`: it is built from the host distribution's own reward
+        restricted to each locus (``CombinedReward([reward, LocusReward(locus)])``, exactly the cross-moment reward
+        pair used there), so its marginals are the per-locus distributions :attr:`loci` and it shares the joint LST /
+        2D inversion machinery with the within-tree SFS pairwise joint.
+
+        :param locus1: The first locus.
+        :param locus2: The second locus.
+        :return: The joint accumulated-reward distribution across the two loci.
+        """
+        locus1, locus2 = int(locus1), int(locus2)
+
+        if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
+            raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
+
+        return self.dist.joint_distribution(
+            CombinedReward([self.dist.reward, LocusReward(locus1)]),
+            CombinedReward([self.dist.reward, LocusReward(locus2)])
+        )
+
 
 class MarginalDemeDistributions(MarginalDistributions):
     """

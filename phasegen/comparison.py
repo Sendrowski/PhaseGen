@@ -23,7 +23,7 @@ from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution,
     MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
-from .spectrum import SFS, SFS2, JointSFS
+from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from .utils import takewhile_inclusive
 
 logger = logging.getLogger('phasegen')
@@ -314,7 +314,7 @@ class Comparison(Serializable):
             ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
             ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
 
-        elif stat in ('pairwise_cdf', 'pairwise_pdf'):
+        elif stat in ('pairwise_cdf', 'pairwise_pdf', 'loci_pairwise_cdf', 'loci_pairwise_pdf'):
             ph_stat = ms_stat = None  # handled directly below from the cached empirical pairwise ground truth
 
         else:
@@ -324,19 +324,26 @@ class Comparison(Serializable):
         diff = 0.0
         plot = None  # deferred visualisation: invoked with the final result message, so the plot title == the log line
 
-        if stat in ('pairwise_cdf', 'pairwise_pdf'):
+        if stat in ('pairwise_cdf', 'pairwise_pdf', 'loci_pairwise_cdf', 'loci_pairwise_pdf'):
 
-            # within-tree pairwise joint distribution of bin pairs at marginal-quantile points: the cached
-            # empirical joint CDF P(L_i <= x, L_j <= y) / density f(x, y) versus the analytic ``joint_distribution``.
-            # The points sit at mid-range quantiles (away from the near-zero head). The joint density is singular on
-            # the diagonal, so self-pairs (i == j) are skipped for the pdf.
-            kind = 'cdf' if stat == 'pairwise_cdf' else 'pdf'
+            # pairwise joint distribution at marginal-quantile points: the cached empirical joint CDF
+            # P(R_a <= x, R_b <= y) / density f(x, y) versus the analytic ``joint_distribution``. The points sit at
+            # mid-range quantiles (away from the near-zero head). The joint density is singular on the diagonal, so
+            # self-pairs (a == b) are skipped for the pdf. ``loci_*`` compares the cross-locus joint (per-locus tree
+            # height / branch length at the two loci); the plain ``pairwise_*`` the within-tree SFS bin pairs.
+            kind = 'cdf' if stat.endswith('cdf') else 'pdf'
             col = 2 if kind == 'cdf' else 3  # column in the cached point tuple (x, y, cdf, pdf)
+            if stat.startswith('loci'):
+                ms_joint = getattr(ms, '_loci_joint', [])
+                def joint_for(a, b): return ph.loci.joint_distribution(a, b)
+            else:
+                ms_joint = ms._joint
+                def joint_for(a, b): return ph.joint_distribution(a, b)
             y_ms, y_ph = [], []
-            for i, j, _c, points in ms._joint:
+            for i, j, _c, points in ms_joint:
                 if kind == 'pdf' and i == j:
                     continue  # no 2D density on the diagonal
-                jd = ph.joint_distribution(i, j)
+                jd = joint_for(i, j)
                 for point in points:
                     x, y = point[0], point[1]
                     # skip atom-edge points (x or y at 0): a mostly-empty high-frequency bin's quantile points
@@ -393,27 +400,29 @@ class Comparison(Serializable):
         # assume we have an SFS
         elif isinstance(ph_stat, Iterable):
 
-            # whether this is a joint (multi-population) SFS, which may be rectangular or higher-dimensional
+            # whether this is a joint (multi-population) SFS or a two-locus SFS -- both are 2-D spectra drawn as
+            # side-by-side heatmaps (the joint SFS may be rectangular / higher-dimensional, the two-locus SFS square)
             is_joint = isinstance(ph_stat, JointSFS)
+            heatmap_cls = JointSFS if is_joint else (TwoLocusSFS if isinstance(ph_stat, TwoLocusSFS) else None)
 
             ms_stat = np.array(list(ms_stat))
             ph_stat = np.array(list(ph_stat))
             diff = self.rel_diff(ms_stat, ph_stat).max()
 
             if self.visualize:
-                if is_joint and ph_stat.ndim == 2:
-                    # plot the joint SFS as side-by-side heatmaps, but only when it is 2-dimensional
-                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                if heatmap_cls is not None and ph_stat.ndim == 2:
+                    # plot the joint / two-locus SFS as side-by-side heatmaps, but only when it is 2-dimensional
+                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls):
                         plt.close('all')  # avoid empty plots
                         fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
                         if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
                         axs[0].set_title('phasegen', fontsize=self.title_fontsize)
                         axs[1].set_title('msprime', fontsize=self.title_fontsize)
-                        JointSFS(ph_stat).plot(ax=axs[0], show=False)
-                        JointSFS(ms_stat).plot(ax=axs[1], show=False)
+                        cls(ph_stat).plot(ax=axs[0], show=False)
+                        cls(ms_stat).plot(ax=axs[1], show=False)
                         self._save_and_show(name, pad=1.5)
 
-                elif not is_joint and ph_stat.ndim == 1:
+                elif heatmap_cls is None and ph_stat.ndim == 1:
                     def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
                         s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
                         s.plot(title=msg if self.show_title else None, show=False)
@@ -540,8 +549,8 @@ class Comparison(Serializable):
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
         uses the worst *absolute* difference, the pdf a *mean absolute difference normalised by the peak (mode) of the
         reference density*, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative* difference."""
-        return {'cdf': 'max abs', 'pairwise_cdf': 'max abs',
-                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode'}.get(stat, 'max rel')
+        return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
+                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode', 'loci_pairwise_pdf': 'mean/mode'}.get(stat, 'max rel')
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph) -> float:
@@ -728,14 +737,24 @@ class Comparison(Serializable):
 
             elif stat in ['demes', 'loci']:
 
-                self._compare_stat_recursively(
-                    ph=getattr(ph, stat),
-                    ms=getattr(ms, stat),
-                    data=sub,
-                    title=f"{title}: {stat}",
-                    name=f"{name}_{stat}",
-                    mode=mode
-                )
+                # a cross-locus 'pairwise' joint group (loci only) compares the joint distribution across the two loci
+                # using the *parent* distributions (which carry the cached joint and the per-locus joint builder), not
+                # the per-locus marginal container; any remaining keys (mean/var/cov/corr) recurse as usual.
+                rest = sub
+                if stat == 'loci' and isinstance(sub, dict) and 'pairwise' in sub:
+                    rest = {k: v for k, v in sub.items() if k != 'pairwise'}
+                    self._compare_loci_pairwise(ph=ph, ms=ms, sub=sub['pairwise'],
+                                                title=f"{title}: loci", name=f"{name}_loci", mode=mode)
+
+                if rest:
+                    self._compare_stat_recursively(
+                        ph=getattr(ph, stat),
+                        ms=getattr(ms, stat),
+                        data=rest,
+                        title=f"{title}: {stat}",
+                        name=f"{name}_{stat}",
+                        mode=mode
+                    )
 
             elif stat == 'pairwise':
 
@@ -771,6 +790,22 @@ class Comparison(Serializable):
                     name=name,
                     mode=mode
                 )
+
+    def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str, mode: str = None):
+        """
+        Compare the cross-locus joint distribution (the per-locus tree height / total branch length at the two loci,
+        separated by recombination) against the msprime ground truth. Mirrors the within-tree SFS ``pairwise`` group:
+        a ``de_hoog`` / ``cosine`` key routes the 2D inversion (``mode``); ``cdf`` / ``pdf`` keys carry the tolerance
+        for the aggregate joint CDF / density at marginal-quantile points (handled in :meth:`compare_stat` via the
+        ``loci_pairwise_*`` stats, which read ``ms._loci_joint`` and ``ph.loci.joint_distribution``).
+        """
+        for key, subtol in sub.items():
+            if key in ('de_hoog', 'cosine'):
+                self._compare_loci_pairwise(ph=ph, ms=ms, sub=subtol, title=f"{title}: {key}",
+                                            name=f"{name}_{key}", mode=key)
+            elif key in ('cdf', 'pdf'):
+                self.compare_stat(ph=ph, ms=ms, stat=f'loci_pairwise_{key}', tol=subtol, title=title, name=name,
+                                  mode=mode)
 
     def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None):
         """
