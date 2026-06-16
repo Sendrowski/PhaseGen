@@ -9,7 +9,26 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mean: 0.02
-      theta_pi: 0.02
-      theta_w: 0.02
-      tajimas_d: 0.05
+      mean: 0.0035
+      theta_pi: 0.00071
+      theta_w: 0.00035
+      tajimas_d: 0.0046
+      '[1, 3, 7]':
+        cosine:
+          pdf: 0.5
+          cdf: 0.5
+          quantile: 0.5
+      pairwise:
+        cosine:
+          '[(1, 2), (1, 7), (2, 7)]':
+            cdf: 0.5
+            pdf: 0.5
+    tree_height:
+      pdf: 0.0044
+      cdf: 0.0023
+      quantile: 0.0051
+    total_branch_length:
+      cosine:
+        pdf: 0.014
+        cdf: 0.0023
+        quantile: 0.0046

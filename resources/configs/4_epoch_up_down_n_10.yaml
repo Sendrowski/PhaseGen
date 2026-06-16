@@ -30,7 +30,8 @@ comparisons:
       theta_pi: 0.00096
       theta_w: 0.0016
       tajimas_d: 0.011
-      cosine:
-        pdf: 0.0016
-        cdf: 0.0014
-        quantile: 0.65
+      '[1, 4, 9]':
+        cosine:
+          pdf: 0.5
+          cdf: 0.5
+          quantile: 0.5

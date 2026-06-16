@@ -13,11 +13,10 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.02
-      mean: 0.01
-      var: 0.05
+      mean: 0.00029
+      var: 0.015
     total_branch_length:
-      mean: 0.01
-      var: 0.05
+      mean: 0.00045
+      var: 0.0041
     sfs:
-      mean: 0.02
+      mean: 0.0074

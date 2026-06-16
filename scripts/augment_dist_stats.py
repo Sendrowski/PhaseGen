@@ -38,6 +38,15 @@ def augment(path: str) -> bool:
     if tol is None:
         return False
 
+    # number of lineages: a scalar ``n`` or the single-population dict form ``n: {pop_0: k}``
+    n_raw = cfg.get('n')
+    if isinstance(n_raw, int):
+        n_lineages = n_raw
+    elif isinstance(n_raw, dict) and len(n_raw) == 1:
+        n_lineages = int(next(iter(n_raw.values())))
+    else:
+        n_lineages = None
+
     # tree_height (exact expm; no mode wrapper -- not a de Hoog inversion)
     th = tol.setdefault('tree_height', {})
     for k in ('pdf', 'cdf', 'quantile'):
@@ -62,8 +71,7 @@ def augment(path: str) -> bool:
     has_bin_sel = any(isinstance(k, str) and k.startswith('[') for k in sfs)
     for k in ('pdf', 'cdf', 'quantile', 'cosine'):
         sfs.pop(k, None)
-    n_val = cfg.get('n')
-    hi = (n_val - 1) if isinstance(n_val, int) else 0
+    hi = (n_lineages - 1) if n_lineages else 0
     sfs_bins = sorted({b for b in (1, max(2, hi // 2), hi) if 1 <= b <= hi})
     if sfs_bins and not has_bin_sel:
         bkey = '[' + ', '.join(str(b) for b in sfs_bins) + ']'
@@ -73,11 +81,10 @@ def augment(path: str) -> bool:
     # fixed handful of pairs is cheap at any n (so we can exercise the joint even for large n). The pairs span the
     # informative regimes: (1, 2) low-low (most branch length, most correlated), (1, n-1) low-high (the anti-correlated
     # extremes) and (2, n-1) mid-high. The list key broadcasts the {cdf, pdf} tolerance over each pair.
-    n_val = cfg.get('n')
-    if isinstance(n_val, int) and n_val >= 3:
+    if n_lineages and n_lineages >= 3:
         pairs = [(1, 2)]
-        if n_val - 1 >= 3:  # enough polymorphic bins for the low-high / mid-high extremes to be distinct
-            pairs += [(1, n_val - 1), (2, n_val - 1)]
+        if n_lineages - 1 >= 3:  # enough polymorphic bins for the low-high / mid-high extremes to be distinct
+            pairs += [(1, n_lineages - 1), (2, n_lineages - 1)]
         pw = sfs.setdefault('pairwise', {})
         for k in ('cdf', 'pdf', 'quantile'):  # drop any aggregate (all-pairs) leaves
             pw.pop(k, None)
