@@ -52,25 +52,41 @@ def augment(path: str) -> bool:
     for k in ('pdf', 'cdf', 'quantile'):
         _ensure(cos, k, PLACEHOLDER)
 
-    # SFS: spectrum-wide pdf/cdf/quantile (cosine) + aggregate within-tree pairwise joint cdf/pdf (cosine). Strip any
-    # un-wrapped (default-de-Hoog) variants so only the cosine path is exercised.
+    # SFS 1D curves: cosine pdf/cdf/quantile on 2-3 *representative* bins (low / mid / high frequency) via the per-bin
+    # path, rather than the spectrum-wide curve over every bin -- same representative-selection rationale as the
+    # pairwise joint, and it scales to large n. Drop any spectrum-wide (un-wrapped or cosine) variants and any prior
+    # bin selection. The spectrum-wide moments (mean/cov/corr) are kept (cheap, comprehensive).
     sfs = tol.setdefault('sfs', {})
-    for k in ('pdf', 'cdf', 'quantile'):
+    # a manual representative-bin selection (a '[...]' bin-list key) is left untouched; only the spectrum-wide curve
+    # variants are stripped and converted
+    has_bin_sel = any(isinstance(k, str) and k.startswith('[') for k in sfs)
+    for k in ('pdf', 'cdf', 'quantile', 'cosine'):
         sfs.pop(k, None)
-    scos = sfs.setdefault('cosine', {})
-    for k in ('pdf', 'cdf', 'quantile'):
-        _ensure(scos, k, PLACEHOLDER)
-    # aggregate within-tree pairwise joint cdf/pdf over ALL bin pairs is O(pairs * 2D-cosine-build); only viable for
-    # small n. For larger n it would take many minutes (n=10 4-epoch ~ 20 min), so the pairwise block is skipped --
-    # the joint distribution is covered by the small-n scenarios (and the n=10 trio's few explicit surface pairs).
     n_val = cfg.get('n')
-    if isinstance(n_val, int) and n_val <= 6:
+    hi = (n_val - 1) if isinstance(n_val, int) else 0
+    sfs_bins = sorted({b for b in (1, max(2, hi // 2), hi) if 1 <= b <= hi})
+    if sfs_bins and not has_bin_sel:
+        bkey = '[' + ', '.join(str(b) for b in sfs_bins) + ']'
+        sfs[bkey] = {'cosine': {'pdf': PLACEHOLDER, 'cdf': PLACEHOLDER, 'quantile': PLACEHOLDER}}
+    # within-tree pairwise joint cdf/pdf for 2-3 *representative* bin pairs (a per-pair full-grid surface comparison),
+    # rather than the aggregate over ALL O(n^2) pairs -- the latter is wasteful for n > 3 and does not scale, while a
+    # fixed handful of pairs is cheap at any n (so we can exercise the joint even for large n). The pairs span the
+    # informative regimes: (1, 2) low-low (most branch length, most correlated), (1, n-1) low-high (the anti-correlated
+    # extremes) and (2, n-1) mid-high. The list key broadcasts the {cdf, pdf} tolerance over each pair.
+    n_val = cfg.get('n')
+    if isinstance(n_val, int) and n_val >= 3:
+        pairs = [(1, 2)]
+        if n_val - 1 >= 3:  # enough polymorphic bins for the low-high / mid-high extremes to be distinct
+            pairs += [(1, n_val - 1), (2, n_val - 1)]
         pw = sfs.setdefault('pairwise', {})
-        for k in ('cdf', 'pdf', 'quantile'):
+        for k in ('cdf', 'pdf', 'quantile'):  # drop any aggregate (all-pairs) leaves
             pw.pop(k, None)
         pwc = pw.setdefault('cosine', {})
         for k in ('cdf', 'pdf'):
-            _ensure(pwc, k, PLACEHOLDER)
+            pwc.pop(k, None)
+        key = '[' + ', '.join(f'({i}, {j})' for i, j in pairs) + ']'  # broadcast tol over the representative pairs
+        if not any(k not in ('cdf', 'pdf') for k in pwc):  # only add if no explicit pair keys already present
+            pwc[key] = {'cdf': PLACEHOLDER, 'pdf': PLACEHOLDER}
     else:
         sfs.pop('pairwise', None)
 
