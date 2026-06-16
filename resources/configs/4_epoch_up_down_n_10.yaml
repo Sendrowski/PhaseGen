@@ -11,17 +11,26 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.03
-      cdf: 0.03
-      mean: 0.01
-      var: 0.01
+      pdf: 0.003
+      cdf: 0.00095
+      mean: 0.0021
+      var: 0.0076
+      quantile: 0.0041
     total_branch_length:
-      mean: 0.01
-      var: 0.01
+      mean: 0.0016
+      var: 0.0065
+      cosine:
+        pdf: 0.0053
+        cdf: 0.00068
+        quantile: 0.0028
     sfs:
-      mean: 0.01
-      cov: 0.05
-      corr: 0.05
-      theta_pi: 0.02
-      theta_w: 0.02
-      tajimas_d: 0.05
+      mean: 0.011
+      cov: 0.038
+      corr: 0.031
+      theta_pi: 0.00096
+      theta_w: 0.0016
+      tajimas_d: 0.011
+      cosine:
+        pdf: 0.0016
+        cdf: 0.0014
+        quantile: 0.65

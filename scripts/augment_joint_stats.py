@@ -24,9 +24,10 @@ def augment(path: str) -> bool:
     touched = False
     for stat in ('jsfs', 'sfs2'):
         node = tol.get(stat)
-        if node is None or 'pairwise' not in node:
+        if node is None:
             continue
-        pw = node['pairwise']
+        # the generators always cache the pairwise joint ground truth, so a pairwise block can be added even if absent
+        pw = node.setdefault('pairwise', {})
         for k in ('cdf', 'pdf', 'quantile'):  # drop un-wrapped (default de Hoog) variants
             pw.pop(k, None)
         cos = pw.setdefault('cosine', {})

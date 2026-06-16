@@ -60,12 +60,19 @@ def augment(path: str) -> bool:
     scos = sfs.setdefault('cosine', {})
     for k in ('pdf', 'cdf', 'quantile'):
         _ensure(scos, k, PLACEHOLDER)
-    pw = sfs.setdefault('pairwise', {})
-    for k in ('cdf', 'pdf', 'quantile'):
-        pw.pop(k, None)
-    pwc = pw.setdefault('cosine', {})
-    for k in ('cdf', 'pdf'):
-        _ensure(pwc, k, PLACEHOLDER)
+    # aggregate within-tree pairwise joint cdf/pdf over ALL bin pairs is O(pairs * 2D-cosine-build); only viable for
+    # small n. For larger n it would take many minutes (n=10 4-epoch ~ 20 min), so the pairwise block is skipped --
+    # the joint distribution is covered by the small-n scenarios (and the n=10 trio's few explicit surface pairs).
+    n_val = cfg.get('n')
+    if isinstance(n_val, int) and n_val <= 6:
+        pw = sfs.setdefault('pairwise', {})
+        for k in ('cdf', 'pdf', 'quantile'):
+            pw.pop(k, None)
+        pwc = pw.setdefault('cosine', {})
+        for k in ('cdf', 'pdf'):
+            _ensure(pwc, k, PLACEHOLDER)
+    else:
+        sfs.pop('pairwise', None)
 
     with open(path, 'w') as f:
         yaml.dump(cfg, f)

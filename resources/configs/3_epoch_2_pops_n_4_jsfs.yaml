@@ -11,10 +11,10 @@ pop_sizes:
     0: 1
     0.5: 2
 migration_rates:
-  !!python/tuple [ 'pop_0', 'pop_1' ]:
+  ['pop_0', 'pop_1']:
     0: 0.5
     0.8: 1.5
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
+  ['pop_1', 'pop_0']:
     0: 0.5
     0.8: 1.5
 model: standard
@@ -22,5 +22,7 @@ comparisons:
   tolerance:
     jsfs:
       pairwise:
-        cdf: 0.03
+        cosine:
+          cdf: 0.5
+          pdf: 0.5
       mean: 0.02
