@@ -89,19 +89,22 @@ class RewardDistribution(CallableDistributionFunctions):
             )
 
         # the transient states, initial vector and per-epoch generators do not depend on the reward, so they are
-        # built once on the host and shared across all bins of a spectrum (see ``_reward_epoch_data``)
-        data = self._host._reward_epoch_data
+        # built once on the host and shared across all bins of a spectrum (see ``_reward_epoch_data``). The generators
+        # are time-rescaled (``tau``) for large-N conditioning; the LST compensates with ``s tau`` (see ``lst``).
+        data = self._host._reward_epoch_data_scaled
         r = r_full[data['idx']].astype(float)
 
         if np.any(r < 0):
             raise ValueError("RewardDistribution requires a non-negative reward.")
 
-        return dict(r=r, **data)
+        return dict(r=r, tau=self._host._time_scale, **data)
 
     def lst(self, s: complex) -> complex:
         """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
         st = self._setup
-        return _lst_from_shift(s * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
+        # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
+        # exactly but stays well-conditioned for large N (see ``time_scale``)
+        return _lst_from_shift((s * st['tau']) * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
 
     def _invert(self, transform, t: float) -> float:
         """
@@ -173,8 +176,9 @@ class RewardDistribution(CallableDistributionFunctions):
         """Exact ``q``-quantile by bisection on the per-point de Hoog ``_cdf`` (a full inversion per step). The robust
         fallback for the far tail, where the cached CDF curve does not reach ``q``."""
         # bracket: grow the upper bound until its CDF exceeds q (seed from the reward's mean via the LST,
-        # E[R] = -phi'(0), so we start near the right scale and only double a few times)
-        h = 1e-3
+        # E[R] = -phi'(0), so we start near the right scale and only double a few times). The step is scaled by
+        # ``1/tau`` so the seed evaluation does not overflow for large-N demographies (see ``_cumulants``).
+        h = 1e-3 / self._setup['tau']
         mean = (1.0 - self.lst(h).real) / h
         lo, hi = 0.0, max(mean, 1.0)
         for _ in range(max_iter):
@@ -341,8 +345,10 @@ class RewardDistribution(CallableDistributionFunctions):
 
     def _cumulants(self) -> tuple:
         """Mean and variance of the accumulated reward from the LST near 0 (``phi(0) = 1``): ``c1 = -phi'(0)``,
-        ``c2 = phi''(0) - phi'(0)^2``. Cheap (three transform evaluations); used to set the COS / plot range."""
-        h = 1e-4
+        ``c2 = phi''(0) - phi'(0)^2``. Cheap (three transform evaluations); used to set the COS / plot range. The
+        finite-difference step is scaled by ``1/tau`` (``tau ~`` the reward scale for large N) so that ``h * R`` stays
+        small and ``phi(-h) = E[e^{h R}]`` does not overflow for large-N demographies."""
+        h = 1e-4 / self._setup['tau']
         d1 = (self.lst(h).real - self.lst(-h).real) / (2 * h)
         d2 = (self.lst(h).real - 2.0 + self.lst(-h).real) / h ** 2
         return -d1, max(d2 - d1 ** 2, 1e-12)
@@ -425,6 +431,44 @@ def _build_epoch_data(host) -> dict:
     lu_perm = MomentEvaluator._block_triangular_order(T_epochs[-1][0]) if sparse else None
 
     return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs, lu_perm=lu_perm)
+
+
+def _avg_ne_at_zero(host) -> float:
+    """Average effective population size across populations at ``t = 0`` (the demography's first epoch)."""
+    try:
+        sizes = [float(v) for v in host.demography.get_epochs([0.0])[0].pop_sizes.values()]
+        return float(np.mean(sizes)) if sizes else 1.0
+    except Exception:
+        return 1.0
+
+
+def time_scale(host) -> float:
+    """
+    Time-rescaling factor for the accumulated-reward LST inversion.
+
+    For a large-N demography the LST is evaluated at tiny arguments (the COS frequencies / de Hoog nodes scale like
+    ``1/N``) against a generator whose rates also scale like ``1/N``, so the reward-shifted sub-generator
+    ``diag(s r) - T`` is ``~1/N``-scaled and its LU factorization loses precision and can overflow to inf/NaN.
+    Rescaling time by the average Ne at ``t = 0`` (``R -> R/tau``, ``T -> tau T``, epoch durations ``-> /tau``)
+    makes that solve ``O(1)``-conditioned. The transform value is *exactly invariant* under this rescaling -- the
+    ``tau`` factors cancel in both the ``expm(Q tau)`` of the bounded epochs and the final-epoch solve (see
+    :func:`_scale_epoch_data` and :meth:`RewardDistribution.lst`) -- so nothing downstream changes. A no-op (returns
+    ``1.0``) in the normal range so existing single-N fixtures are byte-identical.
+    """
+    tau = _avg_ne_at_zero(host)
+    return tau if (tau > 1e2 or tau < 1e-2) else 1.0
+
+
+def _scale_epoch_data(data: dict, tau: float) -> dict:
+    """Return a copy of :func:`_build_epoch_data` output with the per-epoch sub-generators scaled by ``tau`` and the
+    epoch boundaries by ``1/tau`` (the reward stays unscaled; the LST is evaluated at ``s tau`` -- see
+    :meth:`RewardDistribution.lst`). The block-triangular ordering is pattern-fixed under the positive scaling, so it
+    is reused. A no-op when ``tau == 1``."""
+    if tau == 1.0:
+        return data
+    scaled = dict(data)
+    scaled['T_epochs'] = [(T * tau, t0 / tau, t1 / tau) for (T, t0, t1) in data['T_epochs']]
+    return scaled
 
 
 def _exit_rates(T) -> np.ndarray:
@@ -519,10 +563,11 @@ class JointRewardDistribution:
 
     @cached_property
     def _setup(self):
-        """Bind both reward vectors to the host's shared (reward-independent) per-epoch generators."""
+        """Bind both reward vectors to the host's shared (reward-independent) per-epoch generators (time-rescaled by
+        ``tau`` for large-N conditioning; the LST compensates with ``s tau`` -- see :meth:`lst`)."""
         ss = self._host.state_space
-        data = self._host._reward_epoch_data
-        out = dict(**data)
+        data = self._host._reward_epoch_data_scaled
+        out = dict(tau=self._host._time_scale, **data)
         for name, reward in (('ra', self.reward_a), ('rb', self.reward_b)):
             r_full = np.asarray(reward._get(ss))
             if r_full.ndim != 1:
@@ -536,8 +581,11 @@ class JointRewardDistribution:
     def lst(self, s_a: complex, s_b: complex) -> complex:
         """The joint LST ``Phi(s_a, s_b) = E[e^{-s_a R_a - s_b R_b}]`` via the combined generator shift."""
         st = self._setup
-        return _lst_from_shift(s_a * st['ra'] + s_b * st['rb'], st['alpha'], st['T_epochs'], st['sparse'],
-                               st['lu_perm'])
+        # both rewards share the time-scale tau (R -> R/tau): evaluate at s*tau against the tau-scaled generators;
+        # the value equals the unscaled joint LST exactly but stays well-conditioned for large N (see ``time_scale``)
+        tau = st['tau']
+        return _lst_from_shift((s_a * tau) * st['ra'] + (s_b * tau) * st['rb'], st['alpha'], st['T_epochs'],
+                               st['sparse'], st['lu_perm'])
 
     def marginal(self, which: str = 'a') -> RewardDistribution:
         """The marginal accumulated-reward distribution of ``R_a`` (``which='a'``) or ``R_b`` (``which='b'``)."""

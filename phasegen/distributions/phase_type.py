@@ -141,6 +141,23 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return _build_epoch_data(self)
 
+    @cached_property
+    def _time_scale(self) -> float:
+        """The accumulated-reward inversion time-scale (average Ne at ``t = 0``; ``1.0`` outside the large-N regime).
+        Rescales the LST inversion to keep the reward-shifted generator well-conditioned for large-N demographies; the
+        transform value is invariant (see :func:`~phasegen.distributions.reward.time_scale`)."""
+        from .reward import time_scale
+
+        return time_scale(self)
+
+    @cached_property
+    def _reward_epoch_data_scaled(self) -> dict:
+        """:attr:`_reward_epoch_data` rescaled by :attr:`_time_scale` for the LST inversion (shared across all rewards
+        on this state space). Identical to the unscaled data in the normal-N regime (``tau == 1``)."""
+        from .reward import _scale_epoch_data
+
+        return _scale_epoch_data(self._reward_epoch_data, self._time_scale)
+
     def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Cumulative distribution function of the accumulated reward, ``P(R <= t)``, via the Laplace-Stieltjes
