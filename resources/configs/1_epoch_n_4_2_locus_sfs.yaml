@@ -14,5 +14,6 @@ comparisons:
       mean: 0.013
       pairwise:
         cosine:
-          cdf: 0.0026
-          pdf: 0.17
+          '[(1, 2), (1, 3), (2, 3)]':
+            cdf: 0.0032
+            pdf: 0.0075

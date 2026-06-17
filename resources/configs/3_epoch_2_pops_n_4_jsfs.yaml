@@ -27,6 +27,7 @@ comparisons:
     jsfs:
       pairwise:
         cosine:
-          cdf: 0.0024
-          pdf: 0.2
+          '[((0, 1), (1, 0)), ((0, 1), (2, 0)), ((1, 0), (2, 0))]':
+            cdf: 0.0053
+            pdf: 0.018
       mean: 0.0061

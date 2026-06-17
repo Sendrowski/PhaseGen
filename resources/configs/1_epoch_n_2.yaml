@@ -28,9 +28,7 @@ comparisons:
         quantile: 0.0026
     sfs:
       pairwise:
-        cosine:
-          cdf: 0.00036
-          pdf: 0.0005
+        cosine: {}
       mean: 0.00056
       cov: 0.00042
       corr: 0.0005

@@ -32,10 +32,7 @@
             },
             "sfs": {
                 "pairwise": {
-                    "cosine": {
-                        "cdf": 0.00053,
-                        "pdf": 0.0005
-                    }
+                    "cosine": {}
                 },
                 "mean": 0.0029,
                 "cov": 0.0083,

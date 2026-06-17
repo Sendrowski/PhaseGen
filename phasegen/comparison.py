@@ -25,32 +25,8 @@ from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from .utils import takewhile_inclusive
-from .distributions.empirical import _representative_pairs
 
 logger = logging.getLogger('phasegen')
-
-
-def _cap_to_representative(joint: list, k: int = 3) -> list:
-    """Select up to ``k`` representative pairs from a cached within-tree joint ground truth list
-    (``[(i, j, cross, points), ...]``). The pairs span the items present (bins / descendant configs) via
-    :func:`~phasegen.distributions.empirical._representative_pairs` (low-low / low-high / mid-high), so the
-    aggregate pairwise comparison evaluates a bounded, representative subset of whatever the fixture cached --
-    no re-simulation needed when a fixture holds more pairs than we now test."""
-    if len(joint) <= k:
-        return joint
-    items = []
-    for e in joint:
-        for x in (e[0], e[1]):
-            if x not in items:
-                items.append(x)
-    # ``_representative_pairs`` yields up to 3 pairs (low-low / low-high / mid-high); take the first ``k`` so the
-    # cap is actually honoured (k < 3 keeps heavy joint inversions, e.g. multi-epoch MMC jSFS, cheap)
-    reps = set()
-    for a, b in _representative_pairs(items)[:k]:
-        reps.add((a, b))
-        reps.add((b, a))
-    sel = [e for e in joint if (e[0], e[1]) in reps]
-    return sel if sel else joint[:k]
 
 
 class Comparison(Serializable):
@@ -338,9 +314,6 @@ class Comparison(Serializable):
             ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
             ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
 
-        elif stat in ('pairwise_cdf', 'pairwise_pdf', 'loci_pairwise_cdf', 'loci_pairwise_pdf'):
-            ph_stat = ms_stat = None  # handled directly below from the cached empirical pairwise ground truth
-
         else:
             ph_stat = getattr(ph, stat)
             ms_stat = getattr(ms, stat)
@@ -348,66 +321,7 @@ class Comparison(Serializable):
         diff = 0.0
         plot = None  # deferred visualisation: invoked with the final result message, so the plot title == the log line
 
-        if stat in ('pairwise_cdf', 'pairwise_pdf', 'loci_pairwise_cdf', 'loci_pairwise_pdf'):
-
-            # pairwise joint distribution at marginal-quantile points: the cached empirical joint CDF
-            # P(R_a <= x, R_b <= y) / density f(x, y) versus the analytic ``joint_distribution``. The points sit at
-            # mid-range quantiles (away from the near-zero head). The joint density is singular on the diagonal, so
-            # self-pairs (a == b) are skipped for the pdf. ``loci_*`` compares the cross-locus joint (per-locus tree
-            # height / branch length at the two loci); the plain ``pairwise_*`` the within-tree SFS bin pairs.
-            kind = 'cdf' if stat.endswith('cdf') else 'pdf'
-            col = 2 if kind == 'cdf' else 3  # column in the cached point tuple (x, y, cdf, pdf)
-            if stat.startswith('loci'):
-                ms_joint = getattr(ms, '_loci_joint', [])
-                def joint_for(a, b): return ph.loci.joint_distribution(a, b)
-            else:
-                ms_joint = ms._joint
-                def joint_for(a, b): return ph.joint_distribution(a, b)
-            # cap the aggregate at 3 representative pairs read from the cached joint (the joint accuracy is
-            # pair-independent, so a representative handful suffices and keeps the analytic cost bounded). The fixture
-            # may cache more pairs (older fixtures cached all O(n^2) / the top-4 jSFS configs); we just evaluate a
-            # representative subset of them -- no re-simulation needed.
-            ms_joint = _cap_to_representative(ms_joint, getattr(self, '_max_pairwise_pairs', 3))
-            y_ms, y_ph = [], []
-            for i, j, _c, points in ms_joint:
-                if kind == 'pdf' and i == j:
-                    continue  # no 2D density on the diagonal
-                jd = joint_for(i, j)
-                for point in points:
-                    x, y = point[0], point[1]
-                    # skip atom-edge points (x or y at 0): a mostly-empty high-frequency bin's quantile points
-                    # collapse onto the atom there, where the empirical "density" is a degenerate spike (the atom
-                    # mass in one grid cell -> millions) and the continuous comparison is meaningless
-                    if x <= 0 or y <= 0:
-                        continue
-                    y_ms.append(point[col])
-                    # default (no mode): validate the accurate de Hoog inversion, since the 2D default is the fast
-                    # cosine; a de_hoog/cosine wrapper overrides it
-                    m2d = self._mode_2d(mode, 'dehoog')
-                    y_ph.append(jd.cdf(x, y, mode=m2d) if kind == 'cdf' else jd.pdf(x, y, mode=m2d))
-            y_ms, y_ph = np.array(y_ms, dtype=float), np.array(y_ph, dtype=float)
-            # no genuine cross-bin pairs (e.g. n = 2 has a single bin) -> nothing to compare. The CDF (bounded in
-            # [0, 1]) uses its worst *absolute* difference; the density the mode-normalised mean absolute difference.
-            if not len(y_ms):
-                diff = 0.0
-            elif kind == 'cdf':
-                diff = float(np.abs(y_ms - y_ph).max())
-            else:
-                diff = self._pdf_diff(y_ms, y_ph)
-
-            if self.visualize and len(y_ms):
-                def plot(msg, y_ms=y_ms, y_ph=y_ph, kind=kind):
-                    # agreement scatter: each point is one (bin pair, quantile-point) joint CDF / density; perfect
-                    # agreement lies on the identity line
-                    plt.scatter(y_ms, y_ph, s=25, alpha=0.7)
-                    hi = 1.0 if kind == 'cdf' else float(max(y_ms.max(), y_ph.max(), 1e-9))
-                    plt.plot([0, hi], [0, hi], 'k--', linewidth=1, alpha=0.6)
-                    plt.xlabel('msprime')
-                    plt.ylabel('phasegen')
-                    if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
-                    self._save_and_show(name)
-
-        elif isinstance(ph_stat, float):
+        if isinstance(ph_stat, float):
 
             diff = self.rel_diff(ms_stat, ph_stat).max()
 
@@ -800,16 +714,12 @@ class Comparison(Serializable):
 
             elif stat == 'pairwise':
 
-                # nested pairwise group. 'cdf'/'pdf' aggregate the within-tree joint comparison across all bin pairs
-                # at marginal-quantile points; a pair key like '(1, 2)' carries {cdf, pdf} tolerances for the
-                # full-grid surface comparison of that single pair (each optionally wrapped in a de_hoog/cosine mode).
+                # nested pairwise group. A pair key like '(1, 2)' carries {cdf, pdf} tolerances for the full-grid
+                # surface comparison of that single bin pair (each optionally wrapped in a de_hoog/cosine mode).
                 for key, subtol in sub.items():
                     if key in ('de_hoog', 'cosine'):
                         self._compare_stat_recursively(ph=ph, ms=ms, data={'pairwise': subtol},
                                                        title=f"{title}: {key}", name=f"{name}_{key}", mode=key)
-                    elif key in ('cdf', 'pdf'):
-                        self.compare_stat(ph=ph, ms=ms, stat=f'pairwise_{key}', tol=subtol, title=title, name=name,
-                                          mode=mode)
                     else:
                         pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
                         self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=subtol, title=title, name=name,
@@ -1235,12 +1145,6 @@ class Comparison(Serializable):
         plt.rcParams['axes.titlesize'] = self.title_fontsize
         plt.rcParams['figure.titlesize'] = self.suptitle_fontsize
         self._comp_index = 0  # sequential comparison counter, prepended as '#i' to each result message / plot title
-
-        # cap on the number of representative pairwise bin-pairs evaluated for the joint distribution (default 3). The
-        # joint accuracy is pair-independent, so heavy scenarios (e.g. multi-epoch MMC jSFS, whose 2D-cosine inversion
-        # is the dominant cost) can set ``max_pairwise_pairs: 1`` to keep the fast suite cheap while still validating
-        # the joint distribution under that scenario.
-        self._max_pairwise_pairs = self.comparisons.get('max_pairwise_pairs', 3)
 
         for dist, data in self._expand_keys(self.comparisons['tolerance']).items():
             self._compare_stat_recursively(

@@ -47,16 +47,14 @@ c = Comparison.from_yaml(file)
 c.parallelize = False
 c.n_threads = 1
 
-# cache the msprime joint-SFS ground truth (accumulated within simulate()) together with the within-tree joint
-# distribution ground truth (cross-moment + joint CDF at marginal-quantile points), then null the raw per-replicate
-# samples and the demography to keep the fixture small (the moments are retained by the cached jsfs distribution)
-# cache the full-grid joint *surface* ground truth for any configured pairwise surface pairs (config-pair keys like
-# ``((0, 1), (1, 0))`` under ``jsfs: pairwise: cosine``) -- before ``cache_jsfs_joint`` drops the per-replicate
-# samples (the ``jsfs`` cached-property is built with samples here and reused there; ``drop`` only nulls the samples,
-# leaving ``_joint_surface`` intact)
+# cache the msprime joint-SFS ground truth (accumulated within simulate()) -- the moments are retained by the cached
+# jsfs distribution -- then null the raw per-replicate samples and the demography to keep the fixture small. Cache the
+# full-grid joint *surface* ground truth for any configured pairwise surface pairs (config-pair keys like
+# ``((0, 1), (1, 0))`` under ``jsfs: pairwise: cosine``) before dropping the per-replicate samples (``drop`` only nulls
+# the samples, leaving ``_joint_surface`` intact)
 for dist, pairs in c._pairwise_surface_pairs().items():
     getattr(c.ms, dist).cache_joint_surface(pairs)
-c.ms.cache_jsfs_joint()
+c.ms.jsfs.drop()
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples', 'demography'):
     setattr(c.ms, attr, None)
 

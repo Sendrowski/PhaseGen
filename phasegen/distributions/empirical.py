@@ -28,20 +28,6 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-def _representative_pairs(items: list) -> list:
-    """Up to 3 *representative* pairs from an ordered list of bins / descendant configs: (first, second),
-    (first, last), (second, last) -- spanning low-low / low-high / mid-high. The within-tree joint comparison is
-    capped at 3 pairs per spectrum type and config (its accuracy does not depend on which pairs are chosen, so a
-    representative handful suffices and keeps the cost bounded regardless of the state-space size)."""
-    if len(items) < 2:
-        return [(items[0], items[0])] if items else []
-    a, b, c = items[0], items[1], items[-1]
-    pairs = [(a, b)]
-    if c != b:
-        pairs += [(a, c), (b, c)]
-    return pairs[:3]
-
-
 class EmpiricalJointSFSDistribution:  # pragma: no cover
     """
     Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
@@ -57,16 +43,14 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         :param moments: Per-configuration (non-central) moments of orders ``1, 2, ...``, stacked along the first
             axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
         :param samples: Optional per-replicate joint SFS branch lengths, shape ``(n_replicates, n_0 + 1, ...)``, used
-            to pre-compute the within-tree joint ground truth (:meth:`cache_joint`); dropped before serialization.
+            to pre-compute the within-tree joint surface ground truth (:meth:`cache_joint_surface`); dropped before
+            serialization.
         """
         #: Non-central moments per descendant configuration, indexed by order minus one.
         self._moments: np.ndarray = np.asarray(moments)
 
-        #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint`).
+        #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint_surface`).
         self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
-
-        #: Cached within-tree joint ground truth: ``[(config_a, config_b, cross, [(x, y, cdf), ...]), ...]``.
-        self._joint: list = []
 
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface: list = []
@@ -90,24 +74,6 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         c = self.joint_cdf
         return float((c(config_a, config_b, x + hx, y + hy) - c(config_a, config_b, x + hx, y - hy)
                       - c(config_a, config_b, x - hx, y + hy) + c(config_a, config_b, x - hx, y - hy)) / (4 * hx * hy))
-
-    def cache_joint(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], quantiles: List[Tuple[float, float]]):
-        """Pre-compute, for each config pair, the empirical cross-moment and the joint CDF at marginal-quantile
-        points, so the joint ground truth is serialized with the comparison and survives :meth:`drop`. Mirrors
-        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint` but indexed by descendant configuration."""
-        self._joint = []
-        for ca, cb in pairs:
-            a = self.samples[(slice(None),) + tuple(ca)]
-            b = self.samples[(slice(None),) + tuple(cb)]
-            hx = 0.15 * (np.quantile(a, 0.75) - np.quantile(a, 0.25)) or 1e-6
-            hy = 0.15 * (np.quantile(b, 0.75) - np.quantile(b, 0.25)) or 1e-6
-            diag = tuple(ca) == tuple(cb)  # the joint law is singular on the diagonal -> no density
-            points = []
-            for qa, qb in quantiles:
-                x, y = float(np.quantile(a, qa)), float(np.quantile(b, qb))
-                pdf = float('nan') if diag else self.joint_pdf(ca, cb, x, y, hx, hy)
-                points.append((x, y, self.joint_cdf(ca, cb, x, y), pdf))
-            self._joint.append((tuple(ca), tuple(cb), float((a * b).mean()), points))
 
     def cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
                             q_max: float = 0.95):
@@ -439,11 +405,6 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Samples by deme and locus
         self._samples = samples
 
-        #: Cross-locus joint distribution ground truth (cross-moment + joint CDF/density at marginal-quantile points),
-        #: populated by :meth:`cache_loci_joint` before the samples are dropped, then serialized with the comparison.
-        #: Same ``[(l1, l2, cross, [(x, y, cdf, pdf), ...]), ...]`` structure the SFS pairwise uses.
-        self._loci_joint: list = []
-
         #: Cross-locus full-grid joint surface ground truth: ``[(l1, l2, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._loci_joint_surface: list = []
 
@@ -521,37 +482,6 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     def _locus_samples(self, locus: int) -> np.ndarray:
         """Per-replicate accumulated reward at a single locus (summed over demes), matching :attr:`loci`."""
         return self._samples[locus].sum(axis=0)
-
-    def cross_moment_loci(self, l1: int, l2: int) -> float:
-        """Empirical cross-locus moment ``E[R^{l1} R^{l2}]`` from the per-replicate per-locus samples — the simulated
-        counterpart of :meth:`MarginalLocusDistributions.joint_distribution` ``.moment(1, 1)``."""
-        return float((self._locus_samples(l1) * self._locus_samples(l2)).mean())
-
-    def joint_cdf(self, l1: int, l2: int, x: float, y: float) -> float:
-        """Empirical cross-locus joint CDF ``P(R^{l1} <= x, R^{l2} <= y)`` from the per-replicate per-locus samples."""
-        return float(((self._locus_samples(l1) <= x) & (self._locus_samples(l2) <= y)).mean())
-
-    def joint_pdf(self, l1: int, l2: int, x: float, y: float, hx: float, hy: float) -> float:
-        """Empirical cross-locus joint density via the centred box difference of the joint CDF (non-singular for
-        ``l1 != l2`` -- two distinct loci)."""
-        c = self.joint_cdf
-        return float((c(l1, l2, x + hx, y + hy) - c(l1, l2, x + hx, y - hy)
-                      - c(l1, l2, x - hx, y + hy) + c(l1, l2, x - hx, y - hy)) / (4 * hx * hy))
-
-    def cache_loci_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
-        """Pre-compute the cross-locus joint ground truth (cross-moment and joint CDF *and* density at marginal-quantile
-        points) into ``self._loci_joint`` for serialization; same structure as
-        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`, indexed by locus pair."""
-        self._loci_joint = []
-        for l1, l2 in pairs:
-            a, b = self._locus_samples(l1), self._locus_samples(l2)
-            hx = 0.15 * (np.quantile(a, 0.75) - np.quantile(a, 0.25)) or 1e-6
-            hy = 0.15 * (np.quantile(b, 0.75) - np.quantile(b, 0.25)) or 1e-6
-            points = []
-            for qa, qb in quantiles:
-                x, y = float(np.quantile(a, qa)), float(np.quantile(b, qb))
-                points.append((x, y, self.joint_cdf(l1, l2, x, y), self.joint_pdf(l1, l2, x, y, hx, hy)))
-            self._loci_joint.append((l1, l2, self.cross_moment_loci(l1, l2), points))
 
     def cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
         """Pre-compute, for each locus pair, the empirical cross-locus joint CDF and density over a 2D grid (the
@@ -752,28 +682,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         return float((self.joint_cdf(i, j, x + hx, y + hy) - self.joint_cdf(i, j, x + hx, y - hy)
                       - self.joint_cdf(i, j, x - hx, y + hy) + self.joint_cdf(i, j, x - hx, y - hy)) / (4 * hx * hy))
 
-    def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
-        """
-        Pre-compute, for each bin pair, the empirical cross-moment and the joint CDF *and density* at marginal-quantile
-        points, so the (1M-replicate) joint ground truth is serialized with the comparison and survives :meth:`drop`.
-        Stored as ``self._joint = [(i, j, cross, [(x, y, cdf, pdf), ...]), ...]`` (small, samples-free). The density is
-        only defined off the diagonal (the joint law is singular when ``i == j``), so it is ``nan`` for self-pairs.
-        """
-        s = self.samples
-        self._joint = []
-        for i, j in pairs:
-            # box half-widths for the density estimate: a fraction of each bin's inter-quartile range
-            hx = 0.15 * (np.quantile(s[:, i], 0.75) - np.quantile(s[:, i], 0.25)) or 1e-6
-            hy = 0.15 * (np.quantile(s[:, j], 0.75) - np.quantile(s[:, j], 0.25)) or 1e-6
-            points = []
-            for qa, qb in quantiles:
-                x = float(np.quantile(s[:, i], qa))
-                y = float(np.quantile(s[:, j], qb))
-                cdf = self.joint_cdf(i, j, x, y)
-                pdf = float('nan') if i == j else self.joint_pdf(i, j, x, y, hx, hy)
-                points.append((x, y, cdf, pdf))
-            self._joint.append((i, j, float((s[:, i] * s[:, j]).mean()), points))
-
     def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
         """
         Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
@@ -928,20 +836,6 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         c = self.joint_cdf
         return float((c(i, j, x + hx, y + hy) - c(i, j, x + hx, y - hy)
                       - c(i, j, x - hx, y + hy) + c(i, j, x - hx, y - hy)) / (4 * hx * hy))
-
-    def cache_joint(self, pairs: List[Tuple[int, int]], quantiles: List[Tuple[float, float]]):
-        """Pre-compute the two-locus joint ground truth (cross-moment and joint CDF *and density* at marginal-quantile
-        points) for serialization; same structure as :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint`."""
-        self._joint = []
-        for i, j in pairs:
-            li, rj = self._left[:, i], self._right[:, j]
-            hx = 0.15 * (np.quantile(li, 0.75) - np.quantile(li, 0.25)) or 1e-6
-            hy = 0.15 * (np.quantile(rj, 0.75) - np.quantile(rj, 0.25)) or 1e-6
-            points = []
-            for qa, qb in quantiles:
-                x, y = float(np.quantile(li, qa)), float(np.quantile(rj, qb))
-                points.append((x, y, self.joint_cdf(i, j, x, y), self.joint_pdf(i, j, x, y, hx, hy)))
-            self._joint.append((i, j, self.cross_moment(i, j), points))
 
     def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
         """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical
@@ -1309,29 +1203,13 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.sfs.touch(t)
         self.fsfs.touch(t)
 
-        # cache the within-tree joint distribution ground truth (cross-moment + joint CDF at marginal-quantile
-        # points) so the full-replicate joint is serialized with the comparison and survives the subsequent drop().
-        # The two-locus joint is cached by the dedicated two-locus fixture script (which does not call touch()).
-        # 3 representative bin pairs (low-low / low-high / mid-high) rather than all O(n^2) pairs -- see
-        # ``_representative_pairs``. The joint accuracy is pair-independent, so a representative handful keeps the
-        # comparison cost bounded.
-        if self.lineage_config.n_pops == 1 and self.locus_config.n == 1:
-            n = self.lineage_config.n
-            self.sfs.cache_joint(_representative_pairs(list(range(1, n))),
-                                 [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
-
-        # cache the joint SFS distribution (its moments were already accumulated by simulate() above) for
-        # multi-population, single-locus scenarios, so it is serialized along with the comparison, together with the
-        # within-tree joint distribution ground truth
-        if self.lineage_config.n_pops > 1 and self.locus_config.n == 1:
-            self.cache_jsfs_joint()
-
-        # cache the cross-locus joint distribution ground truth (per-locus tree height / total branch length at the
-        # two loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
-        # survives the subsequent drop(). The single pair (0, 1) at mid-range marginal quantiles.
+        # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
+        # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
+        # survives the subsequent drop(). The single pair (0, 1) over a full grid. The within-tree (single-locus and
+        # multi-population) joint surfaces are cached separately by :meth:`Comparison.cache_ground_truth` from the
+        # configured pairwise surface pairs.
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
-                dist.cache_loci_joint([(0, 1)], [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
                 dist.cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
 
     def drop(self):
@@ -1452,23 +1330,6 @@ class MsprimeCoalescent(AbstractCoalescent):
             )
 
         return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples)
-
-    def cache_jsfs_joint(self):
-        """
-        Cache the within-tree joint distribution ground truth on the joint SFS, then drop the per-replicate samples.
-        The config pairs are 3 representative pairs among the descendant configurations carrying the most branch
-        length (so the marginal-quantile evaluation points sit well away from any atom at 0) -- see
-        ``_representative_pairs``; capped at 3 pairs like the single- and two-locus SFS joints. The cross-moment and
-        the joint CDF at marginal-quantile points are then serialized with the comparison and validated at test time
-        via :meth:`Comparison.compare_stat` (the ``joint`` stat).
-        """
-        jsfs = self.jsfs
-        mean = self.jsfs_moments[0]
-        full = tuple(int(s) for s in self.lineage_config.lineages)
-        configs = [c for c in np.ndindex(mean.shape) if 0 < sum(c) < sum(full) and c != full]
-        top = sorted(configs, key=lambda c: mean[c], reverse=True)[:3]
-        jsfs.cache_joint(_representative_pairs(top), [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
-        jsfs.drop()
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':

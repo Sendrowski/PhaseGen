@@ -40,10 +40,7 @@
                     "quantile": 0.0049
                 },
                 "pairwise": {
-                    "cosine": {
-                        "cdf": 0.0016,
-                        "pdf": 0.0005
-                    }
+                    "cosine": {}
                 }
             }
         }

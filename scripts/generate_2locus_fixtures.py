@@ -35,22 +35,8 @@ c.n_threads = 1
 # demography to keep the fixture small
 _ = c.ms.sfs2
 
-# cache the two-locus joint distribution ground truth (cross-moment + joint CDF at marginal-quantile points) from the
-# per-replicate locus branch lengths, then drop those (large) samples so only the small ground truth is serialized.
-# Only a few *representative* cross-locus bin pairs (low-low / low-high / mid-high) rather than all O(n^2) pairs: the
-# all-pairs aggregate is prohibitively slow for larger n (the 2D cosine build per pair on the two-locus state space
-# took ~60 min/pass at n=6), while a fixed handful is cheap and exercises the informative regimes.
-n = c.ph.lineage_config.n
-hi = n - 1
-if hi >= 3:
-    rep_pairs = [(1, 2), (1, hi), (2, hi)]
-elif hi == 2:
-    rep_pairs = [(1, 2)]
-else:
-    rep_pairs = [(1, 1)]
-c.ms.sfs2.cache_joint(rep_pairs, [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
 # cache the full-grid joint *surface* ground truth for any configured pairwise surface pairs (cross-locus bin-pair
-# keys like ``(1, 2)`` under ``sfs2: pairwise: cosine``), before the raw samples are dropped below
+# keys like ``(1, 2)`` under ``sfs2: pairwise: cosine``), before the raw per-replicate samples are dropped below
 for dist, pairs in c._pairwise_surface_pairs().items():
     getattr(c.ms, dist).cache_joint_surface(pairs)
 c.ms.sfs2.drop()
