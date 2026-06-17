@@ -424,6 +424,11 @@ def _build_epoch_data(host) -> dict:
     idx = np.where(~ss.absorbing)[0]
     alpha = np.asarray(ss.alpha)[idx].astype(float)
     nt = len(idx)
+    # ``sparse`` gates the sparse matrix build and the sparse block-triangular LU of the final-epoch solve (which is
+    # the large-space win and handles the s->inf atom shift directly). The finite-epoch matrix-exponential is always
+    # dense (densifying a sparse block): the only alternative, the expm_multiply *action*, is norm-driven and cannot
+    # evaluate the ``s = inf`` (1e8) atom shifts that every inversion needs -- so it has no usable role here (unlike
+    # the moment path, which never inverts an atom and gates its action on ``Settings.expm_action_min_dim``).
     sparse = nt >= Settings.closed_form_sparse_min_states
 
     T_epochs = []
@@ -503,17 +508,13 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
     for T, t0, t1 in T_epochs[:-1]:
         exit_col = _exit_rates(T)
         tau = t1 - t0
-        if sparse:
-            Q = sp.bmat([
-                [sp.csc_matrix(T) - sp.diags(shift), sp.csc_matrix(exit_col.reshape(-1, 1))],
-                [None, sp.csc_matrix((1, 1))],
-            ], format='csc')
-            vec = spla.expm_multiply((Q * tau).T.tocsc(), vec)  # vec @ exp(Q tau)
-        else:
-            Q = np.zeros((nt + 1, nt + 1), dtype=complex)
-            Q[:nt, :nt] = np.asarray(T) - np.diag(shift)
-            Q[:nt, nt] = exit_col
-            vec = vec @ sla.expm(Q * tau)
+        # finite-epoch propagation by a dense matrix exponential. A sparse transient block (large-space build) is
+        # densified here: the expm_multiply *action* alternative is norm-driven and cannot evaluate the s->inf atom
+        # shifts the inversion needs, so it has no usable role on this path (see ``_build_epoch_data``).
+        Q = np.zeros((nt + 1, nt + 1), dtype=complex)
+        Q[:nt, :nt] = (T.toarray() if sp.issparse(T) else np.asarray(T)) - np.diag(shift)
+        Q[:nt, nt] = exit_col
+        vec = vec @ sla.expm(Q * tau)
 
     a, c = vec[:nt], vec[nt]
     Tm = T_epochs[-1][0]
@@ -594,6 +595,50 @@ class JointRewardDistribution:
         return _lst_from_shift((s_a * tau) * st['ra'] + (s_b * tau) * st['rb'], st['alpha'], st['T_epochs'],
                                st['sparse'], st['lu_perm'])
 
+    def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
+        """The joint LST ``Phi(s_a, s_b)`` on the full outer grid ``s_a_vals x s_b_vals`` (shape
+        ``(len(s_a_vals), len(s_b_vals))``), the batched form of :meth:`lst` used to build the 2D cosine coefficients.
+
+        For a single (homogeneous) epoch with a dense generator, ``Phi = alpha (diag(s_a tau r_a + s_b tau r_b) -
+        T)^{-1}(-T 1)``. Fixing ``s_a``, the column family ``(M + s_b tau diag(r_b)) x = -T 1`` with ``M = diag(s_a
+        tau r_a) - T`` is a *shifted* linear system in ``s_b``: one generalized Schur (QZ) factorization of the pencil
+        ``(M, tau diag(r_b))`` then solves every ``s_b`` by triangular back-substitution (O(n^2)). This replaces the
+        naive grid's ``len(s_a) x len(s_b)`` dense LU factorizations (O(n^3) each) with ``len(s_a)`` QZ factorizations
+        -- a ~n-fold cut in the cubic work, the dominant cost of :attr:`_cos2d`. ``diag(r_b)`` is generally singular
+        (rewards have zero entries); the QZ handles the singular pencil. The multi-epoch / sparse case -- where the
+        per-shift cost is dominated by the cross-epoch ``expm``, not the final solve -- falls back to per-element
+        :meth:`lst`, giving an identical result."""
+        st = self._setup
+        s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
+
+        if st['sparse'] or len(st['T_epochs']) != 1:
+            return np.array([[self.lst(sa, sb) for sb in s_b_vals] for sa in s_a_vals], dtype=complex)
+
+        tau = st['tau']
+        Tm = np.asarray(st['T_epochs'][-1][0], dtype=float)
+        n = Tm.shape[0]
+        exit_col = (-Tm @ np.ones(n)).astype(complex)  # -T 1
+        alpha = np.asarray(st['alpha'], dtype=float)
+        ra_t, rb_t = st['ra'] * tau, st['rb'] * tau
+
+        # one QZ per *outer* node, every *inner* node by triangular back-substitution -- so QZ over the shorter axis
+        # (the same matrix ``A = diag(s_a r_a + s_b r_b) tau - T`` factors either way, by symmetry of the two rewards)
+        transpose = len(s_a_vals) > len(s_b_vals)
+        outer, r_out = (s_b_vals, rb_t) if transpose else (s_a_vals, ra_t)
+        inner, r_in = (s_a_vals, ra_t) if transpose else (s_b_vals, rb_t)
+        N = np.diag(r_in).astype(complex)  # pencil B: the inner variable multiplies this
+
+        out = np.empty((len(outer), len(inner)), dtype=complex)
+        for i, so in enumerate(outer):
+            M = np.diag(so * r_out) - Tm  # pencil A; A(s_inner) = M + s_inner N = diag(shift) - T
+            S, T, Q, Z = sla.qz(M, N, output='complex')  # M = Q S Z^H, N = Q T Z^H, S/T upper-triangular
+            c = Q.conj().T @ exit_col  # (S + s_inner T) y = c, with y = Z^H x
+            aZ = alpha @ Z             # Phi = alpha @ x = alpha @ Z @ y = aZ @ y
+            for j, si in enumerate(inner):
+                y = sla.solve_triangular(S + si * T, c, check_finite=False)
+                out[i, j] = aZ @ y
+        return out.T if transpose else out
+
     def marginal(self, which: str = 'a') -> RewardDistribution:
         """The marginal accumulated-reward distribution of ``R_a`` (``which='a'``) or ``R_b`` (``which='b'``)."""
         return RewardDistribution(self._host, self.reward_a if which == 'a' else self.reward_b)
@@ -642,6 +687,43 @@ class JointRewardDistribution:
         return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
 
     @cached_property
+    def _cos_axis_coeffs(self) -> dict:
+        """Fourier-cosine coefficients for the two axis-atom sub-CDFs, the cosine replacement for the per-point de Hoog
+        atom inversions in :meth:`_cdf_grid`. Validated across scenarios to match the de Hoog atoms (and msprime)
+        identically, so the cosine CDF path uses these and avoids de Hoog entirely (the de Hoog mixing bought no
+        accuracy -- both are equally imperfect near 0). Each is a defective 1D distribution: ``g_b(x) = P(R_a <= x,
+        R_b = 0)`` (key ``'b'``, sub-transform ``lst(., inf)``) and ``g_a(y) = P(R_a = 0, R_b <= y)`` (key ``'a'``,
+        ``lst(inf, .)``), with atom ``P(both = 0)`` at 0 and continuous mass up to ``P(R_b = 0)`` / ``P(R_a = 0)``,
+        COS-inverted over the corresponding marginal's support window."""
+        big = 1e8
+        both0 = self._atoms['both0']
+        out = {}
+        for key, total, marg in (('b', self._atoms['b0'], self.marginal('a')),
+                                 ('a', self._atoms['a0'], self.marginal('b'))):
+            b = marg._range(12.0)
+            w = np.arange(marg._cos_terms) * np.pi / b
+            # chi(w) = phi(-i w) of the sub-transform: for 'b' it is lst(., inf) (sweep s_a), for 'a' lst(inf, .)
+            # (sweep s_b); the batched _lst_grid does the whole sweep with a single QZ (one fixed inf-coordinate)
+            chi = (self._lst_grid(-1j * w, np.array([big]))[:, 0] if key == 'b'
+                   else self._lst_grid(np.array([big]), -1j * w)[0, :])
+            cont = total - both0
+            chi_c = (chi - both0) / cont if cont > 1e-12 else chi  # remove the R=0 atom, normalize the continuous part
+            fk = (2.0 / b) * np.real(chi_c)
+            fk[0] *= 0.5
+            out[key] = dict(b=b, w=w, fk=fk, atom=both0, cont=cont)
+        return out
+
+    def _cos_axis(self, which: str, xs: np.ndarray) -> np.ndarray:
+        """The axis-atom sub-CDF on ``xs`` via the cached 1D Fourier-cosine fit (:attr:`_cos_axis_coeffs`) -- the
+        cosine analogue of the de Hoog atom inversion: ``which='b'`` -> ``g_b(x) = P(R_a <= x, R_b = 0)``,
+        ``which='a'`` -> ``g_a(y) = P(R_a = 0, R_b <= y)``. At ``x = 0`` it returns the atom ``P(both = 0)`` exactly."""
+        c = self._cos_axis_coeffs[which]
+        w, fk = c['w'], c['fk']
+        xa = np.clip(np.asarray(xs, dtype=float), 0.0, c['b'])
+        Fc = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
+        return c['atom'] + c['cont'] * np.clip(Fc, 0.0, 1.0)
+
+    @cached_property
     def _cos2d(self) -> dict:
         """
         The *continuous-continuous* joint density (both rewards ``> 0``) as a 2D Fourier-cosine (COS) expansion on
@@ -657,15 +739,18 @@ class JointRewardDistribution:
         ua = np.arange(n_terms) * np.pi / ba
         ub = np.arange(n_terms) * np.pi / bb
 
-        phi_a_inf = np.array([self.lst(-1j * w, big) for w in ua])    # Phi(-i w_a, inf), reused across w_b
-        phi_inf_b_p = np.array([self.lst(big, -1j * w) for w in ub])  # Phi(inf, -i w_b)
-        phi_inf_b_m = np.array([self.lst(big, 1j * w) for w in ub])   # Phi(inf, +i w_b)
+        # all joint-LST evaluations on one batched grid (rows ``s_a in {-i u_a} u {inf}``, columns
+        # ``s_b in {-i u_b} u {+i u_b} u {inf}``) via the shifted-system QZ solve (see :meth:`_lst_grid`) -- the
+        # dominant cost of this expansion, an n_terms x n_terms coefficient matrix of LST values
+        sa, sb = -1j * ua, np.concatenate([-1j * ub, 1j * ub])
+        G = self._lst_grid(np.concatenate([sa, [big]]), np.concatenate([sb, [big]]))
+        phi_a_inf = G[:n_terms, 2 * n_terms]      # Phi(-i w_a, inf), reused across w_b
+        phi_inf_b_p = G[n_terms, :n_terms]        # Phi(inf, -i w_b)
+        phi_inf_b_m = G[n_terms, n_terms:2 * n_terms]  # Phi(inf, +i w_b)
+        pp = G[:n_terms, :n_terms] - phi_a_inf[:, None] - phi_inf_b_p[None, :] + p00       # Phi(-i w_a, -i w_b)
+        pm = G[:n_terms, n_terms:2 * n_terms] - phi_a_inf[:, None] - phi_inf_b_m[None, :] + p00  # Phi(-i w_a, +i w_b)
 
-        A = np.zeros((n_terms, n_terms))
-        for i, wa in enumerate(ua):
-            pp = np.array([self.lst(-1j * wa, -1j * wb) for wb in ub]) - phi_a_inf[i] - phi_inf_b_p + p00
-            pm = np.array([self.lst(-1j * wa, 1j * wb) for wb in ub]) - phi_a_inf[i] - phi_inf_b_m + p00
-            A[i] = (2.0 / ba) * (2.0 / bb) * 0.5 * np.real(pp + pm)  # lower limits are 0, so exp(-i w a) = 1
+        A = (2.0 / ba) * (2.0 / bb) * 0.5 * np.real(pp + pm)  # lower limits are 0, so exp(-i w a) = 1
         A[0, :] *= 0.5
         A[:, 0] *= 0.5
 
@@ -861,12 +946,17 @@ class JointRewardDistribution:
         cosine box (:meth:`_cc_box`, for dense plotting grids where the near-origin bias is an acceptable tradeoff)."""
         big = 1e8
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-        # P(R_a=0, R_b<=y) and P(R_b=0, R_a<=x) from inverting the marginal sub-transforms; at the atom edge (t=0)
-        # the de Hoog inversion is unreliable, so use the exact limit P(R_a=0, R_b<=0) = P(R_b=0, R_a<=0) = P(both=0)
         both0 = self._atoms['both0']
-        g_a = np.array([both0 if y == 0 else self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])
-        g_b = np.array([both0 if x == 0 else self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
-        cc = self._cc_box_dehoog(xs, ys) if dehoog else self._cc_box(xs, ys)
+        # axis atoms P(R_a=0, R_b<=y) and P(R_b=0, R_a<=x). The cosine path inverts them with the fast 1D Fourier-
+        # cosine (:meth:`_cos_axis`, validated to match de Hoog/msprime -- no de Hoog mixing); the de Hoog box path
+        # inverts them per point with de Hoog, using the exact limit P(both=0) at the unreliable atom edge (t=0).
+        if dehoog:
+            g_a = np.array([both0 if y == 0 else self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])
+            g_b = np.array([both0 if x == 0 else self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
+            cc = self._cc_box_dehoog(xs, ys)
+        else:
+            g_a, g_b = self._cos_axis('a', ys), self._cos_axis('b', xs)
+            cc = self._cc_box(xs, ys)
         return g_b[:, None] + g_a[None, :] - both0 + cc
 
     def _cdf(self, x, y, mode: str = None):

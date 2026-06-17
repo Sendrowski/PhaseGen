@@ -453,10 +453,8 @@ class Comparison(Serializable):
 
                 elif heatmap_cls is None and ph_stat.ndim == 1:
                     def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
-                        s = Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat)))
-                        s.plot(title=msg if self.show_title else None, show=False)
-                        plt.legend(fontsize=10)
-                        self._save_and_show(name)
+                        self._plot_sfs_with_diff(ph_stat, ms_stat, msg if self.show_title else None, name,
+                                                 left_title=name.upper() if name else 'SFS')
 
                 # a square 2-dimensional statistic (an SFS covariance / correlation matrix or a 2-SFS); n = 2 (a 3x3
                 # matrix with a single polymorphic bin) is a legitimate two-locus SFS. Drawn as phasegen / msprime /
@@ -1094,6 +1092,42 @@ class Comparison(Serializable):
         axd.set_title('difference', fontsize=self.title_fontsize)
         if lc is not None:
             fig.colorbar(lc, ax=axd)
+        if title and self.show_title:
+            fig.suptitle(title, fontsize=self.suptitle_fontsize)
+        self._save_and_show(name)
+
+    def _plot_sfs_with_diff(self, ph_stat, ms_stat, title: str, name: str, left_title: str = 'SFS'):
+        """Two panels side by side: left the grouped SFS bar comparison (phasegen vs msprime via the ``Spectra``
+        plotter), right the per-bin **relative difference** (the asserted ``max rel`` metric) as bars coloured by
+        magnitude -- the same ``coolwarm`` scale saturating at :attr:`surface_diff_saturation` as the curve/surface
+        diff panels, the axis floored to that saturation so a tiny diff is not zoomed into noise. Pure-zero bins (the
+        monomorphic SFS edges) are dropped so the difference bars line up with the polymorphic bars on the left."""
+        plt.close('all')  # avoid empty plots
+        fig, (axs, axd) = plt.subplots(ncols=2, figsize=(13, 5))
+
+        Spectra.from_spectra(dict(msprime=SFS(ms_stat), phasegen=SFS(ph_stat))).plot(ax=axs, show=False)
+        axs.legend(fontsize=10)
+        axs.set_title(left_title, fontsize=self.title_fontsize)
+
+        ms_arr, ph_arr = np.asarray(ms_stat, float), np.asarray(ph_stat, float)
+        diff = np.asarray(self.rel_diff(ms_arr, ph_arr), float)
+        classes = np.arange(len(diff))
+        poly = (np.abs(ms_arr) + np.abs(ph_arr)) > 0  # drop monomorphic edges (both spectra ~0 there)
+        classes, diff = classes[poly], diff[poly]
+
+        sat = self.surface_diff_saturation
+        norm = plt.Normalize(0.0, sat)
+        axd.bar(classes, diff, color=plt.cm.coolwarm(norm(diff)))
+        if classes.size:
+            axd.set_xticks(classes)
+        axd.set_ylim(0.0, max(sat, float(np.nanmax(diff)) if diff.size else sat))
+        axd.set_xlabel('frequency class')
+        axd.set_ylabel('relative difference')
+        axd.set_title('relative difference', fontsize=self.title_fontsize)
+        sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
+        sm.set_array([])
+        fig.colorbar(sm, ax=axd)
+
         if title and self.show_title:
             fig.suptitle(title, fontsize=self.suptitle_fontsize)
         self._save_and_show(name)

@@ -168,3 +168,51 @@ def test_moment_paths_sparse_matches_dense(label, make, get):
     sparse = get(make())
 
     np.testing.assert_allclose(sparse, dense, atol=1e-10, rtol=1e-8, err_msg=label)
+
+
+# joint-reward *inversion* cases (the LST and its cosine CDF/PDF) on small, multi-epoch state spaces. These exercise
+# the one sparse path in ``_lst_from_shift`` that the size threshold would not trigger here: the sparse block-
+# triangular LU of the final-epoch solve (``closed_form_sparse_min_states``). The finite-epoch expm stays dense on
+# both paths (the expm_multiply action cannot evaluate the s->inf atom shifts the inversion needs). The two-locus
+# case has a *cyclic* (recombination) transient block, so its sparse LU goes through the strongly-connected-component
+# reordering rather than the acyclic single-deme path.
+JOINT_INVERSION_CASES = [
+    ("sfs within-tree joint (1,2) n=6 multi-epoch",
+     lambda: pg.Coalescent(n=6, demography=_two_epoch_single()).sfs.joint_distribution(1, 2)),
+    ("sfs2 two-locus joint (1,2) n=4 r=1 multi-epoch",
+     lambda: pg.Coalescent(n=4, loci=2, recombination_rate=1.0,
+                           demography=_two_epoch_single()).sfs2.joint_distribution(1, 2)),
+]
+
+
+@pytest.mark.parametrize("label, make", JOINT_INVERSION_CASES, ids=[c[0] for c in JOINT_INVERSION_CASES])
+def test_joint_inversion_sparse_matches_dense(label, make):
+    """The joint-reward LST -- including the ``s -> inf`` atoms -- and its cosine CDF/PDF agree whether the
+    final-epoch solve uses a dense LU or the sparse block-triangular LU, forced on a small multi-epoch state space
+    where the threshold would otherwise pick dense. (The finite-epoch expm is dense on both paths; the expm_multiply
+    action has no role here, as it cannot evaluate the 1e8 atom shifts every inversion needs.)"""
+    pts = [(-1j * 0.5, -1j * 0.7), (-1j * 2.0, 1j * 3.0), (-1j * 1.5, -1j * 4.0),
+           (1e8, -1j * 2.0), (-1j * 3.0, 1e8), (1e8, 1e8)]  # incl. the marginal / joint atom (s -> inf) shifts
+    xs, ys = np.array([0.3, 0.8, 1.4]), np.array([0.35, 0.9, 1.6])
+
+    def setup(cf_min):
+        Settings.dense_rate_matrix_max_states = _HUGE  # storage stays dense; only the final-solve LU path varies
+        Settings.closed_form_sparse_min_states = cf_min
+        jd = make()
+        jd._cos2d_terms = 24  # dense/sparse equality holds at any resolution; keep the multi-epoch _cos2d build cheap
+        return jd
+
+    jd = setup(_HUGE)  # dense LU
+    assert jd._setup['sparse'] is False, f"{label}: dense path not selected"
+    d_lst = np.array([jd.lst(a, b) for a, b in pts])
+    d_cdf = np.asarray(jd.cdf(xs, ys, mode='cos'), dtype=float)
+    d_pdf = np.asarray(jd.pdf(xs, ys, mode='cos'), dtype=float)
+
+    jd = setup(0)  # sparse block-triangular LU
+    assert jd._setup['sparse'] is True, f"{label}: sparse-LU path not selected"
+    np.testing.assert_allclose(np.array([jd.lst(a, b) for a, b in pts]), d_lst,
+                               atol=1e-9, rtol=1e-7, err_msg=f"{label}: lst (sparse-LU)")
+    np.testing.assert_allclose(np.asarray(jd.cdf(xs, ys, mode='cos'), dtype=float), d_cdf,
+                               atol=1e-9, rtol=1e-7, err_msg=f"{label}: cdf (sparse-LU)")
+    np.testing.assert_allclose(np.asarray(jd.pdf(xs, ys, mode='cos'), dtype=float), d_pdf,
+                               atol=1e-9, rtol=1e-7, err_msg=f"{label}: pdf (sparse-LU)")

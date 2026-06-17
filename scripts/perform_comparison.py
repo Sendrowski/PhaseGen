@@ -13,7 +13,7 @@ try:
 except NameError:
     # testing
     testing = True
-    name = "2_epoch_n_10_decline"
+    name = "2_epoch_n_4_decline"
     file = f"results/comparisons/serialized/{name}.json"
     out = f"scratch/{name}.json"
 
