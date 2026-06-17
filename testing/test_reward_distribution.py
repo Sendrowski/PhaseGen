@@ -533,6 +533,27 @@ def test_conditional_distribution():
         pg.Coalescent(n=6).sfs.joint_distribution(2, 2).conditional('a', 1.0)
 
 
+@pytest.mark.parametrize("i, j, value", [(1, 2, 1.0), (2, 4, 0.5)])
+def test_conditional_support_window_covers_distribution(i, j, value):
+    """A conditional sizes its support window by bracketing the exact CDF, not from finite-difference cumulants whose
+    **variance collapses** for the noisy nested transform. Regression guard: that collapse used to shrink the window to
+    near the mean (e.g. ``cdf(b) ~ 0.67``), truncating the distribution -- which made the cosine curve fabricate
+    reaching 1 and the high quantiles wrong. The window must now span (almost) the whole support, the curve must match
+    the exact de Hoog at an interior point, and the high quantile must round-trip."""
+    jd = pg.Coalescent(n=6).sfs.joint_distribution(i, j)
+    c = jd.conditional('a', value)
+
+    b = c._range(12.0)
+    assert c._cdf(b) >= 0.999  # window spans the support (was ~0.67 with the collapsed-variance estimate)
+
+    # the de Hoog spline curve matches the exact per-point de Hoog away from the atom
+    x = 0.5 * b
+    assert c.cdf_curve(np.array([x]))[0] == pytest.approx(c._cdf(x), abs=5e-3)
+
+    # the high quantile is now accurate (curve reaches it / falls back correctly): F(q_0.99) ~ 0.99
+    assert c.cdf(c.quantile(0.99)) == pytest.approx(0.99, abs=1e-2)
+
+
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
 def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     """``pdf.plot`` / ``cdf.plot`` / ``quantile.plot`` draw one curve per bin on a single axes (unfolded/folded)."""

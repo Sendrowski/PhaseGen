@@ -1112,7 +1112,41 @@ class JointRewardDistribution:
         return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
 
 
-class _AtomConditional(RewardDistribution):
+class _Conditional(RewardDistribution):
+    """
+    Shared base for the 1D conditional distributions (:class:`_AtomConditional`, :class:`_NestedConditional`). Their
+    ``lst`` is a nested inversion, so the finite-difference cumulants are unreliable -- the second difference of the
+    noisy nested transform makes :meth:`_cumulants` collapse the **variance** to its floor, which would shrink the
+    support window (:meth:`_range`) to a point near the mean and truncate the distribution. So a conditional sizes its
+    support window by **bracketing the exact CDF** instead: a handful of (exact de Hoog) evaluations, memoised per
+    scale. Everything else (de Hoog ``cdf``/``pdf``, the adaptive-grid + monotone-spline curve, quantile, plotting) is
+    inherited unchanged.
+    """
+
+    def _range(self, scale: float = 12.0) -> float:
+        """Support upper end, found by bracketing the exact CDF (overrides the cumulant-based estimate, whose variance
+        is unreliable for the nested transform). Memoised per ``scale`` so the repeated callers (quantile, curve fit)
+        do not re-bracket."""
+        cache = self.__dict__.setdefault('_range_cache', {})
+        if scale not in cache:
+            cache[scale] = self._range_via_cdf(scale)
+        return cache[scale]
+
+    def _range_via_cdf(self, scale: float = 12.0, n_iter: int = 80) -> float:
+        """Double ``b`` from a robust seed until the exact CDF ``_cdf(b)`` exceeds a generous target probability (more
+        generous for larger ``scale``, matching the cumulant-based ``mean + scale*std`` it replaces). The mean
+        (first-difference ``_cumulants()[0]``) is reliable and used only as the seed; the variance is not."""
+        target = min(1.0 - float(np.exp(-scale)), 1.0 - 1e-6)  # scale=12 -> ~1-1e-6 (full support); scale=4 -> ~0.98
+        c1 = float(self._cumulants()[0])
+        b = max(c1, 1.0 / self._time_scale, 1e-3)
+        for _ in range(n_iter):
+            if self._cdf(b) >= target:
+                break
+            b *= 1.6
+        return b
+
+
+class _AtomConditional(_Conditional):
     """
     The 1D conditional of the *other* reward given ``R_{on} = 0`` -- conditioning on the **atom** ``{R_on = 0}``: the
     sub-distribution of the other reward there, normalised by the atom mass ``P(R_on = 0)``. Its LST is the marginal
@@ -1178,7 +1212,7 @@ def _stehfest_invert(transform, t: float, M: int = 8) -> complex:
                                    for k, Vk in enumerate(_stehfest_weights(M), start=1)))
 
 
-class _NestedConditional(RewardDistribution):
+class _NestedConditional(_Conditional):
     """
     The 1D conditional distribution of one reward given ``R_{on} = value`` (``value > 0``), built by **nested
     inversion**: invert the conditioned dimension at ``value`` to get the other reward's conditional Laplace
