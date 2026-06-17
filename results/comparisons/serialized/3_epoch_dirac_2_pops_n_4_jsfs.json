@@ -13,13 +13,10 @@
         ]
     },
     "comparisons": {
-        "max_pairwise_pairs": 1,
         "tolerance": {
             "jsfs": {
                 "pairwise": {
                     "cosine": {
-                        "cdf": 0.0011,
-                        "pdf": 0.039,
                         "((0, 1), (1, 0))": {
                             "cdf": 0.0028,
                             "pdf": 0.0054

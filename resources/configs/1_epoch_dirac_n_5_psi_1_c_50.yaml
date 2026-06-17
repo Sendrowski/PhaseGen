@@ -30,8 +30,6 @@ comparisons:
         quantile: 0.048
       pairwise:
         cosine:
-          cdf: 0.0005
-          pdf: 0.0005
           '[(1, 2), (1, 4), (2, 4)]':
             cdf: 0.002
             pdf: 0.015

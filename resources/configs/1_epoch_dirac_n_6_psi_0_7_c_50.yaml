@@ -25,8 +25,6 @@ comparisons:
     sfs:
       pairwise:
         cosine:
-          cdf: 0.0015
-          pdf: 0.0056
           '[(1, 2), (1, 5), (2, 5)]':
             cdf: 0.0019
             pdf: 0.0067
