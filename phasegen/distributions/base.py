@@ -209,9 +209,7 @@ class JointCPD(_SurfacePlottable, CPD):
     """
 
 
-class JointQuantileFunction(QuantileFunction):
-    """Quantile function of a bivariate distribution. Provided for symmetry only: a joint/2D quantile is not
-    well-defined, so joint distributions expose marginal/conditional quantiles instead."""
+# (a bivariate joint has no quantile flavour: a 2D quantile is not well-defined -- use a marginal or conditional)
 
 
 # --- conditional flavours -------------------------------------------------------------------------------------------
@@ -221,7 +219,8 @@ class ConditionalPDF(PDF):
 
     - **Callable** ``pdf(y)``: per-point de Hoog inversion of the nested-inversion conditional transform
       ``phi_cond(s) = G(s) / G(0)``, where ``G`` is the inner Gaver-Stehfest inversion along the conditioned axis.
-    - **Plot** ``pdf.plot()``: the per-point de Hoog density over a grid (the conditional transform is already nested).
+    - **Plot** ``pdf.plot()``: the de Hoog adaptive-spline density curve (``pdf_curve``); pass ``exact=True`` for the
+      per-point de Hoog density.
     """
 
 
@@ -230,7 +229,8 @@ class ConditionalCPD(CPD):
 
     - **Callable** ``cdf(y)``: per-point de Hoog inversion of ``phi_cond(s) / s`` for the nested-inversion conditional
       transform ``phi_cond(s) = G(s) / G(0)`` (``G`` via inner Gaver-Stehfest).
-    - **Plot** ``cdf.plot()``: the per-point de Hoog CDF over a grid.
+    - **Plot** ``cdf.plot()``: the de Hoog adaptive-spline CDF curve (``cdf_curve``); pass ``exact=True`` for the
+      per-point de Hoog CDF.
     """
 
 
@@ -252,23 +252,36 @@ class CallableDistributionFunctions:
     IDEs the right type and docstring. Also keeps the former ``plot_pdf`` / ``plot_cdf`` methods as deprecated aliases.
     """
     #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
+    #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
     _pdf_function = PDF
     _cdf_function = CPD
     _quantile_function = QuantileFunction
 
+    def _make_function(self, fn_cls, evaluate: Callable, plot: Callable, surface: Callable):
+        """Build a distribution-function object of the selected flavour, passing the ``plot_surface`` callback only to
+        the bivariate (:class:`_SurfacePlottable`) flavours -- so univariate and joint distributions share one path."""
+        if issubclass(fn_cls, _SurfacePlottable):
+            return fn_cls(evaluate, plot, surface)
+        return fn_cls(evaluate, plot)
+
     @property
     def cdf(self) -> CPD:
-        """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()``)."""
-        return self._cdf_function(self._cdf, self._plot_cdf)
+        """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
+        ``cdf.plot_surface()``)."""
+        return self._make_function(self._cdf_function, self._cdf, self._plot_cdf, getattr(self, '_plot_cdf_surface', None))
 
     @property
     def pdf(self) -> PDF:
-        """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()``)."""
-        return self._pdf_function(self._pdf, self._plot_pdf)
+        """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()`` / -- joint --
+        ``pdf.plot_surface()``)."""
+        return self._make_function(self._pdf_function, self._pdf, self._plot_pdf, getattr(self, '_plot_pdf_surface', None))
 
     @property
     def quantile(self) -> QuantileFunction:
         """Quantile function: callable (``quantile(q)``) and plottable (``quantile.plot()``)."""
+        if self._quantile_function is None:
+            raise NotImplementedError(f"{type(self).__name__} has no quantile function "
+                                      "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
         return self._quantile_function(self._quantile, self._plot_quantile)
 
     def plot_cdf(self, *args, **kwargs):

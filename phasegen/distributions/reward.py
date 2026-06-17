@@ -29,7 +29,6 @@ while the chain passes through them. An atom at ``R = 0`` (e.g. an SFS bin that 
 automatically by the inversion.
 """
 import logging
-import warnings
 import functools
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
@@ -552,7 +551,7 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
     return complex(c + a @ solve(_exit_rates(Tm)))
 
 
-class JointRewardDistribution:
+class JointRewardDistribution(CallableDistributionFunctions):
     """
     Joint distribution of two accumulated rewards ``R_a = int r_a(X_s) ds`` and ``R_b = int r_b(X_s) ds`` to
     absorption, the distributional object behind a cross-moment ``E[R_a R_b]`` (the within-tree 2-SFS / the
@@ -564,6 +563,12 @@ class JointRewardDistribution:
     multi-epoch-native. Setting one argument to zero recovers a marginal; mixed derivatives at the origin recover
     the cross-moments. The joint CDF/PDF (2D inversion) and the product distribution are views built on top.
     """
+    #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
+    #: ``plot_surface`` callback); a joint has no quantile (a 2D quantile is not well-defined)
+    _pdf_function = JointPDF
+    _cdf_function = JointCPD
+    _quantile_function = None
+
     #: Number of cosine terms per axis for the 2D Fourier-cosine joint density (:attr:`_cos2d`). The cost is the square
     #: of this (an ``n x n`` coefficient matrix of joint-LST evaluations), so it is smaller than the 1D term count; at
     #: 128 the heatmap/surface ringing is ~0.5% of the peak (vs ~2.5% at 64). For a de-Hoog-accurate (non-ringing) but
@@ -1017,18 +1022,6 @@ class JointRewardDistribution:
             G = self._cdf_grid(xs, ys, dehoog=self._use_dehoog(mode))
         return float(G.ravel()[0]) if G.size == 1 else G
 
-    @property
-    def pdf(self) -> JointPDF:
-        """Joint density of ``(R_a, R_b)``: callable (``pdf(x, y)``) and plottable as a heatmap (``pdf.plot()``) or a
-        3D surface (``pdf.plot_surface()``)."""
-        return JointPDF(self._pdf, self._plot_pdf, self._plot_pdf_surface)
-
-    @property
-    def cdf(self) -> JointCPD:
-        """Joint CDF of ``(R_a, R_b)``: callable (``cdf(x, y)``) and plottable as a heatmap (``cdf.plot()``) or a
-        3D surface (``cdf.plot_surface()``)."""
-        return JointCPD(self._cdf, self._plot_cdf, self._plot_cdf_surface)
-
     def _title(self, kind: str) -> str:
         """Joint plot title incorporating the bin :attr:`label` when set."""
         return f"Joint {kind.upper()} {self.label}" if self.label else f"Joint reward {kind.upper()}"
@@ -1040,9 +1033,11 @@ class JointRewardDistribution:
         n_points = n_points or (25 if self._use_dehoog(mode) else 120)
         return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False, mode=mode)
 
-    def _plot_cdf(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None,
+    def _plot_cdf(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
                   mode: str = 'cos'):
-        """Heatmap of the joint CDF of ``(R_a, R_b)``."""
+        """Heatmap of the joint CDF of ``(R_a, R_b)``. A coarser default grid than the density: each grid node is an
+        analytically integrated 2D box (cosine) or a nested de Hoog box, so the CDF surface is costlier per point."""
+        n_points = n_points or (25 if self._use_dehoog(mode) else 60)
         return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False, mode=mode)
 
     def _plot_pdf_surface(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
@@ -1052,20 +1047,11 @@ class JointRewardDistribution:
         n_points = n_points or (25 if self._use_dehoog(mode) else 80)
         return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True, mode=mode)
 
-    def _plot_cdf_surface(self, ax=None, n_points: int = 60, show: bool = True, file: str = None, title: str = None,
+    def _plot_cdf_surface(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
                           mode: str = 'cos'):
-        """3D surface of the joint CDF of ``(R_a, R_b)``."""
+        """3D surface of the joint CDF of ``(R_a, R_b)`` (coarser default grid than the density -- see :meth:`_plot_cdf`)."""
+        n_points = n_points or (25 if self._use_dehoog(mode) else 60)
         return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True, mode=mode)
-
-    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
-        """Deprecated: use ``.pdf.plot()`` instead."""
-        warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
-        return self._plot_pdf(*args, **kwargs)
-
-    def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
-        """Deprecated: use ``.cdf.plot()`` instead."""
-        warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
-        return self._plot_cdf(*args, **kwargs)
 
     def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False, mode='cos'):
         import matplotlib.pyplot as plt
