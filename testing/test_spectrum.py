@@ -288,6 +288,12 @@ class SpectrumTestCase(TestCase):
 
         marg.plot(pops=(0, 1), show=False)
 
+        # a non-ascending requested order exercises the axis reorder (not the identity): pops=[2, 0] keeps populations
+        # 2 and 0, with axis 0 = population 2 and axis 1 = population 0
+        rev = j.marginalize(pops=[2, 0])
+        self.assertEqual(rev.n_pops, 2)
+        self.assertTrue(np.allclose(np.asarray(rev), data.sum(axis=1).T))
+
         with self.assertRaises(ValueError):
             j.marginalize(pops=[0, 5])
 

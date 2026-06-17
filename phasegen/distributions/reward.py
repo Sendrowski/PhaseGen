@@ -52,6 +52,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger('phasegen')
 
 
+def _warn_if_negative(values: np.ndarray, label: str, log: logging.Logger = logger, rtol: float = 1e-3) -> np.ndarray:
+    """Warn (via ``log``) if ``values`` has a substantial negative entry relative to its scale, then return it
+    unchanged (the caller clips). A density / probability must be non-negative, so a real negative -- beyond the
+    ``rtol`` numerical-noise band -- signals inversion ringing (Gibbs) worth surfacing rather than silently clipping."""
+    arr = np.asarray(values, dtype=float)
+    if Settings.check_inversions and arr.size:
+        scale = max(float(np.abs(arr).max()), 1e-300)
+        mn = float(np.nanmin(arr))
+        if mn < -rtol * scale:
+            log.warning(f"{label}: substantial negative value ({mn:.2e} vs scale {scale:.2e}); clipping to 0 -- the "
+                        f"numerical inversion may be imprecise here")
+    return values
+
+
+def _warn_if_nonmonotone(cdf: np.ndarray, label: str, log: logging.Logger = logger, rtol: float = 1e-3) -> np.ndarray:
+    """Warn (via ``log``) if ``cdf`` has a substantial downward step relative to its range, then return it unchanged
+    (the caller enforces monotonicity). A CDF must be non-decreasing, so a real drop -- beyond the ``rtol``
+    numerical-noise band -- signals inversion ringing (a wiggle) worth surfacing rather than silently flattening."""
+    arr = np.asarray(cdf, dtype=float)
+    if Settings.check_inversions and arr.size > 1:
+        rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
+        drop = -float(np.nanmin(np.diff(arr)))
+        if drop > rtol * rng:
+            log.warning(f"{label}: non-monotone CDF (downward step {drop:.2e} vs range {rng:.2e}); enforcing "
+                        f"monotonicity -- the numerical inversion may be imprecise here")
+    return cdf
+
+
 class RewardDistribution(CallableDistributionFunctions):
     """
     Full distribution of the accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption, via the
@@ -303,15 +331,11 @@ class RewardDistribution(CallableDistributionFunctions):
         fk[0] *= 0.5
 
         # the largest backward step of the (continuous) CDF is the sensitive ringing detector (a visibly rippling CDF
-        # can come from sub-percent density wiggles); warn if a substantial one survives the support-matched window
+        # can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a substantial one
+        # (rtol 1e-2 of the [0,1] CDF range -- a looser bar than the de Hoog spline's, the cosine series being coarser)
         xd = np.linspace(0.0, b, max(512, 2 * n_terms))
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
-        if -float(np.diff(Fd).min()) > 1e-2:
-            self._logger.warning(
-                "COS plotting inversion shows a substantial residual ripple (a sharp feature or atom the cosine "
-                "series cannot resolve at this resolution); the plotted curve may be imprecise. Prefer the per-point "
-                "cdf()/pdf() (de Hoog) for accurate values."
-            )
+        _warn_if_nonmonotone(Fd, self._titled('COS CDF (residual ripple)'), self._logger, rtol=1e-2)
 
         return dict(b=b, w=w, fk=fk, p0=p0)
 
@@ -385,7 +409,9 @@ class RewardDistribution(CallableDistributionFunctions):
             return (f - p0) / (1 - p0) if p0 > 1e-9 else f
 
         x, y = adaptive_grid(g, 0.0, b, tol=Settings.inversion_tol)
-        y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)  # de Hoog CDF is monotone up to tiny inversion noise
+        # de Hoog CDF is monotone up to tiny inversion noise; warn if a real wiggle survives, then enforce monotonicity
+        _warn_if_nonmonotone(y, self._titled('CDF (de Hoog)'), self._logger)
+        y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
         return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
 
     def cdf_curve(self, x, n_terms: int = None) -> np.ndarray:
@@ -408,9 +434,12 @@ class RewardDistribution(CallableDistributionFunctions):
         xa = np.atleast_1d(np.asarray(x, dtype=float))
         if Settings.inversion_method == 'cos':
             xs, cdf = self._cos_cdf_grid
-            return np.interp(xa, xs, np.gradient(cdf, xs))
+            d = np.interp(xa, xs, np.gradient(cdf, xs))
+            return _warn_if_negative(d, self._titled('density (cosine)'), self._logger)
         st = self._dehoog_spline
-        d = np.clip(st['spline'].derivative()(np.clip(xa, 0.0, st['b'])), 0.0, None)
+        d = st['spline'].derivative()(np.clip(xa, 0.0, st['b']))
+        _warn_if_negative(d, self._titled('density (de Hoog)'), self._logger)
+        d = np.clip(d, 0.0, None)
         return (1 - st['p0']) * d if st['p0'] > 1e-9 else d
 
 
@@ -788,7 +817,7 @@ class JointRewardDistribution:
         cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
         true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
         err = float(np.abs(cos_cdf - true_cdf).max())
-        if err > 0.03:
+        if Settings.check_inversions and err > 0.03:
             self._logger.warning(
                 "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
                 "exact 1D marginal by up to %.1f%% there (a sharp / skewed near-origin feature the cosine series "
@@ -877,7 +906,9 @@ class JointRewardDistribution:
     def _density_nested(self, xs: np.ndarray, ys: np.ndarray, M: int = 8) -> np.ndarray:
         """The continuous joint density by direct nested inversion -- the accurate (slow) ``exact`` counterpart of the
         cosine :meth:`_density`, and the de Hoog ``pdf``. Clipped to non-negative. See :meth:`_nested_invert`."""
-        return np.clip(self._nested_invert(xs, ys, 'pdf', M), 0.0, None)
+        raw = self._nested_invert(xs, ys, 'pdf', M)
+        _warn_if_negative(raw, 'joint density (de Hoog)', self._logger)
+        return np.clip(raw, 0.0, None)
 
     @staticmethod
     def _use_dehoog(mode: str) -> bool:
@@ -907,7 +938,12 @@ class JointRewardDistribution:
                                       "almost surely): the law lives on the diagonal and has no 2D density. Use "
                                       "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
-        f = self._density_nested(xs, ys) if self._use_dehoog(mode) else np.clip(self._density(xs, ys), 0.0, None)
+        if self._use_dehoog(mode):
+            f = self._density_nested(xs, ys)
+        else:
+            raw = self._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
+            _warn_if_negative(raw, 'joint density (cosine)', self._logger)
+            f = np.clip(raw, 0.0, None)
         return float(f.ravel()[0]) if f.size == 1 else f
 
     @staticmethod
@@ -1110,6 +1146,48 @@ class JointRewardDistribution:
         # condition on R_on = value > 0: a proper 1D distribution via nested inversion (see _NestedConditional),
         # which reuses the full RewardDistribution machinery (de Hoog, two-pass COS curves, atom, plotting)
         return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
+
+    def check_total_expectation(self, n_points: int = 8, tol: float = 0.1) -> dict:
+        """
+        Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total expectation**
+        ``E[R_other] = E_{R_on}[ E[R_other | R_on ] ]`` for conditioning on each axis, and **log a warning** (per axis)
+        when the relative error exceeds ``tol``.
+
+        The conditioning marginal's expectation is split into its atom at 0 (``P(R_on = 0) E[R_other | R_on = 0]``)
+        plus an equal-probability midpoint quadrature over its continuous part (``n_points`` conditional means at the
+        marginal's ``(p0, 1)`` quantiles -- so the quadrature weights by the marginal density automatically). Uses only
+        the conditional **mean** (the reliable first-difference cumulant), so it is bounded but not free (a handful of
+        nested inversions per point); call it explicitly rather than on every construction.
+
+        :param n_points: Equal-probability quadrature points over the continuous part of each conditioning marginal.
+        :param tol: Relative-error threshold above which a violation is logged.
+        :return: ``{'a': rel_err_conditioning_on_a, 'b': rel_err_conditioning_on_b}`` (empty for a self-pair).
+        """
+        if self._is_diagonal:
+            return {}  # R_a == R_b a.s.; the conditional is a point mass, nothing to integrate
+
+        out = {}
+        for on, other in (('a', 'b'), ('b', 'a')):
+            marg_on, marg_other = self.marginal(on), self.marginal(other)
+            lhs = float(marg_other._cumulants()[0])  # E[R_other] from the (reliable) ordinary marginal
+            p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
+
+            # continuous part: midpoint rule in probability space over (p0, 1) -> conditional means at those quantiles
+            qs = p0 + (1.0 - p0) * (np.arange(n_points) + 0.5) / n_points
+            cond_means = [self.conditional(on, float(marg_on.quantile(float(q))))._cumulants()[0] for q in qs]
+            rhs = (1.0 - p0) * float(np.mean(cond_means))
+            if p0 > 1e-6:  # atom term P(R_on = 0) E[R_other | R_on = 0]
+                rhs += p0 * float(self.conditional(on, 0.0)._cumulants()[0])
+
+            rel = abs(rhs - lhs) / max(abs(lhs), 1e-12)
+            out[on] = rel
+            if Settings.check_inversions and rel > tol:
+                self._logger.warning(
+                    f"law of total expectation violated conditioning on R_{on}: E[R_{other}]={lhs:.4g} vs "
+                    f"E[E[R_{other}|R_{on}]]={rhs:.4g} (rel {rel:.1%} > {tol:.0%}); the conditional inversion may be "
+                    f"imprecise here"
+                )
+        return out
 
 
 class _Conditional(RewardDistribution):

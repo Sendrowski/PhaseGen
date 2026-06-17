@@ -554,6 +554,74 @@ def test_conditional_support_window_covers_distribution(i, j, value):
     assert c.cdf(c.quantile(0.99)) == pytest.approx(0.99, abs=1e-2)
 
 
+# small state spaces (n<=4), but a spread of regimes: single-epoch, time-inhomogeneous (3-epoch) and a
+# multiple-merger (Beta) model -- the nested-inversion conditional is most stressed away from the simple Kingman case
+_CONDITIONAL_SCENARIOS = {
+    '1epoch': lambda: pg.Coalescent(n=4),
+    '3epoch': lambda: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0.0: 1.0, 0.3: 0.2, 1.0: 1.5}})),
+    'beta': lambda: pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5)),
+}
+
+
+@pytest.mark.parametrize("scenario", list(_CONDITIONAL_SCENARIOS))
+def test_conditional_law_of_total_expectation(scenario):
+    """``JointRewardDistribution.check_total_expectation`` recovers ``E[R_other] = E[E[R_other|R_on]]`` for both
+    conditioning axes, across single-epoch / time-inhomogeneous / multiple-merger regimes. Exercises the runtime guard
+    (which logs a warning past its tolerance) and asserts the conditional means integrate back to the marginal mean."""
+    jd = _CONDITIONAL_SCENARIOS[scenario]().sfs.joint_distribution(1, 2)
+    rel = jd.check_total_expectation(n_points=8, tol=0.1)
+    assert rel and max(rel.values()) < 0.1
+
+
+
+
+def test_inversion_detectors_warn(caplog):
+    """The numerical-inversion guards log a warning on a substantially negative density or a non-monotone CDF (Gibbs
+    ringing), but stay silent for noise-level deviations -- so a clipped/flattened curve is surfaced, not hidden."""
+    import logging
+    from phasegen.distributions.reward import _warn_if_negative, _warn_if_nonmonotone
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
+    try:
+        def warned(fn, arr):
+            caplog.clear()
+            fn(np.asarray(arr, dtype=float), 'test', log)
+            return any(r.levelno >= logging.WARNING for r in caplog.records)
+
+        # substantial negative density -> warns; noise-level negative -> silent
+        assert warned(_warn_if_negative, [0.0, 1.0, -0.5])
+        assert not warned(_warn_if_negative, [0.0, 1.0, -1e-9])
+        # non-monotone CDF (real downward step) -> warns; noise-level wiggle -> silent
+        assert warned(_warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
+        assert not warned(_warn_if_nonmonotone, [0.0, 0.5, 0.5 - 1e-9, 1.0])
+
+        # the Settings.check_inversions flag silences both detectors
+        pg.Settings.check_inversions = False
+        try:
+            assert not warned(_warn_if_negative, [0.0, 1.0, -0.5])
+            assert not warned(_warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
+        finally:
+            pg.Settings.check_inversions = True
+    finally:
+        log.removeHandler(caplog.handler)
+
+
+def test_clean_distribution_emits_no_inversion_warning(caplog):
+    """A well-behaved distribution's CDF/PDF curves route through the detectors without false-positive warnings."""
+    import logging
+    log = logging.getLogger('phasegen')
+    marg = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).marginal('a')
+    grid = np.linspace(0.0, marg._range(8.0), 50)
+    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
+    try:
+        caplog.clear()
+        marg.cdf_curve(grid)
+        marg.pdf_curve(grid)
+        assert not [r for r in caplog.records if 'imprecise' in r.getMessage()]
+    finally:
+        log.removeHandler(caplog.handler)
+
+
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
 def test_plot_all_bins_pdf_cdf(dist_name, n_bins):
     """``pdf.plot`` / ``cdf.plot`` / ``quantile.plot`` draw one curve per bin on a single axes (unfolded/folded)."""
@@ -621,13 +689,13 @@ def test_cos_inversion_imprecision_warning(caplog, monkeypatch):
         # well-behaved curves must not warn (otherwise the warning is noise on every plot)
         d.cdf_curve(np.linspace(0, d._range(), 100))
         d.pdf_curve(np.linspace(0, d._range(), 100))
-        assert 'COS plotting inversion' not in caplog.text
+        assert 'residual ripple' not in caplog.text
 
         # a genuinely under-resolved case (a heavy-tailed bin whose spread-out bulk the cosine series cannot fully
-        # resolve even with the support-matched window) warns
+        # resolve even with the support-matched window) warns (via the shared non-monotonicity guard)
         e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
         e.distribution(reward=e._get_sfs_reward(5)).cdf_curve(np.linspace(0, 50, 100))
-        assert 'COS plotting inversion' in caplog.text
+        assert 'residual ripple' in caplog.text
     finally:
         pg_logger.removeHandler(caplog.handler)
 

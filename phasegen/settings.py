@@ -125,6 +125,13 @@ class Settings:
     #: (e.g. 8-10) for a further speed-up at still-excellent accuracy (~1e-9 to 1e-11).
     dehoog_degree: int = 15
 
+    #: Whether to emit a logged warning when a numerical inversion looks imprecise: a substantially negative density
+    #: or a non-monotone CDF curve (Gibbs ringing), the residual cosine ripple, or a violated law of total expectation
+    #: in :meth:`~phasegen.distributions.reward.JointRewardDistribution.check_total_expectation`. These are cheap
+    #: self-consistency tripwires (the curve is still clipped / made monotone regardless); set ``False`` to silence
+    #: them in performance runs or known-rough regimes (e.g. extreme multiple-merger high-frequency bins).
+    check_inversions: bool = True
+
     @staticmethod
     @contextmanager
     def set_pbar(enabled: bool = True):
