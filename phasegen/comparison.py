@@ -836,18 +836,20 @@ class Comparison(Serializable):
     def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str, mode: str = None):
         """
         Compare the cross-locus joint distribution (the per-locus tree height / total branch length at the two loci,
-        separated by recombination) against the msprime ground truth. Mirrors the within-tree SFS ``pairwise`` group:
-        a ``de_hoog`` / ``cosine`` key routes the 2D inversion (``mode``); ``cdf`` / ``pdf`` keys carry the tolerance
-        for the aggregate joint CDF / density at marginal-quantile points (handled in :meth:`compare_stat` via the
-        ``loci_pairwise_*`` stats, which read ``ms._loci_joint`` and ``ph.loci.joint_distribution``).
+        separated by recombination) against the msprime ground truth, as a **full-grid surface** over the single locus
+        pair ``(0, 1)`` -- the same machinery as the SFS/jSFS/two-locus surfaces (:meth:`_compare_pairwise_surface`),
+        routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. A ``de_hoog`` /
+        ``cosine`` key routes the 2D inversion (``mode``); the ``cdf`` / ``pdf`` tolerances are asserted over the grid.
         """
         for key, subtol in sub.items():
             if key in ('de_hoog', 'cosine'):
                 self._compare_loci_pairwise(ph=ph, ms=ms, sub=subtol, title=f"{title}: {key}",
                                             name=f"{name}_{key}", mode=key)
-            elif key in ('cdf', 'pdf'):
-                self.compare_stat(ph=ph, ms=ms, stat=f'loci_pairwise_{key}', tol=subtol, title=title, name=name,
-                                  mode=mode)
+        tols = {k: v for k, v in sub.items() if k in ('cdf', 'pdf')}
+        if tols:
+            self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name, mode=mode,
+                                           joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
+                                           surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
 
     def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None):
         """
@@ -955,7 +957,8 @@ class Comparison(Serializable):
             return np.asarray(ph.quantile(q), dtype=float)
         return np.array([float(ph.quantile(float(qq))) for qq in q])
 
-    def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None):
+    def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None,
+                                  joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None):
         """
         Full-grid comparison of the within-tree joint distribution of one bin pair ``(i, j)``: the analytic
         ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
@@ -970,16 +973,17 @@ class Comparison(Serializable):
                 self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=sub if wrapped else {k: sub},
                                                title=f"{title}: {k}" if wrapped else title,
                                                name=f"{name}_{k}" if wrapped else name,
-                                               mode=k if wrapped else mode)
+                                               mode=k if wrapped else mode, joint_fn=joint_fn,
+                                               surface_attr=surface_attr, stat_label=stat_label)
             return
 
         i, j = pair
-        entry = next((e for e in getattr(ms, '_joint_surface', []) if (e[0], e[1]) == (i, j)), None)
+        entry = next((e for e in getattr(ms, surface_attr, []) if (e[0], e[1]) == (i, j)), None)
         if entry is None:
             raise ValueError(f"No cached empirical surface for pair {pair}; regenerate the comparison fixture.")
         _i, _j, xs, ys, cdf_ms, pdf_ms = entry
         xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
-        jd = ph.joint_distribution(i, j)
+        jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
 
         # a degenerate bin -- one with (almost) no off-zero mass, e.g. a high-frequency class under an extreme
         # multiple-merger (a star-like genealogy) -- has a zero-width empirical support, so its CDF/density grid is
@@ -1020,11 +1024,14 @@ class Comparison(Serializable):
             # scale-free relative-L1 metric (its absolute scale follows the support, so a raw absolute diff does not
             # transfer -- see ``_pdf_diff``)
             diff = float(np.abs(grid_ph - grid_ms).max()) if kind == 'cdf' else self._pdf_diff(grid_ms, grid_ph)
-            sub_title = f"{title}: pairwise {pair} {kind}"  # the mode (if any) is already in ``title``
+            # the loci (single-pair) surface logs as ``{stat_label}_{kind}`` (e.g. ``loci_pairwise_cdf``) so its config
+            # tolerance leaf matches; the per-pair SFS/jSFS/2-locus surfaces carry the pair in the title
+            label_key = f"{stat_label}_{kind}" if stat_label else f"pairwise_{kind}"
+            sub_title = f"{title}: {label_key}" if stat_label else f"{title}: pairwise {pair} {kind}"
             runtime = time.perf_counter() - t0
             self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
             self.runtimes[sub_title] = runtime
-            msg = self._result_message(sub_title, diff, tols[kind], self._diff_label(f'pairwise_{kind}'), runtime)
+            msg = self._result_message(sub_title, diff, tols[kind], self._diff_label(label_key), runtime)
 
             if self.visualize:
                 # the difference surface is coloured blue at 0 up to red at the saturation level. For the CDF (bounded

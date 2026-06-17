@@ -444,6 +444,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Same ``[(l1, l2, cross, [(x, y, cdf, pdf), ...]), ...]`` structure the SFS pairwise uses.
         self._loci_joint: list = []
 
+        #: Cross-locus full-grid joint surface ground truth: ``[(l1, l2, xs, ys, cdf_grid, pdf_grid), ...]``.
+        self._loci_joint_surface: list = []
+
         # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -549,6 +552,20 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
                 x, y = float(np.quantile(a, qa)), float(np.quantile(b, qb))
                 points.append((x, y, self.joint_cdf(l1, l2, x, y), self.joint_pdf(l1, l2, x, y, hx, hy)))
             self._loci_joint.append((l1, l2, self.cross_moment_loci(l1, l2), points))
+
+    def cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+        """Pre-compute, for each locus pair, the empirical cross-locus joint CDF and density over a 2D grid (the
+        full-grid surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`
+        but indexed by locus."""
+        self._loci_joint_surface = []
+        for l1, l2 in pairs:
+            a, b = self._locus_samples(l1), self._locus_samples(l2)
+            n = len(a)
+            xs = np.linspace(0.0, float(np.quantile(a, q_max)), n_grid)
+            ys = np.linspace(0.0, float(np.quantile(b, q_max)), n_grid)
+            cdf = ((a[:, None] <= xs[None, :]).astype(float).T @ (b[:, None] <= ys[None, :]).astype(float)) / n
+            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
+            self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
 
 
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
@@ -1315,6 +1332,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
                 dist.cache_loci_joint([(0, 1)], [(0.4, 0.6), (0.6, 0.4), (0.7, 0.7)])
+                dist.cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
 
     def drop(self):
         """
