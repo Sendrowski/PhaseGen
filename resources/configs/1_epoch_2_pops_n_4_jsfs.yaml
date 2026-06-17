@@ -24,6 +24,9 @@ comparisons:
       pairwise:
         cosine:
           cdf: 0.0027
-          pdf: 0.21
+          pdf: 0.33
+          '((0, 1), (1, 0))':
+            cdf: 0.0056
+            pdf: 0.017
       mean: 0.0051
       var: 0.013

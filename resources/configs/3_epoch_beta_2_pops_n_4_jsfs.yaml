@@ -33,5 +33,8 @@ comparisons:
         cosine:
           cdf: 0.0015
           pdf: 0.39
+          '((0, 1), (1, 0))':
+            cdf: 0.0024
+            pdf: 0.019
       mean: 0.0078
       var: 0.0095

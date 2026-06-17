@@ -68,6 +68,9 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Cached within-tree joint ground truth: ``[(config_a, config_b, cross, [(x, y, cdf), ...]), ...]``.
         self._joint: list = []
 
+        #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
+        self._joint_surface: list = []
+
     def cross_moment(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
         """Empirical within-tree cross-moment ``E[L_{config_a} · L_{config_b}]`` from the per-replicate samples."""
         a = self.samples[(slice(None),) + tuple(config_a)]
@@ -105,6 +108,22 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
                 pdf = float('nan') if diag else self.joint_pdf(ca, cb, x, y, hx, hy)
                 points.append((x, y, self.joint_cdf(ca, cb, x, y), pdf))
             self._joint.append((tuple(ca), tuple(cb), float((a * b).mean()), points))
+
+    def cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
+                            q_max: float = 0.95):
+        """Pre-compute, for each config pair, the empirical joint CDF and density over a 2D grid (the full-grid
+        surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface` but
+        indexed by descendant configuration."""
+        s = self.samples
+        n = s.shape[0]
+        self._joint_surface = []
+        for ca, cb in pairs:
+            li, lj = s[(slice(None),) + tuple(ca)], s[(slice(None),) + tuple(cb)]
+            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
+            ys = np.linspace(0.0, float(np.quantile(lj, q_max)), n_grid)
+            cdf = ((li[:, None] <= xs[None, :]).astype(float).T @ (lj[:, None] <= ys[None, :]).astype(float)) / n
+            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
+            self._joint_surface.append((tuple(ca), tuple(cb), xs, ys, cdf, pdf))
 
     def drop(self):
         """Drop the (large) per-replicate samples once the joint ground truth has been cached."""
@@ -906,6 +925,20 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
                 x, y = float(np.quantile(li, qa)), float(np.quantile(rj, qb))
                 points.append((x, y, self.joint_cdf(i, j, x, y), self.joint_pdf(i, j, x, y, hx, hy)))
             self._joint.append((i, j, self.cross_moment(i, j), points))
+
+    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+        """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical
+        joint CDF and density over a 2D grid (the full-grid surface comparison ground truth). Same structure as
+        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`, indexed by the two loci's frequency classes."""
+        n = self._left.shape[0]
+        self._joint_surface = []
+        for i, j in pairs:
+            li, rj = self._left[:, i], self._right[:, j]
+            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
+            ys = np.linspace(0.0, float(np.quantile(rj, q_max)), n_grid)
+            cdf = ((li[:, None] <= xs[None, :]).astype(float).T @ (rj[:, None] <= ys[None, :]).astype(float)) / n
+            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
+            self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
 
 class MsprimeCoalescent(AbstractCoalescent):

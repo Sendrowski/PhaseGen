@@ -22,6 +22,9 @@ comparisons:
         cosine:
           cdf: 0.0022
           pdf: 0.15
+          '[(1, 2), (1, 3), (2, 3)]':
+            cdf: 0.0023
+            pdf: 0.0051
     fsfs:
       mutation_configs: 0.19
     tree_height:

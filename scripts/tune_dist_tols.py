@@ -69,15 +69,21 @@ def observed(name: str) -> dict:
 
 
 def _collection(key: str):
-    """If a YAML key is a bracketed collection literal (an SFS bin list ``[1, 4, 9]`` or a pairwise pair list
-    ``[(1, 2), (1, 9)]``), return its elements, else ``None``."""
-    if not (isinstance(key, str) and key.startswith('[') and key.endswith(']')):
+    """Elements broadcast by a YAML collection key, else ``None``. A *list* literal broadcasts over its elements -- an
+    SFS bin list ``[1, 4, 9]`` or a pairwise pair list ``[(1, 2), (1, 9)]``. A bare *tuple* literal is a single
+    pairwise pair, returned as a one-element list -- an SFS bin pair ``(1, 2)`` or a jSFS config pair
+    ``((1, 0), (0, 1))`` -- so a per-index (single-pair) tolerance is matched and tuned too."""
+    if not (isinstance(key, str) and key[:1] in '[('):
         return None
     try:
         v = ast.literal_eval(key)
-        return list(v) if isinstance(v, (list, tuple)) else None
     except (ValueError, SyntaxError):
         return None
+    if isinstance(v, list):
+        return list(v)
+    if isinstance(v, tuple):
+        return [v]  # a single pair (SFS (i, j) or jSFS ((..), (..)))
+    return None
 
 
 def title_for(path: list) -> list:

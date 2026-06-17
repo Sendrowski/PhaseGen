@@ -981,6 +981,13 @@ class Comparison(Serializable):
         xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
         jd = ph.joint_distribution(i, j)
 
+        # a degenerate bin -- one with (almost) no off-zero mass, e.g. a high-frequency class under an extreme
+        # multiple-merger (a star-like genealogy) -- has a zero-width empirical support, so its CDF/density grid is
+        # constant/non-finite and there is no continuous surface to compare; skip the pair (nothing to assert)
+        if xs[-1] <= xs[0] or ys[-1] <= ys[0] or not np.isfinite(np.asarray(cdf_ms, dtype=float)).all():
+            self.logger.info(f"{title}: pairwise {pair}: skipped (degenerate empirical surface)")
+            return
+
         # skip the first two grid points on each axis: there the joint law has its atom edge (P=0 head for the cdf,
         # the empirical pdf's one-sided boundary difference), where phasegen and msprime disagree spuriously
         sx = sy = slice(2, None)
