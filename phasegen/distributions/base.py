@@ -123,34 +123,32 @@ class _SurfacePlottable:
 # --- function kinds -------------------------------------------------------------------------------------------------
 
 class PDF(DistributionFunction):
-    """Probability density function ``f(x)``.
+    """Probability density function.
 
-    - **Callable** ``pdf(x)``: per-point numerical Laplace inversion (de Hoog) of the accumulated-reward density
-      transform ``phi(s)`` (the exact matrix-exponential density for the tree height; a histogram for empirical
-      samples).
-    - **Plot** ``pdf.plot()``: the fast two-pass Fourier-cosine (COS) curve -- the numerical derivative of the COS CDF
-      -- or, with ``exact=True``, the per-point callable above.
+    - **Callable** ``pdf(x)``: the exact pointwise density by per-point de Hoog Laplace inversion (the exact
+      matrix-exponential density for the tree height; a histogram for empirical samples).
+    - **Plot** ``pdf.plot()``: the fast cosine curve (the derivative of the cosine CDF), or the exact per-point
+      density with ``exact=True``.
     """
     kind = 'pdf'
 
 
 class CDF(DistributionFunction):
-    """Cumulative distribution function ``F(x) = P(X <= x)``.
+    """Cumulative distribution function -- the probability of being at most ``x``.
 
-    - **Callable** ``cdf(x)``: per-point de Hoog inversion of ``phi(s) / s`` (the exact matrix exponential for the tree
-      height; the empirical CDF for samples).
-    - **Plot** ``cdf.plot()``: the fast two-pass Fourier-cosine (COS) curve, or the per-point callable with
-      ``exact=True``.
+    - **Callable** ``cdf(x)``: the exact value by per-point de Hoog inversion (the exact matrix exponential for the
+      tree height; the empirical CDF for samples).
+    - **Plot** ``cdf.plot()``: the fast cosine curve, or the exact per-point CDF with ``exact=True``.
     """
     kind = 'cdf'
 
 
 class QuantileFunction(DistributionFunction):
-    """Quantile function ``Q(q) = inf{x : F(x) >= q}`` (the inverse CDF).
+    """Quantile function -- the inverse CDF.
 
-    - **Callable** ``quantile(q)``: bisection on the (de Hoog / exact) CDF, or the sample quantile for empirical data.
-    - **Plot** ``quantile.plot()``: inverts the fast COS CDF curve by interpolation (or the per-point bisection with
-      ``exact=True``).
+    - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q``, by bisection on the de Hoog CDF (or the
+      sample quantile for empirical data).
+    - **Plot** ``quantile.plot()``: inverts the fast cosine CDF curve (or the per-point bisection with ``exact=True``).
     """
     kind = 'quantile'
 
@@ -160,18 +158,16 @@ class QuantileFunction(DistributionFunction):
 class MarginalPDF(PDF):
     """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin).
 
-    - **Callable** ``pdf(x)``: each bin's density by per-point de Hoog inversion of that bin's reward transform;
-      returns the value for every bin.
-    - **Plot** ``pdf.plot()``: overlays every bin's fast COS density curve (or the per-point de Hoog with
-      ``exact=True``).
+    - **Callable** ``pdf(x)``: every bin's density at ``x`` by per-point de Hoog inversion.
+    - **Plot** ``pdf.plot()``: overlays every bin's fast cosine density curve (or per-point de Hoog with ``exact=True``).
     """
 
 
 class MarginalCDF(CDF):
     """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
 
-    - **Callable** ``cdf(x)``: each bin's ``P(L_i <= x)`` by per-point de Hoog inversion of ``phi(s) / s``.
-    - **Plot** ``cdf.plot()``: overlays every bin's fast COS CDF curve (or per-point de Hoog with ``exact=True``).
+    - **Callable** ``cdf(x)``: every bin's probability of being at most ``x`` by per-point de Hoog inversion.
+    - **Plot** ``cdf.plot()``: overlays every bin's fast cosine CDF curve (or per-point de Hoog with ``exact=True``).
     """
 
 
@@ -179,33 +175,30 @@ class MarginalQuantileFunction(QuantileFunction):
     """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin).
 
     - **Callable** ``quantile(q)``: each bin's quantile by bisection on its de Hoog CDF.
-    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast COS CDF curve.
+    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast cosine CDF curve.
     """
 
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
 
 class JointPDF(_SurfacePlottable, PDF):
-    """Joint density ``f(x, y)`` of two rewards / bins (the within-tree 2-SFS).
+    """Joint density of two rewards / bins (the within-tree pair of branch lengths).
 
-    - **Callable** ``pdf(x, y)``: the continuous-continuous part of the joint law, by the accurate nested de Hoog
-      inversion (mixed derivative of a spline through the box CDF) by default, or the fast 2D Fourier-cosine (COS)
-      expansion of the joint transform ``Phi(s_a, s_b)`` with ``method='cos'`` (``method='dehoog'`` / ``'cos'`` per call).
-      Accepts scalars or arrays.
-    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density (a dense grid),
-      or -- with ``method='dehoog'`` -- the nested de Hoog inversion.
+    - **Callable** ``pdf(x, y)``: the continuous part of the joint law -- the accurate nested de Hoog inversion by
+      default, or the fast 2D cosine expansion with ``method='cos'``. Accepts scalars or arrays.
+    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density, or the
+      nested de Hoog with ``method='dehoog'``.
     """
 
 
 class JointCDF(_SurfacePlottable, CDF):
-    """Joint CDF ``F(x, y) = P(R_a <= x, R_b <= y)`` of two rewards / bins.
+    """Joint CDF of two rewards / bins -- the probability both are at most their thresholds.
 
-    - **Callable** ``cdf(x, y)``: the axis atoms (per-point de Hoog of the marginal sub-transforms ``Phi(., inf)`` /
-      ``Phi(inf, .)``) plus the continuous box -- the accurate nested de Hoog box by default (no near-origin bias for
-      skewed multi-epoch rewards), or the fast analytically integrated 2D cosine box with ``method='cos'``
-      (``method='dehoog'`` / ``'cos'`` per call). Accepts scalars or arrays.
-    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box CDF, or -- with
-      ``method='dehoog'`` -- the nested de Hoog box.
+    - **Callable** ``cdf(x, y)``: the axis atoms (where a reward is zero) plus the continuous part -- the accurate
+      nested de Hoog box by default (no near-origin bias for skewed multi-epoch rewards), or the fast 2D cosine box
+      with ``method='cos'``. Accepts scalars or arrays.
+    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box, or the nested de
+      Hoog box with ``method='dehoog'``.
     """
 
 
@@ -215,27 +208,25 @@ class JointCDF(_SurfacePlottable, CDF):
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
 class ConditionalPDF(PDF):
-    """Density of one reward conditional on another (e.g. ``R_b | R_a = a``).
+    """Density of one reward conditional on another being held at a value (e.g. one bin's length given another's).
 
-    - **Callable** ``pdf(y)``: per-point de Hoog inversion of the nested-inversion conditional transform
-      ``phi_cond(s) = G(s) / G(0)``, where ``G`` is the inner Gaver-Stehfest inversion along the conditioned axis.
-    - **Plot** ``pdf.plot()``: the de Hoog adaptive-spline density curve (``pdf_curve``); pass ``exact=True`` for the
-      per-point de Hoog density.
+    - **Callable** ``pdf(y)``: the exact pointwise conditional density by per-point de Hoog of the nested-inversion
+      conditional transform (an inner inversion along the conditioned axis, then the outer one).
+    - **Plot** ``pdf.plot()``: the de Hoog spline density curve; pass ``exact=True`` for the per-point density.
     """
 
 
 class ConditionalCDF(CDF):
-    """CDF of one reward conditional on another (e.g. ``R_b | R_a = a``).
+    """CDF of one reward conditional on another being held at a value.
 
-    - **Callable** ``cdf(y)``: per-point de Hoog inversion of ``phi_cond(s) / s`` for the nested-inversion conditional
-      transform ``phi_cond(s) = G(s) / G(0)`` (``G`` via inner Gaver-Stehfest).
-    - **Plot** ``cdf.plot()``: the de Hoog adaptive-spline CDF curve (``cdf_curve``); pass ``exact=True`` for the
-      per-point de Hoog CDF.
+    - **Callable** ``cdf(y)``: the exact pointwise conditional CDF by per-point de Hoog of the nested-inversion
+      conditional transform.
+    - **Plot** ``cdf.plot()``: the de Hoog spline CDF curve; pass ``exact=True`` for the per-point CDF.
     """
 
 
 class ConditionalQuantileFunction(QuantileFunction):
-    """Quantile function of one reward conditional on another (e.g. ``R_b | R_a = a``).
+    """Quantile function of one reward conditional on another being held at a value.
 
     - **Callable** ``quantile(q)``: bisection on the conditional de Hoog CDF.
     - **Plot** ``quantile.plot()``: the conditional quantile over a probability grid.

@@ -27,22 +27,20 @@ logger = logging.getLogger('phasegen')
 
 
 class SFSPDF(MarginalPDF):
-    """Per-bin SFS densities -- the density of each frequency class's branch length ``L_i``, one curve per bin (from
-    the SFS reward on the block-counting state space).
+    """Per-bin SFS densities -- the density of each frequency class's branch length, one curve per bin.
 
-    - **Callable** ``pdf(t)``: each bin's density by per-point de Hoog inversion of the bin's accumulated-reward
-      density transform ``phi(s)``; returns the value for every bin.
-    - **Plot** ``pdf.plot()``: overlays every polymorphic bin's fast two-pass Fourier-cosine (COS) density curve (the
-      derivative of the COS CDF), or the per-point de Hoog with ``exact=True``.
+    - **Callable** ``pdf(t)``: every bin's density at ``t`` by per-point de Hoog inversion.
+    - **Plot** ``pdf.plot()``: overlays every polymorphic bin's fast cosine density curve (the derivative of the
+      cosine CDF), or the per-point de Hoog with ``exact=True``.
     """
 
 
 class SFSCDF(MarginalCDF):
-    """Per-bin SFS cumulative distribution functions ``P(L_i <= t)``, one per frequency class (from the SFS reward on
-    the block-counting state space).
+    """Per-bin SFS cumulative distribution functions -- the probability each frequency class's branch length is at
+    most ``t``, one curve per bin.
 
-    - **Callable** ``cdf(t)``: each bin's CDF by per-point de Hoog inversion of ``phi(s) / s``.
-    - **Plot** ``cdf.plot()``: overlays every polymorphic bin's fast COS CDF curve, or the per-point de Hoog with
+    - **Callable** ``cdf(t)``: every bin's CDF at ``t`` by per-point de Hoog inversion.
+    - **Plot** ``cdf.plot()``: overlays every polymorphic bin's fast cosine CDF curve, or the per-point de Hoog with
       ``exact=True``.
     """
 
@@ -51,7 +49,7 @@ class SFSQuantileFunction(MarginalQuantileFunction):
     """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length).
 
     - **Callable** ``quantile(q)``: each bin's quantile by bisection on its de Hoog CDF.
-    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast COS CDF curve.
+    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast cosine CDF curve.
     """
 
 
