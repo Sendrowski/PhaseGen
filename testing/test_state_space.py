@@ -35,6 +35,41 @@ class StateSpaceTestCase(TestCase):
                                                   [0., 0., -1., 1.],
                                                   [0., 0., 0., -0.]]))
 
+    def test_numba_python_equivalence_two_locus_lineage_counting(self):
+        """The numba kernel (kind 3) builds the same two-locus lineage-counting state space -- states and rate matrix
+        -- as the pure-Python construction, across the standard / Beta / Dirac models and single- and multi-population
+        configurations (with recombination, and migration in the multi-population case)."""
+        cases = [
+            (pg.StandardCoalescent(), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.BetaCoalescent(alpha=1.5), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.DiracCoalescent(psi=0.5, c=10), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.StandardCoalescent(), pg.LineageConfig(n={'pop_0': 2, 'pop_1': 2}),
+             pg.Epoch(migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5},
+                      pop_sizes={'pop_0': 1.0, 'pop_1': 1.5})),
+        ]
+
+        prev = pg.Settings.use_numba
+        try:
+            for model, lineage_config, epoch in cases:
+                def build(use_numba):
+                    pg.Settings.use_numba = use_numba
+                    return pg.LineageCountingStateSpace(
+                        lineage_config=lineage_config,
+                        locus_config=pg.LocusConfig(n=2, recombination_rate=1.0),
+                        model=model, epoch=epoch,
+                    )
+
+                numba_ss, python_ss = build(True), build(False)
+                self.assertEqual(numba_ss.k, python_ss.k)
+
+                # reorder the numba states to match the python ones by (lineages, linked), then compare the generator
+                order = [np.where(((python_ss.lineages == numba_ss.lineages[i])
+                                   & (python_ss.linked == numba_ss.linked[i])).all(axis=(1, 2, 3)))[0][0]
+                         for i in range(numba_ss.k)]
+                testing.assert_array_almost_equal(numba_ss.S, python_ss.S[order][:, order], decimal=12)
+        finally:
+            pg.Settings.use_numba = prev
+
     @staticmethod
     def test_n_2_2_demes():
         """

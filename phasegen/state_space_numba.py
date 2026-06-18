@@ -220,18 +220,20 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
         for x in range(dim):
             total += source[x]
 
-        # --- two-locus absorption: both loci have reached their MRCA (one ancestral lineage each) ---
+        # --- two-locus absorption: both loci have reached their MRCA (one ancestral lineage each, summed over demes;
+        # kind 2 block-counting and kind 3 lineage-counting share this predicate) ---
         absorbing = False
-        if kind == 2:
+        if kind == 2 or kind == 3:
             carry0 = 0
             carry1 = 0
-            for blk in range(n_blocks):
-                cnt = source[blk]
-                if cnt > 0:
-                    if block_vectors[blk, 0] > 0:
-                        carry0 += cnt
-                    if block_vectors[blk, 1] > 0:
-                        carry1 += cnt
+            for d in range(n_demes):
+                for blk in range(n_blocks):
+                    cnt = source[d * n_blocks + blk]
+                    if cnt > 0:
+                        if block_vectors[blk, 0] > 0:
+                            carry0 += cnt
+                        if block_vectors[blk, 1] > 0:
+                            carry1 += cnt
             absorbing = carry0 == 1 and carry1 == 1
 
         # --- migration: move one lineage of each block between demes, rate scaled by source count ---
@@ -322,7 +324,13 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                             bb[idx] = source[base + blk]
                             kk[idx] = comb[x]
                             for v in range(vdim):
-                                label[v] += comb[x] * block_vectors[blk, v]
+                                if kind == 3:
+                                    # lineage-counting two-locus: the merged lineage is ancestral at a locus iff any
+                                    # merging lineage was (presence OR), not the summed descendant count
+                                    if block_vectors[blk, v] > 0:
+                                        label[v] = 1
+                                else:
+                                    label[v] += comb[x] * block_vectors[blk, v]
                             idx += 1
 
                     r = _rate_block(model_id, alpha, psi, c, deme_total, bb, kk)
@@ -352,20 +360,24 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                     dst.append(np.int64(tidx))
                     rate.append(r / ts)
 
-        # --- recombination (two-locus only): a linked block (a_0, a_1) splits into (a_0, 0) and (0, a_1) ---
-        if kind == 2 and not absorbing:
-            for blk in range(n_blocks):
-                cnt = source[blk]
-                if cnt > 0 and block_vectors[blk, 0] > 0 and block_vectors[blk, 1] > 0:
-                    target = source.copy()
-                    target[blk] -= 1
-                    target[recomb0[blk]] += 1
-                    target[recomb1[blk]] += 1
-                    tidx = _find_or_add(rows, chain_next, head, target)
-                    if recomb_rate != 0.0:
-                        src.append(np.int64(cur))
-                        dst.append(np.int64(tidx))
-                        rate.append(recomb_rate * cnt)
+        # --- recombination (two-locus): a block ancestral at both loci splits into the two single-locus blocks, per
+        # deme, at rate r per such lineage. Kind 2 (block-counting) splits (a_0, a_1) -> (a_0, 0) + (0, a_1); kind 3
+        # (lineage-counting) splits a linked lineage -> one locus-0-only and one locus-1-only. ---
+        if (kind == 2 or kind == 3) and not absorbing:
+            for d in range(n_demes):
+                dbase = d * n_blocks
+                for blk in range(n_blocks):
+                    cnt = source[dbase + blk]
+                    if cnt > 0 and block_vectors[blk, 0] > 0 and block_vectors[blk, 1] > 0:
+                        target = source.copy()
+                        target[dbase + blk] -= 1
+                        target[dbase + recomb0[blk]] += 1
+                        target[dbase + recomb1[blk]] += 1
+                        tidx = _find_or_add(rows, chain_next, head, target)
+                        if recomb_rate != 0.0:
+                            src.append(np.int64(cur))
+                            dst.append(np.int64(tidx))
+                            rate.append(recomb_rate * cnt)
 
         cur += 1
 

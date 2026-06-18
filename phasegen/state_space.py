@@ -5,6 +5,7 @@ State space classes and utilities. The two main state space classes are
 
 import logging
 import time
+import warnings
 from abc import ABC, abstractmethod
 from .caching import cached_property
 from itertools import product
@@ -405,24 +406,28 @@ class StateSpace(ABC):
 
     def _use_numba(self) -> bool:
         """
-        Whether numba-accelerated construction applies: numba is available and enabled, there is a single locus, and
-        the state space is one of the supported types (the 2-locus recombination path stays on the Python
-        construction).
+        Whether numba-accelerated construction applies: numba is available and enabled, and the state space is one of
+        the supported types -- the single-locus lineage/block/joint spaces, the two-locus lineage-counting space
+        (recombination), and the two-locus block-counting space (recombination).
         """
         if not (HAS_NUMBA and Settings.use_numba):
             return False
 
-        # the single-locus state spaces (numbered 0/1); the two-locus space is handled separately below
-        if self.locus_config.n == 1 and type(self) in (
-                LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace):
+        # lineage-counting: single locus (kernel kind 0) or two loci with recombination (kind 3)
+        if type(self) is LineageCountingStateSpace and self.locus_config.n in (1, 2):
             return True
 
-        # the two-locus block-counting state space (recombination)
+        # the single-locus block-/joint-counting spaces (kind 1)
+        if self.locus_config.n == 1 and type(self) in (BlockCountingStateSpace, JointBlockCountingStateSpace):
+            return True
+
+        # the two-locus block-counting space (recombination, kind 2)
         return type(self) is TwoLocusBlockCountingStateSpace
 
     def _numba_kind(self) -> int:
         """
-        Kernel selector: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting.
+        Kernel selector: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting, 3 two-locus
+        lineage-counting.
         """
         return 1
 
@@ -430,7 +435,7 @@ class StateSpace(ABC):
         """
         Recombination parameters for the kernel: ``(recombination_rate, recomb0, recomb1)`` where ``recomb_l[b]`` is
         the block index that block ``b`` contributes to locus ``l`` when it recombines. Only the two-locus state
-        space uses these; by default there is no recombination.
+        spaces use these; by default there is no recombination.
         """
         return 0.0, None, None
 
@@ -441,6 +446,18 @@ class StateSpace(ABC):
         """
         return np.arange(1, n_blocks + 1, dtype=np.int64).reshape(-1, 1)
 
+    def _numba_n_blocks(self, init: 'State') -> int:
+        """Number of blocks per deme in the kernel state vector (default: the state's block dimension)."""
+        return init.lineages.shape[2]
+
+    def _numba_initial(self, init: 'State') -> np.ndarray:
+        """Flatten the initial state into the kernel's ``(n_demes * n_blocks,)`` lineage vector."""
+        return init.lineages.reshape(-1)
+
+    def _numba_to_state(self, row: np.ndarray, init: 'State') -> 'State':
+        """Rebuild a :class:`State` from a kernel row (default: reshape into the lineage array; linkage is static)."""
+        return State((row.reshape(init.lineages.shape).astype(init.lineages.dtype), init.linked.copy()))
+
     def _construct_numba(self) -> Tuple[List['State'], np.ndarray]:
         """
         Build the states and rate matrix for the current epoch via the numba kernel.
@@ -449,7 +466,7 @@ class StateSpace(ABC):
         """
         init = self._get_initial()
         n_demes = init.lineages.shape[1]
-        n_blocks = init.lineages.shape[2]
+        n_blocks = self._numba_n_blocks(init)
         pops = self.lineage_config.pop_names
 
         mig = np.zeros((n_demes, n_demes))
@@ -463,7 +480,7 @@ class StateSpace(ABC):
         recomb_rate, recomb0, recomb1 = self._numba_recombination()
 
         rows, S = build_rate_matrix(
-            initial=init.lineages.reshape(-1),
+            initial=self._numba_initial(init),
             kind=self._numba_kind(),
             n_demes=n_demes,
             n_blocks=n_blocks,
@@ -481,11 +498,7 @@ class StateSpace(ABC):
             dense_max_states=Settings.dense_rate_matrix_max_states,
         )
 
-        lin_shape = init.lineages.shape
-        lin_dtype = init.lineages.dtype
-        linked = init.linked  # all-zero for a single locus
-
-        states = [State((row.reshape(lin_shape).astype(lin_dtype), linked.copy())) for row in rows]
+        states = [self._numba_to_state(row, init) for row in rows]
 
         return states, S
 
@@ -501,6 +514,14 @@ class StateSpace(ABC):
             states, S = self._construct_numba()
             self.__dict__.setdefault('states', states)
             return S
+
+        warnings.warn(
+            "Building the state space with the pure-Python construction; the numba kernel is the preferred path and "
+            "this fallback is deprecated. It is used when numba is unavailable or disabled (Settings.use_numba), or "
+            "for a state-space type the kernel does not yet support.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         # check if epoch is in cache
         if Settings.cache_epochs and self.epoch in self._cache:
@@ -663,15 +684,62 @@ class LineageCountingStateSpace(StateSpace):
 
     def _numba_kind(self) -> int:
         """
-        Lineage-counting kernel.
+        Lineage-counting kernel: 0 for a single locus, 3 for the two-locus (recombination) space.
         """
-        return 0
+        return 3 if self.locus_config.n == 2 else 0
 
     def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
         """
-        Lineage counting has a single block; the label is unused by the lineage kernel.
+        Single-locus lineage counting has one (unlabelled) block. The two-locus space has three linkage categories --
+        linked (ancestral at both loci), unlinked at locus 0, unlinked at locus 1 -- labelled by their per-locus
+        ancestral-material presence ``(1, 1)`` / ``(1, 0)`` / ``(0, 1)``.
         """
+        if self.locus_config.n == 2:
+            return np.array([[1, 1], [1, 0], [0, 1]], dtype=np.int64)
         return np.array([[1]], dtype=np.int64)
+
+    def _numba_n_blocks(self, init: 'State') -> int:
+        """Three linkage categories per deme for two loci; otherwise the single lineage block."""
+        return 3 if self.locus_config.n == 2 else init.lineages.shape[2]
+
+    def _numba_recombination(self) -> Tuple[float, np.ndarray, np.ndarray]:
+        """A linked lineage (block 0, ancestral at both loci) splits into the locus-0-only (block 1) and
+        locus-1-only (block 2) categories, at rate ``r`` per linked lineage."""
+        if self.locus_config.n != 2:
+            return 0.0, None, None
+        recomb0 = np.array([1, 0, 0], dtype=np.int64)
+        recomb1 = np.array([2, 0, 0], dtype=np.int64)
+        return self.locus_config.recombination_rate, recomb0, recomb1
+
+    def _numba_initial(self, init: 'State') -> np.ndarray:
+        """Encode the initial state as per-deme ``[linked, unlinked-at-locus-0, unlinked-at-locus-1]`` category
+        counts (the kernel's two-locus lineage-counting state); single-locus uses the default flattening."""
+        if self.locus_config.n != 2:
+            return init.lineages.reshape(-1)
+        n_demes = init.lineages.shape[1]
+        vec = np.zeros(n_demes * 3, dtype=np.int64)
+        for d in range(n_demes):
+            n_linked = int(init.linked[0, d, 0])
+            vec[d * 3 + 0] = n_linked
+            vec[d * 3 + 1] = int(init.lineages[0, d, 0]) - n_linked  # unlinked at locus 0
+            vec[d * 3 + 2] = int(init.lineages[1, d, 0]) - n_linked  # unlinked at locus 1
+        return vec
+
+    def _numba_to_state(self, row: np.ndarray, init: 'State') -> 'State':
+        """Decode a kernel row of per-deme ``[linked, unlinked0, unlinked1]`` category counts back into a two-locus
+        :class:`State` (lineages ancestral at each locus, and the shared linked count); single-locus uses the default."""
+        if self.locus_config.n != 2:
+            return State((row.reshape(init.lineages.shape).astype(init.lineages.dtype), init.linked.copy()))
+        n_demes = init.lineages.shape[1]
+        lineages = np.zeros((2, n_demes, 1), dtype=init.lineages.dtype)
+        linked = np.zeros((2, n_demes, 1), dtype=init.linked.dtype)
+        for d in range(n_demes):
+            n_linked, u0, u1 = int(row[d * 3 + 0]), int(row[d * 3 + 1]), int(row[d * 3 + 2])
+            lineages[0, d, 0] = n_linked + u0
+            lineages[1, d, 0] = n_linked + u1
+            linked[0, d, 0] = n_linked
+            linked[1, d, 0] = n_linked
+        return State((lineages, linked))
 
     def _get_old(self) -> OldLineageCountingStateSpace:
         """
