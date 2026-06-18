@@ -15,8 +15,7 @@ from ..locus import LocusConfig
 from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
-from .base import DensityAwareDistribution, MarginalDensity, MarginalCDF, \
-    MarginalQuantileFunction
+from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, QuantileFunction
 from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
 from .coalescent import AbstractCoalescent, Coalescent
 
@@ -111,10 +110,80 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         return self._moments[0]
 
 
+class _EmpiricalCumulativeDistributionFunction(CumulativeDistributionFunction):  # pragma: no cover
+    """The empirical CDF (interpolated step function of the sorted samples), read from the distribution's samples.
+    Handles both a 1-D sample vector (a scalar distribution) and a 2-D per-bin matrix (a spectrum)."""
+
+    def __call__(self, t):
+        # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
+        # which would sort across bins within a replicate and produce a meaningless ECDF
+        samples = self._distribution.samples
+        x = np.sort(samples, axis=0)
+        y = np.arange(1, len(samples) + 1) / len(samples)
+
+        if x.ndim == 1:
+            return np.interp(t, x, y)
+
+        if x.ndim == 2:
+            return np.array([np.interp(t, x_, y) for x_ in x.T])
+
+        raise ValueError("Samples must be 1 or 2 dimensional.")
+
+
+class _EmpiricalQuantileFunction(QuantileFunction):  # pragma: no cover
+    """The empirical quantile (sample quantile over the replicate axis; one column per bin for a spectrum)."""
+
+    def __call__(self, q):
+        # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
+        # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
+        return np.quantile(self._distribution.samples, q=q, axis=0)
+
+
+class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
+    """The empirical density (histogram estimate of the continuous, positive part, the atom at 0 split off), read
+    from the distribution's samples. Handles a 1-D sample vector or a 2-D per-bin matrix."""
+
+    def __call__(self, t, n_bins: int = None, sigma: float = None, samples: np.ndarray = None, **kwargs):
+        samples = self._distribution.samples if samples is None else samples
+
+        if samples.ndim == 2:
+            return np.array([self(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
+
+        # exclude the atom at 0 (the point mass P(R = 0), e.g. an SFS bin with no subtending branch): histogram only
+        # the continuous (positive) part and rescale by the positive fraction, so the result estimates the continuous
+        # sub-density f(t), t > 0 -- which integrates to P(R > 0), matching the analytic pdf (also atom-excluded) --
+        # instead of spiking in the first bin and dwarfing the rest of the curve
+        t = np.atleast_1d(t)
+        positive = samples[samples > 0]
+        if positive.size == 0:
+            return np.zeros_like(t, dtype=float)
+        frac = positive.size / samples.size
+        nb = n_bins if n_bins is not None else int(np.clip(np.sqrt(positive.size), 100, 2000))
+        hist, bin_edges = np.histogram(positive, range=(0, max(positive)), bins=nb, density=True)
+        hist = hist * frac
+
+        # determine bins for u
+        bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, nb - 1, dtype=int))
+
+        # use proper bins for y values
+        y = hist[bins]
+
+        # smooth using gaussian filter
+        if sigma is not None:
+            y = gaussian_filter1d(y, sigma=sigma)
+
+        return y
+
+
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
     Probability distribution based on realisations.
     """
+    # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
+    # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
+    _cdf_function = _EmpiricalCumulativeDistributionFunction
+    _pdf_function = _EmpiricalDensityFunction
+    _quantile_function = _EmpiricalQuantileFunction
 
     def __init__(self, samples: np.ndarray | list):
         """
@@ -214,88 +283,6 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :return: The kth moment
         """
         return np.mean(self.samples ** k, axis=0)
-
-    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
-        """
-        Cumulative distribution function.
-
-        :param t: Time.
-        :return: Cumulative probability.
-        """
-        # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
-        # which would sort across bins within a replicate and produce a meaningless ECDF
-        x = np.sort(self.samples, axis=0)
-        y = np.arange(1, len(self.samples) + 1) / len(self.samples)
-
-        if x.ndim == 1:
-            return np.interp(t, x, y)
-
-        if x.ndim == 2:
-            return np.array([np.interp(t, x_, y) for x_ in x.T])
-
-        raise ValueError("Samples must be 1 or 2 dimensional.")
-
-    def _quantile(self, q: float) -> float:
-        """
-        Get the qth quantile.
-
-        :param q: Quantile.
-        :return: Quantile.
-        """
-        # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
-        # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
-        return np.quantile(self.samples, q=q, axis=0)
-
-    def _pdf(
-            self,
-            t: float | np.ndarray,
-            n_bins: int = None,
-            sigma: float = None,
-            samples: np.ndarray = None,
-            **kwargs: dict
-    ) -> float | np.ndarray:
-        """
-        Density function.
-
-        :param sigma: Sigma for Gaussian filter.
-        :param n_bins: Number of histogram bins; ``None`` (default) uses ``~sqrt(#positive samples)`` (clipped to
-            [100, 2000]). The histogram is a Poisson-noisy estimator -- ~1/sqrt(count) per bin -- so an over-fine
-            binning (e.g. the old fixed 10000 on 1e6 samples) injects ~10% per-bin noise that makes the empirical pdf
-            spuriously disagree with the smooth analytic one; ``sqrt(N)`` bins denoise it (~3x lower mean error here)
-            while preserving the peak, whereas Gaussian filtering the coarse output grid blunts the mode.
-        :param t: Time.
-        :param samples: Samples.
-        :return: Density.
-        """
-        samples = self.samples if samples is None else samples
-
-        if samples.ndim == 2:
-            return np.array([self._pdf(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
-
-        # exclude the atom at 0 (the point mass P(R = 0), e.g. an SFS bin with no subtending branch): histogram only
-        # the continuous (positive) part and rescale by the positive fraction, so the result estimates the continuous
-        # sub-density f(t), t > 0 -- which integrates to P(R > 0), matching the analytic pdf (also atom-excluded) --
-        # instead of spiking in the first bin and dwarfing the rest of the curve
-        t = np.atleast_1d(t)
-        positive = samples[samples > 0]
-        if positive.size == 0:
-            return np.zeros_like(t, dtype=float)
-        frac = positive.size / samples.size
-        nb = n_bins if n_bins is not None else int(np.clip(np.sqrt(positive.size), 100, 2000))
-        hist, bin_edges = np.histogram(positive, range=(0, max(positive)), bins=nb, density=True)
-        hist = hist * frac
-
-        # determine bins for u
-        bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, nb - 1, dtype=int))
-
-        # use proper bins for y values
-        y = hist[bins]
-
-        # smooth using gaussian filter
-        if sigma is not None:
-            y = gaussian_filter1d(y, sigma=sigma)
-
-        return y
 
 
 class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
@@ -481,26 +468,10 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
     """
     SFS phase-type distribution based on realisations.
+
+    The per-bin (2-D samples) cdf / pdf / quantile evaluation is handled by the inherited ``_Empirical*`` function
+    objects; the per-bin plotting is the bin-aware :meth:`_plot_per_bin`.
     """
-    # per-bin empirical pdf/cdf/quantile -> marginal flavours
-    _pdf_function = MarginalDensity
-    _cdf_function = MarginalCDF
-    _quantile_function = MarginalQuantileFunction
-
-    @property
-    def pdf(self) -> MarginalDensity:
-        """Per-bin empirical probability density functions (histogram estimates): callable and plottable."""
-        return super().pdf
-
-    @property
-    def cdf(self) -> MarginalCDF:
-        """Per-bin empirical cumulative distribution functions: callable and plottable."""
-        return super().cdf
-
-    @property
-    def quantile(self) -> MarginalQuantileFunction:
-        """Per-bin empirical quantile functions: callable and plottable."""
-        return super().quantile
 
     def _tajima_n(self) -> int:
         # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
@@ -586,7 +557,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         if grid is None:
             grid = np.linspace(0.01, 0.99, n_points) if kind == 'quantile' \
-                else np.linspace(0, max(d._quantile(0.99) for _, d in per), n_points)
+                else np.linspace(0, max(d.quantile(0.99) for _, d in per), n_points)
 
         # the empirical density is a histogram; the default ``n_bins`` (10000, for 1M-replicate comparison caching)
         # spikes for the finite samples typical of interactive use, so pick a sane, sample-size-adaptive bin count
@@ -596,11 +567,11 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         xlabel = 'q' if kind == 'quantile' else 't'
         for k, (i, d) in enumerate(per):
             if kind == 'cdf':
-                y = d._cdf(grid)
+                y = d.cdf(grid)
             elif kind == 'pdf':
-                y = d._pdf(grid, n_bins=n_bins_pdf)
+                y = d.pdf(grid, n_bins=n_bins_pdf)
             else:
-                y = np.array([d._quantile(float(q)) for q in grid])
+                y = np.array([d.quantile(float(q)) for q in grid])
             Visualization.plot(ax=ax, x=grid, y=y, xlabel=xlabel, ylabel=ylabel, label=str(i), file=file,
                                show=(k == len(per) - 1 and show), clear=clear, title=title)
         return ax

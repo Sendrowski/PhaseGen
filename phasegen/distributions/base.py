@@ -1146,36 +1146,11 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
     """
     Abstract base class for probability distributions for which moments and densities can be calculated. The
     ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); subclasses implement the ``_cdf`` / ``_pdf`` / ``_quantile`` evaluators.
+    :class:`CallableDistributionFunctions`); the evaluation lives on those function objects (subclasses select the
+    flavour via :attr:`_cdf_function` / :attr:`_pdf_function` / :attr:`_quantile_function`). The generic grid
+    :meth:`_plot_cdf` / :meth:`_plot_pdf` / :meth:`_plot_quantile` below back the direct-evaluation flavours (the
+    empirical sample estimates) that do not bring their own plot.
     """
-
-    @abstractmethod
-    def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
-        """
-        Cumulative distribution function.
-
-        :param t: Value or values to evaluate the CDF at.
-        :return: CDF.
-        """
-        pass
-
-    @abstractmethod
-    def _quantile(self, q: float) -> float:
-        """
-        Get the qth quantile.
-        """
-        pass
-
-    @abstractmethod
-    def _pdf(self, t: float | Sequence[float], **kwargs: dict) -> float | np.ndarray:
-        """
-        Density function.
-
-        :param t: Value or values to evaluate the density function at.
-        :param kwargs: Additional keyword arguments.
-        :return: Density.
-        """
-        pass
 
     def _plot_quantile(
             self,
@@ -1207,7 +1182,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         return Visualization.plot(
             ax=ax,
             x=q,
-            y=np.array([self._quantile(float(p)) for p in q]),
+            y=np.array([self.quantile(float(p)) for p in q]),
             xlabel='q',
             ylabel='quantile',
             label=label,
@@ -1242,12 +1217,12 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+            t = np.linspace(0, self.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
 
         ax = Visualization.plot(
             ax=ax,
             x=t,
-            y=self._cdf(t),
+            y=self.cdf(t),
             xlabel='t',
             ylabel='F(t)',
             label=label,
@@ -1287,15 +1262,15 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         from ..visualization import Visualization
 
         if dx is None:
-            dx = self._quantile(Settings.plot_endpoint_quantile) / 1e10
+            dx = self.quantile(Settings.plot_endpoint_quantile) / 1e10
 
         if t is None:
-            t = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+            t = np.linspace(0, self.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
 
         return Visualization.plot(
             ax=ax,
             x=t,
-            y=self._pdf(t, dx=dx),
+            y=self.pdf(t, dx=dx),
             xlabel='t',
             ylabel='f(t)',
             label=label,
