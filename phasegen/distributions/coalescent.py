@@ -510,6 +510,35 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @_make_hashable
     @cache
+    def distribution(self, reward: Reward = None) -> 'RewardDistribution':
+        """
+        The full 1D distribution of an accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption -- a
+        callable-and-plottable object housing the ``mean`` / ``var`` / ``std``, the ``cdf`` / ``pdf`` and the
+        ``quantile`` function (via the Laplace-transform inversion). The state space is inferred from the reward
+        (as for :meth:`moment`); cached per reward.
+
+        :param reward: The reward whose accumulation is distributed. Defaults to the tree-height reward.
+        :return: The 1D accumulated-reward distribution.
+        """
+        reward = TreeHeightReward() if reward is None else reward
+        return self._get_dist(k=1, rewards=[reward]).distribution(reward)
+
+    @_make_hashable
+    @cache
+    def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
+        """
+        The joint 2D distribution of two accumulated rewards to absorption -- a callable-and-plottable object housing
+        the ``mean`` (per reward), the cross-moments / ``cov`` / ``corr`` and the joint ``cdf`` / ``pdf`` (a bivariate
+        joint has no quantile). The state space is inferred from the rewards (as for :meth:`moment`); cached per pair.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The joint 2D accumulated-reward distribution.
+        """
+        return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint_distribution(reward_a, reward_b)
+
+    @_make_hashable
+    @cache
     def moment(
             self,
             k: int = 1,

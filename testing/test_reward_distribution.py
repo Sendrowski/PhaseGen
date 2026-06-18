@@ -965,3 +965,34 @@ def test_negative_reward_raises():
     dist = pg.Coalescent(n=5).total_branch_length
     with pytest.raises(ValueError):
         dist.distribution(reward=_NegReward()).cdf(1.0)
+
+
+def test_coalescent_distribution_accessors():
+    """``Coalescent.distribution(reward)`` / ``joint_distribution(ra, rb)`` are cached accessors returning the 1D /
+    2D accumulated-reward distribution objects, with the state space inferred from the rewards (as for ``moment``)."""
+    from phasegen.rewards import TreeHeightReward
+    from phasegen.state_space import LineageCountingStateSpace, BlockCountingStateSpace
+
+    c = pg.Coalescent(n=5)
+
+    # 1D: houses mean / var / std + cdf / pdf / quantile; the mean equals the moment engine, the state space is the
+    # lineage-counting one (tree height), and the accessor is cached per reward
+    r = TreeHeightReward()
+    d = c.distribution(r)
+    assert c.distribution(r) is d
+    assert isinstance(d.state_space, LineageCountingStateSpace)
+    assert float(d.mean) == pytest.approx(float(c.moment(1, rewards=[r], center=False)))
+    assert float(d.var) == pytest.approx(float(c.moment(2, rewards=[r, r], center=True)))
+    assert 0.0 <= float(d.cdf(1.0)) <= 1.0
+    assert float(d.pdf(1.0)) >= 0.0
+    assert float(d.quantile(0.5)) == pytest.approx(float(c.tree_height.quantile(0.5)), abs=2e-3)
+
+    # 2D: a singleton joint -- houses the marginal means, the cross-moments / cov / corr and the joint cdf / pdf;
+    # SFS rewards route to the block-counting state space
+    j = c.joint_distribution(UnfoldedSFSReward(1), UnfoldedSFSReward(2))
+    assert c.joint_distribution(UnfoldedSFSReward(1), UnfoldedSFSReward(2)) is not None
+    assert isinstance(j._host.state_space, BlockCountingStateSpace)
+    assert np.shape(j.mean) == (2,)
+    assert j.mean[0] == pytest.approx(c.moment(1, rewards=[UnfoldedSFSReward(1)], center=False))
+    assert float(j.cov()) == pytest.approx(j.moment(1, 1) - j.moment(1, 0) * j.moment(0, 1))
+    assert 0.0 <= float(j.cdf(1.0, 1.0)) <= 1.0

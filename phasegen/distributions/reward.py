@@ -112,6 +112,31 @@ class RewardDistribution(CallableDistributionFunctions):
         with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``."""
         return getattr(getattr(self, '_host', None), '_time_scale', 1.0)
 
+    @cached_property
+    def mean(self) -> float:
+        """Mean ``E[R]`` of the accumulated reward (the exact first moment from the moment engine). The conditional
+        flavours carry no state-space reward, so they fall back to the (reliable) LST cumulant mean."""
+        reward = getattr(self, 'reward', None)
+        if reward is None:
+            return float(self._cumulants()[0])
+        return float(self._host.moment(k=1, rewards=(reward,), center=False))
+
+    @cached_property
+    def var(self) -> float:
+        """Variance of the accumulated reward (the exact second central moment)."""
+        reward = getattr(self, 'reward', None)
+        if reward is None:
+            raise NotImplementedError(
+                "var is not available for a conditional distribution: its nested-transform cumulant variance is "
+                "unreliable (it collapses to a floor). Use the cdf / quantile instead."
+            )
+        return float(self._host.moment(k=2, rewards=(reward, reward), center=True))
+
+    @cached_property
+    def std(self) -> float:
+        """Standard deviation of the accumulated reward."""
+        return self.var ** 0.5
+
     def lst(self, s: complex) -> complex:
         """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
         st = self._setup
@@ -417,6 +442,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return float(MomentEvaluator.moment(
             self._host, k=order_a + order_b, rewards=rewards, center=center, permute=True
         ))
+
+    @cached_property
+    def mean(self) -> np.ndarray:
+        """The pair of marginal means ``(E[R_a], E[R_b])``."""
+        return np.array([self.moment(1, 0), self.moment(0, 1)])
 
     def cov(self) -> float:
         """The covariance ``E[R_a R_b] - E[R_a] E[R_b]``."""
