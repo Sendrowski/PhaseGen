@@ -892,9 +892,10 @@ def test_distribution_functions_are_callable_and_plottable():
 
     coal = pg.Coalescent(n=5)
 
-    # spectra: callable returns the per-bin spectrum, identical to the underlying evaluation
+    # spectra: the callable returns the per-bin spectrum, each bin matching its own RewardDistribution
     assert isinstance(coal.sfs.pdf, DistributionFunction)
-    assert np.allclose(np.asarray(coal.sfs.cdf(1.3).data), np.asarray(coal.sfs._cdf(1.3).data))
+    sfs_cdf = np.asarray(coal.sfs.cdf(1.3).data)
+    assert sfs_cdf[2] == pytest.approx(float(coal.sfs.bin(2).cdf(1.3)))
 
     # univariate (tree height): callable scalar + plottable. The exact (expm) CDF on the function object agrees
     # with the LST reward-distribution CDF of the same (tree-height) reward.
