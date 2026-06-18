@@ -40,8 +40,8 @@ import scipy.sparse as sp
 
 from ..rewards import Reward
 from ..settings import Settings
-from .base import CallableDistributionFunctions, JointPDF, JointCDF, \
-    ConditionalPDF, ConditionalCDF, ConditionalQuantileFunction
+from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
+    ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction
 from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
@@ -535,7 +535,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     """
     #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
     #: ``plot_surface`` callback); a joint has no quantile (a 2D quantile is not well-defined)
-    _pdf_function = JointPDF
+    _pdf_function = JointDensity
     _cdf_function = JointCDF
     _quantile_function = None
 
@@ -1190,7 +1190,7 @@ class _AtomConditional(_Conditional):
     for the ``value > 0`` case, so both conditional cases share one accurate path. The residual atom at 0
     (``P(both = 0) / P(R_on = 0)``) surfaces automatically as ``p0 = lst(inf)``.
     """
-    _pdf_function = ConditionalPDF
+    _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
@@ -1258,7 +1258,7 @@ class _NestedConditional(_Conditional):
     ``G(0)`` is the marginal density of the conditioning reward there (the normaliser). This resolves the conditional
     exactly, unlike the coarse 2D-cosine slice.
     """
-    _pdf_function = ConditionalPDF
+    _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 

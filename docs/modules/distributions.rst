@@ -67,16 +67,16 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: phasegen.distributions.PDF
+.. autoclass:: phasegen.distributions.DensityFunction
    :show-inheritance:
 
-.. autoclass:: phasegen.distributions.CDF
+.. autoclass:: phasegen.distributions.CumulativeDistributionFunction
    :show-inheritance:
 
 .. autoclass:: phasegen.distributions.QuantileFunction
    :show-inheritance:
 
-.. autoclass:: phasegen.distributions.MarginalPDF
+.. autoclass:: phasegen.distributions.MarginalDensity
    :show-inheritance:
 
 .. autoclass:: phasegen.distributions.MarginalCDF
@@ -85,13 +85,13 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
 .. autoclass:: phasegen.distributions.MarginalQuantileFunction
    :show-inheritance:
 
-.. autoclass:: phasegen.distributions.JointPDF
+.. autoclass:: phasegen.distributions.JointDensity
    :show-inheritance:
 
 .. autoclass:: phasegen.distributions.JointCDF
    :show-inheritance:
 
-.. autoclass:: phasegen.distributions.ConditionalPDF
+.. autoclass:: phasegen.distributions.ConditionalDensity
    :show-inheritance:
 
 .. autoclass:: phasegen.distributions.ConditionalCDF

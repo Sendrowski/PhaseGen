@@ -73,7 +73,7 @@ class DistributionFunction:
     :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` overlays every bin's density curve).
 
     This base class is rarely used directly: each property returns one of the thin typed subclasses
-    (:class:`PDF` / :class:`CDF` / :class:`QuantileFunction`, in plain,
+    (:class:`DensityFunction` / :class:`CumulativeDistributionFunction` / :class:`QuantileFunction`, in plain,
     ``Marginal...``, ``Joint...`` and ``Conditional...`` flavours). They behave identically but carry distinct
     docstrings describing *what* the function is and *how* it is computed, and -- being real classes with real
     :meth:`plot` / :meth:`__call__` methods -- they let IDEs resolve ``.plot`` to a definition and surface those
@@ -121,7 +121,7 @@ class _SurfacePlottable:
 
 # --- function kinds -------------------------------------------------------------------------------------------------
 
-class PDF(DistributionFunction):
+class DensityFunction(DistributionFunction):
     """Probability density function.
 
     - **Callable** ``pdf(x)``: the exact pointwise density by per-point de Hoog Laplace inversion (the exact
@@ -132,7 +132,7 @@ class PDF(DistributionFunction):
     kind = 'pdf'
 
 
-class CDF(DistributionFunction):
+class CumulativeDistributionFunction(DistributionFunction):
     """Cumulative distribution function -- the probability of being at most ``x``.
 
     - **Callable** ``cdf(x)``: the exact value by per-point de Hoog inversion (the exact matrix exponential for the
@@ -154,7 +154,7 @@ class QuantileFunction(DistributionFunction):
 
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
 
-class MarginalPDF(PDF):
+class MarginalDensity(DensityFunction):
     """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin).
 
     - **Callable** ``pdf(x)``: every bin's density at ``x`` by per-point de Hoog inversion.
@@ -162,7 +162,7 @@ class MarginalPDF(PDF):
     """
 
 
-class MarginalCDF(CDF):
+class MarginalCDF(CumulativeDistributionFunction):
     """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
 
     - **Callable** ``cdf(x)``: every bin's probability of being at most ``x`` by per-point de Hoog inversion.
@@ -180,7 +180,7 @@ class MarginalQuantileFunction(QuantileFunction):
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
 
-class JointPDF(_SurfacePlottable, PDF):
+class JointDensity(_SurfacePlottable, DensityFunction):
     """Joint density of two rewards / bins (the within-tree pair of branch lengths).
 
     - **Callable** ``pdf(x, y)``: the continuous part of the joint law -- the accurate nested de Hoog inversion by
@@ -190,7 +190,7 @@ class JointPDF(_SurfacePlottable, PDF):
     """
 
 
-class JointCDF(_SurfacePlottable, CDF):
+class JointCDF(_SurfacePlottable, CumulativeDistributionFunction):
     """Joint CDF of two rewards / bins -- the probability both are at most their thresholds.
 
     - **Callable** ``cdf(x, y)``: the axis atoms (where a reward is zero) plus the continuous part -- the accurate
@@ -206,7 +206,7 @@ class JointCDF(_SurfacePlottable, CDF):
 
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
-class ConditionalPDF(PDF):
+class ConditionalDensity(DensityFunction):
     """Density of one reward conditional on another being held at a value (e.g. one bin's length given another's).
 
     - **Callable** ``pdf(y)``: the exact pointwise conditional density by per-point de Hoog of the nested-inversion
@@ -215,7 +215,7 @@ class ConditionalPDF(PDF):
     """
 
 
-class ConditionalCDF(CDF):
+class ConditionalCDF(CumulativeDistributionFunction):
     """CDF of one reward conditional on another being held at a value.
 
     - **Callable** ``cdf(y)``: the exact pointwise conditional CDF by per-point de Hoog of the nested-inversion
@@ -243,18 +243,18 @@ class CallableDistributionFunctions:
     """
     #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
     #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
-    _pdf_function = PDF
-    _cdf_function = CDF
+    _pdf_function = DensityFunction
+    _cdf_function = CumulativeDistributionFunction
     _quantile_function = QuantileFunction
 
     @property
-    def cdf(self) -> CDF:
+    def cdf(self) -> CumulativeDistributionFunction:
         """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
         ``cdf.plot_surface()``)."""
         return self._cdf_function(self)
 
     @property
-    def pdf(self) -> PDF:
+    def pdf(self) -> DensityFunction:
         """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()`` / -- joint --
         ``pdf.plot_surface()``)."""
         return self._pdf_function(self)

@@ -15,7 +15,7 @@ from ..locus import LocusConfig
 from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
-from .base import DensityAwareDistribution, MarginalPDF, MarginalCDF, \
+from .base import DensityAwareDistribution, MarginalDensity, MarginalCDF, \
     MarginalQuantileFunction
 from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
 from .coalescent import AbstractCoalescent, Coalescent
@@ -483,12 +483,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     SFS phase-type distribution based on realisations.
     """
     # per-bin empirical pdf/cdf/quantile -> marginal flavours
-    _pdf_function = MarginalPDF
+    _pdf_function = MarginalDensity
     _cdf_function = MarginalCDF
     _quantile_function = MarginalQuantileFunction
 
     @property
-    def pdf(self) -> MarginalPDF:
+    def pdf(self) -> MarginalDensity:
         """Per-bin empirical probability density functions (histogram estimates): callable and plottable."""
         return super().pdf
 

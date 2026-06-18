@@ -15,7 +15,7 @@ from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountin
 from ..utils import multiset_permutations
 
 from ._common import _make_hashable
-from .base import MarginalPDF, MarginalCDF, MarginalQuantileFunction
+from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-class SFSPDF(MarginalPDF):
+class SFSDensity(MarginalDensity):
     """Per-bin SFS densities -- the density of each frequency class's branch length, one curve per bin.
 
     - **Callable** ``pdf(t)``: every bin's density at ``t`` by per-point de Hoog inversion.
@@ -58,12 +58,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     Base class for site-frequency spectrum distributions.
     """
     # the spectrum's pdf/cdf/quantile are per-bin (one curve per frequency class) -> SFS-specific flavours
-    _pdf_function = SFSPDF
+    _pdf_function = SFSDensity
     _cdf_function = SFSCDF
     _quantile_function = SFSQuantileFunction
 
     @property
-    def pdf(self) -> SFSPDF:
+    def pdf(self) -> SFSDensity:
         """Per-bin SFS probability density functions (one per frequency class): callable (``pdf(t)``) and plottable."""
         return super().pdf
 
@@ -985,12 +985,12 @@ class JointSFSDistribution(PhaseTypeDistribution):
     ``(n_0,...,n_{P-1})`` configuration) are zero by convention.
     """
     # per-bin (per descendant configuration) pdf/cdf/quantile -> marginal flavours
-    _pdf_function = MarginalPDF
+    _pdf_function = MarginalDensity
     _cdf_function = MarginalCDF
     _quantile_function = MarginalQuantileFunction
 
     @property
-    def pdf(self) -> MarginalPDF:
+    def pdf(self) -> MarginalDensity:
         """Per-bin (per descendant configuration) probability density functions: callable and plottable."""
         return super().pdf
 
