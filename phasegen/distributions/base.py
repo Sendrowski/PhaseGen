@@ -479,6 +479,52 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
                                   clear=clear, title=title or d._titled('quantile function'))
 
 
+# --- direct grid evaluation (matrix-exponential tree height, empirical samples) --------------------------------------
+
+class _GridCumulativeDistributionFunction(CumulativeDistributionFunction):
+    """CDF whose distribution computes ``P(R <= t)`` *directly* (the exact matrix-exponential tree height, the
+    empirical sample estimate) rather than by Laplace inversion. The evaluation lives in the subclass ``__call__``
+    (reaching into ``self._distribution`` for the state space / demography / samples); :meth:`plot` draws it on a
+    uniform grid up to the configured endpoint quantile, via :class:`Visualization`."""
+
+    def plot(self, ax: 'plt.Axes' = None, t: np.ndarray = None, show: bool = True, file: str = None,
+             clear: bool = True, label: str = None, title: str = 'CDF') -> 'plt.Axes':
+        from ..visualization import Visualization
+        if t is None:
+            t = np.linspace(0, self._distribution.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+        ax = Visualization.plot(ax=ax, x=t, y=self(t), xlabel='t', ylabel='F(t)', label=label, file=file,
+                                show=show, clear=clear, title=title)
+        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
+        return ax
+
+
+class _GridDensityFunction(DensityFunction):
+    """Density whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
+
+    def plot(self, ax: 'plt.Axes' = None, t: np.ndarray = None, show: bool = True, file: str = None,
+             clear: bool = True, label: str = None, title: str = 'PDF', dx: float = None) -> 'plt.Axes':
+        from ..visualization import Visualization
+        d = self._distribution
+        if dx is None:
+            dx = d.quantile(Settings.plot_endpoint_quantile) / 1e10
+        if t is None:
+            t = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+        return Visualization.plot(ax=ax, x=t, y=self(t, dx=dx), xlabel='t', ylabel='f(t)', label=label, file=file,
+                                  show=show, clear=clear, title=title)
+
+
+class _GridQuantileFunction(QuantileFunction):
+    """Quantile function whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
+
+    def plot(self, ax: 'plt.Axes' = None, q: np.ndarray = None, show: bool = True, file: str = None,
+             clear: bool = True, label: str = None, title: str = 'Quantile function') -> 'plt.Axes':
+        from ..visualization import Visualization
+        if q is None:
+            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, Settings.plot_n_grid)
+        return Visualization.plot(ax=ax, x=q, y=np.array([self(float(p)) for p in q]), xlabel='q', ylabel='quantile',
+                                  label=label, file=file, show=show, clear=clear, title=title)
+
+
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
 
 class MarginalDensity(DensityFunction):

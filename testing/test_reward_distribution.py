@@ -896,9 +896,10 @@ def test_distribution_functions_are_callable_and_plottable():
     assert isinstance(coal.sfs.pdf, DistributionFunction)
     assert np.allclose(np.asarray(coal.sfs.cdf(1.3).data), np.asarray(coal.sfs._cdf(1.3).data))
 
-    # univariate (tree height): callable scalar + plottable
+    # univariate (tree height): callable scalar + plottable. The exact (expm) CDF on the function object agrees
+    # with the LST reward-distribution CDF of the same (tree-height) reward.
     assert isinstance(coal.tree_height.quantile, DistributionFunction)
-    assert coal.tree_height.cdf(1.0) == pytest.approx(coal.tree_height._cdf(1.0))
+    assert float(coal.tree_height.cdf(1.0)) == pytest.approx(float(coal.tree_height.distribution().cdf(1.0)), abs=2e-3)
     coal.tree_height.pdf.plot(show=False)
     coal.tree_height.quantile.plot(show=False)
 
