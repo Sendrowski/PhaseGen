@@ -787,8 +787,8 @@ class Comparison(Serializable):
                     y_ph = np.array([float(d.quantile(float(q), method=method)) for q in t])
                     diff = self._quantile_diff(y_ms, y_ph)
                 else:
-                    y_ph = np.asarray(d.cdf_curve(t, method=method) if stat == 'cdf'
-                                      else d.pdf_curve(t, method=method), dtype=float)
+                    y_ph = np.asarray(d.cdf.curve(t, method=method) if stat == 'cdf'
+                                      else d.pdf.curve(t, method=method), dtype=float)
                     diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
                             else self._pdf_diff(y_ms[2:], y_ph[2:]))
 

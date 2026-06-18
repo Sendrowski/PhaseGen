@@ -41,7 +41,8 @@ import scipy.sparse as sp
 from ..rewards import Reward
 from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
-    ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction
+    ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
+    _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
 from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
@@ -57,8 +58,15 @@ class RewardDistribution(CallableDistributionFunctions):
     states, and arbitrary piecewise time-homogeneous demographies (so it is multi-epoch-native).
 
     Its ``cdf`` / ``pdf`` / ``quantile`` are callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); this is the 1D object returned by ``SFSDistribution.bin`` etc.
+    :class:`CallableDistributionFunctions`); this is the 1D object returned by ``SFSDistribution.bin`` etc. The de
+    Hoog / Fourier-cosine inversion that turns the transform into those functions lives on the function objects (the
+    :class:`~phasegen.distributions.base._LSTFunction` family); this distribution supplies the transform and scale
+    primitives (:meth:`lst`, :meth:`_invert`, :meth:`_cumulants`, :meth:`_range`, :attr:`_time_scale`).
     """
+    #: the 1D LST function-object flavours owning the de Hoog / cosine inversion machinery
+    _cdf_function = _LSTCumulativeDistributionFunction
+    _pdf_function = _LSTDensityFunction
+    _quantile_function = _LSTQuantileFunction
 
     def __init__(self, dist: 'PhaseTypeDistribution', reward: Reward = None):
         """
@@ -131,217 +139,10 @@ class RewardDistribution(CallableDistributionFunctions):
 
         return float(mp.invertlaplace(F, t, method='dehoog', degree=Settings.dehoog_degree))
 
-    def _cdf(self, t):
-        """Cumulative distribution function ``P(R <= t)``. Scalar or array-valued."""
-        if np.ndim(t) > 0:
-            return np.array([self._cdf(float(x)) for x in np.asarray(t)])
-        if t < 0:
-            raise ValueError("Negative values are not allowed.")
-        return self._invert(lambda s: self.lst(s) / s, float(t))  # L[CDF] = phi(s) / s
-
-    def _pdf(self, t, **kwargs):
-        """Probability density function. Scalar or array-valued."""
-        if np.ndim(t) > 0:
-            return np.array([self._pdf(float(x)) for x in np.asarray(t)])
-        return self._invert(self.lst, float(t))  # L[pdf] = phi(s)
-
-    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200, method: str = 'dehoog') -> float:
-        """
-        The ``q``-quantile ``inf{x : F(x) >= q}`` by bisection on the cached (monotone) CDF *curve* -- the accurate de
-        Hoog spline by default (``method='dehoog'``), or the cosine curve (``method='cos'``). The curve is built once,
-        so each bisection step is a cheap evaluation (the per-point de Hoog bisection it replaces cost a full inversion
-        per step). For ``q`` in the far tail beyond the curve's support it falls back to that de Hoog bisection.
-        """
-        if not 0 <= q <= 1:
-            raise ValueError("Quantile must be between 0 and 1.")
-
-        # at or below the atom mass P(R = 0) the quantile is exactly 0; return it directly rather than letting the
-        # bisection converge to a few-1e-9 residue (which makes a relative comparison against an exact 0 blow up)
-        if q <= float(self.cdf_curve(0.0, method=method)[0]):
-            return 0.0
-
-        b = self._range(scale=12.0)
-        if float(self.cdf_curve(b, method=method)[0]) < q:  # beyond the curve's support -> exact de Hoog bisection
-            return self._quantile_dehoog(q, precision, max_iter)
-
-        lo, hi = 0.0, b
-        for _ in range(max_iter):
-            mid = 0.5 * (lo + hi)
-            if float(self.cdf_curve(mid, method=method)[0]) < q:
-                lo = mid
-            else:
-                hi = mid
-            if hi - lo < precision:
-                break
-
-        return 0.5 * (lo + hi)
-
-    def _quantile_dehoog(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
-        """Exact ``q``-quantile by bisection on the per-point de Hoog ``_cdf`` (a full inversion per step). The robust
-        fallback for the far tail, where the cached CDF curve does not reach ``q``."""
-        # bracket: grow the upper bound until its CDF exceeds q (seed from the reward's mean via the LST,
-        # E[R] = -phi'(0), so we start near the right scale and only double a few times). The step is scaled by
-        # ``1/tau`` so the seed evaluation does not overflow for large-N demographies (see ``_cumulants``).
-        h = 1e-3 / self._time_scale
-        mean = (1.0 - self.lst(h).real) / h
-        lo, hi = 0.0, max(mean, 1.0)
-        for _ in range(max_iter):
-            if self._cdf(hi) >= q:
-                break
-            hi *= 2
-        else:
-            raise RuntimeError("Failed to bracket the quantile.")
-
-        for _ in range(max_iter):
-            mid = 0.5 * (lo + hi)
-            if self._cdf(mid) < q:
-                lo = mid
-            else:
-                hi = mid
-            if hi - lo < precision:
-                break
-
-        return 0.5 * (lo + hi)
-
     def _titled(self, base: str) -> str:
-        """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set."""
+        """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
+        function objects (the :class:`~phasegen.distributions.base._LSTFunction` family) for their plot titles."""
         return f"{self.label} {base}" if self.label else base
-
-    def _plot_cdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None,
-                  exact: bool = False) -> 'plt.Axes':
-        """Plot the CDF up to the configured plot-endpoint quantile (fast COS inversion, or per-point de Hoog when
-        ``exact=True``)."""
-        from ..visualization import Visualization
-        from .base import adaptive_grid
-        if x is None and exact:
-            # de Hoog is expensive per point -> place the points adaptively where the curve bends
-            x, y = adaptive_grid(self._cdf, 0.0, self._quantile(Settings.plot_endpoint_quantile), max_points=n_points)
-        else:
-            if x is None:
-                x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = self._cdf(x) if exact else self.cdf_curve(x)
-        ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
-                                show=show, clear=clear, title=title or self._titled('CDF'))
-        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
-        return ax
-
-    def _plot_pdf(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = None,
-                  exact: bool = False) -> 'plt.Axes':
-        """Plot the PDF up to the configured plot-endpoint quantile (derivative of the COS CDF, or per-point de Hoog
-        when ``exact=True``)."""
-        from ..visualization import Visualization
-        from .base import adaptive_grid
-        if x is None and exact:
-            x, y = adaptive_grid(self._pdf, 0.0, self._quantile(Settings.plot_endpoint_quantile), max_points=n_points)
-        else:
-            if x is None:
-                x = np.linspace(0, self._quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = self._pdf(x) if exact else self.pdf_curve(x)
-        return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title or self._titled('PDF'))
-
-    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None, title: str = None,
-                       exact: bool = False) -> 'plt.Axes':
-        """Plot the quantile function (value versus probability), inverting the fast COS CDF curve (or the per-point
-        de Hoog bisection when ``exact=True``)."""
-        from ..visualization import Visualization
-        qe = Settings.plot_endpoint_quantile
-        if q is None:
-            q = np.linspace(1.0 - qe, qe, n_points or Settings.plot_n_grid)
-        if exact:
-            y = np.array([self._quantile(float(p)) for p in np.atleast_1d(q)])
-        else:
-            grid = np.linspace(0, self._range(), 512)
-            y = np.interp(q, self.cdf_curve(grid), grid)
-        return Visualization.plot(ax=ax, x=q, y=y, xlabel='q',
-                                  ylabel='quantile', label=label, file=file, show=show, clear=clear,
-                                  title=title or self._titled('quantile function'))
-
-    # ------------------------------------------------------------------------------------------------------------
-    # fast curve evaluation (whole CDF/PDF curve from one fixed set of transform evaluations)
-    # ------------------------------------------------------------------------------------------------------------
-    #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
-    _cos_terms_rough: int = 128
-    _cos_terms: int = 384
-
-    @cached_property
-    def _cos_coeffs(self) -> dict:
-        """
-        Cached COS coefficients, computed once and shared across :meth:`cdf_curve` / :meth:`pdf_curve` / the quantile
-        inversion. Fit in **two passes**: a coarse pass over a generous window (``mean + 12*std``) locates the
-        effective support, then the fit is redone over a window tightened to that support. Matching the window to
-        where the mass actually is — rather than ``mean + 12*std``, which a heavy tail blows far past the bulk — lets
-        a few hundred cosine terms resolve the curve accurately, removing the ringing at the source (no post-
-        smoothing, no term-count search). Verified against the per-point de Hoog inversion.
-        """
-        rough = self._fit_cos(self._range(12.0), self._cos_terms_rough)
-        xs = np.linspace(0.0, rough['b'], 1024)
-        cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
-        b = float(np.interp(0.9995, cdf, xs))
-        return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
-
-    def _fit_cos(self, b: float, n_terms: int) -> dict:
-        """
-        Fit the COS (Fourier-cosine) inversion over ``[0, b]``: evaluate the characteristic function
-        ``chi(w) = phi(-i w)`` on a fixed frequency grid and return the cosine coefficients. An atom at ``R = 0``
-        (``p0 = phi(inf)``) is split off so the series sees only the smooth continuous part. Warns if a substantial
-        CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this window/resolution) —
-        pointing to the exact per-point ``cdf()`` / ``pdf()`` (de Hoog).
-        """
-        p0 = self.lst(1e8).real
-        w = np.arange(n_terms) * np.pi / b
-        chi = np.array([self.lst(-1j * wk) for wk in w])
-        if p0 > 1e-9:
-            chi = (chi - p0) / (1 - p0)  # continuous part only
-        fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
-        fk[0] *= 0.5
-
-        # the largest backward step of the (continuous) CDF is the sensitive ringing detector (a visibly rippling CDF
-        # can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a substantial one
-        # (rtol 1e-2 of the [0,1] CDF range -- a looser bar than the de Hoog spline's, the cosine series being coarser)
-        xd = np.linspace(0.0, b, max(512, 2 * n_terms))
-        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
-        self._warn_if_nonmonotone(Fd, self._titled('COS CDF (residual ripple)'), rtol=1e-2)
-
-        return dict(b=b, w=w, fk=fk, p0=p0)
-
-    @staticmethod
-    def _eval_cos_cdf(fit: dict, xs: np.ndarray) -> np.ndarray:
-        """Evaluate the continuous COS CDF of ``fit`` (atom ``p0`` added back) at ``xs``, clipped to ``[0, 1]``."""
-        w, fk, p0 = fit['w'], fit['fk'], fit['p0']
-        cdf_c = fk[0] * xs + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xs))
-        return np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
-
-    @cached_property
-    def _cos_cdf_grid(self) -> tuple:
-        """A fine, monotone CDF on ``[0, b]`` underlying the plotting curves (``cdf_curve`` / ``pdf_curve`` / the
-        quantile inversion all interpolate it, so they are mutually consistent and computed once). The support-matched
-        window removes the ringing at the source, so only a final monotonicity clamp of any tiny residual is needed."""
-        fit = self._cos_coeffs
-        xs = np.linspace(0.0, fit['b'], 2048)
-        return xs, np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
-
-    def _cos(self, x: np.ndarray, kind: str, n_terms: int = None, scale: float = 12.0) -> np.ndarray:
-        """
-        Evaluate the COS fit as a whole CDF/PDF curve over the grid ``x`` (for plotting; the exact per-point
-        ``cdf()`` / ``pdf()`` use de Hoog). The default window uses the cached two-pass fit; an explicit ``scale``
-        refits over ``[0, mean + scale*std]`` (used in tests). The CDF is clipped to ``[0, 1]`` and made monotone.
-        """
-        fit = self._cos_coeffs if scale == 12.0 else self._fit_cos(self._range(scale), n_terms or self._cos_terms)
-        b, w, fk, p0 = fit['b'], fit['w'], fit['fk'], fit['p0']
-
-        xa = np.clip(np.atleast_1d(np.asarray(x, dtype=float)), 0.0, b)
-        if kind == 'pdf':
-            curve = fk @ np.cos(np.outer(w, xa))
-            return (1 - p0) * curve if p0 > 1e-9 else curve
-
-        cdf = self._eval_cos_cdf(fit, xa)
-        order = np.argsort(xa)
-        cdf[order] = np.maximum.accumulate(cdf[order])
-        return cdf
 
     def _cumulants(self) -> tuple:
         """Mean and variance of the accumulated reward from the LST near 0 (``phi(0) = 1``): ``c1 = -phi'(0)``,
@@ -357,59 +158,6 @@ class RewardDistribution(CallableDistributionFunctions):
         """An upper end for the support (``mean + scale * std``), for the COS interval and default plot grids."""
         c1, c2 = self._cumulants()
         return float(c1 + scale * np.sqrt(c2))
-
-    @cached_property
-    def _dehoog_spline(self) -> dict:
-        """
-        Accurate, cheap-to-query cached curve: a monotone PCHIP spline of the *continuous* CDF through de Hoog
-        Laplace-inversion values at adaptively placed points (the atom ``P(R = 0)`` split off first, as in the cosine
-        path). Being de-Hoog-anchored it is accurate everywhere -- no Gibbs ringing on sharp / heavy-tailed features --
-        and the PDF is its analytic derivative (smooth, non-negative, integrating back to the CDF). The default backing
-        the default (``method='dehoog'``) backing of :meth:`cdf_curve` / :meth:`pdf_curve`.
-        """
-        from .base import adaptive_grid
-        from scipy.interpolate import PchipInterpolator
-
-        p0 = self.lst(1e8).real  # atom at R = 0
-        b = self._range(scale=12.0)  # cheap cumulant-based support end (avoids depending on _quantile -> the spline)
-
-        def g(x):  # continuous CDF: (F(x) - p0) / (1 - p0); the de Hoog F includes the atom
-            f = self._cdf(x)
-            return (f - p0) / (1 - p0) if p0 > 1e-9 else f
-
-        x, y = adaptive_grid(g, 0.0, b, tol=Settings.inversion_tol)
-        # de Hoog CDF is monotone up to tiny inversion noise; warn if a real wiggle survives, then enforce monotonicity
-        self._warn_if_nonmonotone(y, self._titled('CDF (de Hoog)'))
-        y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
-        return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
-
-    def cdf_curve(self, x, method: str = 'dehoog') -> np.ndarray:
-        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). ``method='dehoog'`` (default) uses the
-        accurate de Hoog + monotone-spline representation (:attr:`_dehoog_spline`); ``method='cos'`` the faster two-pass
-        COS grid."""
-        xa = np.atleast_1d(np.asarray(x, dtype=float))
-        if method == 'cos':
-            xs, cdf = self._cos_cdf_grid
-            return np.interp(xa, xs, cdf)
-        st = self._dehoog_spline
-        g = np.clip(st['spline'](np.clip(xa, 0.0, st['b'])), 0.0, 1.0)
-        return st['p0'] + (1 - st['p0']) * g if st['p0'] > 1e-9 else g
-
-    def pdf_curve(self, x, method: str = 'dehoog') -> np.ndarray:
-        """Fast PDF over a whole grid ``x`` (for plotting / many-query use): the derivative of the CDF representation
-        (``method='dehoog'`` -> the de Hoog + monotone-spline; ``method='cos'`` -> the two-pass COS grid). Deriving the
-        PDF from the CDF keeps it clean and non-negative; use the per-point :meth:`pdf` (de Hoog) for the exact
-        pointwise density."""
-        xa = np.atleast_1d(np.asarray(x, dtype=float))
-        if method == 'cos':
-            xs, cdf = self._cos_cdf_grid
-            d = np.interp(xa, xs, np.gradient(cdf, xs))
-            return self._warn_if_negative(d, self._titled('density (cosine)'))
-        st = self._dehoog_spline
-        d = st['spline'].derivative()(np.clip(xa, 0.0, st['b']))
-        self._warn_if_negative(d, self._titled('density (de Hoog)'))
-        d = np.clip(d, 0.0, None)
-        return (1 - st['p0']) * d if st['p0'] > 1e-9 else d
 
 
 def _build_epoch_data(host) -> dict:
@@ -705,7 +453,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         for key, total, marg in (('b', self._atoms['b0'], self.marginal('a')),
                                  ('a', self._atoms['a0'], self.marginal('b'))):
             b = marg._range(12.0)
-            w = np.arange(marg._cos_terms) * np.pi / b
+            w = np.arange(marg.cdf._cos_terms) * np.pi / b
             # chi(w) = phi(-i w) of the sub-transform: for 'b' it is lst(., inf) (sweep s_a), for 'a' lst(inf, .)
             # (sweep s_b); the batched _lst_grid does the whole sweep with a single QZ (one fixed inf-coordinate)
             chi = (self._lst_grid(-1j * w, np.array([big]))[:, 0] if key == 'b'
@@ -1167,14 +915,15 @@ class _Conditional(RewardDistribution):
         return cache[scale]
 
     def _range_via_cdf(self, scale: float = 12.0, n_iter: int = 80) -> float:
-        """Double ``b`` from a robust seed until the exact CDF ``_cdf(b)`` exceeds a generous target probability (more
+        """Double ``b`` from a robust seed until the exact CDF ``cdf(b)`` exceeds a generous target probability (more
         generous for larger ``scale``, matching the cumulant-based ``mean + scale*std`` it replaces). The mean
         (first-difference ``_cumulants()[0]``) is reliable and used only as the seed; the variance is not."""
         target = min(1.0 - float(np.exp(-scale)), 1.0 - 1e-6)  # scale=12 -> ~1-1e-6 (full support); scale=4 -> ~0.98
+        cdf = self.cdf  # the (per-point de Hoog) CDF function object
         c1 = float(self._cumulants()[0])
         b = max(c1, 1.0 / self._time_scale, 1e-3)
         for _ in range(n_iter):
-            if self._cdf(b) >= target:
+            if float(cdf(b)) >= target:
                 break
             b *= 1.6
         return b

@@ -249,7 +249,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 # many std can extend far past the mass). Derived cheaply from the COS CDF (one curve per bin) rather
                 # than the per-point de Hoog quantile.
                 end = max(
-                    float(np.interp(q_end, d.cdf_curve(grid := np.linspace(0, d._range(), 256)), grid))
+                    float(np.interp(q_end, d.cdf.curve(grid := np.linspace(0, d._range(), 256)), grid))
                     for _, d in dists
                 )
                 x = np.linspace(0, end, n_points)
@@ -265,21 +265,21 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         for k, (label, d) in enumerate(dists):
             if adaptive:
-                xk, y = adaptive_grid(d._cdf if kind == 'cdf' else d._pdf, 0.0, float(x[-1]), max_points=n_points)
+                xk, y = adaptive_grid(d.cdf if kind == 'cdf' else d.pdf, 0.0, float(x[-1]), max_points=n_points)
             else:
                 xk = x
                 if kind == 'cdf':
-                    y = d._cdf(x) if exact else d.cdf_curve(x)
+                    y = d.cdf(x) if exact else d.cdf.curve(x)
                 elif kind == 'pdf':
-                    y = d._pdf(x) if exact else d.pdf_curve(x)
+                    y = d.pdf(x) if exact else d.pdf.curve(x)
                 elif exact:
                     # quantile function via the per-point de Hoog bisection
-                    y = np.array([d._quantile(float(p)) for p in x])
+                    y = np.array([d.quantile(float(p)) for p in x])
                 else:
                     # quantile function: invert the (fast) COS CDF curve by interpolation rather than a per-point
                     # bisection (which would re-run the de Hoog inversion at every probability and bin)
                     xx = np.linspace(0, d._range(), 512)
-                    y = np.interp(x, d.cdf_curve(xx), xx)
+                    y = np.interp(x, d.cdf.curve(xx), xx)
 
             Visualization.plot(
                 ax=ax,
