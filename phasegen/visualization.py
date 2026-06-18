@@ -122,6 +122,66 @@ class Visualization:
         return ax
 
     @staticmethod
+    def plot_surface(
+            xs: np.ndarray,
+            ys: np.ndarray,
+            Z: np.ndarray,
+            surface: bool = False,
+            ax: 'plt.Axes' = None,
+            xlabel: str = '$R_a$',
+            ylabel: str = '$R_b$',
+            zlabel: str = 'f',
+            title: str = None,
+            vmin: float = None,
+            vmax: float = None,
+            file: str = None,
+            show: bool = True
+    ) -> 'plt.Axes':
+        """
+        Draw a bivariate function ``Z`` over the grid ``xs x ys`` (shape ``(len(xs), len(ys))``) as either a 3D
+        surface (``surface=True``) or a 2D heatmap with colorbar.
+
+        :param xs: Grid coordinates along the first axis.
+        :param ys: Grid coordinates along the second axis.
+        :param Z: Values on the ``xs x ys`` grid.
+        :param surface: Draw a 3D surface instead of a heatmap.
+        :param ax: Axes to draw on (a 3D axes is created if needed for ``surface``).
+        :param xlabel: First-axis label.
+        :param ylabel: Second-axis label.
+        :param zlabel: Value-axis label (the z axis / colorbar quantity).
+        :param title: Plot title.
+        :param vmin: Lower colour/scale limit (e.g. ``0`` for a CDF).
+        :param vmax: Upper colour/scale limit (e.g. ``1`` for a CDF).
+        :param file: File to save the plot to.
+        :param show: Whether to show the plot.
+        :return: Axes.
+        """
+        zlim = {}
+        if vmin is not None:
+            zlim['vmin'] = vmin
+        if vmax is not None:
+            zlim['vmax'] = vmax
+
+        if surface:
+            if ax is None:
+                ax = plt.figure().add_subplot(projection='3d')
+            ax.plot_surface(*np.meshgrid(xs, ys), np.asarray(Z).T, cmap='viridis', **zlim)
+            ax.set_zlabel(zlabel)
+            if vmax is not None:
+                ax.set_zlim(vmin if vmin is not None else 0.0, vmax)
+        else:
+            if ax is None:
+                ax = plt.gca()
+            mesh = ax.pcolormesh(xs, ys, np.asarray(Z).T, shading='auto', cmap='viridis', **zlim)
+            ax.figure.colorbar(mesh, ax=ax)
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        Visualization.show_and_save(file=file, show=show)
+        return ax
+
+    @staticmethod
     @clear_show_save
     def plot_rates(
             ax: 'plt.Axes',

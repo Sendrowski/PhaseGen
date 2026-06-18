@@ -905,7 +905,8 @@ def test_distribution_functions_are_callable_and_plottable():
     # 2D joint: callable (x, y) + heatmap plot
     jd = coal.sfs.joint_distribution(1, 2)
     assert isinstance(jd.cdf, DistributionFunction)
-    assert jd.cdf(1.0, 1.0) == pytest.approx(jd._cdf(1.0, 1.0))
+    # the default (de Hoog) and the fast cosine box agree on the joint CDF
+    assert jd.cdf(1.0, 1.0) == pytest.approx(jd.cdf(1.0, 1.0, method='cos'), abs=2e-2)
     jd.pdf.plot(show=False)
 
     # the two-locus distribution intentionally has no univariate cdf/pdf/quantile
