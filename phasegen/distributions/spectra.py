@@ -32,7 +32,7 @@ class _SFSAggregateFunction:
     :class:`SFS` (one value per class; the monomorphic edges stay 0). A scalar argument returns an :class:`SFS`; an
     array returns a ``(len(t), n + 1)`` stack. The spectrum it hangs off supplies the per-bin distributions."""
 
-    def __call__(self, t):
+    def __call__(self, t) -> 'SFS | np.ndarray':
         d = self._distribution
         t_arr = np.atleast_1d(np.asarray(t, dtype=float))
         out = np.zeros((t_arr.size, d.lineage_config.n + 1))
@@ -99,7 +99,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             tree_height: TreeHeightDistribution,
             demography: Demography,
             reward: Reward = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 
@@ -286,7 +286,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             np.zeros((self.lineage_config.n - len(indices), len(end_times)))
         ])
 
-    def _accumulate_batched(self, k, indices, end_times, rewards):
+    def _accumulate_batched(self, k, indices, end_times, rewards) -> 'np.ndarray | None':
         """Batched *mean* accumulation (``k == 1``, default reward): every bin shares the occupation-up-to-t vector
         ``m(t)``, so the whole spectrum's accumulation is ``m_grid @ R`` over the stacked bin rewards instead of a
         per-bin solve. Returns ``None`` (caller falls back to the per-bin path) when not applicable."""
@@ -973,7 +973,7 @@ class _JointSFSAggregateFunction:
     :attr:`kind`) into a :class:`JointSFS` (one value per configuration; monomorphic bins 0). A scalar argument
     returns a :class:`JointSFS`; an array returns a ``(len(t),) + shape`` stack."""
 
-    def __call__(self, t):
+    def __call__(self, t) -> 'JointSFS | np.ndarray':
         d = self._distribution
         t_arr = np.atleast_1d(np.asarray(t, dtype=float))
         out = np.zeros((t_arr.size,) + d.shape)
@@ -1031,7 +1031,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
             tree_height: 'TreeHeightDistribution',
             demography: Demography,
             reward: Reward = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 
@@ -1494,7 +1494,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             tree_height: 'TreeHeightDistribution',
             demography: Demography,
             reward: Reward = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 
@@ -1523,7 +1523,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         """
         return list(range(1, self.lineage_config.n))
 
-    def _no_univariate_distribution(self, *args, **kwargs):
+    def _no_univariate_distribution(self, *args, **kwargs) -> None:
         """A two-locus SFS entry ``(i, j)`` is the cross-moment ``E[L^0_i · L^1_j]`` — a product of two distinct
         branch lengths — so it has no single univariate distribution to invert. The marginal per-locus branch-length
         distributions are the ordinary single-locus SFS bin distributions (``pg.Coalescent(...).sfs``)."""

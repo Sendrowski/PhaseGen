@@ -19,7 +19,7 @@ class LocusConfig:
             n: int = 1,
             n_unlinked: int = 0,
             recombination_rate: float = 0
-    ):
+    ) -> None:
         """
         Initialize the locus configuration.
 
@@ -72,7 +72,7 @@ class LocusConfig:
         # sum over demes and lineage blocks, and require all loci to have ``n_linked`` linked lineages
         return (s.linked.sum(axis=(2, 3)) == n_linked).all(axis=1).astype(int)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two locus configurations are equal.
 

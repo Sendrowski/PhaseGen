@@ -28,7 +28,7 @@ class TqdmLoggingHandler(logging.Handler):
     A logging handler that uses TQDM to display log messages.
     """
 
-    def __init__(self, level=logging.NOTSET):
+    def __init__(self, level=logging.NOTSET) -> None:
         """
         Initialize the handler.
 
@@ -36,7 +36,7 @@ class TqdmLoggingHandler(logging.Handler):
         """
         super().__init__(level)
 
-    def emit(self, record):
+    def emit(self, record) -> None:
         """
         Emit a record.
         """
@@ -56,7 +56,7 @@ class ColoredFormatter(logging.Formatter):
     Colored formatter.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         """
         Initialize the formatter.
         """
@@ -72,7 +72,7 @@ class ColoredFormatter(logging.Formatter):
 
         self.reset = "\033[0m"
 
-    def format(self, record):
+    def format(self, record) -> str:
         """
         Format the record.
         """
@@ -97,7 +97,7 @@ class DeduplicatingFilter(logging.Filter):
     afresh while repeats within a computation are suppressed.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._epoch = None
         self._seen: set = set()

@@ -15,7 +15,7 @@ class LineageConfig:
     Class to hold the configuration for the number of lineages.
     """
 
-    def __init__(self, n: int | Dict[str, int] | List[int] | np.ndarray):
+    def __init__(self, n: int | Dict[str, int] | List[int] | np.ndarray) -> None:
         """
         Initialize the population configuration.
 
@@ -73,7 +73,7 @@ class LineageConfig:
         # it is enough here to focus on the first lineage class
         return (s.lineages[:, :, :, 0] == self.lineages).all(axis=(1, 2)).astype(int)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two lineage configurations are equal.
 

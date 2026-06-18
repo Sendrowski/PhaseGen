@@ -10,7 +10,7 @@ class Serializable:
     Mixin class for serialization.
     """
 
-    def to_file(self, file: str):
+    def to_file(self, file: str) -> None:
         """
         Save object to file (JSON).
 

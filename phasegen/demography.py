@@ -30,7 +30,7 @@ class Demography:
             pop_sizes: Dict[str, Dict[float, float]] | Dict[str, float] | Dict[float, float] | float = None,
             migration_rates: Dict[Tuple[str, str], Dict[float, float]] | Dict[Tuple[str, str], float] = None,
             warn_n_epochs: int = 20
-    ):
+    ) -> None:
         """
         Initialize the demography.
 
@@ -98,7 +98,7 @@ class Demography:
                 'Note that this may lead to infinite coalescence times if not changed later.'
             )
 
-    def _prepare_events(self):
+    def _prepare_events(self) -> None:
         """
         Sort events by start time and determine population names and number of populations.
         """
@@ -286,7 +286,7 @@ class Demography:
         """
         return self.get_epochs([t])[0]
 
-    def add_events(self, events: List['DemographicEvent']):
+    def add_events(self, events: List['DemographicEvent']) -> None:
         """
         Add demographic events.
 
@@ -296,7 +296,7 @@ class Demography:
 
         self._prepare_events()
 
-    def add_event(self, event: 'DemographicEvent'):
+    def add_event(self, event: 'DemographicEvent') -> None:
         """
         Add a demographic event.
 
@@ -460,7 +460,7 @@ class Epoch:
             end_time: float = np.inf,
             pop_sizes: Dict[str, float] = None,
             migration_rates: Dict[Tuple[str, str], float] = None
-    ):
+    ) -> None:
         """
         Initialize the epoch.
 
@@ -508,7 +508,7 @@ class Epoch:
         """
         return self.end_time - self.start_time
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Compare epochs using their hash.
 
@@ -517,7 +517,7 @@ class Epoch:
         """
         return hash(self) == hash(other)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         """
         Hash the epoch. Note that we do not include the start and end time, since they are not relevant for the
         state space created from the epoch.
@@ -529,7 +529,7 @@ class Epoch:
             tuple(self.migration_rates.items())
         ))
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         String representation of the epoch.
 
@@ -548,7 +548,7 @@ class Epoch:
 
         return string
 
-    def to_string(self):
+    def to_string(self) -> str:
         """
         Alias for :meth:`__str__`.
 
@@ -568,7 +568,7 @@ class DemographicEvent(ABC):
     pop_names: List[str]
 
     @abstractmethod
-    def _apply(self, epoch: Epoch):
+    def _apply(self, epoch: Epoch) -> None:
         """
         Apply the demographic event to the given epoch if applicable.
 
@@ -577,7 +577,7 @@ class DemographicEvent(ABC):
         pass
 
     @abstractmethod
-    def _broadcast(self, epoch: Epoch):
+    def _broadcast(self, epoch: Epoch) -> None:
         """
         Adjust the end time of the epoch to the next time at which the rate changes due to this event.
 
@@ -622,7 +622,7 @@ class DiscreteDemographicEvent(DemographicEvent, ABC):
     #: Time at which the events occur in ascending order.
     times: np.ndarray
 
-    def _broadcast(self, epoch: Epoch):
+    def _broadcast(self, epoch: Epoch) -> None:
         """
         Adjust the end time of the epoch to the next time at which the rate changes due to this event.
 
@@ -650,7 +650,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
             self,
             pop_sizes: Dict[str, Dict[float, float]] = None,
             migration_rates: Dict[Tuple[str, str], Dict[float, float]] = None
-    ):
+    ) -> None:
         """
         Initialize the population size change.
 
@@ -728,7 +728,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         #: Start time of the event.
         self.start_time: float = self.times[0]
 
-    def _apply(self, epoch: Epoch):
+    def _apply(self, epoch: Epoch) -> None:
         """
         Apply the demographic event to the given epoch if applicable.
 
@@ -744,7 +744,7 @@ class PopSizeChanges(DiscreteRateChanges):
     Demographic event for changes in population size.
     """
 
-    def __init__(self, pop_sizes: Dict[str, Dict[float, float]]):
+    def __init__(self, pop_sizes: Dict[str, Dict[float, float]]) -> None:
         """
         Initialize the population size change.
 
@@ -758,7 +758,7 @@ class PopSizeChange(PopSizeChanges):
     Demographic event for a single change in population size.
     """
 
-    def __init__(self, pop: str, time: float, size: float):
+    def __init__(self, pop: str, time: float, size: float) -> None:
         """
         Initialize the population size change.
 
@@ -774,7 +774,7 @@ class MigrationRateChanges(DiscreteRateChanges):
     Demographic event for changes in migration rates.
     """
 
-    def __init__(self, rates: Dict[Tuple[str, str], Dict[float, float]]):
+    def __init__(self, rates: Dict[Tuple[str, str], Dict[float, float]]) -> None:
         """
         Initialize the (backwards-time) migration rate change.
 
@@ -790,7 +790,7 @@ class MigrationRateChange(MigrationRateChanges):
     Demographic event for a single change in migration rate.
     """
 
-    def __init__(self, source: str, dest: str, time: float, rate: float):
+    def __init__(self, source: str, dest: str, time: float, rate: float) -> None:
         """
         Initialize the (backwards-time) migration rate change.
 
@@ -807,7 +807,7 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
     Demographic event for changes in symmetric migration rates.
     """
 
-    def __init__(self, pops: Iterable[str], rate: Dict[float, float] | float):
+    def __init__(self, pops: Iterable[str], rate: Dict[float, float] | float) -> None:
         """
         Initialize the (backwards-time) migration rate change.
 
@@ -839,7 +839,7 @@ class PopulationSplit(DiscreteDemographicEvent):
             derived: str | List[str],
             ancestral: str,
             multiplier: float = 100
-    ):
+    ) -> None:
         """
         Initialize the population split.
 
@@ -871,7 +871,7 @@ class PopulationSplit(DiscreteDemographicEvent):
         #: Migration rate multiplier.
         self.multiplier: float = multiplier
 
-    def _apply(self, epoch: Epoch):
+    def _apply(self, epoch: Epoch) -> None:
         """
         Apply the demographic event to the given epoch if applicable.
 
@@ -914,7 +914,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             source: str | None = None,
             dest: str | None = None,
             step_size: float = 0.1
-    ):
+    ) -> None:
         """
         Initialize the population size change.
 
@@ -953,7 +953,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         #: Destination population name.
         self.dest_pop: str | None = dest
 
-    def _broadcast(self, epoch: Epoch):
+    def _broadcast(self, epoch: Epoch) -> None:
         """
         Adjust the end time of the epoch to the next time at which the rate changes due to this event.
 
@@ -970,7 +970,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             n_steps = np.ceil((epoch.start_time - self.start_time + 1e-10) / self.step_size)
             epoch.end_time = self.start_time + n_steps * self.step_size
 
-    def _apply(self, epoch: Epoch):
+    def _apply(self, epoch: Epoch) -> None:
         """
         Apply the demographic event to the given epoch if applicable.
 
@@ -1000,7 +1000,7 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
             start_time: Dict[Any, float] | float,
             end_time: Dict[Any, float] | float = np.inf,
             step_size: float = 0.1
-    ):
+    ) -> None:
         """
         Initialize the population size change.
 
@@ -1031,7 +1031,7 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         #: End time of the event.
         self.end_time: float = max([e.end_time for e in self.events.values()])
 
-    def _broadcast(self, epoch: Epoch):
+    def _broadcast(self, epoch: Epoch) -> None:
         """
         Adjust the end time of the epoch to the next time at which the rate changes due to this event.
 
@@ -1040,7 +1040,7 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         for e in self.events.values():
             e._broadcast(epoch)
 
-    def _apply(self, epoch: Epoch):
+    def _apply(self, epoch: Epoch) -> None:
         """
         Apply the demographic event to the given epoch if applicable.
 
@@ -1063,7 +1063,7 @@ class ExponentialRateChanges(DiscretizedRateChanges):
             start_time: Dict[Any, float] | float,
             end_time: Dict[Any, float] | float = np.inf,
             step_size: float = 0.1
-    ):
+    ) -> None:
         """
         Initialize the exponential growth.
 
@@ -1110,7 +1110,7 @@ class ExponentialPopSizeChanges(ExponentialRateChanges):
             start_time: Dict[str, float] | float,
             end_time: Dict[str, float] | float = np.inf,
             step_size: float = 0.1
-    ):
+    ) -> None:
         """
         Initialize the exponential growth.
 

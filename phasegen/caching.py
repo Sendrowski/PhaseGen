@@ -22,7 +22,7 @@ computation_epoch = 0
 _computation_depth = 0
 
 
-def _enter_computation():
+def _enter_computation() -> None:
     """Mark the start of a (possibly nested) cached/memoized computation; bump the epoch only at the outermost."""
     global _computation_depth, computation_epoch
     if _computation_depth == 0:
@@ -30,7 +30,7 @@ def _enter_computation():
     _computation_depth += 1
 
 
-def _exit_computation():
+def _exit_computation() -> None:
     """Mark the end of a cached/memoized computation."""
     global _computation_depth
     _computation_depth -= 1
@@ -47,7 +47,7 @@ class cached_property(functools.cached_property):
     recognise it; only :meth:`__get__` is overridden, to add the cache gating and the computation-epoch tracking.
     """
 
-    def __get__(self, instance, owner=None):
+    def __get__(self, instance, owner=None) -> 'Any':
         # A non-data descriptor: once the value is in the instance ``__dict__`` Python returns it directly without
         # calling ``__get__`` (so already-cached values are always used, even with caching disabled). ``__get__``
         # only runs on a miss, and then stores only when caching is enabled.
@@ -70,7 +70,7 @@ class cached_property(functools.cached_property):
         return value
 
 
-def cache(func):
+def cache(func) -> 'Callable':
     """
     Like :func:`functools.cache`, but only stores new results when :attr:`Settings.cache` is ``True``. Existing
     memoized results are always served; with caching disabled, an un-memoized call is recomputed and not stored.
@@ -80,7 +80,7 @@ def cache(func):
     hits = misses = 0
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> 'Any':
         nonlocal hits, misses
         key = functools._make_key(args, kwargs, typed=False)
         try:
@@ -98,7 +98,7 @@ def cache(func):
             memo[key] = result
         return result
 
-    def cache_clear():
+    def cache_clear() -> None:
         nonlocal hits, misses
         memo.clear()
         hits = misses = 0

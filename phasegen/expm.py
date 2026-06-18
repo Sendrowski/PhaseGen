@@ -24,17 +24,20 @@ class ExpmBackend(ABC):
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action of the matrix exponential on a vector (or thin matrix), ``exp(a) @ b``, without forming
-        the dense exponential. The default uses scipy's sparse Krylov/Taylor implementation, which exploits the
-        sparsity of ``a``; backends may override this (e.g. with a GPU Krylov method).
+        Compute the action of the matrix exponential on a vector (or thin matrix), ``exp(a) @ b``.
+
+        The default implementation densifies ``a`` and forms the dense exponential via :meth:`compute`, so the action
+        uses the backend's own exponentiation. :class:`SciPyExpmBackend` overrides this with scipy's sparse
+        Krylov/Taylor ``expm_multiply``, which exploits the sparsity of ``a`` without forming the dense exponential;
+        other backends may likewise override it (e.g. with a GPU Krylov method).
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.
         :return: ``exp(a) @ b``.
         """
-        from scipy.sparse.linalg import expm_multiply
+        a_dense = a.toarray() if hasattr(a, 'toarray') else np.asarray(a)
 
-        return expm_multiply(a, b)
+        return self.compute(a_dense) @ b
 
 
 class TensorFlowExpmBackend(ExpmBackend):
@@ -43,9 +46,6 @@ class TensorFlowExpmBackend(ExpmBackend):
     Note that tensorflow is an optional dependency and thus needs to be installed separately.
     GPU acceleration may be available depending on the underlying hardware.
     Tends to be faster than :class:`SciPyExpmBackend` for large matrices and highly parallelized computations.
-
-    .. note::
-        Recommended backend for fast and reliable matrix exponentiation.
     """
 
     def compute(self, m: np.ndarray) -> np.ndarray:
@@ -70,7 +70,7 @@ class SciPyExpmBackend(ExpmBackend):
         matrices, such as :class:`JaxExpmBackend`, which is both efficient and lightweight to install.
     """
 
-    def __init__(self, precision: Literal['np.float32', 'np.float64'] = np.float64):
+    def __init__(self, precision: Literal['np.float32', 'np.float64'] = np.float64) -> None:
         """
         Initialize the backend.
 
@@ -89,6 +89,19 @@ class SciPyExpmBackend(ExpmBackend):
         """
         return scipy.linalg.expm(m.astype(self.precision))
 
+    def compute_action(self, a, b: np.ndarray) -> np.ndarray:
+        """
+        Compute the action ``exp(a) @ b`` using scipy's sparse Krylov/Taylor ``expm_multiply``, which exploits the
+        sparsity of ``a`` without forming the dense exponential.
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :return: ``exp(a) @ b``.
+        """
+        from scipy.sparse.linalg import expm_multiply
+
+        return expm_multiply(a, b)
+
 
 class JaxExpmBackend(ExpmBackend):
     """
@@ -98,7 +111,7 @@ class JaxExpmBackend(ExpmBackend):
     Tends to be faster than :class:`SciPyExpmBackend` for larger matrices and highly parallelized computations.
     """
 
-    def __init__(self, max_squarings: int = 2 ** 10):
+    def __init__(self, max_squarings: int = 2 ** 10) -> None:
         """
         Initialize the backend.
 
@@ -170,7 +183,7 @@ class Backend(ABC):
         return cls.backend.compute_action(a, b)
 
     @classmethod
-    def register(cls, backend: ExpmBackend):
+    def register(cls, backend: ExpmBackend) -> None:
         """
         Register a backend.
         """

@@ -42,7 +42,7 @@ class AbstractCoalescent(ABC):
             loci: int | LocusConfig = 1,
             recombination_rate: float = None,
             end_time: float = None
-    ):
+    ) -> None:
         """
         Create object.
 
@@ -178,7 +178,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             recombination_rate: float = None,
             start_time: float = 0,
             end_time: float = None,
-    ):
+    ) -> None:
         """
         Create object.
 
@@ -267,7 +267,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
-    def _require_single_locus(self, name: str):
+    def _require_single_locus(self, name: str) -> None:
         """
         Raise a clear error if more than one locus is configured for a single-locus SFS statistic.
 
@@ -708,14 +708,14 @@ class Coalescent(AbstractCoalescent, Serializable):
             title=title
         )
 
-    def drop_cache(self):
+    def drop_cache(self) -> None:
         """
         Drop state space cache.
         """
         self.lineage_counting_state_space.drop_cache()
         self.block_counting_state_space.drop_cache()
 
-    def __setstate__(self, state: dict):
+    def __setstate__(self, state: dict) -> None:
         """
         Restore the state of the object from a serialized state.
 

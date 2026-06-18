@@ -1,6 +1,7 @@
 """
-State space classes and utilities. The two main state space classes are
-:class:`LineageCountingStateSpace` and :class:`BlockCountingStateSpace`.
+State space classes and utilities. All state spaces derive from :class:`StateSpace`; the
+concrete variants are :class:`LineageCountingStateSpace`, :class:`BlockCountingStateSpace`,
+:class:`JointBlockCountingStateSpace`, and :class:`TwoLocusBlockCountingStateSpace`.
 """
 
 import logging
@@ -51,7 +52,7 @@ class StateSpace(ABC):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create a rate matrix.
 
@@ -120,7 +121,7 @@ class StateSpace(ABC):
 
         return states
 
-    def _warn_if_large(self, n_states: int):
+    def _warn_if_large(self, n_states: int) -> None:
         """
         Warn once, at the appropriate severity, if the state space is large; computation time (and the dense
         rate-matrix memory, which grows as ``n_states**2``) grow steeply with the number of states. The size is
@@ -317,7 +318,7 @@ class StateSpace(ABC):
         """
         return Transition(self)
 
-    def update_epoch(self, epoch: Epoch):
+    def update_epoch(self, epoch: Epoch) -> None:
         """
         Update the epoch.
 
@@ -353,7 +354,7 @@ class StateSpace(ABC):
 
         return self.model._get_timescale(pop_prev) / self.model._get_timescale(pop_next)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
         update the epoch of a state space dynamically.
@@ -368,7 +369,7 @@ class StateSpace(ABC):
                 self.model == other.model
         )
 
-    def drop_S(self):
+    def drop_S(self) -> None:
         """
         Drop the current rate matrix.
         """
@@ -378,7 +379,7 @@ class StateSpace(ABC):
         except AttributeError:
             pass
 
-    def drop_cache(self):
+    def drop_cache(self) -> None:
         """
         Drop the rate matrix cache and current rate matrix.
         """
@@ -387,7 +388,7 @@ class StateSpace(ABC):
         self._cache = {}
 
     @abstractmethod
-    def _get_initial(self):
+    def _get_initial(self) -> 'State':
         """
         Get the initial state.
         """
@@ -596,7 +597,7 @@ class StateSpace(ABC):
             extension: str = 'png',
             format_state: Callable[[np.array], str] = None,
             format_transition: Callable[['Transition'], str] = None
-    ):
+    ) -> None:
         """
         Plot the rate matrix using graphviz. Note that graphviz must be installed which is an external dependency.
 
@@ -773,7 +774,7 @@ class BlockCountingStateSpace(StateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create a rate matrix.
 
@@ -910,7 +911,7 @@ class JointBlockCountingStateSpace(StateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create a rate matrix.
 
@@ -1028,7 +1029,7 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create the two-locus block-counting state space.
 
@@ -1133,7 +1134,7 @@ class Transition:
     def __init__(
             self,
             state_space: StateSpace
-    ):
+    ) -> None:
         """
         Initialize a transition.
 
@@ -1163,7 +1164,7 @@ class Transition:
         return targets
 
     @staticmethod
-    def add_target(targets: Dict['State', Tuple[float, str]], target: 'State', rate: float, kind: str):
+    def add_target(targets: Dict['State', Tuple[float, str]], target: 'State', rate: float, kind: str) -> None:
         """
         Add a target state to the list of targets.
 
@@ -1488,7 +1489,7 @@ class State:
     #: Axis for lineage blocks.
     BLOCK = 3
 
-    def __init__(self, data: (np.ndarray, np.ndarray)):
+    def __init__(self, data: (np.ndarray, np.ndarray)) -> None:
         """
         Initialize a state.
 

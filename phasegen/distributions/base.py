@@ -5,7 +5,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
-from typing import Callable, Iterator, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
 from ..expm import Backend
 from ..rewards import DemeReward, LocusReward, CombinedReward
@@ -19,7 +19,7 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-def adaptive_grid(f, a: float, b: float, n_init: int = 9, tol: float = None, max_points: int = None):
+def adaptive_grid(f, a: float, b: float, n_init: int = 9, tol: float = None, max_points: int = None) -> 'Tuple[np.ndarray, np.ndarray]':
     """
     Adaptively sample a scalar function ``f`` on ``[a, b]``, concentrating evaluations where the curve bends.
 
@@ -90,10 +90,10 @@ class DistributionFunction:
     #: distribution's ``_<kind>`` / ``_plot_<kind>`` methods and is used in ``repr``.
     kind: str = ''
 
-    def __init__(self, distribution: 'CallableDistributionFunctions'):
+    def __init__(self, distribution: 'CallableDistributionFunctions') -> None:
         self._distribution = distribution
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> 'Any':
         """Evaluate the distribution function at the given point(s) (the distribution's ``_<kind>``)."""
         return getattr(self._distribution, '_' + self.kind)(*args, **kwargs)
 
@@ -106,7 +106,7 @@ class DistributionFunction:
         """
         return getattr(self._distribution, '_plot_' + self.kind)(*args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
 
 
@@ -188,7 +188,7 @@ class _LSTFunction:
         return d._invert(d.lst, float(t))
 
     # ---- shared CDF representation (cached on the distribution) -------------------------------------------------
-    def _shared(self, key: str, build):
+    def _shared(self, key: str, build) -> 'Any':
         """Return a shared CDF-representation entry, built once via ``build`` and cached on the distribution (so the
         cdf / pdf / quantile of one distribution reuse it). Honors :attr:`Settings.cache`."""
         cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
@@ -295,7 +295,7 @@ class _LSTFunction:
         p0 = d.lst(1e8).real  # atom at R = 0
         b = self._range(scale=12.0)  # cheap cumulant-based support end (avoids depending on the quantile)
 
-        def g(x):  # continuous CDF: (F(x) - p0) / (1 - p0); the de Hoog F includes the atom
+        def g(x) -> float:  # continuous CDF: (F(x) - p0) / (1 - p0); the de Hoog F includes the atom
             f = self._cdf_point(x)
             return (f - p0) / (1 - p0) if p0 > 1e-9 else f
 
@@ -322,7 +322,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
     """The CDF of a 1D accumulated-reward distribution: per-point de Hoog (``__call__``), the fast curve
     (:meth:`curve`) and the plot, on top of the shared :class:`_LSTFunction` machinery."""
 
-    def __call__(self, t):
+    def __call__(self, t) -> 'np.ndarray | float':
         """Exact CDF ``P(R <= t)`` by per-point de Hoog inversion. Scalar or array-valued."""
         if np.ndim(t) > 0:
             return np.array([self._cdf_point(float(x)) for x in np.asarray(t)])
@@ -358,7 +358,7 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
     """The density of a 1D accumulated-reward distribution: per-point de Hoog (``__call__``), the curve as the
     derivative of the shared CDF representation (:meth:`curve`) and the plot."""
 
-    def __call__(self, t, **kwargs):
+    def __call__(self, t, **kwargs) -> 'np.ndarray | float':
         """Exact density by per-point de Hoog inversion. Scalar or array-valued."""
         if np.ndim(t) > 0:
             return np.array([self._pdf_point(float(x)) for x in np.asarray(t)])
@@ -620,7 +620,7 @@ class JointDensity(_JointFunction, DensityFunction):
       nested de Hoog with ``method='dehoog'``.
     """
 
-    def __call__(self, x, y, method: str = None):
+    def __call__(self, x, y, method: str = None) -> 'np.ndarray | float':
         """Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
         atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none there). ``method`` selects the
         inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` / ``None`` the accurate nested de Hoog."""
@@ -638,11 +638,11 @@ class JointDensity(_JointFunction, DensityFunction):
             f = np.clip(raw, 0.0, None)
         return float(f.ravel()[0]) if f.size == 1 else f
 
-    def _grid_values(self, xs, ys, dehoog):
+    def _grid_values(self, xs, ys, dehoog) -> 'np.ndarray':
         d = self._distribution
         return d._density_nested(xs, ys) if dehoog else np.clip(d._density(xs, ys), 0.0, None)
 
-    def _default_n_points(self, dehoog, surface):
+    def _default_n_points(self, dehoog, surface) -> int:
         return 25 if dehoog else (80 if surface else 120)
 
 
@@ -656,7 +656,7 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
       Hoog box with ``method='dehoog'``.
     """
 
-    def __call__(self, x, y, method: str = None):
+    def __call__(self, x, y, method: str = None) -> 'np.ndarray | float':
         """Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms plus the continuous box integral. ``method`` selects
         the box method: ``'cos'`` the fast cosine box, ``'dehoog'`` / ``None`` the accurate nested de Hoog. When both
         rewards are identical the law is singular on the diagonal and the CDF reduces to ``P(R <= min(x, y))``."""
@@ -671,10 +671,10 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
             G = d._cdf_grid(xs, ys, dehoog=d._use_dehoog(method))
         return float(G.ravel()[0]) if G.size == 1 else G
 
-    def _grid_values(self, xs, ys, dehoog):
+    def _grid_values(self, xs, ys, dehoog) -> 'np.ndarray':
         return self._distribution._cdf_grid(xs, ys, dehoog=dehoog)
 
-    def _default_n_points(self, dehoog, surface):
+    def _default_n_points(self, dehoog, surface) -> int:
         return 25 if dehoog else 60
 
 
@@ -724,7 +724,7 @@ class CallableDistributionFunctions:
     _cdf_function = CumulativeDistributionFunction
     _quantile_function = QuantileFunction
 
-    def _function(self, kind: str, factory):
+    def _function(self, kind: str, factory) -> 'Any':
         """Return the (cached) distribution-function object for ``kind``, built once via ``factory`` and stored on
         this distribution. Caching the object -- not just rebuilding a thin wrapper -- is what lets the function
         object's own cached curves (the de Hoog spline, the COS coefficients) persist across ``.cdf`` / ``.pdf`` /
@@ -758,12 +758,12 @@ class CallableDistributionFunctions:
                                       "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
         return self._function('quantile', self._quantile_function)
 
-    def plot_cdf(self, *args, **kwargs):
+    def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
         """Deprecated: use :attr:`cdf`.plot() instead."""
         warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self.cdf.plot(*args, **kwargs)
 
-    def plot_pdf(self, *args, **kwargs):
+    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
         """Deprecated: use :attr:`pdf`.plot() instead."""
         warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self.pdf.plot(*args, **kwargs)
@@ -802,14 +802,14 @@ class ProbabilityDistribution(ABC):
     Abstract base class for probability distributions for which moments can be calculated.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Create object.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self, **kwargs: dict):
+    def touch(self, **kwargs: dict) -> None:
         """
         Touch all cached properties.
 
@@ -900,7 +900,7 @@ class MarginalLocusDistributions(MarginalDistributions):
     Marginal locus distributions.
     """
 
-    def __init__(self, dist: 'PhaseTypeDistribution'):
+    def __init__(self, dist: 'PhaseTypeDistribution') -> None:
         """
         Initialize the distributions.
 
@@ -908,7 +908,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         self.dist = dist
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> 'Any':
         """
         Get the distribution for the given locus.
 
@@ -1038,7 +1038,7 @@ class MarginalDemeDistributions(MarginalDistributions):
     Marginal deme distributions.
     """
 
-    def __init__(self, dist: 'PhaseTypeDistribution'):
+    def __init__(self, dist: 'PhaseTypeDistribution') -> None:
         """
         Initialize the distributions.
 
@@ -1046,7 +1046,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         """
         self.dist = dist
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> 'Any':
         """
         Get the distribution for the given deme.
 

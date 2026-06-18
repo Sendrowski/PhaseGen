@@ -31,7 +31,7 @@ class LNorm(Norm):
     Class for L-norms.
     """
 
-    def __init__(self, p: int):
+    def __init__(self, p: int) -> None:
         """
         Initialize the class with the provided parameters.
 
@@ -56,7 +56,7 @@ class L2Norm(LNorm):
     Class for L2-norm (Euclidean distance).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """
@@ -68,7 +68,7 @@ class L1Norm(LNorm):
     Class for L1-norm (Manhattan distance).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """
@@ -80,7 +80,7 @@ class LInfNorm(LNorm):
     Class for L-infinity norm (Chebyshev distance).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """

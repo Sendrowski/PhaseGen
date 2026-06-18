@@ -1,5 +1,6 @@
 """
-Classes for working with the site-frequency spectrum (SFS) and 2-SFS.
+Classes for representing and working with site-frequency spectra and their
+higher-dimensional generalizations (the joint multi-population SFS and the two-locus SFS).
 """
 
 import copy
@@ -26,7 +27,7 @@ class SFS2(Iterable):
     A 2-dimensional site-frequency spectrum.
     """
 
-    def __init__(self, data: np.ndarray | list):
+    def __init__(self, data: np.ndarray | list) -> None:
         """
         Construct from data matrix.
         
@@ -47,10 +48,10 @@ class SFS2(Iterable):
 
         self.data = data
 
-    def to_file(self, file):
+    def to_file(self, file: str) -> None:
         """
         Save to file (in JSON format).
-        
+
         :param file: File path.
         """
         with open(file, 'w') as f:
@@ -445,7 +446,7 @@ class JointSFS(Iterable):
     square :class:`SFS2`); for three populations it is a 3-dimensional array, and so on.
     """
 
-    def __init__(self, data: np.ndarray | list, pop_names: List[str] = None):
+    def __init__(self, data: np.ndarray | list, pop_names: List[str] = None) -> None:
         """
         Construct from a data array.
 
@@ -498,7 +499,7 @@ class JointSFS(Iterable):
         """
         return self.data.__iter__()
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> np.ndarray:
         """
         Index into the joint SFS array.
 
@@ -686,7 +687,7 @@ class JointSFS(Iterable):
 
         return ax
 
-    def to_file(self, file: str):
+    def to_file(self, file: str) -> None:
         """
         Save to file (in JSON format).
 

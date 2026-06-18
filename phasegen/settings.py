@@ -2,6 +2,7 @@
 Settings for the PhaseGen application.
 """
 from contextlib import contextmanager
+from typing import Iterator
 
 
 class Settings:
@@ -11,7 +12,7 @@ class Settings:
     #: This can substantially speed up computations.
     flatten_block_counting: bool = True
 
-    #: Whether to show a progress bar for certain operations such as state space generation.
+    #: Whether to show a progress bar for long-running operations.
     use_pbar: bool = False
 
     #: Whether to regularize the intensity matrix for numerical stability.
@@ -115,7 +116,7 @@ class Settings:
 
     @staticmethod
     @contextmanager
-    def set_pbar(enabled: bool = True):
+    def set_pbar(enabled: bool = True) -> Iterator[None]:
         """
         Context manager to temporarily enable or disable the progress bar.
         """

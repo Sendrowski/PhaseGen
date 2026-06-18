@@ -38,7 +38,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             tree_height: 'TreeHeightDistribution',
             demography: Demography = None,
             reward: Reward = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 
@@ -484,7 +484,7 @@ class _ExpmCumulativeDistributionFunction(_GridCumulativeDistributionFunction):
     accumulating the per-epoch transition matrices up to ``t``. Reaches into the
     :class:`TreeHeightDistribution` for the state space, demography, epochs and reward (the exit vector)."""
 
-    def __call__(self, t):
+    def __call__(self, t) -> 'np.ndarray | float':
         """Cumulative distribution function. Scalar or array-valued; raises for non-default rewards."""
         d = self._distribution
 
@@ -565,7 +565,7 @@ class _ExpmQuantileFunction(_GridQuantileFunction):
             expansion_factor: float = 2,
             precision: float = 1e-5,
             max_iter: int = 1000
-    ):
+    ) -> 'np.ndarray | float':
         """Find the specified quantile of the CDF using an adaptive bisection method."""
         d = self._distribution
 
@@ -664,7 +664,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             demography: Demography = None,
             start_time: float = 0,
             end_time: float = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 
@@ -905,7 +905,7 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
             tree_height: 'TreeHeightDistribution',
             demography: Demography = None,
             reward: Reward = None
-    ):
+    ) -> None:
         """
         Initialize the distribution.
 

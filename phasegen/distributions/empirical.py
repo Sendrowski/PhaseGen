@@ -35,7 +35,7 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
     as cached ground truth).
     """
 
-    def __init__(self, moments: np.ndarray, samples: np.ndarray = None):
+    def __init__(self, moments: np.ndarray, samples: np.ndarray = None) -> None:
         """
         Initialize the distribution.
 
@@ -55,7 +55,7 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         self._joint_surface: list = []
 
     def cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
-                            q_max: float = 0.95):
+                            q_max: float = 0.95) -> None:
         """Pre-compute, for each config pair, the empirical joint CDF and density over a 2D grid (the full-grid
         surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface` but
         indexed by descendant configuration."""
@@ -70,7 +70,7 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((tuple(ca), tuple(cb), xs, ys, cdf, pdf))
 
-    def drop(self):
+    def drop(self) -> None:
         """Drop the (large) per-replicate samples once the joint ground truth has been cached."""
         self.samples = None
 
@@ -114,7 +114,7 @@ class _EmpiricalCumulativeDistributionFunction(CumulativeDistributionFunction): 
     """The empirical CDF (interpolated step function of the sorted samples), read from the distribution's samples.
     Handles both a 1-D sample vector (a scalar distribution) and a 2-D per-bin matrix (a spectrum)."""
 
-    def __call__(self, t):
+    def __call__(self, t) -> 'np.ndarray':
         # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
         # which would sort across bins within a replicate and produce a meaningless ECDF
         samples = self._distribution.samples
@@ -133,7 +133,7 @@ class _EmpiricalCumulativeDistributionFunction(CumulativeDistributionFunction): 
 class _EmpiricalQuantileFunction(QuantileFunction):  # pragma: no cover
     """The empirical quantile (sample quantile over the replicate axis; one column per bin for a spectrum)."""
 
-    def __call__(self, q):
+    def __call__(self, q) -> 'np.ndarray':
         # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
         # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
         return np.quantile(self._distribution.samples, q=q, axis=0)
@@ -143,7 +143,7 @@ class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
     """The empirical density (histogram estimate of the continuous, positive part, the atom at 0 split off), read
     from the distribution's samples. Handles a 1-D sample vector or a 2-D per-bin matrix."""
 
-    def __call__(self, t, n_bins: int = None, sigma: float = None, samples: np.ndarray = None, **kwargs):
+    def __call__(self, t, n_bins: int = None, sigma: float = None, samples: np.ndarray = None, **kwargs) -> 'np.ndarray':
         samples = self._distribution.samples if samples is None else samples
 
         if samples.ndim == 2:
@@ -185,7 +185,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     _pdf_function = _EmpiricalDensityFunction
     _quantile_function = _EmpiricalQuantileFunction
 
-    def __init__(self, samples: np.ndarray | list):
+    def __init__(self, samples: np.ndarray | list) -> None:
         """
         Create object.
 
@@ -198,7 +198,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         #: Samples
         self.samples = np.array(samples, dtype=float)
 
-    def touch(self, t: np.ndarray):
+    def touch(self, t: np.ndarray) -> None:
         """
         Touch all cached properties.
 
@@ -218,7 +218,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             quantile=self.quantile(q)
         )
 
-    def drop(self):
+    def drop(self) -> None:
         """
         Drop simulated samples.
         """
@@ -290,7 +290,7 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     SFS probability distribution based on realisations.
     """
 
-    def __init__(self, samples: np.ndarray | list):
+    def __init__(self, samples: np.ndarray | list) -> None:
         """
         Create object.
 
@@ -353,7 +353,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             samples: np.ndarray | list,
             pops: List[str],
             locus_agg: Callable = lambda x: x.sum(axis=0)
-    ):
+    ) -> None:
         """
         Create object.
 
@@ -390,7 +390,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             #: Correlation matrix for the loci
             self.loci_cov: np.ndarray = np.cov(over_demes)
 
-    def touch(self, t: np.ndarray):
+    def touch(self, t: np.ndarray) -> None:
         """
         Touch all cached properties.
 
@@ -401,7 +401,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         [d.touch(t) for d in self.demes.values()]
         [l.touch(t) for l in self.loci.values()]
 
-    def drop(self):
+    def drop(self) -> None:
         """
         Drop simulated samples.
         """
@@ -450,7 +450,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         """Per-replicate accumulated reward at a single locus (summed over demes), matching :attr:`loci`."""
         return self._samples[locus].sum(axis=0)
 
-    def cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+    def cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """Pre-compute, for each locus pair, the empirical cross-locus joint CDF and density over a 2D grid (the
         full-grid surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`
         but indexed by locus."""
@@ -492,7 +492,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             pops: List[str],
             sfs_dist: Type[SFSDistribution],
             locus_agg: Callable = lambda x: x.sum(axis=0),
-    ):
+    ) -> None:
         """
         Create object.
 
@@ -536,7 +536,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
 
-    def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins):
+    def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins) -> 'plt.Axes':
         """
         Plot the per-bin empirical pdf / cdf / quantile (one curve per polymorphic SFS bin), the empirical
         counterpart of :meth:`SFSDistribution._plot_cdf` etc. The inherited (1D) plotters cannot be used because the
@@ -577,21 +577,21 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         return ax
 
     def _plot_cdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
-                  title='SFS bin CDFs'):
+                  title='SFS bin CDFs') -> 'plt.Axes':
         """Plot the empirical CDF of every (polymorphic) SFS bin at once."""
         return self._plot_per_bin('cdf', ax, t, n_points, show, file, clear, title, bins)
 
     def _plot_pdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
-                  title='SFS bin PDFs', **kwargs):
+                  title='SFS bin PDFs', **kwargs) -> 'plt.Axes':
         """Plot the empirical PDF of every (polymorphic) SFS bin at once."""
         return self._plot_per_bin('pdf', ax, t, n_points, show, file, clear, title, bins)
 
     def _plot_quantile(self, ax=None, q=None, bins=None, n_points=99, show=True, file=None, clear=True,
-                       title='SFS bin quantile functions'):
+                       title='SFS bin quantile functions') -> 'plt.Axes':
         """Plot the empirical quantile function of every (polymorphic) SFS bin at once."""
         return self._plot_per_bin('quantile', ax, q, n_points, show, file, clear, title, bins)
 
-    def drop(self):
+    def drop(self) -> None:
         """
         Drop simulated samples.
         """
@@ -624,7 +624,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
 
-    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """
         Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
         bin's support up to its ``q_max`` quantile), for the full-grid surface comparison. The density is the mixed
@@ -726,7 +726,7 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
     :class:`~phasegen.comparison.Comparison`.
     """
 
-    def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None):
+    def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None) -> None:
         """
         :param mean: The simulated mean two-locus SFS array.
         :param left: Optional per-replicate locus-0 SFS branch lengths ``(num_replicates, n + 1)`` (for the joint
@@ -742,7 +742,7 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """Mean two-locus SFS."""
         return TwoLocusSFS(self._mean)
 
-    def drop(self):
+    def drop(self) -> None:
         """Drop the per-replicate samples (the mean is retained)."""
         self._left = None
         self._right = None
@@ -771,7 +771,7 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
 
-    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
+    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical
         joint CDF and density over a 2D grid (the full-grid surface comparison ground truth). Same structure as
         :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`, indexed by the two loci's frequency classes."""
@@ -797,10 +797,10 @@ class _ReplicateStatistic:  # pragma: no cover
     level). Both default to no-ops, so a statistic implements only the hook it needs.
     """
 
-    def process_tree(self, i: int, j: int, tree, ts, ctx: dict):
+    def process_tree(self, i: int, j: int, tree, ts, ctx: dict) -> None:
         """Update from the locus-``j`` tree of replicate ``i`` (``ctx`` carries shared per-replicate data)."""
 
-    def process_replicate(self, i: int, ts, ctx: dict, seed):
+    def process_replicate(self, i: int, ts, ctx: dict, seed) -> None:
         """Update from the whole replicate ``i`` (the tree sequence ``ts``)."""
 
 
@@ -808,12 +808,12 @@ class _TreeStatistics(_ReplicateStatistic):  # pragma: no cover
     """Tree height, total branch length and SFS read directly from each tree: the root time, the tree's total branch
     length, and per-node branch length binned by descendant count (population index 0; no migration recording)."""
 
-    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int):
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int) -> None:
         self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
 
-    def process_tree(self, i, j, tree, ts, ctx):
+    def process_tree(self, i, j, tree, ts, ctx) -> None:
         self.heights[j, 0, i] = tree.time(tree.roots[0])
         self.total_branch_lengths[j, 0, i] = tree.total_branch_length
 
@@ -829,14 +829,14 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
     each quantity is attributed to the deme a lineage occupies through time (walking the coalescence and migration
     events). Only validated for relatively simple scenarios."""
 
-    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, samples: dict):
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, samples: dict) -> None:
         self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
         self._samples = samples
         self._sample_size = sample_size
 
-    def process_tree(self, i, j, tree, ts, ctx):
+    def process_tree(self, i, j, tree, ts, ctx) -> None:
         samples, sample_size = self._samples, self._sample_size
 
         lineages = np.array(list(samples.values()))
@@ -899,14 +899,14 @@ class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
     1..``max_order``) over all replicates plus a capped subset of per-replicate values for the within-tree joint
     ground truth. Single-locus only (accumulated from the ``j == 0`` tree)."""
 
-    def __init__(self, num_replicates: int, max_order: int, shape: tuple, sample_cap: int):
+    def __init__(self, num_replicates: int, max_order: int, shape: tuple, sample_cap: int) -> None:
         self.jsfs_acc = np.zeros((max_order,) + shape)
         self.jsfs_samples = np.zeros((min(num_replicates, sample_cap),) + shape)
         self._max_order = max_order
         self._shape = shape
         self._cap = sample_cap
 
-    def process_tree(self, i, j, tree, ts, ctx):
+    def process_tree(self, i, j, tree, ts, ctx) -> None:
         if j != 0:  # accumulated from the first locus' tree only
             return
 
@@ -938,11 +938,11 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
     """The mutation-count SFS: drop mutations on the replicate's tree sequence at the configured rate and bin them by
     the number of leaves the carrying node subtends (population index 0, single locus)."""
 
-    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, mutation_rate: float):
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, mutation_rate: float) -> None:
         self.mutations = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int)
         self._rate = mutation_rate
 
-    def process_replicate(self, i, ts, ctx, seed):
+    def process_replicate(self, i, ts, ctx, seed) -> None:
         import msprime as ms
 
         mts = ms.sim_mutations(ts, rate=self._rate, random_seed=seed)
@@ -973,7 +973,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             record_migration: bool = False,
             simulate_mutations: bool = False,
             seed: int = None
-    ):
+    ) -> None:
         """
         Simulate data using msprime.
 
@@ -1060,7 +1060,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             return ms.DiracCoalescent(psi=self.model.psi, c=self.model.c)
 
     @cache
-    def simulate(self):
+    def simulate(self) -> None:
         """
         Simulate data using msprime.
         """
@@ -1201,7 +1201,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return np.linspace(0, t_max, 100)
 
-    def touch(self, **kwargs: dict):
+    def touch(self, **kwargs: dict) -> None:
         """
         Touch cached properties.
 
@@ -1226,7 +1226,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             for dist in (self.tree_height, self.total_branch_length):
                 dist.cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
 
-    def drop(self):
+    def drop(self) -> None:
         """
         Drop simulated data.
         """

@@ -219,7 +219,7 @@ class StandardCoalescent(CoalescentModel):
 
         return states
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two coalescent models are equal.
 
@@ -277,7 +277,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
     for more information.
     """
 
-    def __init__(self, alpha: float, scale_time: bool = True):
+    def __init__(self, alpha: float, scale_time: bool = True) -> None:
         """
         Initialize the beta coalescent model.
 
@@ -350,7 +350,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
 
         return combinations * self._get_base_rate(b=n, k=sum(k))
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two coalescent models are equal.
 
@@ -371,7 +371,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
     for more information.
     """
 
-    def __init__(self, psi: float, c: float, scale_time: bool = True):
+    def __init__(self, psi: float, c: float, scale_time: bool = True) -> None:
         """
         Initialize the Dirac coalescent model.
 
@@ -457,7 +457,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
 
         return rate
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two coalescent models are equal.
 

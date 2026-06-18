@@ -27,12 +27,12 @@ try:
 except ImportError:  # pragma: no cover - exercised only when numba is absent
     HAS_NUMBA = False
 
-    def njit(*args, **kwargs):
+    def njit(*args, **kwargs) -> 'Callable':
         """No-op ``njit`` shim so the kernels remain importable without numba (the Python fallback is used)."""
         if args and callable(args[0]):
             return args[0]
 
-        def _decorator(func):
+        def _decorator(func) -> 'Callable':
             return func
 
         return _decorator
@@ -43,7 +43,7 @@ except ImportError:  # pragma: no cover - exercised only when numba is absent
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _comb(n, k):
+def _comb(n, k) -> float:
     """Binomial coefficient C(n, k) as a float."""
     if k < 0 or k > n:
         return 0.0
@@ -58,13 +58,13 @@ def _comb(n, k):
 
 
 @njit(cache=True)
-def _beta(a, b):
+def _beta(a, b) -> float:
     """Euler beta function via log-gamma."""
     return math.exp(math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b))
 
 
 @njit(cache=True)
-def _binom_pmf(k, n, p):
+def _binom_pmf(k, n, p) -> float:
     """Binomial pmf P(X = k) for X ~ Binom(n, p)."""
     if k < 0 or k > n:
         return 0.0
@@ -72,7 +72,7 @@ def _binom_pmf(k, n, p):
 
 
 @njit(cache=True)
-def _rate_pairwise(model_id, alpha, psi, c, b, k):
+def _rate_pairwise(model_id, alpha, psi, c, b, k) -> float:
     """Reproduce ``CoalescentModel._get_rate(b, k)`` (lineage-counting merger rate)."""
     if model_id == 0:  # standard
         if k == 2:
@@ -91,7 +91,7 @@ def _rate_pairwise(model_id, alpha, psi, c, b, k):
 
 
 @njit(cache=True)
-def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr):
+def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr) -> float:
     """Reproduce ``CoalescentModel._get_rate_block_counting(n, b, k)`` for a merger touching ``len(b_arr)`` blocks."""
     m = b_arr.shape[0]
 
@@ -137,7 +137,7 @@ def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr):
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _hash_row(row):
+def _hash_row(row) -> 'np.int64':
     """FNV-1a hash of a non-negative integer row, returned as int64."""
     h = np.uint64(14695981039346656037)
     for i in range(row.shape[0]):
@@ -146,7 +146,7 @@ def _hash_row(row):
 
 
 @njit(cache=True)
-def _rows_equal(a, b):
+def _rows_equal(a, b) -> bool:
     """Whether two integer rows are element-wise equal."""
     for i in range(a.shape[0]):
         if a[i] != b[i]:
@@ -155,7 +155,7 @@ def _rows_equal(a, b):
 
 
 @njit(cache=True)
-def _find_or_add(rows, chain_next, head, target):
+def _find_or_add(rows, chain_next, head, target) -> int:
     """Return the index of ``target`` in ``rows``, appending it (and updating the hash chains) if new."""
     h = _hash_row(target)
     if h in head:
@@ -178,7 +178,7 @@ def _find_or_add(rows, chain_next, head, target):
 
 @njit(cache=True)
 def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors,
-           recomb_rate, recomb0, recomb1, max_states):
+           recomb_rate, recomb0, recomb1, max_states) -> tuple:
     """
     Build the state graph by BFS over integer ``lineages`` rows.
 
@@ -416,7 +416,7 @@ def build_rate_matrix(
         recomb1: np.ndarray = None,
         max_states: int = 2 ** 62,
         dense_max_states: int = 0,
-):
+) -> tuple:
     """
     Python entry point: build the state rows and the rate matrix via the numba kernel.
 

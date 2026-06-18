@@ -52,7 +52,7 @@ class Inference(Serializable):
             cache: bool = True,
             opts: Dict = None,
             method_mle: str = 'L-BFGS-B'
-    ):
+    ) -> None:
         """
         Initialize the class with the provided parameters.
 
@@ -173,7 +173,7 @@ class Inference(Serializable):
         #: Initial optimization runs
         self.runs: pd.DataFrame = self.bootstraps.copy()
 
-    def _check_x0_within_bounds(self):
+    def _check_x0_within_bounds(self) -> None:
         """
         Check if the initial parameters are within the specified bounds.
         """
@@ -215,7 +215,7 @@ class Inference(Serializable):
 
         return state
 
-    def __setstate__(self, state: dict):
+    def __setstate__(self, state: dict) -> None:
         """
         Restore the state of the object from a serialized state.
 
@@ -457,7 +457,7 @@ class Inference(Serializable):
         """
         return {key: self._rng.uniform(*bounds) for key, bounds in self.bounds.items()}
 
-    def run(self):
+    def run(self) -> None:
         """
         Execute the optimization.
         """
@@ -466,7 +466,7 @@ class Inference(Serializable):
         if self.do_bootstrap:
             self.bootstrap()
 
-    def bootstrap(self):
+    def bootstrap(self) -> None:
         """
         Perform bootstrapping.
 
@@ -774,7 +774,7 @@ class Inference(Serializable):
 
         return other
 
-    def add_run(self, inference: 'Inference'):
+    def add_run(self, inference: 'Inference') -> None:
         """
         Merge the main optimization result from another Inference object into the current Inference object. We only
         store the result of the run with the lowest loss.
@@ -797,7 +797,7 @@ class Inference(Serializable):
             self.loss_inferred = inference.loss_inferred
             self.dist_inferred = inference.dist_inferred
 
-    def add_runs(self, inferences: Iterable['Inference']):
+    def add_runs(self, inferences: Iterable['Inference']) -> None:
         """
         Merge the main optimization results from an iterable of Inference objects with the current Inference object. We
         only store the result of the run with the lowest loss.
@@ -822,7 +822,7 @@ class Inference(Serializable):
 
         return other
 
-    def add_bootstrap(self, bootstrap: 'Inference'):
+    def add_bootstrap(self, bootstrap: 'Inference') -> None:
         """
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
@@ -837,7 +837,7 @@ class Inference(Serializable):
                 bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
         )
 
-    def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]):
+    def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]) -> None:
         """
         Add bootstraps from an iterable of Inference objects.
 
@@ -852,7 +852,7 @@ class WeightedLoss:  # pragma: no cover
     Weigh components of the loss function based on the average of the observed and modelled values.
     """
 
-    def __init__(self, weights: Dict[str, float], n_max: int | None = 100):
+    def __init__(self, weights: Dict[str, float], n_max: int | None = 100) -> None:
         """
         Initialize the class with the provided parameters.
 
@@ -875,7 +875,7 @@ class WeightedLoss:  # pragma: no cover
         self._logger = logger.getChild(self.__class__.__name__)
 
     @property
-    def average(self):
+    def average(self) -> Dict[str, float]:
         """
         Average of the cached values.
         """

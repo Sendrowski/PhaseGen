@@ -104,6 +104,12 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :inherited-members:
    :show-inheritance:
 
+.. autoclass:: phasegen.distributions.SFSCDF
+   :members:
+   :special-members: __call__
+   :inherited-members:
+   :show-inheritance:
+
 .. autoclass:: phasegen.distributions.MarginalQuantileFunction
    :members:
    :special-members: __call__
@@ -117,6 +123,12 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :show-inheritance:
 
 .. autoclass:: phasegen.distributions.JointCDF
+   :members:
+   :special-members: __call__
+   :inherited-members:
+   :show-inheritance:
+
+.. autoclass:: phasegen.distributions.JointSFSCDF
    :members:
    :special-members: __call__
    :inherited-members:

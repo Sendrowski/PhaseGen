@@ -67,7 +67,7 @@ class Comparison(Serializable):
             alpha: float = 1.5,
             psi: float = 0.5,
             c: float = 1
-    ):
+    ) -> None:
         """
         Initialize Comparison object.
 
@@ -187,7 +187,7 @@ class Comparison(Serializable):
         raise ValueError(f"Unknown coalescent model {name}.")
 
     @cached_property
-    def ph(self):
+    def ph(self) -> 'Coalescent':
         """
         PhaseGen coalescent.
         """
@@ -200,7 +200,7 @@ class Comparison(Serializable):
         )
 
     @cached_property
-    def ms(self):
+    def ms(self) -> 'MsprimeCoalescent':
         """
         Msprime coalescent.
         """
@@ -244,7 +244,7 @@ class Comparison(Serializable):
 
         return diff
 
-    def _save_and_show(self, name: str, pad=2, extra_right: float = 0.0):
+    def _save_and_show(self, name: str, pad=2, extra_right: float = 0.0) -> None:
         """
         Save and show the figure if a figure path is set.
 
@@ -285,7 +285,7 @@ class Comparison(Serializable):
             title: str = 'stat',
             name: str = '',
             mode: str = None
-    ):
+    ) -> None:
         """
         Compare the given distributions and return their difference.
 
@@ -349,7 +349,7 @@ class Comparison(Serializable):
 
         plot = None
         if self.visualize:
-            def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs):
+            def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs) -> None:
                 plt.plot(ph_stat, label='phasegen')
                 plt.plot(ms_stat, label='msprime')
                 plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
@@ -376,7 +376,7 @@ class Comparison(Serializable):
         if self.visualize:
             if heatmap_cls is not None and ph_stat.ndim == 2:
                 # plot the joint / two-locus SFS as side-by-side heatmaps, but only when it is 2-dimensional
-                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls):
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls) -> None:
                     plt.close('all')  # avoid empty plots
                     fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
                     if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
@@ -387,7 +387,7 @@ class Comparison(Serializable):
                     self._save_and_show(name, pad=1.5)
 
             elif heatmap_cls is None and ph_stat.ndim == 1:
-                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat) -> None:
                     self._plot_sfs_with_diff(ph_stat, ms_stat, msg if self.show_title else None, name,
                                              left_title=name.upper() if name else 'SFS')
 
@@ -395,7 +395,7 @@ class Comparison(Serializable):
             # matrix with a single polymorphic bin) is a legitimate two-locus SFS. Drawn as phasegen / msprime /
             # element-wise relative-difference surfaces.
             elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
-                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat) -> None:
                     idx = np.arange(len(ph_stat))
                     self._plot_surface_triple(
                         idx, idx, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
@@ -471,7 +471,7 @@ class Comparison(Serializable):
 
         plot = None
         if self.visualize:
-            def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin):
+            def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin) -> None:
                 xlabel = 'q' if stat == 'quantile' else 'time'
                 if per_bin:
                     # drop the first grid point: an SFS bin's atom at 0 spikes the empirical pdf / jumps the cdf
@@ -542,7 +542,7 @@ class Comparison(Serializable):
         op = '<=' if diff <= tol else '>'
         return f"#{self._comp_index} {title}: {diff:.5f} {op} {tol} ({label}, {runtime:.3f}s)"
 
-    def _log_result(self, msg: str, diff: float, tol: float):
+    def _log_result(self, msg: str, diff: float, tol: float) -> None:
         """Log a comparison result (critical if it exceeds the tolerance, info otherwise); under ``do_assertion``
         raise on failure and count the assertion."""
         if not diff <= tol:
@@ -623,7 +623,7 @@ class Comparison(Serializable):
         """
         out = {}
 
-        def _put(key, value):
+        def _put(key, value) -> None:
             value = Comparison._expand_keys(value) if isinstance(value, dict) else value
             if key in out and isinstance(out[key], dict) and isinstance(value, dict):
                 out[key] = {**out[key], **value}
@@ -648,7 +648,7 @@ class Comparison(Serializable):
             title: str = 'stat',
             name: str = '',
             mode: str = None
-    ):
+    ) -> None:
         """
         Compare the given statistics recursively.
 
@@ -747,7 +747,7 @@ class Comparison(Serializable):
                     mode=mode
                 )
 
-    def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str, mode: str = None):
+    def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str, mode: str = None) -> None:
         """
         Compare the cross-locus joint distribution (the per-locus tree height / total branch length at the two loci,
         separated by recombination) against the msprime ground truth, as a **full-grid surface** over the single locus
@@ -765,7 +765,7 @@ class Comparison(Serializable):
                                            joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
                                            surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
 
-    def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None):
+    def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None) -> None:
         """
         Compare a single SFS bin's statistics (config ``sfs: {i}: {stat}``) against the msprime ground truth: the
         scalar ``mean`` / ``var`` of bin ``i``, and its 1D ``pdf`` / ``cdf`` / ``quantile`` (bin ``i``'s reward
@@ -834,7 +834,7 @@ class Comparison(Serializable):
 
         return value(*args) if callable(value) else value
 
-    def _compare_scalar(self, ph: float, ms: float, tol: float, title: str):
+    def _compare_scalar(self, ph: float, ms: float, tol: float, title: str) -> None:
         """Compare two scalar statistics within a relative tolerance, mirroring :meth:`compare_stat`."""
         diff = self.rel_diff(ms, ph)
 
@@ -887,7 +887,7 @@ class Comparison(Serializable):
         return np.array([float(rd.quantile(float(qq), method='cos')) for qq in q])
 
     def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None,
-                                  joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None):
+                                  joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None) -> None:
         """
         Full-grid comparison of the within-tree joint distribution of one bin pair ``(i, j)``: the analytic
         ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
@@ -1000,7 +1000,7 @@ class Comparison(Serializable):
             return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).max()), 1e-300)
         return np.asarray(self.rel_diff(y_ms, y_ph), float)
 
-    def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str):
+    def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str) -> None:
         """Two panels side by side: left overlays phasegen (solid) vs msprime (dashed) for each ``series`` entry
         ``(y_ph, y_ms, diff, label)``; right shows each per-point ``diff`` as a line **coloured by its magnitude**
         (the same ``coolwarm`` scale saturating at :attr:`surface_diff_saturation` as the surface diff plots, with a
@@ -1039,7 +1039,7 @@ class Comparison(Serializable):
             fig.suptitle(title, fontsize=self.suptitle_fontsize)
         self._save_and_show(name)
 
-    def _plot_sfs_with_diff(self, ph_stat, ms_stat, title: str, name: str, left_title: str = 'SFS'):
+    def _plot_sfs_with_diff(self, ph_stat, ms_stat, title: str, name: str, left_title: str = 'SFS') -> None:
         """Two panels side by side: left the grouped SFS bar comparison (phasegen vs msprime via the ``Spectra``
         plotter), right the per-bin **relative difference** (the asserted ``max rel`` metric) as bars coloured by
         magnitude -- the same ``coolwarm`` scale saturating at :attr:`surface_diff_saturation` as the curve/surface
@@ -1077,7 +1077,7 @@ class Comparison(Serializable):
 
     def _plot_surface_triple(self, xs, ys, grid_ph, grid_ms, diff_grid, zlabel: str, title: str, name: str,
                              xlabel: str = 'L_i', ylabel: str = 'L_j', diff_label: str = 'relative difference',
-                             diff_zlabel: str = 'rel. diff'):
+                             diff_zlabel: str = 'rel. diff') -> None:
         """Draw phasegen / msprime / difference surfaces side by side over the ``xs x ys`` grid. The two distributions
         use a sequential colormap; the third is the element-wise difference (``diff_grid``: relative by default, or
         absolute for a CDF), coloured blue at 0 up to red at :attr:`surface_diff_saturation` (so it reads red wherever
@@ -1129,7 +1129,7 @@ class Comparison(Serializable):
             # ``pairwise`` or be nested under a de_hoog/cosine mode wrapper, so descend into those
             pairs = []
 
-            def _collect(d):
+            def _collect(d) -> None:
                 for k, v in d.items():
                     if k in ('cdf', 'pdf'):
                         continue
@@ -1143,7 +1143,7 @@ class Comparison(Serializable):
                 out[dist] = list(dict.fromkeys(pairs))  # de-dupe, preserve order
         return out
 
-    def cache_ground_truth(self):
+    def cache_ground_truth(self) -> None:
         """Cache the msprime ground truth needed by the configured comparisons: the standard per-statistic caches
         (:meth:`MsprimeCoalescent.touch`) plus any full-grid pairwise surface grids the config requests. Call before
         :meth:`MsprimeCoalescent.drop` so the grids are serialized with the comparison."""
@@ -1151,7 +1151,7 @@ class Comparison(Serializable):
         for dist, pairs in self._pairwise_surface_pairs().items():
             getattr(self.ms, dist).cache_joint_surface(pairs)
 
-    def compare(self, title: str = ''):
+    def compare(self, title: str = '') -> None:
         """
         Compare the distributions of the given statistics.
 

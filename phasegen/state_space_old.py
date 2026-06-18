@@ -33,7 +33,7 @@ class StateSpace(ABC):
             model: CoalescentModel = None,
             epoch: Epoch = None,
             cache: bool = True
-    ):
+    ) -> None:
         """
         Create a rate matrix.
 
@@ -153,7 +153,7 @@ class StateSpace(ABC):
         # as we may have multiple initial states
         return alpha / alpha.sum()
 
-    def update_epoch(self, epoch: Epoch):
+    def update_epoch(self, epoch: Epoch) -> None:
         """
         Update the epoch.
 
@@ -166,7 +166,7 @@ class StateSpace(ABC):
 
         self.epoch = epoch
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
         update the epoch of a state space.
@@ -202,7 +202,7 @@ class StateSpace(ABC):
         """
         return self.states.shape[2]
 
-    def drop_S(self):
+    def drop_S(self) -> None:
         """
         Drop the current rate matrix.
         """
@@ -212,7 +212,7 @@ class StateSpace(ABC):
         except AttributeError:
             pass
 
-    def drop_cache(self):
+    def drop_cache(self) -> None:
         """
         Drop the rate matrix cache and current rate matrix.
         """
@@ -320,7 +320,7 @@ class StateSpace(ABC):
             extension: str = 'png',
             format_state: Callable[[np.array], str] = None,
             format_transition: Callable[['Transition'], str] = None
-    ):
+    ) -> None:
         """
         Plot the rate matrix using graphviz.
 
@@ -589,7 +589,7 @@ class BlockCountingStateSpace(StateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create a rate matrix.
 
@@ -770,7 +770,7 @@ class Transition:
             marginal2: np.ndarray,
             linked1: np.ndarray,
             linked2: np.ndarray
-    ):
+    ) -> None:
         """
         Initialize a transition.
 

@@ -11,7 +11,7 @@ def _make_hashable(func: Callable) -> Callable:
     """
 
     @functools.wraps(func)
-    def wrapper(self, *args: tuple, **kwargs: dict):
+    def wrapper(self, *args: tuple, **kwargs: dict) -> 'Any':
         """
         Wrapper function.
 

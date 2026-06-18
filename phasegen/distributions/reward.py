@@ -68,7 +68,7 @@ class RewardDistribution(CallableDistributionFunctions):
     _pdf_function = _LSTDensityFunction
     _quantile_function = _LSTQuantileFunction
 
-    def __init__(self, dist: 'PhaseTypeDistribution', reward: Reward = None):
+    def __init__(self, dist: 'PhaseTypeDistribution', reward: Reward = None) -> None:
         """
         :param dist: The phase-type distribution providing the state space, demography and epoch machinery.
         :param reward: The reward whose accumulation defines ``R``. Defaults to ``dist``'s own reward.
@@ -83,7 +83,7 @@ class RewardDistribution(CallableDistributionFunctions):
         self.label: Optional[str] = None
 
     @cached_property
-    def _setup(self):
+    def _setup(self) -> dict:
         """Bind the reward vector to the host's (reward-independent, shared) per-epoch transient generators."""
         ss = self.state_space
 
@@ -158,7 +158,7 @@ class RewardDistribution(CallableDistributionFunctions):
         if t <= 0:
             return 0.0
 
-        def F(s):
+        def F(s) -> 'mp.mpc':
             val = transform(complex(s))
             return mp.mpc(val.real, val.imag)
 
@@ -333,7 +333,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     #: step adapts to it; ``_cc_box`` is analytic and cheap, so this is essentially free.
     _cos2d_pdf_grid: int = 50
 
-    def __init__(self, dist: 'PhaseTypeDistribution', reward_a: Reward, reward_b: Reward):
+    def __init__(self, dist: 'PhaseTypeDistribution', reward_a: Reward, reward_b: Reward) -> None:
         """
         :param dist: The phase-type distribution providing the state space, demography and epoch machinery.
         :param reward_a: The first reward.
@@ -347,7 +347,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         self.label: Optional[str] = None
 
     @cached_property
-    def _setup(self):
+    def _setup(self) -> dict:
         """Bind both reward vectors to the host's shared (reward-independent) per-epoch generators (time-rescaled by
         ``tau`` for large-N conditioning; the LST compensates with ``s tau`` -- see :meth:`lst`)."""
         ss = self._host.state_space
@@ -643,7 +643,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 inner = _stehfest_invert(lambda s_b: cc(s_a, s_b) / s_b if integrate else cc(s_a, s_b), _y, M)
                 return inner / s_a if integrate else inner
 
-            def F(s, _G=G):  # de Hoog wants the transform as an mpmath complex
+            def F(s, _G=G) -> 'mp.mpc':  # de Hoog wants the transform as an mpmath complex
                 v = _G(complex(s))
                 return mp.mpc(v.real, v.imag)
 
@@ -846,7 +846,7 @@ class _AtomConditional(_Conditional):
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
-    def __init__(self, joint: 'JointRewardDistribution', on: str, label: str = ''):
+    def __init__(self, joint: 'JointRewardDistribution', on: str, label: str = '') -> None:
         atom = joint._atoms['a0' if on == 'a' else 'b0']
         if atom < 1e-9:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
@@ -914,7 +914,7 @@ class _NestedConditional(_Conditional):
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
-    def __init__(self, joint: 'JointRewardDistribution', on: str, value: float, label: str = ''):
+    def __init__(self, joint: 'JointRewardDistribution', on: str, value: float, label: str = '') -> None:
         self._joint = joint
         # the conditional reuses the host's state space / time-scale (its ``lst`` is the nested transform; there is no
         # own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``)

@@ -81,7 +81,7 @@ def multiset_permutations(items: Sequence) -> Generator[Tuple, None, None]:
     :return: Permutations
     """
 
-    def visit(head):
+    def visit(head) -> tuple:
         """
         Visit the head of the permutation.
         """

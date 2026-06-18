@@ -1,7 +1,10 @@
 """
 Rewards assign weights to states in the state space. They are used behind the scenes
 to calculate different coalescent tree statistics but can also be passed directly to
-:meth:`~phasegen.distributions.Coalescent.moment` to calculate more complex statistics.
+:meth:`~phasegen.distributions.Coalescent.moment`,
+:meth:`~phasegen.distributions.Coalescent.accumulate`, or
+:meth:`~phasegen.distributions.Coalescent.distribution` to accumulate them into more
+complex statistics and their distributions.
 """
 
 from abc import abstractmethod, ABC
@@ -160,7 +163,7 @@ class JointSFSReward(JointBlockCountingReward):
     all demes of residence and loci) whose descendant vector equals ``config``.
     """
 
-    def __init__(self, config: Tuple[int, ...]):
+    def __init__(self, config: Tuple[int, ...]) -> None:
         """
         Initialize the reward.
 
@@ -206,7 +209,7 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
     per locus.
     """
 
-    def __init__(self, locus: int, count: int):
+    def __init__(self, locus: int, count: int) -> None:
         """
         Initialize the reward.
 
@@ -338,7 +341,7 @@ class SFSReward(BlockCountingReward, ABC):
     :meta private:
     """
 
-    def __init__(self, index: int):
+    def __init__(self, index: int) -> None:
         """
         Initialize the reward.
 
@@ -418,7 +421,7 @@ class StateReward(Reward):
     Reward for a specific state in the state space. This is useful for debugging or testing purposes.
     """
 
-    def __init__(self, state: int):
+    def __init__(self, state: int) -> None:
         """
         Initialize the reward.
 
@@ -450,7 +453,7 @@ class LineageReward(LineageCountingReward, JointBlockCountingReward):
     This reward can be used to, for example, track the individual coalescent times.
     """
 
-    def __init__(self, n: int):
+    def __init__(self, n: int) -> None:
         """
         Initialize the reward.
 
@@ -492,7 +495,7 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
     several demes.
     """
 
-    def __init__(self, pop: str):
+    def __init__(self, pop: str) -> None:
         """
         Initialize the reward.
 
@@ -536,7 +539,7 @@ class LocusReward(LineageCountingReward):
     will result in a reward that only considers the specified locus.
     """
 
-    def __init__(self, locus: int):
+    def __init__(self, locus: int) -> None:
         """
         Initialize the reward.
 
@@ -635,7 +638,7 @@ class CompositeReward(Reward, ABC):
     :meta private:
     """
 
-    def __init__(self, rewards: List[Reward]):
+    def __init__(self, rewards: List[Reward]) -> None:
         """
         Initialize the composite reward.
 
@@ -700,7 +703,7 @@ class CombinedReward(ProductReward):
         (TotalBranchLengthReward, LocusReward): lambda r1, r2: TotalBranchLengthLocusReward(r2.locus)
     }
 
-    def __init__(self, rewards: List[Reward]):
+    def __init__(self, rewards: List[Reward]) -> None:
         """
         Initialize the combined reward.
 
@@ -733,7 +736,7 @@ class CustomReward(Reward):
             self,
             func: Callable[[StateSpace], np.ndarray],
             supports: Callable[[Type[StateSpace]], bool] = lambda _: True
-    ):
+    ) -> None:
         """
         Initialize the custom reward.
 

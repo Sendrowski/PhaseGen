@@ -53,7 +53,7 @@ class MomentEvaluator:
     _absorption_certain_cache: Optional[bool]
 
     @staticmethod
-    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False):
+    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
         """
         Block upper-bidiagonal Van Loan matrix: the intensity matrix ``S`` on the ``k + 1`` diagonal blocks and the
         reward matrices ``diag(R[i])`` on the super-diagonal. ``R`` is a list of reward *vectors* (the reward
@@ -137,7 +137,7 @@ class MomentEvaluator:
         return np.fromiter((node for c in order for node in members[c]), dtype=int, count=n)
 
     @staticmethod
-    def _lu_solver(A, sparse: bool, perm=_AUTO_PERM):
+    def _lu_solver(A, sparse: bool, perm=_AUTO_PERM) -> 'Callable':
         """
         Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``, reusable across
         right-hand sides (the closed form back-substitutes against the same transient sub-generator repeatedly).
@@ -266,7 +266,7 @@ class MomentEvaluator:
         # rewards in the Van Loan matrix are of order 1
         return 10 ** - np.log10(rates).mean()
 
-    def _check_demography_conditioning(self):
+    def _check_demography_conditioning(self) -> None:
         """
         Fail fast on extreme demographies whose population sizes or migration rates differ by more than ~double
         precision. Such demographies make the moment computation numerically unreliable, whether via the
@@ -291,7 +291,7 @@ class MomentEvaluator:
                 "parameters, or set the end time manually (see ``Coalescent.end_time``)."
             )
 
-    def _check_numerical_stability(self, S: np.ndarray, epoch: int):
+    def _check_numerical_stability(self, S: np.ndarray, epoch: int) -> None:
         """
         Warn about potential numerical instability with very small or very large rates.
 
@@ -760,7 +760,7 @@ class MomentEvaluator:
 
         return absorbing, reach
 
-    def _assert_absorbs(self, T: np.ndarray):
+    def _assert_absorbs(self, T: np.ndarray) -> None:
         """
         Raise if the demography can never absorb. Distinguishes a *structural* barrier (an isolated deme or a
         one-way/blocked migration in the final, unbounded epoch, leaving lineages that can never coalesce) from a
@@ -882,7 +882,7 @@ class MomentEvaluator:
                 self.locus_config.n == 1
         )
 
-    def _transient_block(self, idx_t: np.ndarray, sparse: bool = False):
+    def _transient_block(self, idx_t: np.ndarray, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
         """
         The transient sub-generator ``T = S[idx_t, idx_t]`` extracted from the (dense or sparse) rate matrix,
         returned as a dense array (default) or a sparse CSC matrix (``sparse=True``, for the large-state-space LU /
@@ -932,7 +932,7 @@ class MomentEvaluator:
         # apply its (transposed) matrix-exponential action instead of forming the dense 2n x 2n exponential
         use_action = 2 * n >= Settings.expm_action_min_dim
 
-        def advance(p, m, tau):
+        def advance(p, m, tau) -> 'Tuple[np.ndarray, np.ndarray]':
             if tau <= 0:
                 return p, m
             S = self.state_space.S
