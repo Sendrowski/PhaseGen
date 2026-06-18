@@ -37,7 +37,6 @@ import mpmath as mp
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 
 from ..rewards import Reward
 from ..settings import Settings
@@ -412,7 +411,7 @@ class RewardDistribution(CallableDistributionFunctions):
         y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
         return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
 
-    def cdf_curve(self, x, method: str = 'dehoog', n_terms: int = None) -> np.ndarray:
+    def cdf_curve(self, x, method: str = 'dehoog') -> np.ndarray:
         """Fast CDF over a whole grid ``x`` (for plotting / many-query use). ``method='dehoog'`` (default) uses the
         accurate de Hoog + monotone-spline representation (:attr:`_dehoog_spline`); ``method='cos'`` the faster two-pass
         COS grid."""
@@ -424,7 +423,7 @@ class RewardDistribution(CallableDistributionFunctions):
         g = np.clip(st['spline'](np.clip(xa, 0.0, st['b'])), 0.0, 1.0)
         return st['p0'] + (1 - st['p0']) * g if st['p0'] > 1e-9 else g
 
-    def pdf_curve(self, x, method: str = 'dehoog', n_terms: int = None) -> np.ndarray:
+    def pdf_curve(self, x, method: str = 'dehoog') -> np.ndarray:
         """Fast PDF over a whole grid ``x`` (for plotting / many-query use): the derivative of the CDF representation
         (``method='dehoog'`` -> the de Hoog + monotone-spline; ``method='cos'`` -> the two-pass COS grid). Deriving the
         PDF from the CDF keeps it clean and non-negative; use the per-point :meth:`pdf` (de Hoog) for the exact

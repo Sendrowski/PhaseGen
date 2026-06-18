@@ -10,7 +10,6 @@ import time
 from .caching import cached_property
 from typing import Iterable, Dict, Literal, List
 
-import matplotlib as mpl
 import numpy as np
 import yaml
 from fastdfe import Spectra
@@ -22,7 +21,7 @@ from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution,
     MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
-from .spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
+from .spectrum import SFS, JointSFS, TwoLocusSFS
 from .utils import takewhile_inclusive
 
 logger = logging.getLogger('phasegen')

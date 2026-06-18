@@ -55,26 +55,6 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface: list = []
 
-    def cross_moment(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
-        """Empirical within-tree cross-moment ``E[L_{config_a} · L_{config_b}]`` from the per-replicate samples."""
-        a = self.samples[(slice(None),) + tuple(config_a)]
-        b = self.samples[(slice(None),) + tuple(config_b)]
-        return float((a * b).mean())
-
-    def joint_cdf(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...], x: float, y: float) -> float:
-        """Empirical within-tree joint CDF ``P(L_{config_a} <= x, L_{config_b} <= y)`` from the per-replicate samples."""
-        a = self.samples[(slice(None),) + tuple(config_a)]
-        b = self.samples[(slice(None),) + tuple(config_b)]
-        return float(((a <= x) & (b <= y)).mean())
-
-    def joint_pdf(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...], x: float, y: float,
-                  hx: float, hy: float) -> float:
-        """Empirical within-tree joint density via the centred box difference of the joint CDF (the simulated
-        counterpart of :meth:`JointRewardDistribution.pdf`); singular on the diagonal (``config_a == config_b``)."""
-        c = self.joint_cdf
-        return float((c(config_a, config_b, x + hx, y + hy) - c(config_a, config_b, x + hx, y - hy)
-                      - c(config_a, config_b, x - hx, y + hy) + c(config_a, config_b, x - hx, y - hy)) / (4 * hx * hy))
-
     def cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
                             q_max: float = 0.95):
         """Pre-compute, for each config pair, the empirical joint CDF and density over a 2D grid (the full-grid
@@ -673,15 +653,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
 
-    def joint_pdf(self, i: int, j: int, x: float, y: float, hx: float, hy: float) -> float:
-        """
-        Empirical joint density ``f(x, y)`` of two SFS bins, as the mixed second difference of the empirical joint
-        CDF over a box of half-widths ``hx``/``hy`` (a box-kernel estimate) -- the simulated counterpart of
-        :meth:`JointRewardDistribution.pdf`.
-        """
-        return float((self.joint_cdf(i, j, x + hx, y + hy) - self.joint_cdf(i, j, x + hx, y - hy)
-                      - self.joint_cdf(i, j, x - hx, y + hy) + self.joint_cdf(i, j, x - hx, y - hy)) / (4 * hx * hy))
-
     def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
         """
         Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
@@ -828,14 +799,6 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         :return: The empirical joint probability.
         """
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
-
-    def joint_pdf(self, i: int, j: int, x: float, y: float, hx: float, hy: float) -> float:
-        """Empirical two-locus joint density via the centred box difference of the joint CDF (the simulated
-        counterpart of the cross-locus :meth:`JointRewardDistribution.pdf`). Non-singular even for ``i == j`` (the two
-        loci are distinct random variables)."""
-        c = self.joint_cdf
-        return float((c(i, j, x + hx, y + hy) - c(i, j, x + hx, y - hy)
-                      - c(i, j, x - hx, y + hy) + c(i, j, x - hx, y - hy)) / (4 * hx * hy))
 
     def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95):
         """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical

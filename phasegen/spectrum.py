@@ -9,7 +9,7 @@ from typing import Dict, Iterable, Iterator, List, Sequence, Tuple
 import jsonpickle
 import numpy as np
 # noinspection PyUnresolvedReferences
-from fastdfe import Spectrum, Spectra
+from fastdfe import Spectrum, Spectra  # noqa: F401 (Spectra re-exported via phasegen.__init__)
 
 logger = logging.getLogger('phasegen').getChild('spectrum')
 
