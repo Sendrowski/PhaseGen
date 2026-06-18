@@ -300,163 +300,19 @@ class Comparison(Serializable):
         name = f"{name}_{stat}"
         t0 = time.perf_counter()  # time the phasegen-side evaluation + diff of this statistic
 
-        if stat in ['m3', 'm4']:
-            ph_stat = ph.moment(int(stat[1]), center=False)
-            ms_stat = getattr(ms, stat)
-
-        elif stat == 'mutation_configs':
-
-            ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
-            ms_it = ms.get_mutation_configs()
-
-            ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
-            ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
-
-        else:
-            ph_stat = getattr(ph, stat)
-            ms_stat = getattr(ms, stat)
+        ph_stat, ms_stat = self._fetch_stat(ph, ms, stat)
 
         diff = 0.0
         plot = None  # deferred visualisation: invoked with the final result message, so the plot title == the log line
 
         if isinstance(ph_stat, float):
-
             diff = self.rel_diff(ms_stat, ph_stat).max()
-
         elif stat == 'mutation_configs':
-            configs = [x[0] for x in ph_stat]
-            ms_stat = np.array([x[1] for x in ms_stat])
-            ph_stat = np.array([x[1] for x in ph_stat])
-            diff = self.rel_diff(ms_stat, ph_stat).mean()
-
-            if self.visualize:
-                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs):
-                    plt.plot(ph_stat, label='phasegen')
-                    plt.plot(ms_stat, label='msprime')
-                    plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
-                    plt.legend()
-                    if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
-                    self._save_and_show(name)
-
-        # assume we have an SFS
-        elif isinstance(ph_stat, Iterable):
-
-            # whether this is a joint (multi-population) SFS or a two-locus SFS -- both are 2-D spectra drawn as
-            # side-by-side heatmaps (the joint SFS may be rectangular / higher-dimensional, the two-locus SFS square)
-            is_joint = isinstance(ph_stat, JointSFS)
-            heatmap_cls = JointSFS if is_joint else (TwoLocusSFS if isinstance(ph_stat, TwoLocusSFS) else None)
-
-            ms_stat = np.array(list(ms_stat))
-            ph_stat = np.array(list(ph_stat))
-            diff = self.rel_diff(ms_stat, ph_stat).max()
-
-            if self.visualize:
-                if heatmap_cls is not None and ph_stat.ndim == 2:
-                    # plot the joint / two-locus SFS as side-by-side heatmaps, but only when it is 2-dimensional
-                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls):
-                        plt.close('all')  # avoid empty plots
-                        fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
-                        if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
-                        axs[0].set_title('phasegen', fontsize=self.title_fontsize)
-                        axs[1].set_title('msprime', fontsize=self.title_fontsize)
-                        cls(ph_stat).plot(ax=axs[0], show=False)
-                        cls(ms_stat).plot(ax=axs[1], show=False)
-                        self._save_and_show(name, pad=1.5)
-
-                elif heatmap_cls is None and ph_stat.ndim == 1:
-                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
-                        self._plot_sfs_with_diff(ph_stat, ms_stat, msg if self.show_title else None, name,
-                                                 left_title=name.upper() if name else 'SFS')
-
-                # a square 2-dimensional statistic (an SFS covariance / correlation matrix or a 2-SFS); n = 2 (a 3x3
-                # matrix with a single polymorphic bin) is a legitimate two-locus SFS. Drawn as phasegen / msprime /
-                # element-wise relative-difference surfaces.
-                elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
-                    def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
-                        idx = np.arange(len(ph_stat))
-                        self._plot_surface_triple(
-                            idx, idx, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
-                            xlabel='frequency class i', ylabel='frequency class j',
-                            title=msg if self.show_title else None, name=name)
-
-        # assume we have a PDF, CDF or quantile function
+            diff, plot = self._diff_and_plot_mutation_configs(ph_stat, ms_stat, name)
+        elif isinstance(ph_stat, Iterable):  # a spectrum: SFS / jSFS / 2-SFS / covariance matrix
+            diff, plot = self._diff_and_plot_spectrum(ph_stat, ms_stat, stat, name)
         elif stat in ['pdf', 'cdf', 'quantile']:
-
-            # the quantile function lives on the probability axis q in (0, 1); the pdf/cdf on the value axis t
-            grid_key = 'q' if stat == 'quantile' else 't'
-
-            # use cached values if available
-            if hasattr(ms, '_cache') and stat in ms._cache:
-                t = ms._cache[grid_key]
-                y_ms = np.asarray(ms._cache[stat])
-            elif stat == 'quantile':
-                t = np.linspace(0.05, 0.95, 50)
-                y_ms = np.asarray(ms_stat(t))
-            else:
-                # grid the distribution being compared over its own support (identical to the tree height for
-                # tree_height, but wider for e.g. total_branch_length, whose accumulated reward exceeds it). For an
-                # SFS the quantile is per-bin, so take the widest bin's support.
-                t = np.linspace(0, float(np.max(ph.quantile(0.99))), 100)
-                y_ms = np.asarray(ms_stat(t))
-
-            curve = 'cdf_curve' if stat == 'cdf' else 'pdf_curve'
-            method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
-            if stat == 'quantile':
-                # invert the cached CDF curve rather than the per-point de Hoog bisection (~2 s per point for
-                # accumulated rewards such as total_branch_length)
-                y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, method=method)
-            elif mode is not None and hasattr(ph, 'bin'):
-                # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
-                # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
-                nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
-                y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
-                                 else np.asarray(getattr(ph.bin(b), curve)(t, method=method), dtype=float)
-                                 for b in range(nb)])
-            elif mode is not None and hasattr(ph, '_reward_distribution') \
-                    and hasattr(ph._reward_distribution, curve):
-                # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
-                y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t, method=method), dtype=float)
-            else:
-                y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
-
-            # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
-            # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
-            per_bin = y_ph.ndim == 2 or y_ms.ndim == 2
-            if per_bin:
-                if y_ph.ndim == 2 and y_ph.shape[-1] != len(t):
-                    y_ph = y_ph.T
-                if y_ms.ndim == 2 and y_ms.shape[-1] != len(t):
-                    y_ms = y_ms.T
-                y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
-
-            # the first couple of points sit on the near-zero head (and the per-bin atom at 0, P(L_i=0)>0), where the
-            # difference is unstable -- so they are discarded. Metric: the CDF (bounded in [0,1]) uses the worst
-            # *absolute* difference; the pdf the mode-normalised mean absolute difference (:meth:`_pdf_diff`); the
-            # quantile the worst *relative* difference. Computed before the deferred plot so the result message (which
-            # the plot uses as its title) is available.
-            if stat == 'pdf':
-                ms_p = y_ms[:, 2:] if per_bin else y_ms
-                ph_p = y_ph[:, 2:] if per_bin else y_ph
-                diff = self._pdf_diff(ms_p, ph_p)
-            elif stat == 'cdf':
-                d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
-                diff = float(np.abs(d).max())
-            else:  # quantile
-                diff = self._quantile_diff(y_ms, y_ph)
-
-            if self.visualize:
-                def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin):
-                    xlabel = 'q' if stat == 'quantile' else 'time'
-                    if per_bin:
-                        # drop the first grid point: an SFS bin's atom at 0 spikes the empirical pdf / jumps the cdf
-                        tp, yph_p, yms_p = t[1:], y_ph[:, 1:], y_ms[:, 1:]
-                        series = [(yph_p[k], yms_p[k], self._pointwise_diff(stat, yph_p[k], yms_p[k]), f'bin {k + 1}')
-                                  for k in range(yph_p.shape[0])]
-                    else:
-                        tp = t
-                        series = [(y_ph, y_ms, self._pointwise_diff(stat, y_ph, y_ms), '')]
-                    self._plot_curves_with_diff(tp, series, xlabel, msg if self.show_title else None, name)
-
+            diff, plot = self._diff_and_plot_curve(ph, ms, ph_stat, ms_stat, stat, mode, name)
         else:
             raise ValueError(f"Unknown type {type(ph_stat)}.")
 
@@ -468,6 +324,166 @@ class Comparison(Serializable):
         if self.visualize and plot is not None:
             plot(msg)
         self._log_result(msg, diff, tol)
+
+    def _fetch_stat(self, ph: PhaseTypeDistribution, ms: PhaseTypeDistribution, stat: str) -> tuple:
+        """Fetch the ``(phasegen, msprime)`` statistic pair for ``stat``: the centered higher moments (``m3``/``m4``),
+        the mutation-configuration probabilities (truncated at the mass threshold), or the named attribute otherwise."""
+        if stat in ['m3', 'm4']:
+            return ph.moment(int(stat[1]), center=False), getattr(ms, stat)
+
+        if stat == 'mutation_configs':
+            ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
+            ms_it = ms.get_mutation_configs()
+            ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
+            ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
+            return ph_stat, ms_stat
+
+        return getattr(ph, stat), getattr(ms, stat)
+
+    def _diff_and_plot_mutation_configs(self, ph_stat, ms_stat, name: str) -> tuple:
+        """Mean relative difference of the mutation-configuration probabilities, with a deferred line plot."""
+        configs = [x[0] for x in ph_stat]
+        ms_stat = np.array([x[1] for x in ms_stat])
+        ph_stat = np.array([x[1] for x in ph_stat])
+        diff = self.rel_diff(ms_stat, ph_stat).mean()
+
+        plot = None
+        if self.visualize:
+            def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs):
+                plt.plot(ph_stat, label='phasegen')
+                plt.plot(ms_stat, label='msprime')
+                plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
+                plt.legend()
+                if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
+                self._save_and_show(name)
+
+        return diff, plot
+
+    def _diff_and_plot_spectrum(self, ph_stat, ms_stat, stat: str, name: str) -> tuple:
+        """Worst relative difference of a spectrum statistic (SFS / jSFS / 2-SFS / covariance matrix), with a deferred
+        plot chosen by its shape: side-by-side heatmaps for a 2-D joint / two-locus SFS, a grouped bar + per-bin
+        difference for a 1-D SFS, or phasegen / msprime / element-wise-difference surfaces for a square matrix."""
+        # whether this is a joint (multi-population) SFS or a two-locus SFS -- both are 2-D spectra drawn as
+        # side-by-side heatmaps (the joint SFS may be rectangular / higher-dimensional, the two-locus SFS square)
+        is_joint = isinstance(ph_stat, JointSFS)
+        heatmap_cls = JointSFS if is_joint else (TwoLocusSFS if isinstance(ph_stat, TwoLocusSFS) else None)
+
+        ms_stat = np.array(list(ms_stat))
+        ph_stat = np.array(list(ph_stat))
+        diff = self.rel_diff(ms_stat, ph_stat).max()
+
+        plot = None
+        if self.visualize:
+            if heatmap_cls is not None and ph_stat.ndim == 2:
+                # plot the joint / two-locus SFS as side-by-side heatmaps, but only when it is 2-dimensional
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls):
+                    plt.close('all')  # avoid empty plots
+                    fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
+                    if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
+                    axs[0].set_title('phasegen', fontsize=self.title_fontsize)
+                    axs[1].set_title('msprime', fontsize=self.title_fontsize)
+                    cls(ph_stat).plot(ax=axs[0], show=False)
+                    cls(ms_stat).plot(ax=axs[1], show=False)
+                    self._save_and_show(name, pad=1.5)
+
+            elif heatmap_cls is None and ph_stat.ndim == 1:
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                    self._plot_sfs_with_diff(ph_stat, ms_stat, msg if self.show_title else None, name,
+                                             left_title=name.upper() if name else 'SFS')
+
+            # a square 2-dimensional statistic (an SFS covariance / correlation matrix or a 2-SFS); n = 2 (a 3x3
+            # matrix with a single polymorphic bin) is a legitimate two-locus SFS. Drawn as phasegen / msprime /
+            # element-wise relative-difference surfaces.
+            elif ph_stat.ndim == 2 and ph_stat.shape[0] == ph_stat.shape[1] and len(ph_stat) > 2:
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat):
+                    idx = np.arange(len(ph_stat))
+                    self._plot_surface_triple(
+                        idx, idx, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
+                        xlabel='frequency class i', ylabel='frequency class j',
+                        title=msg if self.show_title else None, name=name)
+
+        return diff, plot
+
+    def _diff_and_plot_curve(self, ph, ms, ph_stat, ms_stat, stat: str, mode: str, name: str) -> tuple:
+        """Difference of a pdf / cdf / quantile curve (per-point or per-bin), with a deferred two-panel curve +
+        difference plot. The msprime curve uses cached grid values when available; the phasegen curve uses the fast
+        ``mode``-dependent (de Hoog / cosine) curve where applicable, else the exact per-point callable."""
+        # the quantile function lives on the probability axis q in (0, 1); the pdf/cdf on the value axis t
+        grid_key = 'q' if stat == 'quantile' else 't'
+
+        # use cached values if available
+        if hasattr(ms, '_cache') and stat in ms._cache:
+            t = ms._cache[grid_key]
+            y_ms = np.asarray(ms._cache[stat])
+        elif stat == 'quantile':
+            t = np.linspace(0.05, 0.95, 50)
+            y_ms = np.asarray(ms_stat(t))
+        else:
+            # grid the distribution being compared over its own support (identical to the tree height for
+            # tree_height, but wider for e.g. total_branch_length, whose accumulated reward exceeds it). For an
+            # SFS the quantile is per-bin, so take the widest bin's support.
+            t = np.linspace(0, float(np.max(ph.quantile(0.99))), 100)
+            y_ms = np.asarray(ms_stat(t))
+
+        curve = 'cdf' if stat == 'cdf' else 'pdf'
+        method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
+        if stat == 'quantile':
+            # invert the cached CDF curve rather than the per-point de Hoog bisection (~2 s per point for
+            # accumulated rewards such as total_branch_length)
+            y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, method=method)
+        elif mode is not None and hasattr(ph, 'bin'):
+            # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
+            # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
+            nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
+            y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
+                             else np.asarray(getattr(ph.bin(b), curve).curve(t, method=method), dtype=float)
+                             for b in range(nb)])
+        elif mode is not None and hasattr(ph, '_reward_distribution') \
+                and hasattr(getattr(ph._reward_distribution, curve), 'curve'):
+            # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
+            y_ph = np.asarray(getattr(ph._reward_distribution, curve).curve(t, method=method), dtype=float)
+        else:
+            y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
+
+        # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
+        # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
+        per_bin = y_ph.ndim == 2 or y_ms.ndim == 2
+        if per_bin:
+            if y_ph.ndim == 2 and y_ph.shape[-1] != len(t):
+                y_ph = y_ph.T
+            if y_ms.ndim == 2 and y_ms.shape[-1] != len(t):
+                y_ms = y_ms.T
+            y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
+
+        # the first couple of points sit on the near-zero head (and the per-bin atom at 0, P(L_i=0)>0), where the
+        # difference is unstable -- so they are discarded. Metric: the CDF (bounded in [0,1]) uses the worst
+        # *absolute* difference; the pdf the mode-normalised mean absolute difference (:meth:`_pdf_diff`); the
+        # quantile the worst *relative* difference.
+        if stat == 'pdf':
+            ms_p = y_ms[:, 2:] if per_bin else y_ms
+            ph_p = y_ph[:, 2:] if per_bin else y_ph
+            diff = self._pdf_diff(ms_p, ph_p)
+        elif stat == 'cdf':
+            d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
+            diff = float(np.abs(d).max())
+        else:  # quantile
+            diff = self._quantile_diff(y_ms, y_ph)
+
+        plot = None
+        if self.visualize:
+            def plot(msg, t=t, y_ph=y_ph, y_ms=y_ms, per_bin=per_bin):
+                xlabel = 'q' if stat == 'quantile' else 'time'
+                if per_bin:
+                    # drop the first grid point: an SFS bin's atom at 0 spikes the empirical pdf / jumps the cdf
+                    tp, yph_p, yms_p = t[1:], y_ph[:, 1:], y_ms[:, 1:]
+                    series = [(yph_p[k], yms_p[k], self._pointwise_diff(stat, yph_p[k], yms_p[k]), f'bin {k + 1}')
+                              for k in range(yph_p.shape[0])]
+                else:
+                    tp = t
+                    series = [(y_ph, y_ms, self._pointwise_diff(stat, y_ph, y_ms), '')]
+                self._plot_curves_with_diff(tp, series, xlabel, msg if self.show_title else None, name)
+
+        return diff, plot
 
     #: Standard thinned grid size per axis for the slow per-point **de Hoog 2D surface** comparison (≈ every other
     #: node of the 25-point empirical grid). Fixed, not config-exposed: the empirical stays cached on the full grid and
