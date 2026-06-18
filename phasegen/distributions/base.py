@@ -73,7 +73,7 @@ class DistributionFunction:
     :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` overlays every bin's density curve).
 
     This base class is rarely used directly: each property returns one of the thin typed subclasses
-    (:class:`PDF` / :class:`CPD` / :class:`QuantileFunction`, in plain,
+    (:class:`PDF` / :class:`CDF` / :class:`QuantileFunction`, in plain,
     ``Marginal...``, ``Joint...`` and ``Conditional...`` flavours). They behave identically but carry distinct
     docstrings describing *what* the function is and *how* it is computed, and -- being real classes with real
     :meth:`plot` / :meth:`__call__` methods -- they let IDEs resolve ``.plot`` to a definition and surface those
@@ -134,7 +134,7 @@ class PDF(DistributionFunction):
     kind = 'pdf'
 
 
-class CPD(DistributionFunction):
+class CDF(DistributionFunction):
     """Cumulative distribution function ``F(x) = P(X <= x)``.
 
     - **Callable** ``cdf(x)``: per-point de Hoog inversion of ``phi(s) / s`` (the exact matrix exponential for the tree
@@ -167,7 +167,7 @@ class MarginalPDF(PDF):
     """
 
 
-class MarginalCPD(CPD):
+class MarginalCDF(CDF):
     """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
 
     - **Callable** ``cdf(x)``: each bin's ``P(L_i <= x)`` by per-point de Hoog inversion of ``phi(s) / s``.
@@ -197,7 +197,7 @@ class JointPDF(_SurfacePlottable, PDF):
     """
 
 
-class JointCPD(_SurfacePlottable, CPD):
+class JointCDF(_SurfacePlottable, CDF):
     """Joint CDF ``F(x, y) = P(R_a <= x, R_b <= y)`` of two rewards / bins.
 
     - **Callable** ``cdf(x, y)``: the axis atoms (per-point de Hoog of the marginal sub-transforms ``Phi(., inf)`` /
@@ -224,7 +224,7 @@ class ConditionalPDF(PDF):
     """
 
 
-class ConditionalCPD(CPD):
+class ConditionalCDF(CDF):
     """CDF of one reward conditional on another (e.g. ``R_b | R_a = a``).
 
     - **Callable** ``cdf(y)``: per-point de Hoog inversion of ``phi_cond(s) / s`` for the nested-inversion conditional
@@ -254,7 +254,7 @@ class CallableDistributionFunctions:
     #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
     #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
     _pdf_function = PDF
-    _cdf_function = CPD
+    _cdf_function = CDF
     _quantile_function = QuantileFunction
 
     def _make_function(self, fn_cls, evaluate: Callable, plot: Callable, surface: Callable):
@@ -265,7 +265,7 @@ class CallableDistributionFunctions:
         return fn_cls(evaluate, plot)
 
     @property
-    def cdf(self) -> CPD:
+    def cdf(self) -> CDF:
         """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
         ``cdf.plot_surface()``)."""
         return self._make_function(self._cdf_function, self._cdf, self._plot_cdf, getattr(self, '_plot_cdf_surface', None))

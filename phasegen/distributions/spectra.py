@@ -15,7 +15,7 @@ from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountin
 from ..utils import multiset_permutations
 
 from ._common import _make_hashable
-from .base import MarginalPDF, MarginalCPD, MarginalQuantileFunction
+from .base import MarginalPDF, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ class SFSPDF(MarginalPDF):
     """
 
 
-class SFSCPD(MarginalCPD):
+class SFSCDF(MarginalCDF):
     """Per-bin SFS cumulative distribution functions ``P(L_i <= t)``, one per frequency class (from the SFS reward on
     the block-counting state space).
 
@@ -61,7 +61,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     """
     # the spectrum's pdf/cdf/quantile are per-bin (one curve per frequency class) -> SFS-specific flavours
     _pdf_function = SFSPDF
-    _cdf_function = SFSCPD
+    _cdf_function = SFSCDF
     _quantile_function = SFSQuantileFunction
 
     @property
@@ -70,7 +70,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return super().pdf
 
     @property
-    def cdf(self) -> SFSCPD:
+    def cdf(self) -> SFSCDF:
         """Per-bin SFS cumulative distribution functions (one per frequency class): callable and plottable."""
         return super().cdf
 
@@ -988,7 +988,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
     """
     # per-bin (per descendant configuration) pdf/cdf/quantile -> marginal flavours
     _pdf_function = MarginalPDF
-    _cdf_function = MarginalCPD
+    _cdf_function = MarginalCDF
     _quantile_function = MarginalQuantileFunction
 
     @property
@@ -997,7 +997,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         return super().pdf
 
     @property
-    def cdf(self) -> MarginalCPD:
+    def cdf(self) -> MarginalCDF:
         """Per-bin (per descendant configuration) cumulative distribution functions: callable and plottable."""
         return super().cdf
 

@@ -41,8 +41,8 @@ import scipy.sparse.linalg as spla
 
 from ..rewards import Reward
 from ..settings import Settings
-from .base import CallableDistributionFunctions, JointPDF, JointCPD, \
-    ConditionalPDF, ConditionalCPD, ConditionalQuantileFunction
+from .base import CallableDistributionFunctions, JointPDF, JointCDF, \
+    ConditionalPDF, ConditionalCDF, ConditionalQuantileFunction
 from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
@@ -566,7 +566,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
     #: ``plot_surface`` callback); a joint has no quantile (a 2D quantile is not well-defined)
     _pdf_function = JointPDF
-    _cdf_function = JointCPD
+    _cdf_function = JointCDF
     _quantile_function = None
 
     #: Number of cosine terms per axis for the 2D Fourier-cosine joint density (:attr:`_cos2d`). The cost is the square
@@ -1221,7 +1221,7 @@ class _AtomConditional(_Conditional):
     (``P(both = 0) / P(R_on = 0)``) surfaces automatically as ``p0 = lst(inf)``.
     """
     _pdf_function = ConditionalPDF
-    _cdf_function = ConditionalCPD
+    _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
     def __init__(self, joint: 'JointRewardDistribution', on: str, label: str = ''):
@@ -1289,7 +1289,7 @@ class _NestedConditional(_Conditional):
     exactly, unlike the coarse 2D-cosine slice.
     """
     _pdf_function = ConditionalPDF
-    _cdf_function = ConditionalCPD
+    _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
     def __init__(self, joint: 'JointRewardDistribution', on: str, value: float, label: str = ''):
