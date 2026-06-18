@@ -815,6 +815,172 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
             self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
 
+class _ReplicateStatistic:  # pragma: no cover
+    """
+    A per-replicate statistic accumulated in a **single pass** over the simulated tree sequences (the observer
+    pattern: :meth:`MsprimeCoalescent.simulate` iterates the trees once and feeds every registered statistic, so
+    each statistic is a self-contained component and adding one does not touch the simulation loop).
+
+    A statistic allocates its own per-replicate storage and updates from each tree (:meth:`process_tree`, called for
+    every locus ``j`` of replicate ``i``) and/or each whole replicate (:meth:`process_replicate`, tree-sequence
+    level). Both default to no-ops, so a statistic implements only the hook it needs.
+    """
+
+    def process_tree(self, i: int, j: int, tree, ts, ctx: dict):
+        """Update from the locus-``j`` tree of replicate ``i`` (``ctx`` carries shared per-replicate data)."""
+
+    def process_replicate(self, i: int, ts, ctx: dict, seed):
+        """Update from the whole replicate ``i`` (the tree sequence ``ts``)."""
+
+
+class _TreeStatistics(_ReplicateStatistic):  # pragma: no cover
+    """Tree height, total branch length and SFS read directly from each tree: the root time, the tree's total branch
+    length, and per-node branch length binned by descendant count (population index 0; no migration recording)."""
+
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int):
+        self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
+        self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
+        self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
+
+    def process_tree(self, i, j, tree, ts, ctx):
+        self.heights[j, 0, i] = tree.time(tree.roots[0])
+        self.total_branch_lengths[j, 0, i] = tree.total_branch_length
+
+        for node in tree.nodes():
+            t = tree.get_branch_length(node)
+            n = tree.get_num_leaves(node)
+
+            self.sfs[j, 0, i, n] += t
+
+
+class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
+    """Tree height, total branch length and **per-deme** SFS reconstructed from the recorded migration history, so
+    each quantity is attributed to the deme a lineage occupies through time (walking the coalescence and migration
+    events). Only validated for relatively simple scenarios."""
+
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, samples: dict):
+        self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
+        self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
+        self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
+        self._samples = samples
+        self._sample_size = sample_size
+
+    def process_tree(self, i, j, tree, ts, ctx):
+        samples, sample_size = self._samples, self._sample_size
+
+        lineages = np.array(list(samples.values()))
+        t_coal = ts.tables.nodes.time[sample_size:]
+        node = sample_size - 1
+        t_migration = ts.migrations_time
+        i_migration = 0
+        time = 0
+
+        # population state per leave
+        pop_states = {n: tree.population(n) for n in range(sample_size)}
+
+        # iterate over coalescence events
+        for coal_time in t_coal:
+
+            # iterate over migration events within this coalescence event
+            while i_migration < len(t_migration) and time < t_migration[i_migration] <= coal_time:
+                delta = t_migration[i_migration] - time
+
+                # update statistics
+                self.heights[j, :, i] += delta * lineages / sum(lineages)
+                self.total_branch_lengths[j, :, i] += delta * lineages
+
+                for n, pop in pop_states.items():
+                    self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
+
+                # update lineages with migrations
+                lineages[ts.migrations_source[i_migration]] -= 1
+                lineages[ts.migrations_dest[i_migration]] += 1
+                pop_states[ts.migrations_node[i_migration]] = ts.migrations_dest[i_migration]
+
+                i_migration += 1
+                time += delta
+
+            # remaining time to next coalescence event
+            delta = coal_time - time
+
+            # update statistics
+            self.heights[j, :, i] += delta * lineages / sum(lineages)
+            self.total_branch_lengths[j, :, i] += delta * lineages
+
+            for n, pop in pop_states.items():
+                self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
+
+            # reduce by number of coalesced lineages
+            lineages[tree.population(node + 1)] -= len(tree.get_children(node + 1)) - 1
+
+            # delete children from pop_states
+            [pop_states.__delitem__(n) for n in tree.get_children(node + 1)]
+
+            # add parent to pop_states
+            pop_states[node + 1] = tree.population(node + 1)
+
+            time += delta
+            node += 1
+
+
+class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
+    """The joint (per-deme-of-origin) SFS branch lengths from the first locus' tree: the non-central moments (orders
+    1..``max_order``) over all replicates plus a capped subset of per-replicate values for the within-tree joint
+    ground truth. Single-locus only (accumulated from the ``j == 0`` tree)."""
+
+    def __init__(self, num_replicates: int, max_order: int, shape: tuple, sample_cap: int):
+        self.jsfs_acc = np.zeros((max_order,) + shape)
+        self.jsfs_samples = np.zeros((min(num_replicates, sample_cap),) + shape)
+        self._max_order = max_order
+        self._shape = shape
+        self._cap = sample_cap
+
+    def process_tree(self, i, j, tree, ts, ctx):
+        if j != 0:  # accumulated from the first locus' tree only
+            return
+
+        pop_of_leaf = ctx['pop_of_leaf']
+        jsfs_rep = np.zeros(self._shape)
+
+        for node in tree.nodes():
+
+            # the root subtends all samples (monomorphic) and is skipped
+            if tree.parent(node) == -1:
+                continue
+
+            # count descendant samples by population (deme of origin)
+            vec = [0] * len(self._shape)
+            for leaf in tree.leaves(node):
+                vec[pop_of_leaf[leaf]] += 1
+
+            if sum(vec) > 0:
+                jsfs_rep[tuple(vec)] += tree.get_branch_length(node)
+
+        for order in range(self._max_order):
+            self.jsfs_acc[order] += jsfs_rep ** (order + 1)
+
+        if i < self._cap:
+            self.jsfs_samples[i] = jsfs_rep
+
+
+class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
+    """The mutation-count SFS: drop mutations on the replicate's tree sequence at the configured rate and bin them by
+    the number of leaves the carrying node subtends (population index 0, single locus)."""
+
+    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, mutation_rate: float):
+        self.mutations = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int)
+        self._rate = mutation_rate
+
+    def process_replicate(self, i, ts, ctx, seed):
+        import msprime as ms
+
+        mts = ms.sim_mutations(ts, rate=self._rate, random_seed=seed)
+        tree = next(mts.trees())
+
+        for node in mts.mutations_node:
+            self.mutations[0, 0, i, tree.get_num_leaves(node)] += 1
+
+
 class MsprimeCoalescent(AbstractCoalescent):
     """
     Empirical coalescent distribution based on `msprime` simulations.
@@ -949,7 +1115,8 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         def simulate_batch(seed: Optional[int]) -> dict:
             """
-            Simulate statistics.
+            Simulate one batch of replicates, accumulating every requested statistic in a **single pass** over the
+            tree sequences via self-contained :class:`_ReplicateStatistic` components.
 
             :param seed: Random seed.
             :return: Statistics.
@@ -971,135 +1138,48 @@ class MsprimeCoalescent(AbstractCoalescent):
                 random_seed=seed
             )
 
-            # initialize variables
-            heights = np.zeros((self.locus_config.n, n_pops, num_replicates), dtype=float)
-            total_branch_lengths = np.zeros((self.locus_config.n, n_pops, num_replicates), dtype=float)
-            sfs = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=float)
-            mutations = np.zeros((self.locus_config.n, n_pops, num_replicates, sample_size + 1), dtype=int)
+            # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
+            # is recorded either directly from each tree or, with migration recording, from the migration history
+            n_loci = self.locus_config.n
+            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, samples)
+                          if self.record_migration
+                          else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
+            jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)
+                          if compute_jsfs else None)
+            mutation_stats = (_MutationStatistics(n_loci, n_pops, num_replicates, sample_size, self.mutation_rate)
+                              if self.simulate_mutations else None)
+            stats = [s for s in (tree_stats, jsfs_stats, mutation_stats) if s is not None]
 
-            # joint SFS moment accumulator (non-central moments of orders 1, ..., jsfs_max_order)
-            jsfs_acc = np.zeros((jsfs_max_order,) + jsfs_shape)
-
-            # capped per-replicate joint SFS branch lengths for the within-tree joint ground truth
-            jsfs_samples = np.zeros((min(num_replicates, jsfs_sample_cap),) + jsfs_shape) if compute_jsfs else None
-
-            # iterate over trees and compute statistics
+            # iterate over the tree sequences once, feeding every statistic
             ts: tskit.TreeSequence
             for i, ts in enumerate(g):
 
                 # map each sample to the index of its sampling population (deme of origin) for the joint SFS
+                ctx = {}
                 if compute_jsfs:
-                    pop_of_leaf = {
+                    ctx['pop_of_leaf'] = {
                         u: name_to_index[ts.population(ts.node(u).population).metadata['name']]
                         for u in ts.samples()
                     }
 
                 tree: tskit.Tree
                 for j, tree in enumerate(self._expand_trees(ts)):
+                    for stat in stats:
+                        stat.process_tree(i, j, tree, ts, ctx)
 
-                    # TODO record_migration only appears to work for relatively simple scenarios
-                    if self.record_migration:
+                for stat in stats:
+                    stat.process_replicate(i, ts, ctx, seed)
 
-                        lineages = np.array(list(samples.values()))
-                        t_coal = ts.tables.nodes.time[sample_size:]
-                        node = sample_size - 1
-                        t_migration = ts.migrations_time
-                        i_migration = 0
-                        time = 0
-
-                        # population state per leave
-                        pop_states = {n: tree.population(n) for n in range(sample_size)}
-
-                        # iterate over coalescence events
-                        for coal_time in t_coal:
-
-                            # iterate over migration events within this coalescence event
-                            while i_migration < len(t_migration) and time < t_migration[i_migration] <= coal_time:
-                                delta = t_migration[i_migration] - time
-
-                                # update statistics
-                                heights[j, :, i] += delta * lineages / sum(lineages)
-                                total_branch_lengths[j, :, i] += delta * lineages
-
-                                for n, pop in pop_states.items():
-                                    sfs[j, pop, i, tree.get_num_leaves(n)] += delta
-
-                                # update lineages with migrations
-                                lineages[ts.migrations_source[i_migration]] -= 1
-                                lineages[ts.migrations_dest[i_migration]] += 1
-                                pop_states[ts.migrations_node[i_migration]] = ts.migrations_dest[i_migration]
-
-                                i_migration += 1
-                                time += delta
-
-                            # remaining time to next coalescence event
-                            delta = coal_time - time
-
-                            # update statistics
-                            heights[j, :, i] += delta * lineages / sum(lineages)
-                            total_branch_lengths[j, :, i] += delta * lineages
-
-                            for n, pop in pop_states.items():
-                                sfs[j, pop, i, tree.get_num_leaves(n)] += delta
-
-                            # reduce by number of coalesced lineages
-                            lineages[tree.population(node + 1)] -= len(tree.get_children(node + 1)) - 1
-
-                            # delete children from pop_states
-                            [pop_states.__delitem__(n) for n in tree.get_children(node + 1)]
-
-                            # add parent to pop_states
-                            pop_states[node + 1] = tree.population(node + 1)
-
-                            time += delta
-                            node += 1
-
-                    else:
-
-                        heights[j, 0, i] = tree.time(tree.roots[0])
-                        total_branch_lengths[j, 0, i] = tree.total_branch_length
-
-                        for node in tree.nodes():
-                            t = tree.get_branch_length(node)
-                            n = tree.get_num_leaves(node)
-
-                            sfs[j, 0, i, n] += t
-
-                    # accumulate the joint SFS from the same tree (single locus only)
-                    if compute_jsfs and j == 0:
-                        jsfs_rep = np.zeros(jsfs_shape)
-
-                        for node in tree.nodes():
-
-                            # the root subtends all samples (monomorphic) and is skipped
-                            if tree.parent(node) == -1:
-                                continue
-
-                            # count descendant samples by population (deme of origin)
-                            vec = [0] * len(jsfs_shape)
-                            for leaf in tree.leaves(node):
-                                vec[pop_of_leaf[leaf]] += 1
-
-                            if sum(vec) > 0:
-                                jsfs_rep[tuple(vec)] += tree.get_branch_length(node)
-
-                        for order in range(jsfs_max_order):
-                            jsfs_acc[order] += jsfs_rep ** (order + 1)
-
-                        if i < jsfs_sample_cap:
-                            jsfs_samples[i] = jsfs_rep
-
-                # simulate mutations if specified
-                if self.simulate_mutations:
-
-                    mts = ms.sim_mutations(ts, rate=self.mutation_rate, random_seed=seed)
-                    tree = next(mts.trees())
-
-                    for node in mts.mutations_node:
-                        mutations[0, 0, i, tree.get_num_leaves(node)] += 1
+            # the mutations / jSFS arrays default to zeros / None when not requested (kept in the return layout for
+            # the cross-thread aggregation in ``simulate``)
+            mutations = (mutation_stats.mutations if mutation_stats is not None
+                         else np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int))
+            jsfs_acc = jsfs_stats.jsfs_acc if jsfs_stats is not None else np.zeros((jsfs_max_order,) + jsfs_shape)
+            jsfs_samples = jsfs_stats.jsfs_samples if jsfs_stats is not None else None
 
             return dict(
-                main=np.concatenate([[heights.T], [total_branch_lengths.T], sfs.T, mutations.T]),
+                main=np.concatenate([[tree_stats.heights.T], [tree_stats.total_branch_lengths.T],
+                                     tree_stats.sfs.T, mutations.T]),
                 jsfs=jsfs_acc,
                 jsfs_samples=jsfs_samples
             )
