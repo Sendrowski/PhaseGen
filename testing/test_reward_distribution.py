@@ -161,6 +161,33 @@ def test_cos_curve_matches_dehoog():
         np.testing.assert_allclose(rd.pdf_curve(xs, method='cos'), rd.pdf(xs), atol=max(2e-2, 0.05 * peak))
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("demography", [
+    None,                                                                          # single-epoch Kingman
+    pg.Demography(pop_sizes={'pop_0': {0.0: 1.0, 0.5: 0.3, 1.5: 2.0}}),            # time-inhomogeneous (3-epoch)
+])
+def test_2d_cos_matches_dehoog(demography):
+    """The fast 2D cosine joint inversion (``method='cos'``) agrees with the accurate nested de Hoog
+    (``method='dehoog'``). The scenario suite validates the 2D cosine against msprime but never directly against de
+    Hoog; this pins the two analytic inversions to each other. The CDF matches closely everywhere; the density matches
+    in the bulk (the cosine series is biased only at the near-origin edge -- see the surface comparison, which likewise
+    drops the edge)."""
+    jd = pg.Coalescent(n=6, demography=demography).sfs.joint_distribution(1, 3)  # off-diagonal -> continuous 2D density
+    ma, mb = jd.marginal('a'), jd.marginal('b')
+
+    # CDF: a small grid spanning the support (incl. near the origin), where cosine is accurate everywhere
+    xs, ys = np.linspace(0.0, ma.quantile(0.95), 6), np.linspace(0.0, mb.quantile(0.95), 6)
+    cdf_cos = np.asarray(jd.cdf(xs, ys, method='cos'), dtype=float)
+    cdf_dh = np.asarray(jd.cdf(xs, ys, method='dehoog'), dtype=float)
+    assert np.abs(cdf_cos - cdf_dh).max() < 2e-2  # bounded in [0, 1] -> absolute tolerance
+
+    # density: compare in the bulk (above the near-origin edge), relative to the de Hoog peak
+    xs, ys = np.linspace(ma.quantile(0.3), ma.quantile(0.9), 6), np.linspace(mb.quantile(0.3), mb.quantile(0.9), 6)
+    pdf_cos = np.asarray(jd.pdf(xs, ys, method='cos'), dtype=float)
+    pdf_dh = np.asarray(jd.pdf(xs, ys, method='dehoog'), dtype=float)
+    assert np.abs(pdf_cos - pdf_dh).max() < 0.1 * max(float(pdf_dh.max()), 1e-300)
+
+
 def test_cos_curve_recovers_atom():
     """For an SFS bin that may be empty, the COS CDF starts at the atom ``P(R=0) = phi(inf)``."""
     rd = pg.Coalescent(n=7).sfs.distribution(reward=UnfoldedSFSReward(3))
