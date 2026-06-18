@@ -80,28 +80,31 @@ class DistributionFunction:
     docstrings (unlike a dynamically bound attribute). Supersedes the former ``plot_pdf`` / ``plot_cdf`` methods (now
     deprecated aliases).
 
-    :param evaluate: The evaluation callback (the distribution's ``_cdf`` / ``_pdf`` / ``_quantile``).
-    :param plot: The plotting callback (the distribution's ``_plot_cdf`` / ``_plot_pdf`` / ``_plot_quantile``).
+    A function object holds its owning ``distribution`` and dispatches by :attr:`kind` to the distribution's
+    ``_<kind>`` (evaluate) and ``_plot_<kind>`` (plot) -- so it is fully defined by the distribution, not patched
+    together from loose callbacks.
+
+    :param distribution: The distribution this function belongs to.
     """
-    #: Short kind label (``'pdf'`` / ``'cdf'`` / ``'quantile'``), set by the kind subclasses; used in ``repr``.
+    #: Short kind label (``'pdf'`` / ``'cdf'`` / ``'quantile'``), set by the kind subclasses; selects the
+    #: distribution's ``_<kind>`` / ``_plot_<kind>`` methods and is used in ``repr``.
     kind: str = ''
 
-    def __init__(self, evaluate: Callable, plot: Callable):
-        self._evaluate = evaluate
-        self._plot = plot
+    def __init__(self, distribution: 'CallableDistributionFunctions'):
+        self._distribution = distribution
 
     def __call__(self, *args, **kwargs):
-        """Evaluate the distribution function at the given point(s) (forwards to the distribution's evaluator)."""
-        return self._evaluate(*args, **kwargs)
+        """Evaluate the distribution function at the given point(s) (the distribution's ``_<kind>``)."""
+        return getattr(self._distribution, '_' + self.kind)(*args, **kwargs)
 
     def plot(self, *args, **kwargs) -> 'plt.Axes':
         """
-        Plot the distribution function (forwards to the distribution's plotter). Accepted arguments depend on the
+        Plot the distribution function (the distribution's ``_plot_<kind>``). Accepted arguments depend on the
         distribution; common ones are ``exact`` (use the slower per-point de Hoog inversion instead of the fast COS
         curve), ``bins`` / ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution),
         ``ax`` / ``show`` / ``file`` / ``title``.
         """
-        return self._plot(*args, **kwargs)
+        return getattr(self._distribution, '_plot_' + self.kind)(*args, **kwargs)
 
     def __repr__(self):
         return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
@@ -111,13 +114,9 @@ class _SurfacePlottable:
     """Mixin adding :meth:`plot_surface` for bivariate (joint) distribution functions (a 3D surface in addition to the
     2D heatmap drawn by :meth:`plot`). Univariate function classes deliberately lack it."""
 
-    def __init__(self, evaluate: Callable, plot: Callable, surface: Callable):
-        super().__init__(evaluate, plot)
-        self._plot_surface = surface
-
     def plot_surface(self, *args, **kwargs) -> 'plt.Axes':
-        """Plot the joint distribution function as a 3D surface (bivariate / joint distributions only)."""
-        return self._plot_surface(*args, **kwargs)
+        """Plot the joint distribution function as a 3D surface (the distribution's ``_plot_<kind>_surface``)."""
+        return getattr(self._distribution, '_plot_' + self.kind + '_surface')(*args, **kwargs)
 
 
 # --- function kinds -------------------------------------------------------------------------------------------------
@@ -248,24 +247,17 @@ class CallableDistributionFunctions:
     _cdf_function = CDF
     _quantile_function = QuantileFunction
 
-    def _make_function(self, fn_cls, evaluate: Callable, plot: Callable, surface: Callable):
-        """Build a distribution-function object of the selected flavour, passing the ``plot_surface`` callback only to
-        the bivariate (:class:`_SurfacePlottable`) flavours -- so univariate and joint distributions share one path."""
-        if issubclass(fn_cls, _SurfacePlottable):
-            return fn_cls(evaluate, plot, surface)
-        return fn_cls(evaluate, plot)
-
     @property
     def cdf(self) -> CDF:
         """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
         ``cdf.plot_surface()``)."""
-        return self._make_function(self._cdf_function, self._cdf, self._plot_cdf, getattr(self, '_plot_cdf_surface', None))
+        return self._cdf_function(self)
 
     @property
     def pdf(self) -> PDF:
         """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()`` / -- joint --
         ``pdf.plot_surface()``)."""
-        return self._make_function(self._pdf_function, self._pdf, self._plot_pdf, getattr(self, '_plot_pdf_surface', None))
+        return self._pdf_function(self)
 
     @property
     def quantile(self) -> QuantileFunction:
@@ -273,7 +265,7 @@ class CallableDistributionFunctions:
         if self._quantile_function is None:
             raise NotImplementedError(f"{type(self).__name__} has no quantile function "
                                       "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
-        return self._quantile_function(self._quantile, self._plot_quantile)
+        return self._quantile_function(self)
 
     def plot_cdf(self, *args, **kwargs):
         """Deprecated: use :attr:`cdf`.plot() instead."""
