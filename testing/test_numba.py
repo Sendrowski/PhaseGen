@@ -120,14 +120,20 @@ def test_moment_parity_numba_vs_python(label, make, get):
     np.testing.assert_allclose(numba, python, atol=1e-10, err_msg=label)
 
 
-def test_two_loci_use_python_path():
-    """The 2-locus (recombination) case is not numba-accelerated and must fall back to the Python construction."""
-    coal = pg.Coalescent(n=4, loci=2, recombination_rate=1.0)
-    ss = coal.lineage_counting_state_space
+def test_two_loci_uses_numba_path():
+    """The 2-locus (recombination) lineage-counting space is numba-accelerated (kernel kind 3), and the numba and
+    pure-Python constructions agree -- validated end-to-end on the tree height (its generator is identical up to a
+    state permutation, so the moments match to floating-point tolerance)."""
+    assert pg.Coalescent(n=4, loci=2, recombination_rate=1.0).lineage_counting_state_space._use_numba()
 
-    assert not ss._use_numba()
-    # still computes correctly via the Python path
-    assert coal.tree_height.mean > 0
+    Settings.use_numba = True
+    mean_numba = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).tree_height.mean
+
+    Settings.use_numba = False
+    mean_python = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).tree_height.mean
+
+    assert mean_numba > 0
+    np.testing.assert_allclose(mean_numba, mean_python, atol=1e-10)
 
 
 def test_fallback_setting_disables_numba():
