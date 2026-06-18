@@ -222,8 +222,6 @@ from .norms import (
     MultinomialLikelihood
 )
 
-from .state_space_old import StateSpace as OldStateSpace
-
 from .expm import (
     ExpmBackend,
     Backend,
