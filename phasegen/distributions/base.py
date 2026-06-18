@@ -247,17 +247,31 @@ class CallableDistributionFunctions:
     _cdf_function = CumulativeDistributionFunction
     _quantile_function = QuantileFunction
 
+    def _function(self, kind: str, factory):
+        """Return the (cached) distribution-function object for ``kind``, built once via ``factory`` and stored on
+        this distribution. Caching the object -- not just rebuilding a thin wrapper -- is what lets the function
+        object's own cached curves (the de Hoog spline, the COS coefficients) persist across ``.cdf`` / ``.pdf`` /
+        ``.quantile`` accesses, since the three share the one distribution they hang off. Honors the global cache
+        switch (:attr:`Settings.cache`)."""
+        cache = self.__dict__.setdefault('_function_cache', {})
+        if kind in cache:
+            return cache[kind]
+        obj = factory(self)
+        if Settings.cache:
+            cache[kind] = obj
+        return obj
+
     @property
     def cdf(self) -> CumulativeDistributionFunction:
         """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
         ``cdf.plot_surface()``)."""
-        return self._cdf_function(self)
+        return self._function('cdf', self._cdf_function)
 
     @property
     def pdf(self) -> DensityFunction:
         """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()`` / -- joint --
         ``pdf.plot_surface()``)."""
-        return self._pdf_function(self)
+        return self._function('pdf', self._pdf_function)
 
     @property
     def quantile(self) -> QuantileFunction:
@@ -265,7 +279,7 @@ class CallableDistributionFunctions:
         if self._quantile_function is None:
             raise NotImplementedError(f"{type(self).__name__} has no quantile function "
                                       "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
-        return self._quantile_function(self)
+        return self._function('quantile', self._quantile_function)
 
     def plot_cdf(self, *args, **kwargs):
         """Deprecated: use :attr:`cdf`.plot() instead."""
