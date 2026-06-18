@@ -36,26 +36,16 @@ def _exit_computation():
     _computation_depth -= 1
 
 
-class cached_property:
+class cached_property(functools.cached_property):
     """
     Like :class:`functools.cached_property`, but only stores the computed value when :attr:`Settings.cache` is
     ``True``. An already-cached value (present in the instance ``__dict__``) is always returned; when caching is
     disabled, an uncached property is recomputed on each access instead of being stored.
+
+    Subclasses :class:`functools.cached_property` (inheriting its ``__init__`` / ``__set_name__``) so that tools that
+    special-case it -- notably Sphinx autodoc, which then documents the property with its return-type annotation --
+    recognise it; only :meth:`__get__` is overridden, to add the cache gating and the computation-epoch tracking.
     """
-
-    def __init__(self, func):
-        self.func = func
-        self.attrname = None
-        self.__doc__ = getattr(func, '__doc__', None)
-
-    def __set_name__(self, owner, name):
-        if self.attrname is None:
-            self.attrname = name
-        elif name != self.attrname:
-            raise TypeError(
-                f"Cannot assign the same cached_property to two different names "
-                f"({self.attrname!r} and {name!r})."
-            )
 
     def __get__(self, instance, owner=None):
         # A non-data descriptor: once the value is in the instance ``__dict__`` Python returns it directly without
