@@ -174,30 +174,29 @@ class RewardDistribution(CallableDistributionFunctions):
             return np.array([self._pdf(float(x)) for x in np.asarray(t)])
         return self._invert(self.lst, float(t))  # L[pdf] = phi(s)
 
-    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
+    def _quantile(self, q: float, precision: float = 1e-8, max_iter: int = 200, method: str = 'dehoog') -> float:
         """
         The ``q``-quantile ``inf{x : F(x) >= q}`` by bisection on the cached (monotone) CDF *curve* -- the accurate de
-        Hoog spline by default, or the cosine curve under ``Settings.inversion_method == 'cos'``. The curve is built
-        once, so each bisection step is a cheap evaluation (the per-point de Hoog bisection it replaces cost a full
-        inversion per step). For ``q`` in the far tail beyond the curve's support it falls back to that de Hoog
-        bisection.
+        Hoog spline by default (``method='dehoog'``), or the cosine curve (``method='cos'``). The curve is built once,
+        so each bisection step is a cheap evaluation (the per-point de Hoog bisection it replaces cost a full inversion
+        per step). For ``q`` in the far tail beyond the curve's support it falls back to that de Hoog bisection.
         """
         if not 0 <= q <= 1:
             raise ValueError("Quantile must be between 0 and 1.")
 
         # at or below the atom mass P(R = 0) the quantile is exactly 0; return it directly rather than letting the
         # bisection converge to a few-1e-9 residue (which makes a relative comparison against an exact 0 blow up)
-        if q <= float(self.cdf_curve(0.0)[0]):
+        if q <= float(self.cdf_curve(0.0, method=method)[0]):
             return 0.0
 
         b = self._range(scale=12.0)
-        if float(self.cdf_curve(b)[0]) < q:  # beyond the cached curve's support -> exact de Hoog bracketing bisection
+        if float(self.cdf_curve(b, method=method)[0]) < q:  # beyond the curve's support -> exact de Hoog bisection
             return self._quantile_dehoog(q, precision, max_iter)
 
         lo, hi = 0.0, b
         for _ in range(max_iter):
             mid = 0.5 * (lo + hi)
-            if float(self.cdf_curve(mid)[0]) < q:
+            if float(self.cdf_curve(mid, method=method)[0]) < q:
                 lo = mid
             else:
                 hi = mid
@@ -395,7 +394,7 @@ class RewardDistribution(CallableDistributionFunctions):
         Laplace-inversion values at adaptively placed points (the atom ``P(R = 0)`` split off first, as in the cosine
         path). Being de-Hoog-anchored it is accurate everywhere -- no Gibbs ringing on sharp / heavy-tailed features --
         and the PDF is its analytic derivative (smooth, non-negative, integrating back to the CDF). The default backing
-        of :meth:`cdf_curve` / :meth:`pdf_curve` (see :attr:`Settings.inversion_method`).
+        the default (``method='dehoog'``) backing of :meth:`cdf_curve` / :meth:`pdf_curve`.
         """
         from .base import adaptive_grid
         from scipy.interpolate import PchipInterpolator
@@ -413,25 +412,25 @@ class RewardDistribution(CallableDistributionFunctions):
         y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
         return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
 
-    def cdf_curve(self, x, n_terms: int = None) -> np.ndarray:
-        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). Uses the accurate de Hoog + monotone-spline
-        representation (:attr:`_dehoog_spline`) by default, or the faster two-pass COS grid when
-        ``Settings.inversion_method == 'cos'``."""
+    def cdf_curve(self, x, method: str = 'dehoog', n_terms: int = None) -> np.ndarray:
+        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). ``method='dehoog'`` (default) uses the
+        accurate de Hoog + monotone-spline representation (:attr:`_dehoog_spline`); ``method='cos'`` the faster two-pass
+        COS grid."""
         xa = np.atleast_1d(np.asarray(x, dtype=float))
-        if Settings.inversion_method == 'cos':
+        if method == 'cos':
             xs, cdf = self._cos_cdf_grid
             return np.interp(xa, xs, cdf)
         st = self._dehoog_spline
         g = np.clip(st['spline'](np.clip(xa, 0.0, st['b'])), 0.0, 1.0)
         return st['p0'] + (1 - st['p0']) * g if st['p0'] > 1e-9 else g
 
-    def pdf_curve(self, x, n_terms: int = None) -> np.ndarray:
+    def pdf_curve(self, x, method: str = 'dehoog', n_terms: int = None) -> np.ndarray:
         """Fast PDF over a whole grid ``x`` (for plotting / many-query use): the derivative of the CDF representation
-        (the de Hoog + monotone-spline by default, or the two-pass COS grid when ``Settings.inversion_method == 'cos'``).
-        Deriving the PDF from the CDF keeps it clean and non-negative; use the per-point :meth:`pdf` (de Hoog) for the
-        exact pointwise density."""
+        (``method='dehoog'`` -> the de Hoog + monotone-spline; ``method='cos'`` -> the two-pass COS grid). Deriving the
+        PDF from the CDF keeps it clean and non-negative; use the per-point :meth:`pdf` (de Hoog) for the exact
+        pointwise density."""
         xa = np.atleast_1d(np.asarray(x, dtype=float))
-        if Settings.inversion_method == 'cos':
+        if method == 'cos':
             xs, cdf = self._cos_cdf_grid
             d = np.interp(xa, xs, np.gradient(cdf, xs))
             return _warn_if_negative(d, self._titled('density (cosine)'), self._logger)
@@ -827,7 +826,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
                 "exact 1D marginal by up to %.1f%% there (a sharp / skewed near-origin feature the cosine series "
                 "cannot capture, so the heatmap/surface rings and is biased). Use pdf(...) / cdf(...) with "
-                "mode='dehoog', or set Settings.inversion_method_2d='dehoog', for accurate values.", err * 100,
+                "mode='dehoog' for accurate values.", err * 100,
             )
         return err
 
@@ -918,10 +917,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
     @staticmethod
     def _use_dehoog(mode: str) -> bool:
         """Resolve a 2D inversion ``mode`` to a de-Hoog/cosine choice: ``'dehoog'`` -> True, ``'cos'`` -> False, and
-        ``None`` follows :attr:`Settings.inversion_method_2d`."""
-        m = Settings.inversion_method_2d if mode is None else mode
+        ``None`` (the default) -> the accurate de Hoog. Pass ``mode='cos'`` for the fast cosine inversion (e.g. plots)."""
+        m = 'dehoog' if mode is None else mode
         if m not in ('dehoog', 'cos'):
-            raise ValueError(f"mode must be 'dehoog', 'cos', or None (follow Settings.inversion_method_2d); got {m!r}.")
+            raise ValueError(f"mode must be 'dehoog', 'cos', or None (the de Hoog default); got {m!r}.")
         return m == 'dehoog'
 
     def _pdf(self, x, y, mode: str = None):
@@ -930,12 +929,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
         atom mass on the axes where a reward is zero (see :attr:`_atoms`); a non-empty SFS bin pair has none there.
 
         ``mode`` selects the inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` the accurate nested de Hoog;
-        ``None`` (the default) follows :attr:`Settings.inversion_method_2d` (default ``'cos'``). The de Hoog density is
-        the mixed derivative of a spline through the clean nested-de-Hoog box CDF (see :meth:`_density_nested`).
+        ``None`` (the default) uses de Hoog (the plots pass ``mode='cos'`` for speed). The de Hoog density is the mixed
+        derivative of a spline through the clean nested-de-Hoog box CDF (see :meth:`_density_nested`).
 
         :param x: ``R_a`` value(s).
         :param y: ``R_b`` value(s).
-        :param mode: ``'dehoog'`` / ``'cos'``, or ``None`` to follow :attr:`Settings.inversion_method_2d`.
+        :param mode: ``'dehoog'`` / ``'cos'``, or ``None`` for the de Hoog default.
         :return: Density, scalar or a ``(len(x), len(y))`` grid.
         """
         if self._is_diagonal:
@@ -1006,8 +1005,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
         R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
         continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)``. ``mode`` selects the box method: ``'cos'`` the fast
         cosine box, ``'dehoog'`` the accurate nested de Hoog (no near-origin bias for skewed multi-epoch rewards);
-        ``None`` (the default) follows :attr:`Settings.inversion_method_2d` (default ``'cos'``). Accepts scalars or
-        arrays, returning a scalar or the ``(len(x), len(y))`` grid.
+        ``None`` (the default) uses de Hoog (the plots pass ``mode='cos'`` for speed). Accepts scalars or arrays,
+        returning a scalar or the ``(len(x), len(y))`` grid.
 
         When both rewards are identical (``R_a = R_b`` almost surely, e.g. a bin paired with itself) the joint law
         is singular on the diagonal; the CDF then reduces exactly to ``P(R <= min(x, y))`` of the shared marginal.

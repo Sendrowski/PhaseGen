@@ -2,7 +2,6 @@
 Compare statistics between PhaseGen and Msprime.
 """
 import ast
-import contextlib
 import copy
 import itertools
 import logging
@@ -402,24 +401,24 @@ class Comparison(Serializable):
                 y_ms = np.asarray(ms_stat(t))
 
             curve = 'cdf_curve' if stat == 'cdf' else 'pdf_curve'
-            with self._inversion_mode(mode):  # route the curve inversion through de_hoog/cosine when a mode is set
-                if stat == 'quantile':
-                    # invert the cached CDF curve rather than the per-point de Hoog bisection (~2 s per point for
-                    # accumulated rewards such as total_branch_length)
-                    y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None)
-                elif mode is not None and hasattr(ph, 'bin'):
-                    # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
-                    # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
-                    nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
-                    y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
-                                     else np.asarray(getattr(ph.bin(b), curve)(t), dtype=float)
-                                     for b in range(nb)])
-                elif mode is not None and hasattr(ph, '_reward_distribution') \
-                        and hasattr(ph._reward_distribution, curve):
-                    # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
-                    y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t), dtype=float)
-                else:
-                    y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
+            method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
+            if stat == 'quantile':
+                # invert the cached CDF curve rather than the per-point de Hoog bisection (~2 s per point for
+                # accumulated rewards such as total_branch_length)
+                y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, method=method)
+            elif mode is not None and hasattr(ph, 'bin'):
+                # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
+                # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
+                nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
+                y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
+                                 else np.asarray(getattr(ph.bin(b), curve)(t, method=method), dtype=float)
+                                 for b in range(nb)])
+            elif mode is not None and hasattr(ph, '_reward_distribution') \
+                    and hasattr(ph._reward_distribution, curve):
+                # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
+                y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t, method=method), dtype=float)
+            else:
+                y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
 
             # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
             # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
@@ -548,20 +547,10 @@ class Comparison(Serializable):
         return {'de_hoog': 'dehoog', 'cosine': 'cos'}.get(mode, default)
 
     @staticmethod
-    @contextlib.contextmanager
-    def _inversion_mode(mode: str):
-        """Temporarily force the 1D curve inversion (``Settings.inversion_method``) to the comparison mode -- so a
-        ``de_hoog`` / ``cosine`` wrapper routes the curve-based pdf/cdf/quantile accordingly. No-op for ``None``."""
-        if mode is None:
-            yield
-            return
-        from .settings import Settings
-        old = Settings.inversion_method
-        Settings.inversion_method = 'dehoog' if mode == 'de_hoog' else 'cos'
-        try:
-            yield
-        finally:
-            Settings.inversion_method = old
+    def _curve_method(mode: str) -> str:
+        """Map a comparison inversion mode to the 1D curve method passed per call to ``cdf_curve`` / ``pdf_curve`` /
+        ``quantile``: ``cosine`` -> ``'cos'``; ``de_hoog`` / ``None`` -> ``'dehoog'`` (the accurate default)."""
+        return 'cos' if mode == 'cosine' else 'dehoog'
 
     @staticmethod
     def _parse_collection_key(k: str) -> list | None:
@@ -794,14 +783,15 @@ class Comparison(Serializable):
                     y_ms_all = y_ms_all.T
                 y_ms = y_ms_all[i]
                 d = ph.bin(i)  # only this bin's distribution (the spectrum-wide quantile would compute every bin)
-                with self._inversion_mode(mode):  # route the bin's curve inversion through de_hoog/cosine when set
-                    if stat == 'quantile':
-                        y_ph = np.array([float(d.quantile(float(q))) for q in t])
-                        diff = self._quantile_diff(y_ms, y_ph)
-                    else:
-                        y_ph = np.asarray(d.cdf_curve(t) if stat == 'cdf' else d.pdf_curve(t), dtype=float)
-                        diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
-                                else self._pdf_diff(y_ms[2:], y_ph[2:]))
+                method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
+                if stat == 'quantile':
+                    y_ph = np.array([float(d.quantile(float(q), method=method)) for q in t])
+                    diff = self._quantile_diff(y_ms, y_ph)
+                else:
+                    y_ph = np.asarray(d.cdf_curve(t, method=method) if stat == 'cdf'
+                                      else d.pdf_curve(t, method=method), dtype=float)
+                    diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
+                            else self._pdf_diff(y_ms[2:], y_ph[2:]))
 
             else:
                 raise ValueError(f"Unsupported per-bin SFS statistic '{stat}' for bin {i} "
@@ -845,7 +835,7 @@ class Comparison(Serializable):
             self.n_assertions += 1
 
     @staticmethod
-    def _quantile_values(ph, q, n_bins: int = None) -> np.ndarray:
+    def _quantile_values(ph, q, n_bins: int = None, method: str = 'dehoog') -> np.ndarray:
         """
         Quantile values of ``ph`` at probabilities ``q`` via its own quantile (which bisects the cached CDF curve --
         the de Hoog spline by default). An earlier version interpolated the inverse on a uniform grid over
@@ -855,17 +845,31 @@ class Comparison(Serializable):
         distribution, or ``(len(q), n_bins)`` for a spectrum (one column per bin; the monomorphic edge bins are held
         at 0).
 
+        ``method='cos'`` (the comparison's cosine mode) instead inverts each bin's / the scalar reward's cosine CDF
+        curve directly; ``'dehoog'`` (default) uses the distribution's own quantile (exact for the expm tree height).
+
         :param ph: The phase-type distribution (scalar, or a spectrum exposing :meth:`bin`).
         :param q: Probabilities at which to evaluate the quantile.
         :param n_bins: Number of spectrum bins (incl. the monomorphic edges); ``None`` for a scalar distribution.
+        :param method: ``'dehoog'`` (default, the dist's own quantile) or ``'cos'`` (invert the cosine curve per bin).
         """
         q = np.asarray(q, dtype=float)
 
-        # the spectrum's public quantile is vectorised over probabilities and returns one column per bin (monomorphic
-        # edges held at 0); the scalar distributions' quantile is a per-probability callable, so loop it
+        if method != 'cos':
+            # default (de Hoog) path: the distribution's own quantile. The spectrum's is vectorised over probabilities
+            # and returns one column per bin (monomorphic edges held at 0); the scalar's is a per-probability callable
+            if n_bins is not None:
+                return np.asarray(ph.quantile(q), dtype=float)
+            return np.array([float(ph.quantile(float(qq))) for qq in q])
+
+        # cosine path: invert each bin's / the scalar reward's cosine CDF curve via the leaf RewardDistribution
         if n_bins is not None:
-            return np.asarray(ph.quantile(q), dtype=float)
-        return np.array([float(ph.quantile(float(qq))) for qq in q])
+            cols = [np.zeros(len(q)) if b in (0, n_bins - 1)
+                    else np.array([float(ph.bin(b).quantile(float(qq), method='cos')) for qq in q])
+                    for b in range(n_bins)]
+            return np.stack(cols, axis=1)
+        rd = getattr(ph, '_reward_distribution', ph)
+        return np.array([float(rd.quantile(float(qq), method='cos')) for qq in q])
 
     def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None,
                                   joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None):

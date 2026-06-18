@@ -188,10 +188,10 @@ class MarginalQuantileFunction(QuantileFunction):
 class JointPDF(_SurfacePlottable, PDF):
     """Joint density ``f(x, y)`` of two rewards / bins (the within-tree 2-SFS).
 
-    - **Callable** ``pdf(x, y)``: the continuous-continuous part of the joint law, by the fast 2D Fourier-cosine (COS)
-      expansion of the joint transform ``Phi(s_a, s_b)`` by default, or the nested de Hoog inversion (mixed derivative
-      of a spline through the box CDF) under ``Settings.inversion_method_2d == 'dehoog'`` (``mode='dehoog'`` / ``'cos'``
-      overrides per call). Accepts scalars or arrays.
+    - **Callable** ``pdf(x, y)``: the continuous-continuous part of the joint law, by the accurate nested de Hoog
+      inversion (mixed derivative of a spline through the box CDF) by default, or the fast 2D Fourier-cosine (COS)
+      expansion of the joint transform ``Phi(s_a, s_b)`` with ``mode='cos'`` (``mode='dehoog'`` / ``'cos'`` per call).
+      Accepts scalars or arrays.
     - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density (a dense grid),
       or -- with ``mode='dehoog'`` -- the nested de Hoog inversion.
     """
@@ -201,9 +201,9 @@ class JointCDF(_SurfacePlottable, CDF):
     """Joint CDF ``F(x, y) = P(R_a <= x, R_b <= y)`` of two rewards / bins.
 
     - **Callable** ``cdf(x, y)``: the axis atoms (per-point de Hoog of the marginal sub-transforms ``Phi(., inf)`` /
-      ``Phi(inf, .)``) plus the continuous box -- the fast analytically integrated 2D cosine box by default, or a
-      direct nested de Hoog inversion under ``Settings.inversion_method_2d == 'dehoog'`` (accurate even for skewed
-      multi-epoch rewards; ``mode='dehoog'`` / ``'cos'`` overrides per call). Accepts scalars or arrays.
+      ``Phi(inf, .)``) plus the continuous box -- the accurate nested de Hoog box by default (no near-origin bias for
+      skewed multi-epoch rewards), or the fast analytically integrated 2D cosine box with ``mode='cos'``
+      (``mode='dehoog'`` / ``'cos'`` per call). Accepts scalars or arrays.
     - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box CDF, or -- with
       ``mode='dehoog'`` -- the nested de Hoog box.
     """

@@ -138,11 +138,10 @@ def test_sfs_bin_quantile_roundtrip():
 
 
 @pytest.mark.slow
-def test_cos_curve_matches_dehoog(monkeypatch):
-    """The fast COS plotting curves (cdf_curve / pdf_curve) match the exact per-point de Hoog inversion across the
-    cases that most stress the COS path: a smooth distribution, an SFS bin, a multiple-merger bin with an atom at 0
-    (Beta and Dirac), and a skewed/heavy-tailed expansion (where the support-matched two-pass window matters)."""
-    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # this test exercises the cosine curve specifically
+def test_cos_curve_matches_dehoog():
+    """The fast COS plotting curves (cdf_curve / pdf_curve with method='cos') match the exact per-point de Hoog
+    inversion across the cases that most stress the COS path: a smooth distribution, an SFS bin, a multiple-merger bin
+    with an atom at 0 (Beta and Dirac), and a skewed/heavy-tailed expansion (the support-matched two-pass window)."""
     cases = [
         (pg.Coalescent(n=8), None),                                                  # total branch length (smooth)
         (pg.Coalescent(n=8).sfs, UnfoldedSFSReward(2)),                              # Kingman SFS bin
@@ -157,9 +156,9 @@ def test_cos_curve_matches_dehoog(monkeypatch):
         # shifted bins) up to the 0.99 quantile (the COS window is matched to ~the 0.9995 quantile)
         xs = np.linspace(0.15 * rd.quantile(0.99), rd.quantile(0.99), 40)
         peak = float(np.max(rd.pdf(xs)))
-        np.testing.assert_allclose(rd.cdf_curve(xs), rd.cdf(xs), atol=5e-3)
+        np.testing.assert_allclose(rd.cdf_curve(xs, method='cos'), rd.cdf(xs), atol=5e-3)
         # the PDF is plotting-grade (derived from CDF differences); allow a small boundary/atom error relative to peak
-        np.testing.assert_allclose(rd.pdf_curve(xs), rd.pdf(xs), atol=max(2e-2, 0.05 * peak))
+        np.testing.assert_allclose(rd.pdf_curve(xs, method='cos'), rd.pdf(xs), atol=max(2e-2, 0.05 * peak))
 
 
 def test_cos_curve_recovers_atom():
@@ -672,12 +671,10 @@ def test_empirical_sfs_distribution_functions_plot():
     plt.close('all')
 
 
-def test_cos_inversion_imprecision_warning(caplog, monkeypatch):
-    """The COS plotting inversion warns (via the logger) when it is likely imprecise (ringing it cannot resolve /
-    window too small), and stays silent on well-behaved curves."""
+def test_cos_inversion_imprecision_warning(caplog):
+    """The COS plotting inversion (cdf_curve with method='cos') warns (via the logger) when it is likely imprecise
+    (ringing it cannot resolve / window too small), and stays silent on well-behaved curves."""
     import logging
-
-    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # the ripple warning is specific to the cosine path
 
     # the package logger does not propagate to root (where caplog listens), so capture it directly
     pg_logger = logging.getLogger('phasegen')
@@ -687,14 +684,14 @@ def test_cos_inversion_imprecision_warning(caplog, monkeypatch):
         d = pg.Coalescent(n=6).total_branch_length.distribution()
 
         # well-behaved curves must not warn (otherwise the warning is noise on every plot)
-        d.cdf_curve(np.linspace(0, d._range(), 100))
-        d.pdf_curve(np.linspace(0, d._range(), 100))
+        d.cdf_curve(np.linspace(0, d._range(), 100), method='cos')
+        d.pdf_curve(np.linspace(0, d._range(), 100), method='cos')
         assert 'residual ripple' not in caplog.text
 
         # a genuinely under-resolved case (a heavy-tailed bin whose spread-out bulk the cosine series cannot fully
         # resolve even with the support-matched window) warns (via the shared non-monotonicity guard)
         e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
-        e.distribution(reward=e._get_sfs_reward(5)).cdf_curve(np.linspace(0, 50, 100))
+        e.distribution(reward=e._get_sfs_reward(5)).cdf_curve(np.linspace(0, 50, 100), method='cos')
         assert 'residual ripple' in caplog.text
     finally:
         pg_logger.removeHandler(caplog.handler)
@@ -742,55 +739,50 @@ def test_plot_exact_de_hoog_matches_per_point():
     ax.figure.clf()
 
 
-def test_inversion_method_dehoog_spline_default(monkeypatch):
-    """The default curve representation is the accurate de Hoog + monotone-spline (``Settings.inversion_method ==
-    'dehoog'``): cdf_curve / pdf_curve match the per-point de Hoog closely (better than cosine) on a heavy-tailed bin
-    that makes cosine ring, the CDF is monotone, and the quantile inverts the curve. The 'cos' switch still works."""
-    assert pg.Settings.inversion_method == 'dehoog'  # accurate by default
-
+def test_inversion_method_dehoog_spline_default():
+    """The default curve representation (``method='dehoog'``) is the accurate de Hoog + monotone-spline: cdf_curve /
+    pdf_curve match the per-point de Hoog closely (better than cosine) on a heavy-tailed bin that makes cosine ring,
+    the CDF is monotone, and the quantile inverts the curve. The ``method='cos'`` path is still available per call."""
     d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(5)
     xs = np.linspace(0.1 * d.quantile(0.95), d.quantile(0.95), 60)
 
-    F = d.cdf_curve(xs)
+    F = d.cdf_curve(xs)  # default method='dehoog'
     assert np.all(np.diff(F) >= -1e-9)                       # monotone CDF
     assert np.abs(F - d._cdf(xs)).max() < 2e-3               # accurate vs de Hoog (cosine rings ~1e-2 here)
     assert d.pdf_curve(xs).min() >= -1e-9                    # non-negative density (CDF-derivative)
 
-    # the quantile inverts the cached curve and is consistent with it
+    # the quantile inverts the cached (default de Hoog) curve and is consistent with it
     assert d.cdf_curve(np.array([d.quantile(0.5)]))[0] == pytest.approx(0.5, abs=2e-3)
 
-    # the cosine path is still available via the setting
-    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')
-    assert np.all(np.diff(d.cdf_curve(xs)) >= -1e-6)
+    # the cosine path is still available per call
+    assert np.all(np.diff(d.cdf_curve(xs, method='cos')) >= -1e-6)
 
 
 @pytest.mark.slow
-def test_cos_two_pass_window_monotone_and_plotting_accurate(monkeypatch):
+def test_cos_two_pass_window_monotone_and_plotting_accurate():
     """For a heavy-tailed distribution (strong size expansion) the default COS window (mean+12 std) is far wider than
     the bulk and would ring; the two-pass support-matched window keeps the plotted cdf_curve monotone and within
     plotting accuracy of the per-point de Hoog CDF, with a non-negative pdf_curve (PDF from CDF differences)."""
-    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # this test exercises the cosine two-pass window
     sfs = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
     for i in (1, 3, 5, 9):
         d = sfs.distribution(reward=sfs._get_sfs_reward(i))
         # evaluate within the bulk (away from the immediate x=0 boundary, where the cosine series has a localized
         # artifact for strongly shifted bins, and below the 0.99 quantile)
         x = np.linspace(0.1 * d.quantile(0.99), d.quantile(0.99), 300)
-        F = d.cdf_curve(x)
+        F = d.cdf_curve(x, method='cos')
         assert np.all(np.diff(F) >= -1e-9)                  # CDF monotone
         assert np.abs(F - d.cdf(x)).max() < 1.5e-2          # plotting-grade vs de Hoog
-        assert d.pdf_curve(x).min() >= -1e-9                # PDF (from CDF differences) non-negative
+        assert d.pdf_curve(x, method='cos').min() >= -1e-9  # PDF (from CDF differences) non-negative
 
 
-def test_pdf_curve_via_cdf_differentiation_is_smooth(monkeypatch):
-    """pdf_curve differentiates the (stable) COS CDF instead of summing the raw cosine density, so it stays smooth
-    even when the direct density rings (wide support range / heavy tail). Validated on a strong-expansion
+def test_pdf_curve_via_cdf_differentiation_is_smooth():
+    """pdf_curve (method='cos') differentiates the (stable) COS CDF instead of summing the raw cosine density, so it
+    stays smooth even when the direct density rings (wide support range / heavy tail). Validated on a strong-expansion
     demography and against the per-point de Hoog density."""
-    monkeypatch.setattr(pg.Settings, 'inversion_method', 'cos')  # compares the cosine-differentiated pdf_curve
     d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).total_branch_length.distribution()
     b = d._range()
     x = np.linspace(0, b, 300)
-    pdf = d.pdf_curve(x)          # derivative of the COS CDF
+    pdf = d.pdf_curve(x, method='cos')  # derivative of the COS CDF
     raw = d._cos(x, 'pdf')        # raw cosine density (rings)
     peak = pdf.max()
 

@@ -83,25 +83,6 @@ class Settings:
     #: per-axis resolution for performance.
     plot_n_grid: int = 200
 
-    #: How the **1D** cached curve representation (``cdf_curve`` / ``pdf_curve`` and the quantile-curve inversion
-    #: behind the plots and any many-query application use) is built, for univariate / marginal / conditional reward
-    #: distributions. ``'cos'`` (default) uses the fast Fourier-cosine series: ~13x quicker to build than de Hoog, with
-    #: a clean finite-difference-derived PDF, at the cost of a small (~1% sub-grid) near-origin bias on sharp / heavy-
-    #: tailed features (an SFS bin's near-zero peak). ``'dehoog'`` builds an accurate monotone PCHIP spline through de
-    #: Hoog Laplace-inversion values at adaptive points -- accurate everywhere (no Gibbs ringing) but ~13x slower to
-    #: build -- as the high-precision opt-in. The exact per-point ``cdf()`` / ``pdf()`` (de Hoog) are unaffected.
-    inversion_method: str = 'dehoog'
-
-    #: How the **2D** joint density / CDF callables (``JointRewardDistribution.pdf`` / ``cdf``) are inverted.
-    #: ``'cos'`` (default) uses the fast 2D Fourier-cosine expansion (built once, then cheap per point); ``'dehoog'``
-    #: uses the accurate per-point nested inversion (inner Gaver-Stehfest, outer de Hoog), which has no fixed-window
-    #: bias for skewed multi-epoch rewards but costs a full inversion per point. It defaults to ``'cos'`` (unlike the
-    #: 1D default) because the 2D de Hoog samples the CDF on a grid and is slow; pass ``exact=True`` / ``exact=False``
-    #: to a call to override per query. The de Hoog *density* is the mixed derivative of a spline through the (clean)
-    #: nested-de-Hoog box CDF on an adaptive grid (mirroring the 1D ``pdf_curve``), never a direct density inversion
-    #: (which is numerically unusable). The 2D *plots* always use the fast cosine grid unless ``exact=True`` is passed.
-    inversion_method_2d: str = 'dehoog'
-
     #: Relative tolerance for building the accurate de Hoog + monotone-spline curve representation (the default
     #: ``cdf_curve`` / ``pdf_curve`` and the quantile-by-bisection on it). The adaptive build refines until the
     #: spline matches the de Hoog inversion to about this fraction of the range, then every query is a cheap spline
