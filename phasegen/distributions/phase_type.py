@@ -903,7 +903,8 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
             self,
             state_space: StateSpace,
             tree_height: 'TreeHeightDistribution',
-            demography: Demography = None
+            demography: Demography = None,
+            reward: Reward = None
     ):
         """
         Initialize the distribution.
@@ -911,11 +912,14 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
         :param state_space: The state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
+        :param reward: The reward. Defaults to the total-branch-length reward; an explicit reward (e.g. the
+            total branch length restricted to one locus / deme, as built by the marginal-distribution views) is
+            accepted so generic ``cls(reward=...)`` construction works.
         """
         super().__init__(
             state_space=state_space,
             tree_height=tree_height,
             demography=demography,
-            reward=TotalBranchLengthReward()
+            reward=reward if reward is not None else TotalBranchLengthReward()
         )
 
