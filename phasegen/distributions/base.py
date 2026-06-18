@@ -190,10 +190,10 @@ class JointPDF(_SurfacePlottable, PDF):
 
     - **Callable** ``pdf(x, y)``: the continuous-continuous part of the joint law, by the accurate nested de Hoog
       inversion (mixed derivative of a spline through the box CDF) by default, or the fast 2D Fourier-cosine (COS)
-      expansion of the joint transform ``Phi(s_a, s_b)`` with ``mode='cos'`` (``mode='dehoog'`` / ``'cos'`` per call).
+      expansion of the joint transform ``Phi(s_a, s_b)`` with ``method='cos'`` (``method='dehoog'`` / ``'cos'`` per call).
       Accepts scalars or arrays.
     - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density (a dense grid),
-      or -- with ``mode='dehoog'`` -- the nested de Hoog inversion.
+      or -- with ``method='dehoog'`` -- the nested de Hoog inversion.
     """
 
 
@@ -202,10 +202,10 @@ class JointCDF(_SurfacePlottable, CDF):
 
     - **Callable** ``cdf(x, y)``: the axis atoms (per-point de Hoog of the marginal sub-transforms ``Phi(., inf)`` /
       ``Phi(inf, .)``) plus the continuous box -- the accurate nested de Hoog box by default (no near-origin bias for
-      skewed multi-epoch rewards), or the fast analytically integrated 2D cosine box with ``mode='cos'``
-      (``mode='dehoog'`` / ``'cos'`` per call). Accepts scalars or arrays.
+      skewed multi-epoch rewards), or the fast analytically integrated 2D cosine box with ``method='cos'``
+      (``method='dehoog'`` / ``'cos'`` per call). Accepts scalars or arrays.
     - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box CDF, or -- with
-      ``mode='dehoog'`` -- the nested de Hoog box.
+      ``method='dehoog'`` -- the nested de Hoog box.
     """
 
 

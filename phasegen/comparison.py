@@ -540,8 +540,8 @@ class Comparison(Serializable):
             self.n_assertions += 1
 
     @staticmethod
-    def _mode_2d(mode: str, default: str) -> str:
-        """Map a comparison inversion mode to the joint (2D) ``mode`` keyword (``'dehoog'`` / ``'cos'``) passed to
+    def _method_2d(mode: str, default: str) -> str:
+        """Map a comparison inversion ``mode`` to the joint (2D) ``method`` keyword (``'dehoog'`` / ``'cos'``) passed to
         ``jd.pdf`` / ``jd.cdf``: ``de_hoog`` -> ``'dehoog'`` (nested de Hoog), ``cosine`` -> ``'cos'`` (cosine
         expansion); ``None`` keeps the call site's ``default``."""
         return {'de_hoog': 'dehoog', 'cosine': 'cos'}.get(mode, default)
@@ -918,7 +918,7 @@ class Comparison(Serializable):
             # the joint cdf/pdf on the whole grid; default (no mode) uses the fast cosine inversion -- a per-point
             # de Hoog grid is far slower -- and the atom-edge head where the cosine box is biased is dropped below
             # (the first two points per axis). A de_hoog/cosine wrapper overrides the inversion.
-            m2d = self._mode_2d(mode, 'cos')
+            m2d = self._method_2d(mode, 'cos')
             dehoog = m2d == 'dehoog'
             # the per-point de Hoog surface is slow (one nested inversion per grid node); evaluate it on a thinned
             # subset of the standard grid (the empirical is subsampled to the same nodes). The fast cosine path stays
@@ -928,8 +928,8 @@ class Comparison(Serializable):
             xs_d, ys_d = xs[gx], ys[gy]
             ms_grid = (cdf_ms if kind == 'cdf' else pdf_ms)
             grid_ms = np.asarray(ms_grid, dtype=float)[np.ix_(gx, gy)]
-            grid_ph = np.asarray(jd.cdf(xs_d, ys_d, mode=m2d) if kind == 'cdf'
-                                 else jd.pdf(xs_d, ys_d, mode=m2d), dtype=float)
+            grid_ph = np.asarray(jd.cdf(xs_d, ys_d, method=m2d) if kind == 'cdf'
+                                 else jd.pdf(xs_d, ys_d, method=m2d), dtype=float)
 
             xs_p, ys_p = xs_d[sx], ys_d[sy]
             grid_ph, grid_ms = grid_ph[sx, sy], grid_ms[sx, sy]

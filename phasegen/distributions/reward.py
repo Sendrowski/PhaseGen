@@ -571,7 +571,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     #: Number of cosine terms per axis for the 2D Fourier-cosine joint density (:attr:`_cos2d`). The cost is the square
     #: of this (an ``n x n`` coefficient matrix of joint-LST evaluations), so it is smaller than the 1D term count; at
     #: 128 the heatmap/surface ringing is ~0.5% of the peak (vs ~2.5% at 64). For a de-Hoog-accurate (non-ringing) but
-    #: far slower density, use ``pdf.plot_surface(mode='dehoog')`` (nested de Hoog inversion).
+    #: far slower density, use ``pdf.plot_surface(method='dehoog')`` (nested de Hoog inversion).
     _cos2d_terms: int = 128
 
     #: Window half-width for the 2D Fourier-cosine expansion, in std-units past the mean per axis (``b = mean + scale *
@@ -826,7 +826,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
                 "exact 1D marginal by up to %.1f%% there (a sharp / skewed near-origin feature the cosine series "
                 "cannot capture, so the heatmap/surface rings and is biased). Use pdf(...) / cdf(...) with "
-                "mode='dehoog' for accurate values.", err * 100,
+                "method='dehoog' for accurate values.", err * 100,
             )
         return err
 
@@ -915,26 +915,26 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return np.clip(raw, 0.0, None)
 
     @staticmethod
-    def _use_dehoog(mode: str) -> bool:
-        """Resolve a 2D inversion ``mode`` to a de-Hoog/cosine choice: ``'dehoog'`` -> True, ``'cos'`` -> False, and
-        ``None`` (the default) -> the accurate de Hoog. Pass ``mode='cos'`` for the fast cosine inversion (e.g. plots)."""
-        m = 'dehoog' if mode is None else mode
+    def _use_dehoog(method: str) -> bool:
+        """Resolve a 2D inversion ``method`` to a de-Hoog/cosine choice: ``'dehoog'`` -> True, ``'cos'`` -> False, and
+        ``None`` (the default) -> the accurate de Hoog. Pass ``method='cos'`` for the fast cosine inversion (e.g. plots)."""
+        m = 'dehoog' if method is None else method
         if m not in ('dehoog', 'cos'):
-            raise ValueError(f"mode must be 'dehoog', 'cos', or None (the de Hoog default); got {m!r}.")
+            raise ValueError(f"method must be 'dehoog', 'cos', or None (the de Hoog default); got {m!r}.")
         return m == 'dehoog'
 
-    def _pdf(self, x, y, mode: str = None):
+    def _pdf(self, x, y, method: str = None):
         """
         Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
         atom mass on the axes where a reward is zero (see :attr:`_atoms`); a non-empty SFS bin pair has none there.
 
-        ``mode`` selects the inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` the accurate nested de Hoog;
-        ``None`` (the default) uses de Hoog (the plots pass ``mode='cos'`` for speed). The de Hoog density is the mixed
+        ``method`` selects the inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` the accurate nested de Hoog;
+        ``None`` (the default) uses de Hoog (the plots pass ``method='cos'`` for speed). The de Hoog density is the mixed
         derivative of a spline through the clean nested-de-Hoog box CDF (see :meth:`_density_nested`).
 
         :param x: ``R_a`` value(s).
         :param y: ``R_b`` value(s).
-        :param mode: ``'dehoog'`` / ``'cos'``, or ``None`` for the de Hoog default.
+        :param method: ``'dehoog'`` / ``'cos'``, or ``None`` for the de Hoog default.
         :return: Density, scalar or a ``(len(x), len(y))`` grid.
         """
         if self._is_diagonal:
@@ -942,7 +942,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                                       "almost surely): the law lives on the diagonal and has no 2D density. Use "
                                       "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
-        if self._use_dehoog(mode):
+        if self._use_dehoog(method):
             f = self._density_nested(xs, ys)
         else:
             raw = self._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
@@ -999,13 +999,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
             cc = self._cc_box(xs, ys)
         return g_b[:, None] + g_a[None, :] - both0 + cc
 
-    def _cdf(self, x, y, mode: str = None):
+    def _cdf(self, x, y, method: str = None):
         """
         Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(0 < R_a <= x,
         R_b = 0)`` (from inverting the marginal sub-transforms ``Phi(inf, .)`` / ``Phi(., inf)``) plus the
-        continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)``. ``mode`` selects the box method: ``'cos'`` the fast
+        continuous box integral ``P(0 < R_a <= x, 0 < R_b <= y)``. ``method`` selects the box method: ``'cos'`` the fast
         cosine box, ``'dehoog'`` the accurate nested de Hoog (no near-origin bias for skewed multi-epoch rewards);
-        ``None`` (the default) uses de Hoog (the plots pass ``mode='cos'`` for speed). Accepts scalars or arrays,
+        ``None`` (the default) uses de Hoog (the plots pass ``method='cos'`` for speed). Accepts scalars or arrays,
         returning a scalar or the ``(len(x), len(y))`` grid.
 
         When both rewards are identical (``R_a = R_b`` almost surely, e.g. a bin paired with itself) the joint law
@@ -1018,7 +1018,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
             G = np.array([[float(self._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
                            for yy in ys] for xx in xs])
         else:
-            G = self._cdf_grid(xs, ys, dehoog=self._use_dehoog(mode))
+            G = self._cdf_grid(xs, ys, dehoog=self._use_dehoog(method))
         return float(G.ravel()[0]) if G.size == 1 else G
 
     def _title(self, kind: str) -> str:
@@ -1026,36 +1026,36 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return f"Joint {kind.upper()} {self.label}" if self.label else f"Joint reward {kind.upper()}"
 
     def _plot_pdf(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
-                  mode: str = 'cos'):
-        """Heatmap of the joint (continuous) density of ``(R_a, R_b)``. ``mode='dehoog'`` uses the accurate nested
+                  method: str = 'cos'):
+        """Heatmap of the joint (continuous) density of ``(R_a, R_b)``. ``method='dehoog'`` uses the accurate nested
         de Hoog inversion (a coarser default grid); the default ``'cos'`` uses the fast cosine reconstruction."""
-        n_points = n_points or (25 if self._use_dehoog(mode) else 120)
-        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False, mode=mode)
+        n_points = n_points or (25 if self._use_dehoog(method) else 120)
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=False, method=method)
 
     def _plot_cdf(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
-                  mode: str = 'cos'):
+                  method: str = 'cos'):
         """Heatmap of the joint CDF of ``(R_a, R_b)``. A coarser default grid than the density: each grid node is an
         analytically integrated 2D box (cosine) or a nested de Hoog box, so the CDF surface is costlier per point."""
-        n_points = n_points or (25 if self._use_dehoog(mode) else 60)
-        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False, mode=mode)
+        n_points = n_points or (25 if self._use_dehoog(method) else 60)
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=False, method=method)
 
     def _plot_pdf_surface(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
-                          mode: str = 'cos'):
-        """3D surface of the joint (continuous) density of ``(R_a, R_b)``. ``mode='dehoog'`` uses the accurate nested
+                          method: str = 'cos'):
+        """3D surface of the joint (continuous) density of ``(R_a, R_b)``. ``method='dehoog'`` uses the accurate nested
         de Hoog inversion (a coarser default grid); the default ``'cos'`` uses the fast cosine reconstruction."""
-        n_points = n_points or (25 if self._use_dehoog(mode) else 80)
-        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True, mode=mode)
+        n_points = n_points or (25 if self._use_dehoog(method) else 80)
+        return self._plot_joint('pdf', ax, n_points, show, file, title or self._title('pdf'), surface=True, method=method)
 
     def _plot_cdf_surface(self, ax=None, n_points: int = None, show: bool = True, file: str = None, title: str = None,
-                          mode: str = 'cos'):
+                          method: str = 'cos'):
         """3D surface of the joint CDF of ``(R_a, R_b)`` (coarser default grid than the density -- see :meth:`_plot_cdf`)."""
-        n_points = n_points or (25 if self._use_dehoog(mode) else 60)
-        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True, mode=mode)
+        n_points = n_points or (25 if self._use_dehoog(method) else 60)
+        return self._plot_joint('cdf', ax, n_points, show, file, title or self._title('cdf'), surface=True, method=method)
 
-    def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False, mode='cos'):
+    def _plot_joint(self, kind, ax, n_points, show, file, title, surface=False, method='cos'):
         import matplotlib.pyplot as plt
 
-        dehoog = self._use_dehoog(mode)
+        dehoog = self._use_dehoog(method)
         st = self._cos2d
         # end each axis at the configured marginal quantile (like the 1D plots) so a heavy upper tail does not
         # stretch the view to mean + many std; clip to the cosine window the density was reconstructed on
@@ -1063,7 +1063,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         xs = np.linspace(0, min(self.marginal('a').quantile(q), st['ba']), n_points)
         ys = np.linspace(0, min(self.marginal('b').quantile(q), st['bb']), n_points)
         if kind == 'cdf':
-            # the axis atoms are always inverted per point (de Hoog); ``mode`` selects the continuous box method --
+            # the axis atoms are always inverted per point (de Hoog); ``method`` selects the continuous box method --
             # the fast cosine box for the dense default grid, or the accurate (but per-point, slow) nested de Hoog box
             if dehoog:
                 self._logger.info("Computing the joint CDF box by direct nested inversion on a %dx%d grid; this is "
