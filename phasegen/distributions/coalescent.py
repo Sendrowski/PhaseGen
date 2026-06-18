@@ -13,7 +13,7 @@ from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnitReward
 from ..serialization import Serializable
-from ..state_space import BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
+from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 from ._common import _make_hashable
 from .base import DensityAwareDistribution, MomentAwareDistribution
@@ -487,7 +487,25 @@ class Coalescent(AbstractCoalescent, Serializable):
         if rewards is None:
             rewards = [TreeHeightReward()] * k
 
-        # only route to the (expensive) joint state space when a reward requires it; then all rewards must support it
+        return PhaseTypeDistribution(
+            reward=UnitReward(),
+            tree_height=self.tree_height,
+            state_space=self._select_state_space(rewards),
+            demography=self.demography
+        )
+
+    def _select_state_space(self, rewards: Iterable[Reward]) -> StateSpace:
+        """
+        Select the smallest state space jointly compatible with the given rewards -- the reward-compatibility wiring
+        shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint_distribution` (all via
+        :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
+        every reward must also support it); otherwise the lineage-counting space if all rewards support it, else the
+        block-counting space.
+
+        :param rewards: The rewards to be accumulated jointly.
+        :return: The state space supporting all the rewards.
+        :raises ValueError: if the rewards are not jointly compatible with any single state space.
+        """
         if Reward.requires_joint_state_space(rewards):
             if not Reward.support(JointBlockCountingStateSpace, rewards):
                 raise ValueError(
@@ -495,18 +513,12 @@ class Coalescent(AbstractCoalescent, Serializable):
                     f"{[r.__class__.__name__ for r in rewards]}. A joint-SFS reward can only be combined with "
                     "rewards that also support the joint state space."
                 )
-            state_space = self.joint_block_counting_state_space
-        elif Reward.support(LineageCountingStateSpace, rewards):
-            state_space = self.lineage_counting_state_space
-        else:
-            state_space = self.block_counting_state_space
+            return self.joint_block_counting_state_space
 
-        return PhaseTypeDistribution(
-            reward=UnitReward(),
-            tree_height=self.tree_height,
-            state_space=state_space,
-            demography=self.demography
-        )
+        if Reward.support(LineageCountingStateSpace, rewards):
+            return self.lineage_counting_state_space
+
+        return self.block_counting_state_space
 
     @_make_hashable
     @cache
