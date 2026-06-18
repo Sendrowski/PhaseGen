@@ -285,6 +285,34 @@ class CallableDistributionFunctions:
         warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self._plot_pdf(*args, **kwargs)
 
+    def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
+        """Warn (via this distribution's logger) if ``values`` has a substantial negative entry relative to its scale,
+        then return it unchanged (the caller clips). A density / probability must be non-negative, so a real negative
+        -- beyond the ``rtol`` numerical-noise band -- signals inversion ringing (Gibbs) worth surfacing rather than
+        silently clipping. Gated by :attr:`Settings.check_inversions`."""
+        arr = np.asarray(values, dtype=float)
+        if Settings.check_inversions and arr.size:
+            scale = max(float(np.abs(arr).max()), 1e-300)
+            mn = float(np.nanmin(arr))
+            if mn < -rtol * scale:
+                self._logger.warning(f"{label}: substantial negative value ({mn:.2e} vs scale {scale:.2e}); clipping "
+                                     f"to 0 -- the numerical inversion may be imprecise here")
+        return values
+
+    def _warn_if_nonmonotone(self, cdf: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
+        """Warn (via this distribution's logger) if ``cdf`` has a substantial downward step relative to its range, then
+        return it unchanged (the caller enforces monotonicity). A CDF must be non-decreasing, so a real drop -- beyond
+        the ``rtol`` numerical-noise band -- signals inversion ringing (a wiggle). Gated by
+        :attr:`Settings.check_inversions`."""
+        arr = np.asarray(cdf, dtype=float)
+        if Settings.check_inversions and arr.size > 1:
+            rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
+            drop = -float(np.nanmin(np.diff(arr)))
+            if drop > rtol * rng:
+                self._logger.warning(f"{label}: non-monotone CDF (downward step {drop:.2e} vs range {rng:.2e}); "
+                                     f"enforcing monotonicity -- the numerical inversion may be imprecise here")
+        return cdf
+
 
 class ProbabilityDistribution(ABC):
     """

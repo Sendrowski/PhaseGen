@@ -50,34 +50,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger('phasegen')
 
 
-def _warn_if_negative(values: np.ndarray, label: str, log: logging.Logger = logger, rtol: float = 1e-3) -> np.ndarray:
-    """Warn (via ``log``) if ``values`` has a substantial negative entry relative to its scale, then return it
-    unchanged (the caller clips). A density / probability must be non-negative, so a real negative -- beyond the
-    ``rtol`` numerical-noise band -- signals inversion ringing (Gibbs) worth surfacing rather than silently clipping."""
-    arr = np.asarray(values, dtype=float)
-    if Settings.check_inversions and arr.size:
-        scale = max(float(np.abs(arr).max()), 1e-300)
-        mn = float(np.nanmin(arr))
-        if mn < -rtol * scale:
-            log.warning(f"{label}: substantial negative value ({mn:.2e} vs scale {scale:.2e}); clipping to 0 -- the "
-                        f"numerical inversion may be imprecise here")
-    return values
-
-
-def _warn_if_nonmonotone(cdf: np.ndarray, label: str, log: logging.Logger = logger, rtol: float = 1e-3) -> np.ndarray:
-    """Warn (via ``log``) if ``cdf`` has a substantial downward step relative to its range, then return it unchanged
-    (the caller enforces monotonicity). A CDF must be non-decreasing, so a real drop -- beyond the ``rtol``
-    numerical-noise band -- signals inversion ringing (a wiggle) worth surfacing rather than silently flattening."""
-    arr = np.asarray(cdf, dtype=float)
-    if Settings.check_inversions and arr.size > 1:
-        rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
-        drop = -float(np.nanmin(np.diff(arr)))
-        if drop > rtol * rng:
-            log.warning(f"{label}: non-monotone CDF (downward step {drop:.2e} vs range {rng:.2e}); enforcing "
-                        f"monotonicity -- the numerical inversion may be imprecise here")
-    return cdf
-
-
 class RewardDistribution(CallableDistributionFunctions):
     """
     Full distribution of the accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption, via the
@@ -332,7 +304,7 @@ class RewardDistribution(CallableDistributionFunctions):
         # (rtol 1e-2 of the [0,1] CDF range -- a looser bar than the de Hoog spline's, the cosine series being coarser)
         xd = np.linspace(0.0, b, max(512, 2 * n_terms))
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
-        _warn_if_nonmonotone(Fd, self._titled('COS CDF (residual ripple)'), self._logger, rtol=1e-2)
+        self._warn_if_nonmonotone(Fd, self._titled('COS CDF (residual ripple)'), rtol=1e-2)
 
         return dict(b=b, w=w, fk=fk, p0=p0)
 
@@ -407,7 +379,7 @@ class RewardDistribution(CallableDistributionFunctions):
 
         x, y = adaptive_grid(g, 0.0, b, tol=Settings.inversion_tol)
         # de Hoog CDF is monotone up to tiny inversion noise; warn if a real wiggle survives, then enforce monotonicity
-        _warn_if_nonmonotone(y, self._titled('CDF (de Hoog)'), self._logger)
+        self._warn_if_nonmonotone(y, self._titled('CDF (de Hoog)'))
         y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
         return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
 
@@ -432,10 +404,10 @@ class RewardDistribution(CallableDistributionFunctions):
         if method == 'cos':
             xs, cdf = self._cos_cdf_grid
             d = np.interp(xa, xs, np.gradient(cdf, xs))
-            return _warn_if_negative(d, self._titled('density (cosine)'), self._logger)
+            return self._warn_if_negative(d, self._titled('density (cosine)'))
         st = self._dehoog_spline
         d = st['spline'].derivative()(np.clip(xa, 0.0, st['b']))
-        _warn_if_negative(d, self._titled('density (de Hoog)'), self._logger)
+        self._warn_if_negative(d, self._titled('density (de Hoog)'))
         d = np.clip(d, 0.0, None)
         return (1 - st['p0']) * d if st['p0'] > 1e-9 else d
 
@@ -910,7 +882,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """The continuous joint density by direct nested inversion -- the accurate (slow) ``exact`` counterpart of the
         cosine :meth:`_density`, and the de Hoog ``pdf``. Clipped to non-negative. See :meth:`_nested_invert`."""
         raw = self._nested_invert(xs, ys, 'pdf', M)
-        _warn_if_negative(raw, 'joint density (de Hoog)', self._logger)
+        self._warn_if_negative(raw, 'joint density (de Hoog)')
         return np.clip(raw, 0.0, None)
 
     @staticmethod
@@ -945,7 +917,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
             f = self._density_nested(xs, ys)
         else:
             raw = self._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
-            _warn_if_negative(raw, 'joint density (cosine)', self._logger)
+            self._warn_if_negative(raw, 'joint density (cosine)')
             f = np.clip(raw, 0.0, None)
         return float(f.ravel()[0]) if f.size == 1 else f
 

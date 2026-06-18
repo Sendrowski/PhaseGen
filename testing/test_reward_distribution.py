@@ -602,30 +602,31 @@ def test_conditional_law_of_total_expectation(scenario):
 
 
 def test_inversion_detectors_warn(caplog):
-    """The numerical-inversion guards log a warning on a substantially negative density or a non-monotone CDF (Gibbs
-    ringing), but stay silent for noise-level deviations -- so a clipped/flattened curve is surfaced, not hidden."""
+    """The numerical-inversion guards (``_warn_if_negative`` / ``_warn_if_nonmonotone`` methods on the distribution)
+    log a warning on a substantially negative density or a non-monotone CDF (Gibbs ringing), but stay silent for
+    noise-level deviations -- so a clipped/flattened curve is surfaced, not hidden."""
     import logging
-    from phasegen.distributions.reward import _warn_if_negative, _warn_if_nonmonotone
+    d = pg.Coalescent(n=4).sfs.bin(2)  # any distribution exposing the (inherited) guard methods
     log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
+    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it (and its children) directly
     try:
-        def warned(fn, arr):
+        def warned(method, arr):
             caplog.clear()
-            fn(np.asarray(arr, dtype=float), 'test', log)
+            method(np.asarray(arr, dtype=float), 'test')
             return any(r.levelno >= logging.WARNING for r in caplog.records)
 
         # substantial negative density -> warns; noise-level negative -> silent
-        assert warned(_warn_if_negative, [0.0, 1.0, -0.5])
-        assert not warned(_warn_if_negative, [0.0, 1.0, -1e-9])
+        assert warned(d._warn_if_negative, [0.0, 1.0, -0.5])
+        assert not warned(d._warn_if_negative, [0.0, 1.0, -1e-9])
         # non-monotone CDF (real downward step) -> warns; noise-level wiggle -> silent
-        assert warned(_warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
-        assert not warned(_warn_if_nonmonotone, [0.0, 0.5, 0.5 - 1e-9, 1.0])
+        assert warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
+        assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.5 - 1e-9, 1.0])
 
         # the Settings.check_inversions flag silences both detectors
         pg.Settings.check_inversions = False
         try:
-            assert not warned(_warn_if_negative, [0.0, 1.0, -0.5])
-            assert not warned(_warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
+            assert not warned(d._warn_if_negative, [0.0, 1.0, -0.5])
+            assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
         finally:
             pg.Settings.check_inversions = True
     finally:
