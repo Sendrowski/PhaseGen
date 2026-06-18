@@ -27,6 +27,7 @@ from .base import (
 from .phase_type import (
     PhaseTypeDistribution,
     TreeHeightDistribution,
+    TotalBranchLengthDistribution,
 )
 from .reward import (
     RewardDistribution,
@@ -76,6 +77,7 @@ __all__ = [
     "ConditionalQuantileFunction",
     "PhaseTypeDistribution",
     "TreeHeightDistribution",
+    "TotalBranchLengthDistribution",
     "RewardDistribution",
     "JointRewardDistribution",
     "SFSDistribution",

@@ -20,6 +20,11 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: phasegen.distributions.TotalBranchLengthDistribution
+   :inherited-members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: phasegen.distributions.FoldedSFSDistribution
    :inherited-members:
    :undoc-members:

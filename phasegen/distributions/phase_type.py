@@ -9,7 +9,7 @@ from ..demography import Demography, Epoch
 from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, TreeHeightReward
+from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..settings import Settings
 from ..spectrum import SFS
 from ..state_space import LineageCountingStateSpace, StateSpace
@@ -883,5 +883,35 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             show=show,
             clear=clear,
             title=title
+        )
+
+
+class TotalBranchLengthDistribution(PhaseTypeDistribution):
+    """
+    Distribution of the total branch length of the coalescent tree -- the accumulated lineage-counting reward (the
+    sum of all branch lengths) to absorption. An explicitly named, thin container around
+    :class:`PhaseTypeDistribution` carrying the total-branch-length reward, returned by
+    :attr:`~phasegen.distributions.Coalescent.total_branch_length`; its moments and its callable-and-plottable
+    ``cdf`` / ``pdf`` / ``quantile`` work like any accumulated-reward distribution.
+    """
+
+    def __init__(
+            self,
+            state_space: StateSpace,
+            tree_height: 'TreeHeightDistribution',
+            demography: Demography = None
+    ):
+        """
+        Initialize the distribution.
+
+        :param state_space: The state space.
+        :param tree_height: The tree height distribution.
+        :param demography: The demography.
+        """
+        super().__init__(
+            state_space=state_space,
+            tree_height=tree_height,
+            demography=demography,
+            reward=TotalBranchLengthReward()
         )
 

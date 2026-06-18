@@ -17,7 +17,7 @@ from ..state_space import BlockCountingStateSpace, LineageCountingStateSpace, Jo
 
 from ._common import _make_hashable
 from .base import DensityAwareDistribution, MomentAwareDistribution
-from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
+from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
 
 if TYPE_CHECKING:
@@ -257,12 +257,11 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
     @cached_property
-    def total_branch_length(self) -> PhaseTypeDistribution:
+    def total_branch_length(self) -> TotalBranchLengthDistribution:
         """
         Total branch length distribution.
         """
-        return PhaseTypeDistribution(
-            reward=TotalBranchLengthReward(),
+        return TotalBranchLengthDistribution(
             tree_height=self.tree_height,
             state_space=self.lineage_counting_state_space,
             demography=self.demography
