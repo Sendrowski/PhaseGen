@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs": {
-                "mutation_configs": 0.64,
+                "mutation_configs": 0.068,
                 "cosine": {
                     "pdf": 0.0022,
                     "cdf": 0.0016,
@@ -31,7 +31,7 @@
                 }
             },
             "fsfs": {
-                "mutation_configs": 0.16
+                "mutation_configs": 0.048
             },
             "tree_height": {
                 "pdf": 0.0029,

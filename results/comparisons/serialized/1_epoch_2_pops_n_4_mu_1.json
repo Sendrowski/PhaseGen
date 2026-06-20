@@ -15,10 +15,10 @@
     "comparisons": {
         "tolerance": {
             "sfs": {
-                "mutation_configs": 0.1
+                "mutation_configs": 0.0026
             },
             "fsfs": {
-                "mutation_configs": 0.1
+                "mutation_configs": 0.0016
             }
         }
     },

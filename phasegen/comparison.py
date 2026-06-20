@@ -341,11 +341,15 @@ class Comparison(Serializable):
         return getattr(ph, stat), getattr(ms, stat)
 
     def _diff_and_plot_mutation_configs(self, ph_stat, ms_stat, name: str) -> tuple:
-        """Mean relative difference of the mutation-configuration probabilities, with a deferred line plot."""
+        """Total-variation distance between the mutation-configuration probability distributions, with a deferred line
+        plot. The configs are a probability distribution (over descendant-count configurations), so the natural
+        discrepancy is the total variation ``0.5 * sum|p_ph - p_ms|`` -- bounded, mass-weighted, and the fraction of
+        probability mass misallocated -- rather than a mean per-config *relative* difference, which the rare,
+        near-zero-probability configs (where the relative difference saturates) would dominate as sampling noise."""
         configs = [x[0] for x in ph_stat]
         ms_stat = np.array([x[1] for x in ms_stat])
         ph_stat = np.array([x[1] for x in ph_stat])
-        diff = self.rel_diff(ms_stat, ph_stat).mean()
+        diff = 0.5 * float(np.abs(ph_stat - ms_stat).sum())
 
         plot = None
         if self.visualize:
@@ -502,9 +506,11 @@ class Comparison(Serializable):
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
         uses the worst *absolute* difference, the pdf a *mean absolute difference normalised by the peak (mode) of the
-        reference density*, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative* difference."""
+        reference density*, the mutation configurations the *total-variation distance* between the two config
+        distributions, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative* difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
-                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode', 'loci_pairwise_pdf': 'mean/mode'}.get(stat, 'max rel')
+                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode', 'loci_pairwise_pdf': 'mean/mode',
+                'mutation_configs': 'total variation'}.get(stat, 'max rel')
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph) -> float:

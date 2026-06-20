@@ -23,11 +23,14 @@ yaml.preserve_quotes = True
 yaml.width = 4096
 # jSFS/multi-pop configs carry ``!!python/tuple`` migration-rate keys; without explicit round-trip handling ruamel
 # rewrites them as plain (unhashable) lists, which breaks the ``yaml.full_load`` in ``Comparison.from_yaml``. Register
-# the tag so load/dump preserves the tuple keys verbatim.
+# the tag so load/dump preserves the tuple keys verbatim. ``flow_style=True`` keeps the compact inline form
+# (``!!python/tuple ['pop_0', 'pop_1']:``) so a complex (tuple) mapping key is not blown up into the verbose
+# block ``? ... :`` form, which would reformat every migration-rate line on an unrelated tolerance edit.
 yaml.constructor.add_constructor(
     'tag:yaml.org,2002:python/tuple', lambda loader, node: tuple(loader.construct_sequence(node)))
 yaml.representer.add_representer(
-    tuple, lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', list(data)))
+    tuple, lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', list(data),
+                                                          flow_style=True))
 
 KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm3', 'm4',
          'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs'}
@@ -116,10 +119,12 @@ def title_for(path: list) -> list:
     return [': '.join(path)]
 
 
-def retune(name: str, tighten_only: bool = False) -> int:
+def retune(name: str, tighten_only: bool = False, only: set = None) -> int:
     """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff). With ``tighten_only`` the
     leaf is set to ``min(current, nudge(observed))`` so a tolerance can only ever be tightened, never loosened -- used
-    to drive down stale/degenerate (over-loose) tolerances without risking a currently-tight, barely-passing leaf."""
+    to drive down stale/degenerate (over-loose) tolerances without risking a currently-tight, barely-passing leaf.
+    With ``only`` (a set of statistic kinds) only those kinds are retuned, leaving every other leaf untouched -- used
+    to retune a single metric (e.g. after changing the difference metric for ``mutation_configs``)."""
     obs = observed(name)
     p = f"resources/configs/{name}.yaml"
     with open(p) as f:
@@ -134,7 +139,7 @@ def retune(name: str, tighten_only: bool = False) -> int:
             kp = path + [str(k)]
             if hasattr(v, 'items'):
                 walk(v, kp)
-            elif str(k) in KINDS:
+            elif str(k) in KINDS and (only is None or str(k) in only):
                 matched = [obs[t] for t in title_for(kp) if t in obs]
                 if matched:
                     new = nudge(max(matched))  # one leaf can cover several titles (bin/pair list) -> worst observed
@@ -153,6 +158,8 @@ def retune(name: str, tighten_only: bool = False) -> int:
 if __name__ == '__main__':
     args = sys.argv[1:]
     tighten_only = '--tighten-only' in args
+    only = next((set(a.split('=', 1)[1].split(',')) for a in args if a.startswith('--only=')), None)
     for name in [a for a in args if not a.startswith('--')]:
-        n = retune(name, tighten_only=tighten_only)
-        print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}")
+        n = retune(name, tighten_only=tighten_only, only=only)
+        print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}"
+              + (f" (only {', '.join(sorted(only))})" if only else ""))

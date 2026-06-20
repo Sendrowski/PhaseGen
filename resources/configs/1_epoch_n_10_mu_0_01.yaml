@@ -11,7 +11,7 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.65
+      mutation_configs: 0.028
       '[1, 4, 9]':
         cosine:
           pdf: 0.0087
@@ -23,7 +23,7 @@ comparisons:
             cdf: 0.002
             pdf: 0.009
     fsfs:
-      mutation_configs: 0.58
+      mutation_configs: 0.025
     tree_height:
       pdf: 0.0029
       cdf: 0.0012
