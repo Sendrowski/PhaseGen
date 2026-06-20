@@ -30,12 +30,13 @@ class ComparisonHelpersTestCase(TestCase):
         self.assertEqual(rd.tolist(), [0.0, 0.0, 1.0])
 
     def test_diff_label(self):
-        """The difference-metric label maps the cdf/pdf (and their pairwise/loci variants) specially; everything else
-        is a worst relative difference."""
+        """The difference-metric label maps the cdf (max abs), pdf (relative-L1 density distance) and mutation
+        configurations (total variation) specially; everything else is a worst relative difference."""
         for stat in ('cdf', 'pairwise_cdf', 'loci_pairwise_cdf'):
             self.assertEqual(Comparison._diff_label(stat), 'max abs')
         for stat in ('pdf', 'pairwise_pdf', 'loci_pairwise_pdf'):
-            self.assertEqual(Comparison._diff_label(stat), 'mean/mode')
+            self.assertEqual(Comparison._diff_label(stat), 'rel. L1')
+        self.assertEqual(Comparison._diff_label('mutation_configs'), 'total variation')
         self.assertEqual(Comparison._diff_label('mean'), 'max rel')
 
     def test_parse_collection_key(self):

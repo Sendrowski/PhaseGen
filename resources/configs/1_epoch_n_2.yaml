@@ -8,7 +8,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.0016
+      pdf: 0.02
       cdf: 0.00072
       mean: 0.00056
       var: 0.00042
@@ -23,7 +23,7 @@ comparisons:
       m3: 0.00057
       m4: 0.0012
       cosine:
-        pdf: 0.0028
+        pdf: 0.019
         cdf: 0.00072
         quantile: 0.0026
     sfs:
@@ -36,6 +36,6 @@ comparisons:
       m3: 0.00057
       m4: 0.0012
       cosine:
-        pdf: 0.0032
+        pdf: 0.021
         cdf: 0.00072
         quantile: 0.0026

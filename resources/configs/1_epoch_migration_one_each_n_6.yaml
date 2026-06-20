@@ -4,14 +4,10 @@ n:
 num_replicates: 1000000
 record_migration: true
 migration_rates:
-  ? !!python/tuple
-  - 'pop_0'
-  - 'pop_1'
-  : 0: 1
-  ? !!python/tuple
-  - 'pop_1'
-  - 'pop_0'
-  : 0: 1
+  !!python/tuple ['pop_0', 'pop_1']:
+    0: 1
+  !!python/tuple ['pop_1', 'pop_0']:
+    0: 1
 pop_sizes:
   pop_0:
     0: 1
@@ -25,7 +21,7 @@ comparisons:
       demes:
         mean: 0.01
         var: 0.02
-      pdf: 0.007
+      pdf: 0.062
       cdf: 0.0011
       mean: 0.0015
       var: 0.0098

@@ -160,6 +160,10 @@ if __name__ == '__main__':
     tighten_only = '--tighten-only' in args
     only = next((set(a.split('=', 1)[1].split(',')) for a in args if a.startswith('--only=')), None)
     for name in [a for a in args if not a.startswith('--')]:
-        n = retune(name, tighten_only=tighten_only, only=only)
-        print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}"
-              + (f" (only {', '.join(sorted(only))})" if only else ""))
+        # one config whose fixture is incomplete (e.g. an uncached pairwise surface) must not abort a whole batch
+        try:
+            n = retune(name, tighten_only=tighten_only, only=only)
+            print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}"
+                  + (f" (only {', '.join(sorted(only))})" if only else ""))
+        except Exception as e:
+            print(f"SKIPPED {name}: {type(e).__name__}: {e}")

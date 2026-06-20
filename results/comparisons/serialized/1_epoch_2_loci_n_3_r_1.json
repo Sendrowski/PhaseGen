@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 0.0048,
+                "pdf": 0.03,
                 "cdf": 0.0012,
                 "mean": 0.0013,
                 "var": 0.0025,
@@ -23,7 +23,7 @@
                     "pairwise": {
                         "cosine": {
                             "cdf": 0.0073,
-                            "pdf": 0.015
+                            "pdf": 0.21
                         }
                     },
                     "mean": 0.01,
@@ -39,7 +39,7 @@
                     "pairwise": {
                         "cosine": {
                             "cdf": 0.0062,
-                            "pdf": 0.013
+                            "pdf": 0.17
                         }
                     },
                     "mean": 0.01,

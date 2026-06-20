@@ -17,5 +17,5 @@ comparisons:
         cosine:
           '[(1, 2), (2, 2)]':
             cdf: 0.0069
-            pdf: 0.0095
+            pdf: 0.21
       mean: 0.0094

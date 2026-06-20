@@ -18,5 +18,5 @@ comparisons:
         cosine:
           '(1, 2)':
             cdf: 0.0065
-            pdf: 0.0042
+            pdf: 0.053
       mean: 0.013

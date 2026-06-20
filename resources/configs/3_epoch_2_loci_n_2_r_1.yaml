@@ -18,7 +18,7 @@ comparisons:
         pairwise:
           cosine:
             cdf: 0.037
-            pdf: 0.0035
+            pdf: 0.34
         mean: 0.01
         var: 0.05
         cov: 0.0016
@@ -30,7 +30,7 @@ comparisons:
         pairwise:
           cosine:
             cdf: 0.037
-            pdf: 0.0035
+            pdf: 0.34
         mean: 0.01
         var: 0.05
         cov: 0.0016

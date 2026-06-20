@@ -14,22 +14,22 @@ comparisons:
     sfs:
       mutation_configs: 0.068
       cosine:
-        pdf: 0.0022
+        pdf: 0.037
         cdf: 0.0016
         quantile: 0.14
       pairwise:
         cosine:
           '[(1, 2), (1, 3), (2, 3)]':
             cdf: 0.0021
-            pdf: 0.0055
+            pdf: 0.032
     fsfs:
       mutation_configs: 0.048
     tree_height:
-      pdf: 0.0029
+      pdf: 0.023
       cdf: 0.00083
       quantile: 0.0053
     total_branch_length:
       cosine:
-        pdf: 0.0073
+        pdf: 0.023
         cdf: 0.00098
         quantile: 0.0035

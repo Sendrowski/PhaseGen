@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 0.003,
+                "pdf": 0.026,
                 "cdf": 0.00095,
                 "mean": 0.0021,
                 "var": 0.0076,
@@ -25,7 +25,7 @@
                 "mean": 0.0016,
                 "var": 0.0065,
                 "cosine": {
-                    "pdf": 0.0053,
+                    "pdf": 0.038,
                     "cdf": 0.00068,
                     "quantile": 0.0028
                 }
@@ -39,7 +39,7 @@
                 "tajimas_d": 0.011,
                 "[1, 4, 9]": {
                     "cosine": {
-                        "pdf": 0.018,
+                        "pdf": 0.29,
                         "cdf": 0.0012,
                         "quantile": 0.29
                     }

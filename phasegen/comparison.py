@@ -505,24 +505,27 @@ class Comparison(Serializable):
     @staticmethod
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
-        uses the worst *absolute* difference, the pdf a *mean absolute difference normalised by the peak (mode) of the
-        reference density*, the mutation configurations the *total-variation distance* between the two config
-        distributions, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative* difference."""
+        uses the worst *absolute* difference, the pdf the *relative L1 distance* between the two densities
+        (``integral|f_ref - f| / integral f_ref``), the mutation configurations the *total-variation distance* between
+        the two config distributions, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative*
+        difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
-                'pdf': 'mean/mode', 'pairwise_pdf': 'mean/mode', 'loci_pairwise_pdf': 'mean/mode',
+                'pdf': 'rel. L1', 'pairwise_pdf': 'rel. L1', 'loci_pairwise_pdf': 'rel. L1',
                 'mutation_configs': 'total variation'}.get(stat, 'max rel')
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph) -> float:
-        """Scale-free density discrepancy: the mean absolute difference normalised by the **peak (mode)** of the
-        reference density. A raw absolute difference is meaningless for a pdf because its scale follows the support
-        width: a broad distribution can have a mode as low as ~1e-3, so a small absolute error is a large *relative*
-        one (and tolerances would not transfer across scenarios). The mode is used as the scale rather than the mean
-        density, which would be tail-dependent (extending the grid into the tail lowers the mean and inflates the
-        ratio). Falls back to the raw mean absolute difference if the reference is degenerate (all ~0)."""
+        """Scale-free **relative L1** distance between two densities: ``sum|f_ref - f| / sum f_ref``. Both sums carry
+        the same grid spacing, so this equals ``integral|f_ref - f| / integral f_ref`` -- the fraction of probability
+        mass misallocated relative to the reference (a density integrates to its mass, so this is the natural,
+        bounded, support-width-independent discrepancy; ``integral|f_ref - f| = 2 * TV`` for equal-mass densities),
+        with no grid needed. Unlike a mean absolute difference it does not dilute as the grid is extended into the
+        tail (the near-zero points add ~0 to both sums), so no separate mode normalisation is needed. Falls back to
+        the raw L1 sum if the reference is degenerate (all ~0). Works for a 1-D curve, a per-bin spectrum, or a 2-D
+        surface (the sums run over the whole array)."""
         y_ref, y_ph = np.asarray(y_ref, dtype=float), np.asarray(y_ph, dtype=float)
-        den = float(np.abs(y_ref).max())
-        num = float(np.abs(y_ref - y_ph).mean())
+        den = float(np.abs(y_ref).sum())
+        num = float(np.abs(y_ref - y_ph).sum())
         return num / den if den > 0 else num
 
     @staticmethod
@@ -997,13 +1000,14 @@ class Comparison(Serializable):
     suptitle_fontsize: int = 15
 
     def _pointwise_diff(self, stat: str, y_ph: np.ndarray, y_ms: np.ndarray) -> np.ndarray:
-        """Per-point discrepancy curve matching the asserted metric for ``stat``: absolute for the CDF, mode-normalised
-        absolute for the pdf (so it shares the density's mean/mode scale), relative otherwise (quantile)."""
+        """Per-point discrepancy curve matching the asserted metric for ``stat``: absolute for the CDF, for the pdf
+        the per-point absolute difference normalised by the mean reference density (so it *averages* to the asserted
+        relative-L1 ``sum|f_ref - f| / sum f_ref``), relative otherwise (quantile)."""
         y_ph, y_ms = np.asarray(y_ph, float), np.asarray(y_ms, float)
         if stat == 'cdf':
             return np.abs(y_ph - y_ms)
         if stat == 'pdf':
-            return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).max()), 1e-300)
+            return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).mean()), 1e-300)
         return np.asarray(self.rel_diff(y_ms, y_ph), float)
 
     def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str) -> None:

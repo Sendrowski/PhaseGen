@@ -5,17 +5,17 @@ n:
 num_replicates: 1000000
 #record_migration: true
 migration_rates:
-  !!python/tuple [ 'pop_0', 'pop_1' ]:
+  !!python/tuple ['pop_0', 'pop_1']:
     0: 0.0003
-  !!python/tuple [ 'pop_0', 'pop_2' ]:
+  !!python/tuple ['pop_0', 'pop_2']:
     0: 0.0001
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
+  !!python/tuple ['pop_1', 'pop_0']:
     0: 0.0004
-  !!python/tuple [ 'pop_1', 'pop_2' ]:
+  !!python/tuple ['pop_1', 'pop_2']:
     0: 0.0001
-  !!python/tuple [ 'pop_2', 'pop_0' ]:
+  !!python/tuple ['pop_2', 'pop_0']:
     0: 0.00015
-  !!python/tuple [ 'pop_2', 'pop_1' ]:
+  !!python/tuple ['pop_2', 'pop_1']:
     0: 0.0006
 pop_sizes:
   pop_0:
@@ -36,7 +36,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.01
+      pdf: 0.073
       cdf: 0.2
       mean: 0.01
       var: 0.02
