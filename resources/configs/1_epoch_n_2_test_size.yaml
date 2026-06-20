@@ -14,7 +14,7 @@ comparisons:
       demes:
         mean: 0.15
         var: 0.3
-      pdf: 0.27
+      pdf: 0.13
       cdf: 0.025
       mean: 0.018
       var: 0.06
@@ -23,7 +23,7 @@ comparisons:
       mean: 0.018
       var: 0.06
       cosine:
-        pdf: 0.23
+        pdf: 0.12
         cdf: 0.03
         quantile: 0.13
     sfs:
@@ -32,7 +32,7 @@ comparisons:
       corr: 0.0005
       '[1]':
         cosine:
-          pdf: 0.24
+          pdf: 0.11
           cdf: 0.03
           quantile: 0.13
     fsfs:

@@ -10,7 +10,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.033
+      pdf: 0.016
       cdf: 0.00065
       mean: 0.0011
       var: 0.0047

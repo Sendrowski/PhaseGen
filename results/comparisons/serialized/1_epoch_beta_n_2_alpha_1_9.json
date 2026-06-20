@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 0.019,
+                "pdf": 0.0092,
                 "cdf": 0.0014,
                 "mean": 0.0014,
                 "var": 0.0019,
@@ -25,7 +25,7 @@
                 "mean": 0.0014,
                 "var": 0.0019,
                 "cosine": {
-                    "pdf": 0.021,
+                    "pdf": 0.011,
                     "cdf": 0.0015,
                     "quantile": 0.0049
                 }
@@ -35,7 +35,7 @@
                 "cov": 0.0019,
                 "corr": 0.0005,
                 "cosine": {
-                    "pdf": 0.022,
+                    "pdf": 0.0095,
                     "cdf": 0.0015,
                     "quantile": 0.0049
                 },

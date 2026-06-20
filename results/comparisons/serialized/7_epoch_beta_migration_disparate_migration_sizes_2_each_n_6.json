@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "tree_height": {
-                "pdf": 0.075,
+                "pdf": 0.038,
                 "cdf": 0.2,
                 "mean": 0.01,
                 "m2": 0.01,

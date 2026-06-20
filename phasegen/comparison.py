@@ -461,12 +461,12 @@ class Comparison(Serializable):
 
         # the first couple of points sit on the near-zero head (and the per-bin atom at 0, P(L_i=0)>0), where the
         # difference is unstable -- so they are discarded. Metric: the CDF (bounded in [0,1]) uses the worst
-        # *absolute* difference; the pdf the mode-normalised mean absolute difference (:meth:`_pdf_diff`); the
+        # *absolute* difference; the pdf the total-variation distance between the densities (:meth:`_pdf_diff`); the
         # quantile the worst *relative* difference.
         if stat == 'pdf':
             ms_p = y_ms[:, 2:] if per_bin else y_ms
             ph_p = y_ph[:, 2:] if per_bin else y_ph
-            diff = self._pdf_diff(ms_p, ph_p)
+            diff = self._pdf_diff(ms_p, ph_p, t[2:] if per_bin else t)
         elif stat == 'cdf':
             d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
             diff = float(np.abs(d).max())
@@ -505,28 +505,32 @@ class Comparison(Serializable):
     @staticmethod
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
-        uses the worst *absolute* difference, the pdf the *relative L1 distance* between the two densities
-        (``integral|f_ref - f| / integral f_ref``), the mutation configurations the *total-variation distance* between
-        the two config distributions, and everything else (quantile, mean/var/cov/corr, scalars) a worst *relative*
+        uses the worst *absolute* difference; the pdf and the mutation configurations both use the *total-variation
+        distance* between the two distributions (``0.5 * integral|f_ref - f|`` for a density, ``0.5 * sum|p - q|`` for
+        the discrete configs); everything else (quantile, mean/var/cov/corr, scalars) uses a worst *relative*
         difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
-                'pdf': 'rel. L1', 'pairwise_pdf': 'rel. L1', 'loci_pairwise_pdf': 'rel. L1',
+                'pdf': 'total variation', 'pairwise_pdf': 'total variation', 'loci_pairwise_pdf': 'total variation',
                 'mutation_configs': 'total variation'}.get(stat, 'max rel')
 
     @staticmethod
-    def _pdf_diff(y_ref, y_ph) -> float:
-        """Scale-free **relative L1** distance between two densities: ``sum|f_ref - f| / sum f_ref``. Both sums carry
-        the same grid spacing, so this equals ``integral|f_ref - f| / integral f_ref`` -- the fraction of probability
-        mass misallocated relative to the reference (a density integrates to its mass, so this is the natural,
-        bounded, support-width-independent discrepancy; ``integral|f_ref - f| = 2 * TV`` for equal-mass densities),
-        with no grid needed. Unlike a mean absolute difference it does not dilute as the grid is extended into the
-        tail (the near-zero points add ~0 to both sums), so no separate mode normalisation is needed. Falls back to
-        the raw L1 sum if the reference is degenerate (all ~0). Works for a 1-D curve, a per-bin spectrum, or a 2-D
-        surface (the sums run over the whole array)."""
-        y_ref, y_ph = np.asarray(y_ref, dtype=float), np.asarray(y_ph, dtype=float)
-        den = float(np.abs(y_ref).sum())
-        num = float(np.abs(y_ref - y_ph).sum())
-        return num / den if den > 0 else num
+    def _pdf_diff(y_ref, y_ph, *axes) -> float:
+        """Total-variation distance between two densities: ``0.5 * integral|f_ref - f|`` -- the proper distributional
+        distance (the continuous analogue of the :meth:`_diff_and_plot_mutation_configs` TV; in ``[0, 1]`` for
+        probability densities and support-width-independent, since a density integrates to its dimensionless mass).
+        The integral is a trapezoidal rule over the coordinate ``axes``: one axis for a 1-D curve or a per-bin
+        spectrum (a leading bin axis, one trailing value axis -- the *worst bin's* TV is returned, matching the CDF's
+        worst-over-bins metric), two axes for a 2-D surface (both integrated)."""
+        def integ(d: np.ndarray, x: np.ndarray) -> np.ndarray:
+            """Trapezoidal integral of ``d`` over its last axis with coordinates ``x``."""
+            x = np.asarray(x, dtype=float)
+            return 0.5 * np.sum((d[..., 1:] + d[..., :-1]) * np.diff(x), axis=-1)
+
+        d = np.abs(np.asarray(y_ref, dtype=float) - np.asarray(y_ph, dtype=float))
+        if len(axes) == 2:
+            xs, ys = axes
+            return float(0.5 * integ(integ(d, ys), xs))  # integrate the trailing axis, then the leading one
+        return float(0.5 * np.max(integ(d, axes[0])))  # 1-D: per bin if 2-D, then the worst bin
 
     @staticmethod
     def _quantile_diff(y_ms, y_ph) -> float:
@@ -815,7 +819,7 @@ class Comparison(Serializable):
                     y_ph = np.asarray(d.cdf.curve(t, method=method) if stat == 'cdf'
                                       else d.pdf.curve(t, method=method), dtype=float)
                     diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
-                            else self._pdf_diff(y_ms[2:], y_ph[2:]))
+                            else self._pdf_diff(y_ms[2:], y_ph[2:], t[2:]))
 
             else:
                 raise ValueError(f"Unsupported per-bin SFS statistic '{stat}' for bin {i} "
@@ -959,9 +963,10 @@ class Comparison(Serializable):
             grid_ph, grid_ms = grid_ph[sx, sy], grid_ms[sx, sy]
 
             # the CDF (bounded in [0, 1]) uses the worst absolute element-wise difference; the density uses the
-            # scale-free relative-L1 metric (its absolute scale follows the support, so a raw absolute diff does not
-            # transfer -- see ``_pdf_diff``)
-            diff = float(np.abs(grid_ph - grid_ms).max()) if kind == 'cdf' else self._pdf_diff(grid_ms, grid_ph)
+            # total-variation distance 0.5*integral|f_ref - f| over the 2-D grid (a proper, support-width-independent
+            # distributional distance -- see ``_pdf_diff``)
+            diff = (float(np.abs(grid_ph - grid_ms).max()) if kind == 'cdf'
+                    else self._pdf_diff(grid_ms, grid_ph, xs_p, ys_p))
             # the loci (single-pair) surface logs as ``{stat_label}_{kind}`` (e.g. ``loci_pairwise_cdf``) so its config
             # tolerance leaf matches; the per-pair SFS/jSFS/2-locus surfaces carry the pair in the title
             label_key = f"{stat_label}_{kind}" if stat_label else f"pairwise_{kind}"
@@ -1000,9 +1005,9 @@ class Comparison(Serializable):
     suptitle_fontsize: int = 15
 
     def _pointwise_diff(self, stat: str, y_ph: np.ndarray, y_ms: np.ndarray) -> np.ndarray:
-        """Per-point discrepancy curve matching the asserted metric for ``stat``: absolute for the CDF, for the pdf
-        the per-point absolute difference normalised by the mean reference density (so it *averages* to the asserted
-        relative-L1 ``sum|f_ref - f| / sum f_ref``), relative otherwise (quantile)."""
+        """Per-point discrepancy curve for the difference panel of a plot: absolute for the CDF, for the pdf the
+        per-point absolute density difference normalised by the mean reference density (a dimensionless, plotting-only
+        curve whose integral relates to the asserted total-variation distance), relative otherwise (quantile)."""
         y_ph, y_ms = np.asarray(y_ph, float), np.asarray(y_ms, float)
         if stat == 'cdf':
             return np.abs(y_ph - y_ms)

@@ -9,7 +9,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.22
+      pdf: 0.055
       cdf: 0.00086
       mean: 0.00032
       var: 0.0032
@@ -18,7 +18,7 @@ comparisons:
       mean: 0.00021
       var: 0.0017
       cosine:
-        pdf: 0.081
+        pdf: 0.0011
         cdf: 0.00033
         quantile: 0.00098
     sfs:
@@ -29,11 +29,11 @@ comparisons:
       theta_w: 0.00021
       tajimas_d: 0.0069
       cosine:
-        pdf: 0.071
+        pdf: 0.035
         cdf: 0.0019
         quantile: 0.92
       pairwise:
         cosine:
           '[(1, 2), (1, 4), (2, 4)]':
             cdf: 0.0022
-            pdf: 0.057
+            pdf: 0.019

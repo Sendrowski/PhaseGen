@@ -128,7 +128,8 @@ def retune(name: str, tighten_only: bool = False, only: set = None) -> int:
     obs = observed(name)
     p = f"resources/configs/{name}.yaml"
     with open(p) as f:
-        cfg = yaml.load(f)
+        orig = f.read()
+    cfg = yaml.load(orig)
     tol = cfg.get('comparisons', {}).get('tolerance')
     if tol is None:
         return 0
@@ -150,9 +151,38 @@ def retune(name: str, tighten_only: bool = False, only: set = None) -> int:
                         changed[0] += 1
 
     walk(tol, [])
+    import io
+    buf = io.StringIO()
+    yaml.dump(cfg, buf)
+    # ruamel round-trips every line but cannot reproduce the hand-written formatting of the ``!!python/tuple``
+    # migration-rate keys (the only complex/tagged keys), so it would reformat that block on an unrelated tolerance
+    # edit. Splice the original ``migration_rates`` block back verbatim -- the tolerance subtree is what changed.
+    new_text = _restore_top_level_block(orig, buf.getvalue(), 'migration_rates')
     with open(p, 'w') as f:
-        yaml.dump(cfg, f)
+        f.write(new_text)
     return changed[0]
+
+
+def _restore_top_level_block(orig: str, new: str, key: str) -> str:
+    """Return ``new`` with its top-level ``key:`` block (the ``key:`` line plus the following indented/blank lines,
+    until the next top-level key) replaced by the one from ``orig`` -- so a round-trip that reformats only that block
+    leaves it byte-identical to the original."""
+    def block(text):
+        lines = text.splitlines(keepends=True)
+        start = next((i for i, l in enumerate(lines) if l.startswith(key + ':')), None)
+        if start is None:
+            return None
+        end = start + 1
+        while end < len(lines) and (not lines[end].strip() or lines[end][0] in ' \t'):
+            end += 1
+        return lines, start, end
+
+    ob, nb = block(orig), block(new)
+    if ob is None or nb is None:
+        return new
+    olines, os_, oe = ob
+    nlines, ns, ne = nb
+    return ''.join(nlines[:ns] + olines[os_:oe] + nlines[ne:])
 
 
 if __name__ == '__main__':

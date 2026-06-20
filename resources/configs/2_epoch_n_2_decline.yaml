@@ -11,14 +11,14 @@ comparisons:
     tree_height:
       mean: 0.00072
       var: 0.00035
-      pdf: 0.027
+      pdf: 0.013
       cdf: 0.00066
       quantile: 0.0077
     total_branch_length:
       mean: 0.00072
       var: 0.00035
       cosine:
-        pdf: 0.032
+        pdf: 0.016
         cdf: 0.0011
         quantile: 0.0066
     sfs:
@@ -27,6 +27,6 @@ comparisons:
       corr: 0.0005
       '[1]':
         cosine:
-          pdf: 0.032
+          pdf: 0.016
           cdf: 0.0011
           quantile: 0.0066

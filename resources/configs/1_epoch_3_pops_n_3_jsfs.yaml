@@ -12,18 +12,30 @@ pop_sizes:
   pop_2:
     0: 1
 migration_rates:
-  !!python/tuple ['pop_0', 'pop_1']:
-    0: 1
-  !!python/tuple ['pop_1', 'pop_0']:
-    0: 1
-  !!python/tuple ['pop_0', 'pop_2']:
-    0: 1
-  !!python/tuple ['pop_2', 'pop_0']:
-    0: 1
-  !!python/tuple ['pop_1', 'pop_2']:
-    0: 1
-  !!python/tuple ['pop_2', 'pop_1']:
-    0: 1
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_2'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_0'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_2'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_1'
+  : 0: 1
 model: standard
 comparisons:
   tolerance:
@@ -32,5 +44,5 @@ comparisons:
         cosine:
           '[((0, 0, 1), (1, 0, 0)), ((0, 0, 1), (0, 1, 0)), ((1, 0, 0), (0, 1, 0))]':
             cdf: 0.014
-            pdf: 0.24
+            pdf: 0.065
       mean: 0.0039

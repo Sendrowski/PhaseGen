@@ -17,7 +17,7 @@
             "sfs": {
                 "mutation_configs": 0.11,
                 "cosine": {
-                    "pdf": 0.031,
+                    "pdf": 0.015,
                     "cdf": 0.0016,
                     "quantile": 0.086
                 },
@@ -25,7 +25,7 @@
                     "cosine": {
                         "[(1, 2), (1, 3), (2, 3)]": {
                             "cdf": 0.0028,
-                            "pdf": 0.037
+                            "pdf": 0.007
                         }
                     }
                 }
@@ -34,13 +34,13 @@
                 "mutation_configs": 0.084
             },
             "tree_height": {
-                "pdf": 0.031,
+                "pdf": 0.016,
                 "cdf": 0.0013,
                 "quantile": 0.0026
             },
             "total_branch_length": {
                 "cosine": {
-                    "pdf": 0.023,
+                    "pdf": 0.012,
                     "cdf": 0.00083,
                     "quantile": 0.0016
                 }

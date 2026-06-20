@@ -10,7 +10,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.033
+      pdf: 0.015
       cdf: 0.0014
       mean: 0.00048
       var: 0.0008
@@ -18,7 +18,7 @@ comparisons:
         pairwise:
           cosine:
             cdf: 0.0057
-            pdf: 0.072
+            pdf: 0.02
         mean: 0.01
         var: 0.05
         cov: 0.013
@@ -30,7 +30,7 @@ comparisons:
         pairwise:
           cosine:
             cdf: 0.0057
-            pdf: 0.072
+            pdf: 0.02
         mean: 0.01
         var: 0.05
         cov: 0.013

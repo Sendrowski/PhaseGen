@@ -3,11 +3,15 @@ n:
   pop_1: 3
 num_replicates: 1000000
 migration_rates:
-  !!python/tuple ['pop_0', 'pop_1']:
-    0: 0
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 0
     100: 1
-  !!python/tuple ['pop_1', 'pop_0']:
-    0: 0
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 0
     100: 1
 pop_sizes:
   pop_0:
@@ -19,7 +23,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.073  # very large values / short coalescence time
+      pdf: 0.036  # very large values / short coalescence time
       cdf: 0.0005
       mean: 0.00054
       var: 0.0018 # precision problems due to very low variance, increasing precision doesn't converge

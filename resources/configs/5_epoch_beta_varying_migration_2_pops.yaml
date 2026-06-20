@@ -3,11 +3,11 @@ n:
   pop_1: 3
 num_replicates: 1000000
 migration_rates:
-  !!python/tuple ['pop_0', 'pop_1']:
+  !!python/tuple [ 'pop_0', 'pop_1' ]:
     0: 3
     0.2: 1
     0.8: 10
-  !!python/tuple ['pop_1', 'pop_0']:
+  !!python/tuple [ 'pop_1', 'pop_0' ]:
     0: 4
     0.2: 1
     0.8: 1
@@ -24,7 +24,7 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.056
+      pdf: 0.029
       cdf: 0.05
       mean: 0.01
       var: 0.02

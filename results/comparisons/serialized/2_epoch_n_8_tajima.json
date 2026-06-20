@@ -21,7 +21,7 @@
                 "tajimas_d": 0.0046,
                 "[1, 3, 7]": {
                     "cosine": {
-                        "pdf": 0.088,
+                        "pdf": 0.024,
                         "cdf": 0.0015,
                         "quantile": 0.083
                     }
@@ -30,19 +30,19 @@
                     "cosine": {
                         "[(1, 2), (1, 7), (2, 7)]": {
                             "cdf": 0.0033,
-                            "pdf": 0.15
+                            "pdf": 0.015
                         }
                     }
                 }
             },
             "tree_height": {
-                "pdf": 0.03,
+                "pdf": 0.015,
                 "cdf": 0.0023,
                 "quantile": 0.0051
             },
             "total_branch_length": {
                 "cosine": {
-                    "pdf": 0.036,
+                    "pdf": 0.018,
                     "cdf": 0.0023,
                     "quantile": 0.0046
                 }

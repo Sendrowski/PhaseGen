@@ -5,18 +5,30 @@ n:
 num_replicates: 1000000
 record_migration: true
 migration_rates:
-  !!python/tuple ['pop_0', 'pop_1']:
-    0: 3
-  !!python/tuple ['pop_1', 'pop_0']:
-    0: 4
-  !!python/tuple ['pop_0', 'pop_2']:
-    0: 1
-  !!python/tuple ['pop_2', 'pop_0']:
-    0: 15
-  !!python/tuple ['pop_1', 'pop_2']:
-    0: 6
-  !!python/tuple ['pop_2', 'pop_1']:
-    0: 10
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 3
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 4
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_2'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_0'
+  : 0: 15
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_2'
+  : 0: 6
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_1'
+  : 0: 10
 pop_sizes:
   pop_0:
     0: 1.5
@@ -35,7 +47,7 @@ comparisons:
         # cov: 0.01 slight differences between covariance of tree height
         #   and covariance of number of lineages in demes
         # corr: 0.01
-      pdf: 0.076
+      pdf: 0.039
       cdf: 0.0011
       mean: 0.0014
       var: 0.0036
