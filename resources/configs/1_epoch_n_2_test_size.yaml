@@ -18,14 +18,14 @@ comparisons:
       cdf: 0.025
       mean: 0.018
       var: 0.06
-      quantile: 0.13
+      quantile: 0.036
     total_branch_length:
       mean: 0.018
       var: 0.06
       cosine:
         pdf: 0.12
         cdf: 0.03
-        quantile: 0.13
+        quantile: 0.036
     sfs:
       mean: 0.018
       cov: 0.062
@@ -34,7 +34,7 @@ comparisons:
         cosine:
           pdf: 0.11
           cdf: 0.03
-          quantile: 0.13
+          quantile: 0.036
     fsfs:
       mean: 0.018
       cov: 0.062

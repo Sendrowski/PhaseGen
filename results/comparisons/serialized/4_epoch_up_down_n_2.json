@@ -19,7 +19,7 @@
                 "cdf": 0.00062,
                 "mean": 0.0023,
                 "var": 0.0051,
-                "quantile": 0.015
+                "quantile": 0.0021
             },
             "total_branch_length": {
                 "mean": 0.0023,
@@ -27,7 +27,7 @@
                 "cosine": {
                     "pdf": 0.049,
                     "cdf": 0.0037,
-                    "quantile": 0.16
+                    "quantile": 0.0036
                 }
             },
             "sfs": {
@@ -40,7 +40,7 @@
                 "cosine": {
                     "pdf": 0.021,
                     "cdf": 0.0037,
-                    "quantile": 0.16
+                    "quantile": 0.0036
                 }
             }
         }

@@ -14,14 +14,14 @@ comparisons:
       cdf: 0.00059
       mean: 0.00027
       var: 7.6e-05
-      quantile: 0.002
+      quantile: 0.00032
     total_branch_length:
       mean: 0.00027
       var: 7.6e-05
       cosine:
         pdf: 0.058
         cdf: 0.00098
-        quantile: 0.0084
+        quantile: 0.0014
     sfs:
       mean: 0.00027
       cov: 7.6e-05
@@ -29,6 +29,6 @@ comparisons:
       cosine:
         pdf: 0.057
         cdf: 0.00098
-        quantile: 0.0084
+        quantile: 0.0014
       pairwise:
         cosine: {}

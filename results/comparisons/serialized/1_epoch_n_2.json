@@ -22,7 +22,7 @@
                 "m2": 0.05,
                 "m3": 0.00057,
                 "m4": 0.0012,
-                "quantile": 0.0026
+                "quantile": 0.00093
             },
             "total_branch_length": {
                 "mean": 0.00056,
@@ -33,7 +33,7 @@
                 "cosine": {
                     "pdf": 0.0095,
                     "cdf": 0.00072,
-                    "quantile": 0.0026
+                    "quantile": 0.00093
                 }
             },
             "sfs": {
@@ -49,7 +49,7 @@
                 "cosine": {
                     "pdf": 0.0091,
                     "cdf": 0.00072,
-                    "quantile": 0.0026
+                    "quantile": 0.00093
                 }
             }
         }

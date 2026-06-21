@@ -36,6 +36,7 @@ class ComparisonHelpersTestCase(TestCase):
             self.assertEqual(Comparison._diff_label(stat), 'max abs')
         for stat in ('pdf', 'pairwise_pdf', 'loci_pairwise_pdf', 'mutation_configs'):
             self.assertEqual(Comparison._diff_label(stat), 'total variation')
+        self.assertEqual(Comparison._diff_label('quantile'), 'rel. Wasserstein')
         self.assertEqual(Comparison._diff_label('mean'), 'max rel')
 
     def test_parse_collection_key(self):

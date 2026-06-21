@@ -11,14 +11,14 @@ comparisons:
     tree_height:
       pdf: 0.027
       cdf: 0.0008
-      quantile: 0.0051
+      quantile: 0.002
       mean: 0.0006
       var: 0.0035
     total_branch_length:
       cosine:
         pdf: 0.041
         cdf: 0.0015
-        quantile: 0.0056
+        quantile: 0.0017
       mean: 0.00044
       var: 0.003
     sfs:
@@ -28,7 +28,7 @@ comparisons:
       cosine:
         pdf: 0.035
         cdf: 0.0024
-        quantile: 0.15
+        quantile: 0.0043
       pairwise:
         cosine:
           "[(1, 2), (1, 3), (2, 3)]":

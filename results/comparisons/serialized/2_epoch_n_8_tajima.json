@@ -23,7 +23,7 @@
                     "cosine": {
                         "pdf": 0.024,
                         "cdf": 0.0015,
-                        "quantile": 0.083
+                        "quantile": 0.003
                     }
                 },
                 "pairwise": {
@@ -38,13 +38,13 @@
             "tree_height": {
                 "pdf": 0.015,
                 "cdf": 0.0023,
-                "quantile": 0.0051
+                "quantile": 0.0024
             },
             "total_branch_length": {
                 "cosine": {
                     "pdf": 0.018,
                     "cdf": 0.0023,
-                    "quantile": 0.0046
+                    "quantile": 0.0014
                 }
             }
         }

@@ -459,10 +459,10 @@ class Comparison(Serializable):
                 y_ms = y_ms.T
             y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
 
-        # the first couple of points sit on the near-zero head (and the per-bin atom at 0, P(L_i=0)>0), where the
-        # difference is unstable -- so they are discarded. Metric: the CDF (bounded in [0,1]) uses the worst
-        # *absolute* difference; the pdf the total-variation distance between the densities (:meth:`_pdf_diff`); the
-        # quantile the worst *relative* difference.
+        # Metric: the CDF (bounded in [0,1]) uses the worst *absolute* difference (its first two points -- the
+        # near-zero head / per-bin atom at 0 -- are discarded, where the difference is unstable); the pdf the
+        # total-variation distance between the densities (:meth:`_pdf_diff`); the quantile the relative Wasserstein-1
+        # distance (:meth:`_quantile_diff`, atom-robust without dropping points).
         if stat == 'pdf':
             ms_p = y_ms[:, 2:] if per_bin else y_ms
             ph_p = y_ph[:, 2:] if per_bin else y_ph
@@ -471,7 +471,7 @@ class Comparison(Serializable):
             d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
             diff = float(np.abs(d).max())
         else:  # quantile
-            diff = self._quantile_diff(y_ms, y_ph)
+            diff = self._quantile_diff(y_ms, y_ph, t)
 
         plot = None
         if self.visualize:
@@ -505,13 +505,13 @@ class Comparison(Serializable):
     @staticmethod
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
-        uses the worst *absolute* difference; the pdf and the mutation configurations both use the *total-variation
+        uses the worst *absolute* difference; the pdf and the mutation configurations use the *total-variation
         distance* between the two distributions (``0.5 * integral|f_ref - f|`` for a density, ``0.5 * sum|p - q|`` for
-        the discrete configs); everything else (quantile, mean/var/cov/corr, scalars) uses a worst *relative*
-        difference."""
+        the discrete configs); the quantile uses the *relative Wasserstein-1* distance (the mean-normalised area
+        between the quantile curves); the remaining scalars (mean/var/cov/corr, ...) use a worst *relative* difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
                 'pdf': 'total variation', 'pairwise_pdf': 'total variation', 'loci_pairwise_pdf': 'total variation',
-                'mutation_configs': 'total variation'}.get(stat, 'max rel')
+                'mutation_configs': 'total variation', 'quantile': 'rel. Wasserstein'}.get(stat, 'max rel')
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph, *axes) -> float:
@@ -533,20 +533,27 @@ class Comparison(Serializable):
         return float(0.5 * np.max(integ(d, axes[0])))  # 1-D: per bin if 2-D, then the worst bin
 
     @staticmethod
-    def _quantile_diff(y_ms, y_ph) -> float:
-        """Worst *relative* difference between an empirical and analytic quantile curve, excluding points on the
-        distribution's **atom**. For an SFS bin with a positive atom P(L_i = 0) the inverse CDF is exactly 0 for every
-        probability below the atom mass, so the relative difference between two near-zero quantiles straddling that
-        flat region saturates near 2 (``|a-b| / ((|a|+|b|)/2)`` with one value ~0) -- an atom-boundary artifact, not an
-        inversion error. Points where either curve is below 1e-6 of the curve scale are dropped, as is the near-zero
-        head (first two grid points, as elsewhere); the continuous region above the atom is compared as usual. With no
-        off-atom points left (a fully degenerate bin) the difference is 0."""
-        y_ms, y_ph = np.asarray(y_ms, dtype=float), np.asarray(y_ph, dtype=float)
-        rd = np.asarray(Comparison.rel_diff(y_ms, y_ph), dtype=float)
-        scale = max(float(np.abs(y_ph).max()), float(np.abs(y_ms).max()), 1e-300)
-        keep = (np.abs(y_ph) > 1e-6 * scale) & (np.abs(y_ms) > 1e-6 * scale)
-        keep[..., :2] = False  # near-zero head
-        return float(rd[keep].max()) if keep.any() else 0.0
+    def _quantile_diff(y_ms, y_ph, q) -> float:
+        """Relative Wasserstein-1 (earth-mover) distance between an empirical and analytic quantile curve over the
+        probability grid ``q``: ``integral|Q_ph - Q_ms| dq / integral Q_ms dq``. The L1 distance between the quantile
+        functions is a proper distributional distance (it equals the area between the CDFs); normalising by the
+        reference mean (``integral Q dq = E[L]``) makes it dimensionless and transferable across scenarios.
+
+        It is naturally **atom-robust**: for an SFS bin with an atom ``P(L_i = 0) = p0`` the inverse CDF is exactly 0
+        for every probability below ``p0``, so on that flat region both quantiles are 0 and the integrand contributes
+        nothing -- there is no per-point relative blow-up of the tiny near-atom values that the old worst-relative
+        metric suffered from. For a per-bin spectrum the worst bin's value is returned; a fully degenerate (``Q ~ 0``)
+        bin is 0."""
+        y_ms, y_ph, q = np.asarray(y_ms, dtype=float), np.asarray(y_ph, dtype=float), np.asarray(q, dtype=float)
+
+        def integ(d: np.ndarray) -> np.ndarray:
+            """Trapezoidal integral over the last (probability) axis."""
+            return 0.5 * np.sum((d[..., 1:] + d[..., :-1]) * np.diff(q), axis=-1)
+
+        num, den = integ(np.abs(y_ph - y_ms)), integ(np.abs(y_ms))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rel = np.where(den > 1e-300, num / den, 0.0)  # a fully degenerate (Q ~ 0) bin contributes nothing
+        return float(np.max(rel))
 
     def _result_message(self, title: str, diff: float, tol: float, label: str, runtime: float) -> str:
         """Assign this comparison the next sequential index and format the one-line result message used *identically*
@@ -814,7 +821,7 @@ class Comparison(Serializable):
                 method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
                 if stat == 'quantile':
                     y_ph = np.array([float(d.quantile(float(q), method=method)) for q in t])
-                    diff = self._quantile_diff(y_ms, y_ph)
+                    diff = self._quantile_diff(y_ms, y_ph, t)
                 else:
                     y_ph = np.asarray(d.cdf.curve(t, method=method) if stat == 'cdf'
                                       else d.pdf.curve(t, method=method), dtype=float)
@@ -1005,15 +1012,14 @@ class Comparison(Serializable):
     suptitle_fontsize: int = 15
 
     def _pointwise_diff(self, stat: str, y_ph: np.ndarray, y_ms: np.ndarray) -> np.ndarray:
-        """Per-point discrepancy curve for the difference panel of a plot: absolute for the CDF, for the pdf the
-        per-point absolute density difference normalised by the mean reference density (a dimensionless, plotting-only
-        curve whose integral relates to the asserted total-variation distance), relative otherwise (quantile)."""
+        """Per-point discrepancy curve for the difference panel of a plot (a dimensionless, plotting-only curve whose
+        integral relates to the asserted metric): absolute for the CDF; for the pdf and the quantile the per-point
+        absolute difference normalised by the mean reference (the density mean, resp. the reference mean ``E[L]``), so
+        it has no per-point relative blow-up near the atom."""
         y_ph, y_ms = np.asarray(y_ph, float), np.asarray(y_ms, float)
         if stat == 'cdf':
             return np.abs(y_ph - y_ms)
-        if stat == 'pdf':
-            return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).mean()), 1e-300)
-        return np.asarray(self.rel_diff(y_ms, y_ph), float)
+        return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).mean()), 1e-300)
 
     def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str) -> None:
         """Two panels side by side: left overlays phasegen (solid) vs msprime (dashed) for each ``series`` entry

@@ -19,18 +19,18 @@ comparisons:
       mean: 0.00039
       var: 0.0037
       cdf: 0.0011
-      quantile: 0.0045
+      quantile: 0.00051
     total_branch_length:
       mean: 0.0011
       var: 0.0012
       cosine:
         pdf: 0.0011
         cdf: 0.00042
-        quantile: 0.0025
+        quantile: 0.0011
     sfs:
       mean: 0.007
       '[1, 4, 9]':
         cosine:
           pdf: 0.017
           cdf: 0.0011
-          quantile: 0.27
+          quantile: 0.0037
