@@ -12,7 +12,7 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.068
+      mutation_configs: 0.0036
       cosine:
         pdf: 0.016
         cdf: 0.0016
@@ -23,7 +23,7 @@ comparisons:
             cdf: 0.0021
             pdf: 0.0062
     fsfs:
-      mutation_configs: 0.048
+      mutation_configs: 0.0024
     tree_height:
       pdf: 0.011
       cdf: 0.00083

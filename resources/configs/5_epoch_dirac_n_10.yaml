@@ -1,6 +1,9 @@
 n:
   pop_0: 10
 num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 0.05
+mass_threshold: 0.9
 pop_sizes:
   pop_0:
     0: 2
@@ -27,7 +30,10 @@ comparisons:
         pdf: 0.0011
         cdf: 0.00042
         quantile: 0.0011
+    fsfs:
+      mutation_configs: 0.0006
     sfs:
+      mutation_configs: 0.0005
       mean: 0.007
       '[1, 4, 9]':
         cosine:

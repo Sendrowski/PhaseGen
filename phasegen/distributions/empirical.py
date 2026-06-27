@@ -945,7 +945,14 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
     def process_replicate(self, i, ts, ctx, seed) -> None:
         import msprime as ms
 
-        mts = ms.sim_mutations(ts, rate=self._rate, random_seed=seed)
+        # draw mutations with a per-replicate seed: reusing the single batch seed across all replicates freezes the
+        # mutation randomness (the per-replicate count is then a deterministic function of the tree rather than a
+        # fresh Poisson draw), which biases the mutational-configuration distribution. The batch seeds are spaced by
+        # one (``self.seed + thread``), so a large prime offset keeps the per-replicate seeds collision-free and
+        # reproducible.
+        rep_seed = None if seed is None else int((seed * 1_000_003 + i) % (2 ** 31 - 1)) + 1
+
+        mts = ms.sim_mutations(ts, rate=self._rate, random_seed=rep_seed)
         tree = next(mts.trees())
 
         for node in mts.mutations_node:

@@ -13,7 +13,7 @@ seed: 42
 comparisons:
   tolerance:
     fsfs:
-      mutation_configs: 0.039
+      mutation_configs: 0.0006
     tree_height:
       pdf: 0.011
       cdf: 0.0008
@@ -28,7 +28,7 @@ comparisons:
         cdf: 9.1e-05
         quantile: 0.00015
     sfs:
-      mutation_configs: 0.042
+      mutation_configs: 0.0008
       mean: 0.0011
       cov: 0.017
       corr: 0.018

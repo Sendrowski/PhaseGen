@@ -2,6 +2,9 @@ n:
   pop_0: 2
   pop_1: 2
 num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 0.5
+mass_threshold: 0.5
 #record_migration: true
 pop_sizes:
   pop_0:
@@ -30,7 +33,10 @@ comparisons:
       var: 0.05
       #demes:
       #  mean: 0.01
+    fsfs:
+      mutation_configs: 0.0022
     sfs:
+      mutation_configs: 0.0022
       mean: 0.01
       var: 0.05
       cov: 0.05

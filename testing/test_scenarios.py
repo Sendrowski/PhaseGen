@@ -112,6 +112,7 @@ configs = [
     '1_epoch_beta_n_6_alpha_1_1',
     '5_epoch_dirac_n_10',
     '5_epoch_beta_n_10',
+    '7_epoch_oscillating_n_3',
     '1_epoch_beta_n_20',
     '1_epoch_dirac_n_20',
     '5_epoch_n_20',
