@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
 from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, TYPE_CHECKING
 import numpy as np
+import scipy.sparse as sp
 from ..demography import Demography
 from ..expm import Backend
 from ..rewards import Reward, TreeHeightReward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward
@@ -750,6 +751,38 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return alpha @ Q @ p_total
 
+    @cached_property
+    def _mutation_epoch_data(self) -> Tuple:
+        """
+        Configuration-independent inputs to the multi-epoch mutational-configuration probability, computed once and
+        reused across all configurations (the descending iterator evaluates many against the same demography): the
+        non-absorbing mask, the per-bin SFS reward vectors and their total, the initial distribution, and for each
+        epoch the (dense) sub-intensity matrix, the coalescent absorption-rate vector and the duration (``None`` for
+        the final, unbounded epoch).
+
+        :return: ``(non_absorbing, R, r_total, alpha, epochs)`` where ``epochs`` is a list of ``(S, e, tau)``.
+        """
+        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
+        n = len(self._get_configs(self.lineage_config.n, 0)[0])
+        R = [self._get_sfs_reward(i + 1)._get(self.state_space)[non_absorbing] for i in range(n)]
+        r_total = np.sum(R, axis=0)
+        alpha = self.state_space.alpha[non_absorbing]
+
+        epochs = []
+        for epoch in self.demography.epochs:
+            self.state_space.update_epoch(epoch)
+            S = np.asarray(self.state_space.S)[np.ix_(non_absorbing, non_absorbing)]
+            e = -S @ np.ones(S.shape[0])  # coalescent absorption-rate vector (state_space.e is the all-ones vector)
+            tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
+            epochs.append((S, e, tau))
+            if tau is None:
+                break
+
+        # leave the state space in the first epoch for any subsequent caller that assumes it
+        self.state_space.update_epoch(self.demography.get_epoch(0))
+
+        return non_absorbing, R, r_total, alpha, epochs
+
     def _get_mutation_config_inhomogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
         """
         Mutational-configuration probability for piecewise time-homogeneous demography.
@@ -773,56 +806,66 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param theta: The mutation rate.
         :return: The probability of observing the given mutational configuration.
         """
-        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
-        m = int(non_absorbing.sum())
+        non_absorbing, R, r_total, alpha, epochs = self._mutation_epoch_data
+        m = len(alpha)
 
-        alpha = self.state_space.alpha[non_absorbing]
-
-        # SFS reward vectors per frequency bin and their total (state functions, i.e. epoch invariant)
-        R = [self._get_sfs_reward(i + 1)._get(self.state_space)[non_absorbing] for i in range(n)]
-        r_total = np.sum(R, axis=0)
-
-        # enumerate the mutation-count lattice nodes 0..k_i per bin
+        # enumerate the mutation-count lattice nodes 0..k_i per bin and the super-diagonal (one-mutation) edges
         nodes = list(itertools.product(*[range(k + 1) for k in config]))
         index = {c: a for a, c in enumerate(nodes)}
-        k_node = index[config]
-        N = len(nodes)
+        edges = [(index[c], index[c[:i] + (c[i] + 1,) + c[i + 1:]], i)
+                 for c in nodes for i in range(n) if c[i] < config[i]]
+        k_block = index[config] * m
+        L = len(nodes)
+        nt = L * m
 
-        def build_generator(S: np.ndarray) -> np.ndarray:
-            A = np.zeros((N * m, N * m))
+        # mirror the moment machinery's two crossovers: keep the augmented generator sparse (and LU-solve it in
+        # block-triangular form) above ``closed_form_sparse_min_states``, and propagate via the sparse
+        # matrix-exponential action above ``expm_action_min_dim`` instead of forming the dense exponential. No
+        # ``lamb`` reward-regularization applies here: the mutation rates ``theta R_i`` are genuine generator entries
+        # (not a separately-accumulated reward), so there is nothing to rescale relative to ``S``.
+        sparse = nt >= Settings.closed_form_sparse_min_states
+        action = nt >= Settings.expm_action_min_dim
+
+        def build_generator(S: np.ndarray) -> 'np.ndarray | sp.spmatrix':
             diag = S - theta * np.diag(r_total)
-            for c in nodes:
-                a = index[c]
+            if sparse:
+                blocks = [[None] * L for _ in range(L)]
+                for a in range(L):
+                    blocks[a][a] = sp.csr_matrix(diag)
+                for a, b, i in edges:
+                    blocks[a][b] = sp.diags(theta * R[i])
+                return sp.bmat(blocks, format='csr')
+
+            A = np.zeros((nt, nt))
+            for a in range(L):
                 A[a * m:(a + 1) * m, a * m:(a + 1) * m] = diag
-                for i in range(n):
-                    if c[i] < config[i]:
-                        b = index[c[:i] + (c[i] + 1,) + c[i + 1:]]
-                        A[a * m:(a + 1) * m, b * m:(b + 1) * m] = theta * np.diag(R[i])
+            for a, b, i in edges:
+                A[a * m:(a + 1) * m, b * m:(b + 1) * m] = np.diag(theta * R[i])
             return A
 
         # entering row vector: alpha at the empty lattice node
-        v = np.zeros(N * m)
+        v = np.zeros(nt)
         v[:m] = alpha
 
         p = 0.0
-        for epoch in self.demography.epochs:
-            self.state_space.update_epoch(epoch)
-            S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-            e = -S @ np.ones(m)  # coalescent absorption-rate vector (state_space.e is the all-ones summing vector)
+        for S, e, tau in epochs:
             A = build_generator(S)
 
-            if np.isinf(epoch.end_time):
-                # final unbounded epoch: integrated occupation to absorption is v @ (-A)^{-1}
-                occ = np.linalg.solve((-A).T, v)
-                p += occ[k_node * m:(k_node + 1) * m] @ e
+            if tau is None:
+                # final unbounded epoch: integrated occupation to absorption is occ = v @ (-A)^{-1}
+                occ = self._lu_solver((-A).T, sparse)(v)
+                p += occ[k_block:k_block + m] @ e
                 break
 
-            # finite epoch: register absorption within [start, end] from the integrated occupation v @ (e^{A tau} - I)
-            # @ A^{-1}, then carry the survivors v @ e^{A tau} into the next epoch
-            E = expm(A * (epoch.end_time - epoch.start_time))
-            occ = np.linalg.solve(A.T, (v @ E) - v)
-            p += occ[k_node * m:(k_node + 1) * m] @ e
-            v = v @ E
+            # finite epoch: survivors u = v @ exp(A tau) (matrix-exponential action), then register absorption from
+            # the integrated occupation occ = (u - v) @ A^{-1}, and carry the survivors into the next epoch
+            if action:
+                u = Backend.expm_multiply(A.T * tau, v)
+            else:
+                u = v @ expm((A.toarray() if sparse else A) * tau)
+            occ = self._lu_solver(A.T, sparse)(u - v)
+            p += occ[k_block:k_block + m] @ e
+            v = u
 
         return float(p)
 
