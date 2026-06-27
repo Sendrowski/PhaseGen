@@ -333,9 +333,10 @@ class Comparison(Serializable):
 
         if stat == 'mutation_configs':
             ph_it = ph.get_mutation_configs(theta=self.mutation_rate)
-            ms_it = ms.get_mutation_configs()
             ph_stat = list(takewhile_inclusive(lambda _: ph.generated_mass < self.mass_threshold, ph_it))
-            ms_stat = list(itertools.islice(ms_it, len(ph_stat)))
+            # align the msprime probabilities to phasegen's configurations by key, so the comparison is independent
+            # of the generation order (phasegen generates by descending probability, msprime by ascending count)
+            ms_stat = [(config, ms.get_mutation_config(config)) for config, _ in ph_stat]
             return ph_stat, ms_stat
 
         return getattr(ph, stat), getattr(ms, stat)

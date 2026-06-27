@@ -1,5 +1,6 @@
 """Site-frequency-spectrum distributions (SFS, folded, joint, two-locus)."""
 
+import heapq
 import itertools
 import logging
 from abc import ABC, abstractmethod
@@ -675,7 +676,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         Get the probabilities of observing the given mutational configurations according to the infinite sites model.
 
         .. note::
-            This currently only works for a single epoch, i.e. a time-homogeneous demography, and recombination is not
+            This supports piecewise time-homogeneous demography (any number of epochs). Recombination is not
             supported.
 
         :param config: The mutational configuration. A sequence of integers of length n - 1 for unfolded configurations
@@ -688,10 +689,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param theta: The mutation rate.
         :return: The probability of observing the given mutational configuration.
         """
-        # raise not implemented error if more than one epoch
-        if self.demography.has_n_epochs(2):
-            raise NotImplementedError("Sampling not implemented for more than one epoch.")
-
         # make sure theta is non-negative
         if theta < 0:
             raise ValueError("Theta must be greater than or equal to 0.")
@@ -715,10 +712,24 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
             return 0
 
-        # get non-absorbing states
-        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
+        # the single-epoch resolvent integrates the inter-mutation waiting time in closed form, which requires a
+        # constant rate matrix; for several epochs the augmented process is integrated epoch by epoch instead
+        if self.demography.has_n_epochs(2):
+            return self._get_mutation_config_inhomogeneous(config, n, theta)
 
-        # number of non-absorbing states
+        return self._get_mutation_config_homogeneous(config, n, theta)
+
+    def _get_mutation_config_homogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
+        """
+        Mutational-configuration probability for a single (time-homogeneous) epoch, summing the embedded
+        jump-chain transition matrices :meth:`_get_P` over all orderings of the mutation events.
+
+        :param config: The mutational configuration as a tuple of integers, one per frequency bin.
+        :param n: The number of frequency bins.
+        :param theta: The mutation rate.
+        :return: The probability of observing the given mutational configuration.
+        """
+        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
         k = non_absorbing.sum()
 
         alpha = self.state_space.alpha[non_absorbing]
@@ -737,36 +748,98 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
             Q += U
 
-        p = alpha @ Q @ p_total
+        return alpha @ Q @ p_total
 
-        return p
-
-    def get_mutation_configs(self, theta: float) -> Iterator[Tuple[Tuple[float, ...], float]]:
+    def _get_mutation_config_inhomogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
         """
-        An iterator over the probabilities of observing mutational configurations according to the infinite sites model.
-        The order of the mutational configurations generated ascends in the number of mutations observed.
+        Mutational-configuration probability for piecewise time-homogeneous demography.
+
+        Conditional on the coalescent tree the class-``i`` mutation count is Poisson with mean ``theta * ell_i``,
+        where ``ell_i`` is the ``i``-ton branch length, so the probability of the configuration ``k`` is the
+        expectation over the tree of the product of these Poisson masses. This is evaluated with an augmented killed
+        process on (phase, mutation-count lattice), the lattice node ``c`` ranging over ``0 <= c_i <= k_i``:
+
+        - diagonal block ``(c, c)``: the epoch sub-generator ``S_j`` minus ``theta * diag(sum_i R_i)``;
+        - super-diagonal block ``c -> c + e_i`` (only while ``c_i < k_i``): ``theta * diag(R_i)``.
+
+        A class-``i`` mutation at the cap ``c_i = k_i`` leaks out (killed), which realises the ``exp(-theta ell_i)``
+        factor and pins the count to exactly ``k_i``. The process is propagated through each epoch with its matrix
+        exponential, accumulating the mass absorbed at the top lattice node ``k`` in every epoch (the most recent
+        common ancestor can be reached in any epoch, not only the last); the final unbounded epoch is integrated to
+        absorption with the resolvent. For a single epoch this reduces to :meth:`_get_mutation_config_homogeneous`.
+
+        :param config: The mutational configuration as a tuple of integers, one per frequency bin.
+        :param n: The number of frequency bins.
+        :param theta: The mutation rate.
+        :return: The probability of observing the given mutational configuration.
+        """
+        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
+        m = int(non_absorbing.sum())
+
+        alpha = self.state_space.alpha[non_absorbing]
+
+        # SFS reward vectors per frequency bin and their total (state functions, i.e. epoch invariant)
+        R = [self._get_sfs_reward(i + 1)._get(self.state_space)[non_absorbing] for i in range(n)]
+        r_total = np.sum(R, axis=0)
+
+        # enumerate the mutation-count lattice nodes 0..k_i per bin
+        nodes = list(itertools.product(*[range(k + 1) for k in config]))
+        index = {c: a for a, c in enumerate(nodes)}
+        k_node = index[config]
+        N = len(nodes)
+
+        def build_generator(S: np.ndarray) -> np.ndarray:
+            A = np.zeros((N * m, N * m))
+            diag = S - theta * np.diag(r_total)
+            for c in nodes:
+                a = index[c]
+                A[a * m:(a + 1) * m, a * m:(a + 1) * m] = diag
+                for i in range(n):
+                    if c[i] < config[i]:
+                        b = index[c[:i] + (c[i] + 1,) + c[i + 1:]]
+                        A[a * m:(a + 1) * m, b * m:(b + 1) * m] = theta * np.diag(R[i])
+            return A
+
+        # entering row vector: alpha at the empty lattice node
+        v = np.zeros(N * m)
+        v[:m] = alpha
+
+        p = 0.0
+        for epoch in self.demography.epochs:
+            self.state_space.update_epoch(epoch)
+            S = self.state_space.S[non_absorbing, :][:, non_absorbing]
+            e = -S @ np.ones(m)  # coalescent absorption-rate vector (state_space.e is the all-ones summing vector)
+            A = build_generator(S)
+
+            if np.isinf(epoch.end_time):
+                # final unbounded epoch: integrated occupation to absorption is v @ (-A)^{-1}
+                occ = np.linalg.solve((-A).T, v)
+                p += occ[k_node * m:(k_node + 1) * m] @ e
+                break
+
+            # finite epoch: register absorption within [start, end] from the integrated occupation v @ (e^{A tau} - I)
+            # @ A^{-1}, then carry the survivors v @ e^{A tau} into the next epoch
+            E = expm(A * (epoch.end_time - epoch.start_time))
+            occ = np.linalg.solve(A.T, (v @ E) - v)
+            p += occ[k_node * m:(k_node + 1) * m] @ e
+            v = v @ E
+
+        return float(p)
+
+    def get_mutation_configs_by_count(self, theta: float) -> Iterator[Tuple[Tuple[float, ...], float]]:
+        """
+        An iterator over the probabilities of observing mutational configurations according to the infinite sites
+        model, generated in ascending order of the number of mutations. Unlike the default :meth:`get_mutation_configs`
+        (descending probability), this order is deterministic and independent of the configuration probabilities, but
+        reaches a given probability mass only after evaluating every configuration up to the truncating mutation count.
         See :meth:`get_mutation_config` for more information on mutational configurations.
 
         .. note::
-            This currently only works for a single epoch, i.e. a time-homogeneous demography, and recombination is not
+            This supports piecewise time-homogeneous demography (any number of epochs); recombination is not
             supported. Also note that the number of configurations is infinite, so this iterator will never stop.
             However, depending on the mutation rate, the probability of observing configurations of higher mutation
             counts will decrease over time. You can keep track of the generated probability mass by checking the
             :attr:`~.generated_mass` attribute, which is reset every time this method is called.
-            A good approach is thus to keep generating configurations until the generated mass is above a certain
-            threshold. More complex demographic models, larger sample sizes, and higher mutation rates all increase
-            the number of generated configurations necessary to reach a certain mass.
-
-        Code example:
-
-        ::
-
-            coal = pg.Coalescent(n=5)
-
-            it = coal.sfs.get_mutation_configs(theta=1)
-
-            # continue until generated mass is above 0.8
-            samples = list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
 
         :param theta: The mutation rate.
         :return: An iterator over the probabilities of observing mutational configurations.
@@ -785,6 +858,86 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
             # increase counter for number of mutations
             i += 1
+
+    def get_mutation_configs(self, theta: float) -> Iterator[Tuple[Tuple[int, ...], float]]:
+        """
+        An iterator over the probabilities of observing mutational configurations according to the infinite sites
+        model, generated in descending order of probability. A target probability mass is thus reached after
+        evaluating far fewer configurations than the ascending-count :meth:`get_mutation_configs_by_count`, which is
+        particularly valuable for piecewise time-homogeneous demography, where each configuration probability is more
+        expensive to evaluate, and for heavy-tailed spectra (high mutation rate, growth).
+        See :meth:`get_mutation_config` for more information on mutational configurations.
+
+        The search is seeded at the modal configuration ``round(theta * E[ell_i])``, where the expected
+        ``i``-ton branch length ``E[ell_i]`` is available in closed form (also across epochs); the seed is
+        refined by a local hill-climb and the lattice is then expanded outward with a max-priority queue. The
+        ordering is exact when the configuration probability is unimodal along each axis (the typical case);
+        the accumulated :attr:`~.generated_mass` is exact irrespective of the ordering, since the probabilities
+        over all configurations sum to one.
+
+        .. note::
+            This supports piecewise time-homogeneous demography (any number of epochs); recombination is not
+            supported. As the number of configurations is infinite, the iterator does not stop on its own; consume
+            it until :attr:`~.generated_mass` exceeds a threshold.
+
+        Code example:
+
+        ::
+
+            coal = pg.Coalescent(n=5)
+
+            it = coal.sfs.get_mutation_configs(theta=1)
+
+            # continue until generated mass is above 0.8
+            samples = list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
+
+        :param theta: The mutation rate.
+        :return: An iterator over the probabilities of observing mutational configurations.
+        """
+        # reset generated mass
+        self.generated_mass = 0
+
+        n = len(self._get_configs(self.lineage_config.n, 0)[0])
+
+        # special case theta = 0: only the empty configuration carries mass
+        if theta == 0:
+            self.generated_mass = 1.0
+            yield (0,) * n, 1.0
+            return
+
+        def neighbours(c: Tuple[int, ...]) -> Iterator[Tuple[int, ...]]:
+            for i in range(n):
+                for step in (1, -1):
+                    if c[i] + step >= 0:
+                        yield c[:i] + (c[i] + step,) + c[i + 1:]
+
+        # modal configuration from the expected per-bin branch lengths (E[# mutations in bin] = theta * E[ell])
+        mean = np.asarray(self.mean.data)
+        mode = tuple(max(0, int(round(theta * mean[idx]))) for idx in self._get_indices())
+
+        # hill-climb to a local maximum of the configuration probability
+        p_mode = self.get_mutation_config(mode, theta)
+        improved = True
+        while improved:
+            improved = False
+            for nb in neighbours(mode):
+                p_nb = self.get_mutation_config(nb, theta)
+                if p_nb > p_mode:
+                    mode, p_mode, improved = nb, p_nb, True
+                    break
+
+        # best-first expansion outward, evaluating each configuration once
+        seen = {mode}
+        heap = [(-p_mode, mode)]
+        while heap:
+            neg_p, c = heapq.heappop(heap)
+            self.generated_mass += -neg_p
+            yield c, -neg_p
+
+            for nb in neighbours(c):
+                if nb not in seen:
+                    seen.add(nb)
+                    heapq.heappush(heap, (-self.get_mutation_config(nb, theta), nb))
 
 
 class TajimaSFSMixin:

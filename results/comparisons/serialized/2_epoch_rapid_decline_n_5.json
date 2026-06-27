@@ -14,6 +14,9 @@
     },
     "comparisons": {
         "tolerance": {
+            "fsfs": {
+                "mutation_configs": 0.03
+            },
             "tree_height": {
                 "pdf": 0.055,
                 "cdf": 0.00086,
@@ -31,6 +34,7 @@
                 }
             },
             "sfs": {
+                "mutation_configs": 0.066,
                 "mean": 0.004,
                 "cov": 0.059,
                 "corr": 0.06,
@@ -64,13 +68,13 @@
     "n_loci": 1,
     "recombination_rate": 0,
     "num_replicates": 1000000,
-    "mutation_rate": null,
+    "mutation_rate": 1,
     "record_migration": false,
-    "simulate_mutations": false,
-    "mass_threshold": 0.9,
+    "simulate_mutations": true,
+    "mass_threshold": 0.8,
     "end_time": null,
     "n_threads": 100,
-    "parallelize": false,
+    "parallelize": true,
     "seed": 42,
     "alpha": 1.5,
     "psi": 0.5,
@@ -140,7 +144,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 15
+            "py/id": 16
         },
         "demography": null,
         "end_time": null,
@@ -151,11 +155,11 @@
         "jsfs_moments": null,
         "jsfs_samples": null,
         "num_replicates": 1000000,
-        "mutation_rate": null,
+        "mutation_rate": 1,
         "n_threads": 100,
-        "parallelize": false,
+        "parallelize": true,
         "record_migration": false,
-        "simulate_mutations": false,
+        "simulate_mutations": true,
         "seed": 42,
         "tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
@@ -603,7 +607,6 @@
                 "pop_0"
             ],
             "_samples": null,
-            "_loci_joint": [],
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
@@ -641,7 +644,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -999,6 +1002,26 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 41
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 41
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 41
+                            }
+                        }
                     }
                 },
                 "__dict__": {
@@ -1019,7 +1042,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1377,6 +1400,26 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 61
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 61
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 61
+                            }
+                        }
                     }
                 },
                 "__dict__": {
@@ -1422,16 +1465,36 @@
                 "py/object": "numpy.float64",
                 "dtype": "float64",
                 "value": 1.0
+            },
+            "_function_cache": {
+                "cdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                    "_distribution": {
+                        "py/id": 26
+                    }
+                },
+                "pdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                    "_distribution": {
+                        "py/id": 26
+                    }
+                },
+                "quantile": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                    "_distribution": {
+                        "py/id": 26
+                    }
+                }
             }
         },
         "total_tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 26
+                "py/id": 27
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 29
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -1756,10 +1819,9 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 33
+                "py/id": 34
             },
             "_samples": null,
-            "_loci_joint": [],
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
@@ -1788,7 +1850,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2146,14 +2208,34 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 102
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 102
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 102
+                            }
+                        }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 86
+                        "py/id": 97
                     },
                     "corr": {
-                        "py/id": 87
+                        "py/id": 98
                     }
                 }
             },
@@ -2166,7 +2248,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2524,14 +2606,34 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 121
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 121
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 121
+                            }
+                        }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 89
+                        "py/id": 100
                     },
                     "corr": {
-                        "py/id": 88
+                        "py/id": 99
                     }
                 }
             },
@@ -2569,16 +2671,36 @@
                 "py/object": "numpy.float64",
                 "dtype": "float64",
                 "value": 1.0
+            },
+            "_function_cache": {
+                "cdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                    "_distribution": {
+                        "py/id": 90
+                    }
+                },
+                "pdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                    "_distribution": {
+                        "py/id": 90
+                    }
+                },
+                "quantile": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                    "_distribution": {
+                        "py/id": 90
+                    }
+                }
             }
         },
         "total_branch_length": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 26
+                "py/id": 27
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 29
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -2903,10 +3025,9 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 33
+                "py/id": 34
             },
             "_samples": null,
-            "_loci_joint": [],
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
@@ -2935,7 +3056,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3293,14 +3414,34 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 162
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 162
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 162
+                            }
+                        }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 135
+                        "py/id": 157
                     },
                     "corr": {
-                        "py/id": 136
+                        "py/id": 158
                     }
                 }
             },
@@ -3313,7 +3454,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3671,14 +3812,34 @@
                         "py/object": "numpy.float64",
                         "dtype": "float64",
                         "value": 1.0
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 181
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 181
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 181
+                            }
+                        }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 138
+                        "py/id": 160
                     },
                     "corr": {
-                        "py/id": 137
+                        "py/id": 159
                     }
                 }
             },
@@ -3716,6 +3877,26 @@
                 "py/object": "numpy.float64",
                 "dtype": "float64",
                 "value": 1.0
+            },
+            "_function_cache": {
+                "cdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                    "_distribution": {
+                        "py/id": 150
+                    }
+                },
+                "pdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                    "_distribution": {
+                        "py/id": 150
+                    }
+                },
+                "quantile": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                    "_distribution": {
+                        "py/id": 150
+                    }
+                }
             }
         },
         "sfs": {
@@ -3734,7 +3915,7 @@
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 29
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -5433,7 +5614,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 33
+                "py/id": 34
             },
             "n": 5,
             "_sfs_dist": {
@@ -5575,7 +5756,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -7452,12 +7633,348 @@
                             0.03782523434219209,
                             0.0
                         ]
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 220
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 220
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 220
+                            }
+                        }
                     }
                 }
             },
             "mutation_configs": {
                 "py/object": "collections.defaultdict",
-                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.000000000007918,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.04720100000002655,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.10403200000008338,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0870560000000664,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.012793999999997053,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.01684099999999619,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.02132100000000067,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0834540000000628,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.02093300000000028,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.044898000000024245,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.02174200000000109,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.004583000000000284,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.016954999999996303,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.040019000000019365,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.01886299999999821,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.005367000000000388,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0042330000000002374,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0013379999999999868,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005596000000000418,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0005730000000000074,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0002549999999999997,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.022998000000002346,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005423000000000395,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.016038999999995387,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.03524100000001459,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.004086000000000218,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005678000000000429,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.023855000000003204,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.014889999999995513,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.004436000000000264,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0067880000000005766,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.010609999999998657,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.010567999999998688,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.006218000000000501,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0009930000000000158,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.009250999999999655,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005450000000000399,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00568500000000043,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.01836299999999771,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.013621999999996444,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0026380000000000257,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0010810000000000084,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 4e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.014411999999995864,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.017188999999996537,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.008186000000000438,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00189499999999994,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.009619999999999384,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00447700000000027,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0032540000000001075,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0060570000000004795,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0029830000000000715,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0023269999999999845,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.004872000000000322,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0070360000000006095,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.002980000000000071,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0017229999999999544,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.004221000000000236,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005262000000000374,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.001560999999999968,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.006258000000000506,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00020799999999999953,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0006330000000000089,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.005470000000000402,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0016489999999999606,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00043400000000000404,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0008380000000000139,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0009140000000000157,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00023099999999999946,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.004001000000000207,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0030340000000000783,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002209999999999995,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3.5e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00013199999999999974,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.003921000000000196,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0014199999999999799,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0010120000000000142,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0005900000000000078,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.6000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0016249999999999626,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0007750000000000123,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.002006999999999942,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.010018999999999091,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00020399999999999954,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0006050000000000082,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00020299999999999954,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.000516000000000006,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 3.100000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0009200000000000159,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0027060000000000348,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.006473000000000535,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.004259000000000241,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 9.699999999999982e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.003784000000000178,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0018849999999999408,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.00011399999999999978,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0006950000000000104,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.000513000000000006,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0017119999999999553,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00027700000000000023,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002970000000000007,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 4.799999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0006070000000000082,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 6.399999999999992e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8.699999999999985e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00013899999999999972,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 5.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0002629999999999999,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8.799999999999985e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00035700000000000217,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00013299999999999974,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00017599999999999962,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.0999999999999924e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 5.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002169999999999995,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0019229999999999376,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 4.9999999999999996e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002509999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0003450000000000019,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0005280000000000063,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.004293000000000245,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0007140000000000108,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0008120000000000132,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0015229999999999712,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0001809999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0017559999999999516,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0002189999999999995,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0005220000000000062,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00040900000000000344,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0001449999999999997,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0009830000000000166,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00029000000000000054,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 2.3000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0001069999999999998,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00041700000000000363,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00028700000000000047,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0006480000000000092,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00018899999999999958,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0001809999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0009060000000000155,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 4.799999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.599999999999983e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0032520000000001072,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0002589999999999998,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0002880000000000005,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0003710000000000025,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0004610000000000047,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00025299999999999964,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.6000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0016269999999999625,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.1000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.2000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0003200000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.800000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0001069999999999998,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4.5999999999999966e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 5.2999999999999947e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.5000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.099999999999984e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00020899999999999952,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 11}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.3000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0009880000000000162,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0006670000000000097,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.00038100000000000276,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 8.599999999999985e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0004360000000000041,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.00011399999999999978,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 5.999999999999993e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 2.3000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0001049999999999998,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00042100000000000373,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 4.899999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00027400000000000015,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.2000000000000002e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 7.599999999999988e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0003880000000000029,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.4000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00048700000000000533,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 7.699999999999988e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00040200000000000327,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0003000000000000008,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 9e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.001785999999999949,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00022499999999999948,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.000804000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0008590000000000144,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00015199999999999968,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0003220000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 3.5999999999999994e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 4.5999999999999966e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 4.5999999999999966e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.2000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00017599999999999962,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 5.799999999999993e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 1.5000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3.8999999999999986e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 2.1000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0010300000000000127,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0009600000000000168,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00021199999999999952,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0003380000000000017,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 2.5000000000000008e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 4.499999999999997e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002790000000000003,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.699999999999991e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 7.999999999999987e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00011899999999999976,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 2.1000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 5.3999999999999944e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.2000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3.3e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00011999999999999976,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.700000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.499999999999991e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00012199999999999975,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4.699999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.3000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.900000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3.5999999999999994e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00016399999999999965,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00034300000000000183,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00012699999999999975,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 9e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.1000000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.3000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.5000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00033500000000000164,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0011650000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.00015199999999999968,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 4.099999999999998e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0005720000000000074,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00034000000000000176,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.999999999999982e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.5000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 4.9999999999999996e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 2e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00027300000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00015199999999999968,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 7.699999999999988e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 1.2000000000000002e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 3.000000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 8.299999999999986e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 11}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.0000000000000005e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 1.9000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.4000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0001419999999999997,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.2000000000000002e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1.6000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 1e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 4.399999999999997e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002549999999999997,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.900000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4.9999999999999996e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0001429999999999997,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00026599999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0002880000000000005,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0007800000000000125,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 7.09999999999999e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4.899999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.199999999999984e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.00010999999999999979,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.299999999999983e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00012099999999999976,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.8000000000000004e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 2.1000000000000006e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.00011699999999999977,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9.499999999999983e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 4.799999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 2.700000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 7.19999999999999e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3.5999999999999994e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.00015599999999999967,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 4.799999999999996e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.499999999999991e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.900000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.0000000000000005e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 9e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.2000000000000002e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2.5000000000000008e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 2e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 5.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 7.999999999999987e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.7000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00019699999999999956,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 6.999999999999999e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 4.5999999999999966e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 5.2999999999999947e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 8e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 9e-06,
                 "default_factory": {
                     "py/object": "jsonpickle.handlers.CloneFactory",
                     "exemplar": 0
@@ -7472,7 +7989,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -9330,6 +9847,26 @@
                                 0.0
                             ]
                         ]
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 1514
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 1514
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 1514
+                            }
+                        }
                     }
                 },
                 "__dict__": {
@@ -9523,107 +10060,26 @@
             "theta_pi": 1.2649147852360345,
             "theta_w": 1.2940046984609075,
             "tajimas_d": -0.2651044063833689,
-            "_joint": [
-                {
-                    "py/tuple": [
-                        1,
-                        2,
-                        0.9244754065985555,
-                        [
-                            {
-                                "py/tuple": [
-                                    1.3609672342797754,
-                                    0.716616136484696,
-                                    0.19105,
-                                    0.2738688739827704
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.732073926312134,
-                                    0.35081588995137253,
-                                    0.201998,
-                                    0.335078767612074
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.9528075942673306,
-                                    0.9095842757439145,
-                                    0.456879,
-                                    0.1363602604150196
-                                ]
-                            }
-                        ]
-                    ]
+            "_function_cache": {
+                "cdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                    "_distribution": {
+                        "py/id": 210
+                    }
                 },
-                {
-                    "py/tuple": [
-                        1,
-                        4,
-                        0.27470277787013253,
-                        [
-                            {
-                                "py/tuple": [
-                                    1.3609672342797754,
-                                    0.05043315316816921,
-                                    0.291722,
-                                    0.2651427824622268
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.732073926312134,
-                                    0.0,
-                                    0.358269,
-                                    2.2507684181787284
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.9528075942673306,
-                                    0.21914809918702058,
-                                    0.480576,
-                                    0.32713634010646697
-                                ]
-                            }
-                        ]
-                    ]
+                "pdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                    "_distribution": {
+                        "py/id": 210
+                    }
                 },
-                {
-                    "py/tuple": [
-                        2,
-                        4,
-                        0.041507438238200224,
-                        [
-                            {
-                                "py/tuple": [
-                                    0.35081588995137253,
-                                    0.05043315316816921,
-                                    0.116013,
-                                    0.5161800071133933
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    0.716616136484696,
-                                    0.0,
-                                    0.17942,
-                                    4.2647404604666175
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    0.9095842757439145,
-                                    0.21914809918702058,
-                                    0.414159,
-                                    0.14934224951568986
-                                ]
-                            }
-                        ]
-                    ]
+                "quantile": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                    "_distribution": {
+                        "py/id": 210
+                    }
                 }
-            ],
+            },
             "_joint_surface": [
                 {
                     "py/tuple": [
@@ -13908,11 +14364,11 @@
         "fsfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 177
+                "py/id": 211
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 29
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -15611,7 +16067,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 33
+                "py/id": 34
             },
             "n": 5,
             "_sfs_dist": {
@@ -15740,11 +16196,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 187
+                        "py/id": 221
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -17621,12 +18077,105 @@
                             0.0,
                             0.0
                         ]
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 1567
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 1567
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 1567
+                            }
+                        }
                     }
                 }
             },
             "mutation_configs": {
                 "py/object": "collections.defaultdict",
-                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.000000000007918,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.07690100000005624,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.11460000000009395,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.10408800000008343,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.042229000000021576,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.06505000000004439,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0834540000000628,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.04156300000002091,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.06664000000004598,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.02248100000000183,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.02366300000000301,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.03983400000001918,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.01130099999999815,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.006719000000000567,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0031560000000000945,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.00553200000000041,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.07000900000004935,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.02584000000000519,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.019254999999998603,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.019623999999998972,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.013133999999996803,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.04389000000002324,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.03261500000001196,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.012123999999997545,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.005214000000000368,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0037370000000001716,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.01196799999999766,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.0033890000000001254,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 0.0014599999999999765,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0010420000000000117,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.0006510000000000093,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0001839999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 0.003332000000000118,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0012189999999999968,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.89999999999999e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0029810000000000713,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.0003550000000000021,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0007910000000000127,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.002088999999999953,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 0.005360000000000387,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}]}": 0.000351000000000002,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 0.0006010000000000081,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 0.0023779999999999912,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}]}": 0.0001769999999999996,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 8.499999999999986e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 0.003053000000000081,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 0.0003210000000000013,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0007790000000000124,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 0.00013199999999999974,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.0008110000000000132,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.0003630000000000023,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 0.00023499999999999945,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 0.00020199999999999954,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 3.699999999999999e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 11}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 6.699999999999991e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 0.0003040000000000009,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 0.0012599999999999933,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 0.00011999999999999976,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 1.7000000000000003e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 0.0004270000000000039,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 6.499999999999991e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}]}": 0.00012199999999999975,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 8}]}": 3.5999999999999994e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}]}": 2.3000000000000007e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 11}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 2.0000000000000005e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 10}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 2}]}": 1e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 9}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}]}": 1.2000000000000002e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 1}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}]}": 0.0002880000000000005,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}]}": 7.19999999999999e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 3}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}]}": 2.700000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 5}]}": 2.900000000000001e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}]}": 3e-06,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 6}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 2.5000000000000008e-05,
+                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 7}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 4}]}": 2e-06,
                 "default_factory": {
                     "py/object": "jsonpickle.handlers.CloneFactory",
                     "exemplar": 0
@@ -17641,7 +18190,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 29
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -19499,6 +20048,26 @@
                                 0.0
                             ]
                         ]
+                    },
+                    "_function_cache": {
+                        "cdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                            "_distribution": {
+                                "py/id": 1740
+                            }
+                        },
+                        "pdf": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                            "_distribution": {
+                                "py/id": 1740
+                            }
+                        },
+                        "quantile": {
+                            "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                            "_distribution": {
+                                "py/id": 1740
+                            }
+                        }
                     }
                 },
                 "__dict__": {
@@ -19691,7 +20260,27 @@
             },
             "theta_pi": 1.2649147852360776,
             "theta_w": 1.294004698460952,
-            "tajimas_d": -0.26510440638337396
+            "tajimas_d": -0.26510440638337396,
+            "_function_cache": {
+                "cdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
+                    "_distribution": {
+                        "py/id": 1558
+                    }
+                },
+                "pdf": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
+                    "_distribution": {
+                        "py/id": 1558
+                    }
+                },
+                "quantile": {
+                    "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
+                    "_distribution": {
+                        "py/id": 1558
+                    }
+                }
+            }
         }
     }
 }

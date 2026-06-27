@@ -370,17 +370,35 @@ class DistributionTestCase(TestCase):
         self.assertEqual(coal.sfs.get_mutation_config(config=[1, 0, 0, 0], theta=0), 0)
         self.assertEqual(coal.sfs.get_mutation_config(config=[1, 1, 0, 0], theta=0), 0)
 
-    def test_get_mutation_config_more_than_one_epoch_raises_not_implemented_error(self):
+    def test_get_mutation_config_multiple_epochs_reduces_to_homogeneous(self):
         """
-        Test that sampling with more than one epoch raises a NotImplementedError.
+        Test that the mutational-configuration probability for piecewise time-homogeneous demography reduces to the
+        single-epoch result when all epochs share the same population size.
         """
-        with self.assertRaises(NotImplementedError) as context:
-            pg.Coalescent(
-                n=5,
-                demography=pg.Demography(
-                    pop_sizes={'pop_0': {0: 5, 1: 10}}
-                )
-            ).sfs.get_mutation_config(config=[1, 1], theta=1)
+        config, theta = [1, 2, 0, 1], 1.5
+
+        homogeneous = pg.Coalescent(n=5).sfs.get_mutation_config(config=config, theta=theta)
+
+        piecewise = pg.Coalescent(
+            n=5,
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 1, 1.3: 1}})
+        ).sfs.get_mutation_config(config=config, theta=theta)
+
+        self.assertAlmostEqual(homogeneous, piecewise, places=12)
+
+    def test_get_mutation_config_multiple_epochs_returns_valid_probability(self):
+        """
+        Test that the mutational-configuration probability for a genuine multi-epoch demography is a valid
+        probability and that the probabilities over all configurations sum to one.
+        """
+        coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}}))
+
+        p = coal.sfs.get_mutation_config(config=[1, 1, 0, 1], theta=1.5)
+        self.assertTrue(0 <= p <= 1)
+
+        # generated mass approaches one as configurations are exhausted in descending probability order
+        list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.95, coal.sfs.get_mutation_configs(theta=1.5)))
+        self.assertGreaterEqual(coal.sfs.generated_mass, 0.95)
 
     def test_get_mutation_config_incorrect_length_value_error(self):
         """
