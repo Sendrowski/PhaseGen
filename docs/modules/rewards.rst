@@ -4,6 +4,5 @@ Rewards
 -------
 
 .. automodule:: phasegen.rewards
-   :undoc-members:
-   :show-inheritance:
+   :no-inherited-members:
 

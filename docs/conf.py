@@ -22,12 +22,17 @@ release = '1.2.0'
 
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
+    'autodocsumm',  # per-class method-summary table at the top of each class
     'myst_nb',
     'sphinx_book_theme'
 ]
+
+# the autosummary class tables on the module pages are written inline (no generated stub pages)
+autosummary_generate = False
 
 typehints_use_signature = True
 typehints_fully_qualified = False
@@ -46,7 +51,15 @@ autodoc_default_options = {
     'members': True,
     'member-order': 'bysource',
     'special-members': '__init__',
-    'undoc-members': True
+    'undoc-members': True,
+    'inherited-members': True,
+    'show-inheritance': True,
+    # autodocsumm: prepend a compact summary table to each documented object -- a class table at the top of every
+    # module page and a method table at the top of every class. Limit it to those two sections (``;;``-separated):
+    # the Attributes summary just duplicates the per-attribute docs below it.
+    'autosummary': True,
+    'autosummary-sections': 'Classes;;Methods',
+    'autosummary-nosignatures': True  # summary tables list bare names; signatures stay in the detailed docs below
 }
 
 add_module_names = False
