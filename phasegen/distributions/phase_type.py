@@ -4,6 +4,7 @@ import logging
 from ..caching import cached_property, cache
 from typing import Tuple, Collection, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
+import scipy.sparse as sp
 from tqdm import tqdm
 from ..demography import Demography, Epoch
 from ..expm import Backend
@@ -405,30 +406,44 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         alpha = self.state_space.alpha
         R = np.array([r._get(self.state_space) for r in rewards])  # (n_rewards, k), epoch-invariant
 
-        # materialize the per-epoch generators once: exit rates and cumulative jump distributions. States, rewards,
-        # absorption and the initial distribution are epoch-invariant, so only the rates differ across epochs.
-        end_times, lam_epochs, cum_epochs = [], [], []
-        for epoch in self.demography.epochs:
+        # materialize the per-epoch generators once: exit rates and a sparse cumulative jump distribution. States,
+        # rewards, absorption and the initial distribution are epoch-invariant, so only the rates differ across
+        # epochs. The jump distribution is stored as a global flat CSR keyed by (epoch, state): each row holds its
+        # neighbour states and the within-row cumulative jump probabilities, band-shifted by the global row id so a
+        # single searchsorted draws the next state for every walker at once. This is O(nnz) rather than O(E * k^2)
+        # in both memory and the categorical draw, lifting the ceiling on large (sparse) state spaces.
+        end_times, lam_epochs = [], []
+        indptr_list, neighbours_list, cum_list = [], [], []
+        nnz = 0
+        for ei, epoch in enumerate(self.demography.epochs):
             self.state_space.update_epoch(epoch)
-            S = np.asarray(self.state_space.S, dtype=float)
-            lam = -np.diag(S).copy()
-            Q = S.copy()
-            np.fill_diagonal(Q, 0.0)
+            S = sp.csr_matrix(self.state_space.S, dtype=float)
+            lam = -S.diagonal()  # (k,) exit rates
+            coo = S.tocoo()
+            off = coo.row != coo.col  # off-diagonal jump rates only
+            order = np.lexsort((coo.col[off], coo.row[off]))  # row-major, ascending destination within each source
+            rows, cols, vals = coo.row[off][order], coo.col[off][order], coo.data[off][order]
             with np.errstate(divide='ignore', invalid='ignore'):
-                P = Q / lam[:, None]  # row-normalized off-diagonal jump probabilities
-            P[lam == 0] = 0.0  # absorbing / isolated rows are never sampled from
-            cum = np.cumsum(P, axis=1)
-            cum[:, -1] = np.inf  # guard inverse-CDF sampling against floating-point overshoot of the last bin
+                probs = vals / lam[rows]  # row-normalized jump probabilities (lam > 0 for any sampled state)
+            indptr = np.concatenate(([0], np.cumsum(np.bincount(rows, minlength=k))))  # (k + 1,) per-epoch pointers
+            csum = np.concatenate(([0.0], np.cumsum(probs)))
+            within = csum[1:] - csum[indptr[rows]]  # cumulative probability within each source row
             end_times.append(epoch.end_time)
             lam_epochs.append(lam)
-            cum_epochs.append(cum)
+            indptr_list.append(indptr[:-1] + nnz)  # shift the row pointers into the global flat arrays
+            neighbours_list.append(cols)
+            cum_list.append(within + (ei * k + rows))  # band-shift by global row id -> globally sorted
+            nnz += cols.size
             if epoch.end_time == np.inf:
                 break
 
         end_times = np.array(end_times)  # (E,)
         lam_epochs = np.array(lam_epochs)  # (E, k)
-        cum_epochs = np.array(cum_epochs)  # (E, k, k)
         last = len(end_times) - 1
+        # global flat CSR over the E * k rows: pointers, destination states and band-shifted cumulative probabilities
+        cum_indptr = np.concatenate(indptr_list + [[nnz]])  # (E * k + 1,)
+        cum_neighbours = np.concatenate(neighbours_list)  # (nnz,)
+        cum_offsets = np.concatenate(cum_list)  # (nnz,) globally sorted
 
         # ensemble state
         state = np.random.choice(k, size=n_samples, p=alpha)
@@ -479,9 +494,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 mass[a] += R[:, state[a]].T * dt[:, None]
                 t[a] += dt
 
-                # sample the next state via inverse-CDF on the cumulative jump distribution
-                u = np.random.random(a.size)
-                nxt = (cum_epochs[e[a], state[a]] < u[:, None]).sum(axis=1)
+                # sample the next state via inverse-CDF on the sparse cumulative jump distribution: one global
+                # searchsorted over the band-shifted cumulative probabilities, clipped to each walker's own row
+                row = e[a] * k + state[a]
+                q = np.random.random(a.size) + row  # band-shifted uniform draw lands in this row's band
+                pos = np.clip(np.searchsorted(cum_offsets, q, side='left'), cum_indptr[row], cum_indptr[row + 1] - 1)
+                nxt = cum_neighbours[pos]
                 state[a] = nxt
                 if record_visits:
                     np.add.at(states_visited, nxt, 1)

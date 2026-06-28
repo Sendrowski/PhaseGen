@@ -108,6 +108,20 @@ def test_tree_height_per_deme_gated_for_multiple_loci():
     assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).tree_height.demes['p0'].mean > 0
 
 
+def test_vectorized_and_scalar_paths_agree():
+    """The vectorized (sparse CSR) and scalar sampling paths realise the same CTMC law, including across epochs."""
+    from scipy import stats
+
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1.0: 2.0}})  # piecewise-constant: forces an epoch crossing
+    for c in (pg.Coalescent(n=8), pg.Coalescent(n=8, demography=dem)):
+        d = c.tree_height
+        np.random.seed(7)
+        vec = d._sample_vectorized(20000, [d.reward]).ravel()
+        np.random.seed(7)
+        sca = d._sample_scalar(20000, [d.reward]).ravel()
+        assert stats.ks_2samp(vec, sca).pvalue > 0.01
+
+
 def test_sampled_coalescent_matches_analytic():
     """``SampledCoalescent`` exposes empirical distributions consistent with the analytic coalescent."""
     c = pg.Coalescent(n=6)

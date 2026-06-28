@@ -75,10 +75,11 @@ class Settings:
 
     #: Transient-state count at or below which trajectory sampling (:meth:`PhaseTypeDistribution._sample`) uses the
     #: vectorized ensemble path (all trajectories advanced in lockstep, one wave per jump) instead of the per-sample
-    #: Python loop. The vectorized path is exact (same CTMC law) and much faster, but materializes the per-epoch
-    #: cumulative jump matrices densely (``n_epochs * n_states**2``), so it is gated on the state count. Above the
-    #: threshold the scalar fallback is used. Set to 0 to always use the scalar loop.
-    sample_vectorized_max_states: int = 2000
+    #: Python loop. The vectorized path is exact (same CTMC law) and much faster. It stores the per-epoch jump
+    #: distribution as a sparse CSR (``O(nnz)``) and draws next states with a single searchsorted, so it scales to
+    #: large (sparse) state spaces; the threshold is a safety bound. Above it the scalar fallback is used. Set to 0
+    #: to always use the scalar loop.
+    sample_vectorized_max_states: int = 50_000
 
     #: Upper quantile used as the default right end of CDF/PDF/quantile plots. The plot grid runs from 0 to this
     #: quantile so the view is not stretched by a heavy upper tail (mean + many standard deviations can extend far
