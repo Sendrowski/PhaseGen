@@ -77,6 +77,37 @@ def test_to_empirical_sfs2_cross_moment():
     assert e.cross_moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
 
 
+def test_to_empirical_exposes_n_samples():
+    """``to_empirical`` records the sample count on the empirical object, surviving ``drop``."""
+    e = pg.Coalescent(n=5).tree_height.to_empirical(12345)
+    assert e.n_samples == 12345
+    e.touch(np.linspace(0, 5, 20))
+    e.drop()
+    assert e.n_samples == 12345  # retained for the serialized fixture
+
+    dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1},
+                        migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
+    assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).jsfs.to_empirical(9999).n_samples == 9999
+    assert pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2.to_empirical(8888).n_samples == 8888
+
+
+def test_tree_height_per_deme_gated_for_multiple_loci():
+    """Per-deme tree height is ill-posed under recombination (max over loci is not additively decomposable), so the
+    accessor raises for multiple loci; the additive ``total_branch_length.demes`` is available instead."""
+    c = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    with pytest.raises(NotImplementedError):
+        _ = c.tree_height.demes
+
+    # the additive per-deme decomposition is well-defined and sums to the total
+    dem = pg.Demography(pop_sizes={'p0': 2, 'p1': 1},
+                        migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
+    tbl = pg.Coalescent(n={'p0': 1, 'p1': 1}, loci=2, recombination_rate=1.0, demography=dem).total_branch_length
+    assert tbl.demes['p0'].mean + tbl.demes['p1'].mean == pytest.approx(tbl.mean, rel=1e-6)
+
+    # single-locus per-deme tree height remains available
+    assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).tree_height.demes['p0'].mean > 0
+
+
 def test_sampled_coalescent_matches_analytic():
     """``SampledCoalescent`` exposes empirical distributions consistent with the analytic coalescent."""
     c = pg.Coalescent(n=6)

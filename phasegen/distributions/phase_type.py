@@ -842,6 +842,22 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         the locus axis (matching :class:`~phasegen.distributions.empirical.MsprimeCoalescent.tree_height`)."""
         return x.max(axis=0)
 
+    @cached_property
+    def demes(self) -> MarginalDemeDistributions:
+        """
+        Marginal tree-height distributions over each deme. Defined for a single locus only: the multi-locus tree
+        height is the maximum over loci, which has no additive per-deme decomposition (unlike the total branch
+        length), so the per-deme breakdown is ill-posed under recombination.
+        """
+        if self.locus_config.n > 1:
+            raise NotImplementedError(
+                "Per-deme tree height is not defined for multiple loci: the two-locus tree height is the maximum "
+                "over loci, which has no additive per-deme decomposition. Use total_branch_length.demes (additive) "
+                "for the per-deme breakdown under recombination, or restrict to a single locus."
+            )
+
+        return MarginalDemeDistributions(self)
+
     #: Maximum number of time we double the end time when determining time to almost sure absorption.
     max_iter: int = 20
 

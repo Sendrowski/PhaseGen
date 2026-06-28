@@ -51,6 +51,9 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint_surface`).
         self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
 
+        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
+        self.n_samples: Optional[int] = None if samples is None else np.asarray(samples).shape[0]
+
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface: list = []
 
@@ -197,6 +200,9 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         #: Samples
         self.samples = np.array(samples, dtype=float)
+
+        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
+        self.n_samples: int = self.samples.shape[0]
 
     def touch(self, t: np.ndarray) -> None:
         """
@@ -736,6 +742,9 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         self._mean = np.asarray(mean)
         self._left = None if left is None else np.asarray(left)
         self._right = None if right is None else np.asarray(right)
+
+        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
+        self.n_samples: Optional[int] = None if left is None else np.asarray(left).shape[0]
 
     @property
     def mean(self) -> TwoLocusSFS:
@@ -1579,11 +1588,13 @@ class SampledCoalescent:  # pragma: no cover
             if len(self.lineage_config.pop_names) > 1:
                 _ = self.jsfs
 
-        # two loci: the cross-locus joint surface ground truth and the two-locus SFS
+        # two loci: the cross-locus joint surface ground truth, and the two-locus SFS (single-population only, as in
+        # the analytic two-locus block-counting state space)
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
                 dist.cache_loci_joint_surface([(0, 1)])
-            _ = self.sfs2
+            if len(self.lineage_config.pop_names) == 1:
+                _ = self.sfs2
 
     def drop(self) -> None:
         """Drop the per-sample data and the analytic coalescent; the cached stats and surfaces are retained."""

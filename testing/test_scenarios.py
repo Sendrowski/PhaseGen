@@ -21,6 +21,7 @@ configs = [
     '1_epoch_n_4_sampled',
     '1_epoch_2_pops_n_3_jsfs_sampled',
     '1_epoch_2_loci_n_3_r_1_sampled',
+    '1_epoch_2_loci_2_pops_n_2_r_1_sampled',
     # low-sample-size fast-suite equivalents of slow-marked scenarios (gradual decline; multi-epoch 2-loci loci-joint)
     '2_epoch_n_2_decline',
     '3_epoch_2_loci_n_2_r_1',
