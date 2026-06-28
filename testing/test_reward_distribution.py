@@ -524,6 +524,28 @@ def test_bin_returns_callable_plottable_1d_distribution():
         pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.bin(1, 1)
 
 
+def test_bin_mean_var_std_return_scalars():
+    """``sfs.bin(i).mean/var/std`` must return the scalar bin moments, not crash. Regression for the spectrum host
+    overriding ``moment`` to return a whole SFS, which broke ``float()`` in RewardDistribution.mean/var."""
+    coal = pg.Coalescent(n=5)
+    means = np.asarray(coal.sfs.mean.data)
+
+    for i in (1, 2, 3, 4):
+        b = coal.sfs.bin(i)
+        assert isinstance(b.mean, float)
+        # the bin mean is exactly the per-bin spectrum mean
+        assert b.mean == pytest.approx(means[i], rel=1e-9)
+        assert isinstance(b.var, float) and b.var >= 0
+        assert b.std == pytest.approx(b.var ** 0.5)
+
+    # also works for a joint SFS bin (multi-population spectrum host)
+    dem = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1})
+    jb = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).jsfs.bin(1, 0)
+    assert isinstance(jb.mean, float) and jb.mean >= 0
+    assert isinstance(jb.var, float) and jb.var >= 0
+
+
 def test_conditional_distribution():
     """``JointRewardDistribution.conditional`` returns a proper, callable-and-plottable 1D distribution; the law of
     total expectation ``E[R_b] = ∫ E[R_b | R_a = x] f_a(x) dx`` is recovered, and the self-pair / atom edge cases

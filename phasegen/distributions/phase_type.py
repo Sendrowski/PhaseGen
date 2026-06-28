@@ -343,16 +343,29 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         for i in tqdm(range(n_samples), disable=not Settings.use_pbar):
             mass = np.zeros(n_rewards)
             t = 0
-            rate = 0
             state = np.random.choice(len(alpha), p=alpha)
             epochs = self.demography.epochs
 
-            try:
-                # find first non-zero rate epoch
-                while rate == 0:
+            def wait_through_isolated_epochs() -> float:
+                """While the current state has zero exit rate it cannot transition within the epoch: accrue its
+                reward over each fully isolated epoch and advance until a positive exit rate returns. The holding
+                time is resampled afterwards by the caller, which is exact by the memorylessness of the exponential
+                (no hazard accrues across a zero-rate epoch)."""
+                nonlocal t, epoch, mass
+                r = -self.state_space.S[state, state]
+                while r == 0:
+                    mass += R[:, state] * (epoch.end_time - t)
+                    t = epoch.end_time
                     epoch = next(epochs)
                     self.state_space.update_epoch(epoch)
-                    rate = -self.state_space.S[state, state]
+                    r = -self.state_space.S[state, state]
+                return r
+
+            try:
+                # advance to the first epoch with a positive exit rate, accruing reward while isolated
+                epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
+                rate = wait_through_isolated_epochs()
 
                 # sample next time step
                 dt = np.random.exponential(1 / rate)
@@ -360,7 +373,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 # iterate over transitions
                 while True:
 
-                    # iterate over epochs
+                    # iterate over epochs the holding time spans
                     while t + dt >= epoch.end_time:
                         # reward until epoch boundary
                         mass += R[:, state] * (epoch.end_time - t)
@@ -373,7 +386,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
                         new_rate = -self.state_space.S[state, state]
                         if new_rate == 0:
-                            t = epoch.end_time
+                            # isolated for at least one whole epoch: wait it out (accruing reward) and resample
+                            rate = wait_through_isolated_epochs()
+                            dt = np.random.exponential(1 / rate)
                             continue
 
                         # rescale remaining time
@@ -394,14 +409,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                     if absorbing[state]:
                         raise StopIteration
 
-                    rate = -self.state_space.S[state, state]
-
-                    # if rate is zero, we skip to the next epoch
-                    if rate == 0:
-                        t = epoch.end_time
-                        continue
-
-                    # sample next time step
+                    # advance through any epochs in which the new state is isolated, then sample the holding time
+                    rate = wait_through_isolated_epochs()
                     dt = np.random.exponential(1 / rate)
 
             except StopIteration:

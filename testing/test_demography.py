@@ -398,6 +398,18 @@ class DemographyTestCase(TestCase):
 
         self.assertAlmostEqual(coal.tree_height.mean, 5, delta=0.1)
 
+    def test_get_epochs_unsorted_times_returns_enclosing_epochs(self):
+        """
+        ``get_epochs`` must return, for each query time, the epoch enclosing it, regardless of input order
+        (regression for the inverse-permutation bug when restoring the original order of unsorted times).
+        """
+        d = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 2, 3: 3, 5: 4}})
+        times = [5.5, 0.5, 3.5, 1.5]
+        epochs = d.get_epochs(times)
+
+        for t, epoch in zip(times, epochs):
+            self.assertTrue(epoch.start_time <= t < epoch.end_time)
+
     def test_epoch_to_string_two_pops_migration(self):
         """
         Test epoch to string.

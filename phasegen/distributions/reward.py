@@ -119,7 +119,9 @@ class RewardDistribution(CallableDistributionFunctions):
         reward = getattr(self, 'reward', None)
         if reward is None:
             return float(self._cumulants()[0])
-        return float(self._host.moment(k=1, rewards=(reward,), center=False))
+        # go through the moment engine directly: a spectrum host overrides ``moment`` to return a whole SFS, which
+        # would break ``float()`` for a single-bin reward
+        return float(MomentEvaluator.moment(self._host, k=1, rewards=(reward,), center=False))
 
     @cached_property
     def var(self) -> float:
@@ -130,7 +132,7 @@ class RewardDistribution(CallableDistributionFunctions):
                 "var is not available for a conditional distribution: its nested-transform cumulant variance is "
                 "unreliable (it collapses to a floor). Use the cdf / quantile instead."
             )
-        return float(self._host.moment(k=2, rewards=(reward, reward), center=True))
+        return float(MomentEvaluator.moment(self._host, k=2, rewards=(reward, reward), center=True))
 
     @cached_property
     def std(self) -> float:

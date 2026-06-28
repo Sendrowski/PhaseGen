@@ -1399,6 +1399,31 @@ class CoalescentTestCase(TestCase):
         np.testing.assert_array_almost_equal(original, flattened, decimal=14)
         pg.Settings.flatten_block_counting = True
 
+    def test_sample_accrues_reward_across_zero_rate_epochs(self):
+        """
+        The sampler must accrue elapsed time and reward across zero-rate epochs (temporarily isolated demes). With
+        migration switched off until t=1, coalescence is impossible before t=1, so no sample may fall below that
+        floor and the empirical distribution must match the exact phase-type result (regression for the sampler
+        dropping the isolation interval).
+        """
+        dem = pg.Demography(
+            pop_sizes={'p0': {0: 1.0}, 'p1': {0: 1.0}},
+            migration_rates={('p0', 'p1'): {0: 0.0, 1: 1.0}, ('p1', 'p0'): {0: 0.0, 1: 1.0}}
+        )
+        th = pg.Coalescent(n={'p0': 1, 'p1': 1}, demography=dem).tree_height
+
+        np.random.seed(0)
+        s = th._sample(20000).ravel()
+
+        # coalescence is impossible while the demes are isolated (t < 1)
+        self.assertTrue((s >= 1.0).all())
+
+        # empirical mean and CDF agree with the exact result
+        self.assertAlmostEqual(s.mean(), th.mean, delta=0.1)
+        for q in (0.25, 0.5, 0.75):
+            x = float(th.quantile(q))
+            self.assertAlmostEqual(np.mean(s <= x), q, delta=0.03)
+
     def test_sample_empirical_pdf(self):
         """
         Test empirical PDF sampling against exact PDF.

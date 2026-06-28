@@ -274,8 +274,8 @@ class Demography:
             # add epoch to array
             epochs[i] = epoch
 
-        # sort back to original order
-        return np.array(epochs[np.argsort(t)])
+        # sort back to original order (inverse of the sorting permutation)
+        return np.array(epochs)[np.argsort(np.argsort(t))]
 
     def get_epoch(self, t: float = 0) -> 'Epoch':
         """
