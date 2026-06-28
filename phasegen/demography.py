@@ -467,7 +467,9 @@ class Epoch:
         :param start_time: Start time of the epoch.
         :param end_time: End time of the epoch.
         :param pop_sizes: Population sizes. By default, we have ``{'pop_0': 1}`.
-        :param migration_rates: Migration rates. By default, we have zero migration rates between all populations.
+        :param migration_rates: Migration rates of the form ``{(pop_i, pop_j): rate}``, where ``rate`` is the
+            backward-in-time rate at which a lineage moves from population ``pop_i`` to population ``pop_j``. By
+            default, we have zero migration rates between all populations.
         """
         if pop_sizes is None:
             pop_sizes = {'pop_0': 1}
@@ -879,18 +881,17 @@ class PopulationSplit(DiscreteDemographicEvent):
         """
         # if epoch is contained in the event
         if epoch.start_time <= self.start_time < epoch.end_time:
-            # specify high migration rate from derived to ancestral population
             for p in self.derived:
-                epoch.migration_rates[(self.ancestral, p)] = epoch.pop_sizes[p] * self.multiplier
-
-            # set all derived population sizes to zero
-            # for p in self.derived:
-            #    epoch.pop_sizes[p] = 0
-
-            # set all migration rates to the derived populations to zero
-            for p in self.derived:
+                # switch off all other migration into and out of the derived population so that, backward in time,
+                # no lineage enters the (now drained) derived population
                 for q in epoch.pop_names:
-                    epoch.migration_rates[(p, q)] = 0
+                    if q != p:
+                        epoch.migration_rates[(p, q)] = 0
+                        epoch.migration_rates[(q, p)] = 0
+
+                # specify high backward-in-time migration rate from the derived to the ancestral population, so that
+                # all lineages move from the derived into the ancestral population *fast enough*
+                epoch.migration_rates[(p, self.ancestral)] = epoch.pop_sizes[p] * self.multiplier
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

@@ -613,8 +613,8 @@ class MomentEvaluator:
 
                 u_prev = u
 
-        # sort probabilities back to original order
-        moments = moments[np.argsort(end_times)]
+        # sort probabilities back to original order (inverse of the sorting permutation)
+        moments = moments[np.argsort(np.argsort(end_times))]
 
         # the suppressed intermediate over/underflow must not have corrupted the (finite) result
         if not np.isfinite(moments).all():
@@ -686,7 +686,7 @@ class MomentEvaluator:
             moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
             u_prev = u
 
-        moments = moments[np.argsort(end_times)]
+        moments = moments[np.argsort(np.argsort(end_times))]
 
         if np.isnan(moments).any():
             self._logger.warning(

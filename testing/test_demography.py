@@ -379,8 +379,24 @@ class DemographyTestCase(TestCase):
         self.assertEqual(coal.demography.get_epoch(1).migration_rates[('pop_1', 'pop_0')], 0)
         self.assertEqual(coal.demography.get_epoch(1).migration_rates[('pop_0', 'pop_1')], 0)
 
-        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_1', 'pop_0')], 100)
-        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_0', 'pop_1')], 0)
+        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_1', 'pop_0')], 0)
+        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_0', 'pop_1')], 100)
+
+    def test_population_split_pools_into_ancestral(self):
+        """
+        Backward in time, lineages must pool into the *ancestral* deme (regression for the reversed split
+        direction). With derived size 1 and ancestral size 3, E[T_mrca] for two lineages reflects coalescence in
+        the size-3 ancestral deme (2 + 3 = 5), not the size-1 derived deme (2 + 1 = 3).
+        """
+        coal = pg.Coalescent(
+            n={'pop_0': 1, 'pop_1': 1},
+            demography=pg.Demography(
+                pop_sizes={'pop_0': 1, 'pop_1': 3},
+                events=[pg.PopulationSplit(derived='pop_0', ancestral='pop_1', time=2)]
+            )
+        )
+
+        self.assertAlmostEqual(coal.tree_height.mean, 5, delta=0.1)
 
     def test_epoch_to_string_two_pops_migration(self):
         """

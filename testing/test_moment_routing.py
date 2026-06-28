@@ -182,6 +182,24 @@ def test_dense_expm_path_taken_above_threshold():
     assert action.call_count == 0
 
 
+@pytest.mark.parametrize('force_sparse', [False, True])
+def test_accumulate_restores_input_order_for_unsorted_times(force_sparse):
+    """``accumulate`` must return moments aligned to the *input* end-time order, not the internal sorted order.
+    Regression for the inverse-permutation bug (``argsort`` instead of ``argsort(argsort(...))``) which mis-attached
+    moments for >= 3 unsorted times, in both the dense (``_accumulate``) and sparse-action (``_accumulate_action``)
+    paths."""
+    Settings.closed_form_last_epoch = False
+    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 12
+
+    th = pg.Coalescent(n=5).tree_height
+    times = [3.0, 0.5, 2.0, 1.0]  # >= 3 entries and unsorted -> exposes the permutation bug
+
+    acc = th.accumulate(k=1, end_times=times)
+    ref = np.array([th.accumulate(k=1, end_times=[t])[0] for t in times])
+
+    np.testing.assert_allclose(acc, ref, rtol=1e-8, atol=1e-10)
+
+
 def test_flattened_path_taken_for_sfs_mean():
     """The single-population standard SFS mean routes through the flattened accumulation."""
     Settings.flatten_block_counting = True
