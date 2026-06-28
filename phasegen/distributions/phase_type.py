@@ -727,8 +727,8 @@ class _ExpmCumulativeDistributionFunction(_GridCumulativeDistributionFunction):
 
             u_prev = u
 
-        # sort probabilities back to original order
-        probs = probs[np.argsort(t)]
+        # sort probabilities back to original order (inverse of the sorting permutation)
+        probs = probs[np.argsort(np.argsort(t))]
 
         if np.isnan(probs).any():
             d._logger.critical(

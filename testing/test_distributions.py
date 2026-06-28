@@ -89,6 +89,19 @@ class DistributionTestCase(TestCase):
 
             self.assertAlmostEqual(1 - alpha @ T @ e, dist.cdf(t))
 
+    def test_cdf_unsorted_times_preserve_input_order(self):
+        """
+        The array CDF must return values aligned to the input order, not the internally sorted order (regression
+        for the inverse-permutation bug on >= 3 unsorted query times).
+        """
+        dist = self.get_test_coalescent().tree_height
+        times = np.array([3.0, 0.5, 2.0, 1.0])
+
+        got = dist.cdf(times)
+        ref = np.array([float(dist.cdf(t)) for t in times])
+
+        np.testing.assert_allclose(got, ref, rtol=1e-8, atol=1e-10)
+
     def test_quantile(self):
         """
         Test quantile function.
