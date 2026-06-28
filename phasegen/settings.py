@@ -6,6 +6,10 @@ from typing import Iterator, Optional
 
 
 class Settings:
+    """
+    Global configuration flags governing caching, state-space construction, sampling, and the numerical backends.
+    The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``).
+    """
     #: Whether to flatten the block-counting state space when possible.
     #: In certain cases, this can be achieved by computing block probabilities
     #: and adjusting the rewards of the lineage-counting state space accordingly.
