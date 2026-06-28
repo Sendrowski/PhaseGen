@@ -5,7 +5,6 @@ from ..caching import cached_property, cache
 from typing import Tuple, Collection, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.sparse as sp
-from tqdm import tqdm
 from ..demography import Demography, Epoch
 from ..expm import Backend
 from ..lineage import LineageConfig
@@ -362,7 +361,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             record_visits: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
-        Generate samples from the mean reward distribution by simulating trajectories.
+        Generate samples from the mean reward distribution by simulating CTMC trajectories with the vectorized
+        ensemble sampler. Its memory scales with the number of trajectories (not the state count), so requests
+        larger than :attr:`~phasegen.settings.Settings.sample_batch_size` are simulated in batches and concatenated
+        to bound peak memory.
 
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from. Default is the tree height reward.
@@ -373,11 +375,31 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         if rewards is None:
             rewards = [self.reward]
 
-        # the vectorized ensemble path materializes dense per-epoch jump matrices, so it is gated on the state count
-        if self.state_space.k <= Settings.sample_vectorized_max_states:
+        batch = Settings.sample_batch_size
+        if batch is None or n_samples <= batch:
             return self._sample_vectorized(n_samples, rewards, record_visits)
 
-        return self._sample_scalar(n_samples, rewards, record_visits)
+        # bound peak memory by simulating the ensemble in batches and concatenating the per-trajectory results
+        sizes = [batch] * (n_samples // batch)
+        if n_samples % batch:
+            sizes.append(n_samples % batch)
+
+        mass_parts, visits = [], None
+        for size in sizes:
+            out = self._sample_vectorized(size, rewards, record_visits)
+            if record_visits:
+                part, visited = out
+                visits = visited * size if visits is None else visits + visited * size  # visit counts, re-averaged below
+            else:
+                part = out
+            mass_parts.append(part)
+
+        mass = np.concatenate(mass_parts, axis=0)
+
+        if record_visits:
+            return mass, visits / n_samples
+
+        return mass
 
     def _sample_vectorized(
             self,
@@ -387,7 +409,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Vectorized trajectory sampler: advance all ``n_samples`` walkers through the CTMC in lockstep, one wave per
-        jump, instead of looping in Python. Exact (same law as :meth:`_sample_scalar`).
+        jump, instead of looping in Python.
 
         Each walker carries a remaining hazard budget ``H ~ Exp(1)``, resampled after every jump. The time to its
         next event in the current epoch is ``H / lambda`` (``lambda`` the exit rate); a walker whose budget outlasts
@@ -513,112 +535,6 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             return mass, states_visited
 
         return mass
-
-    def _sample_scalar(
-            self,
-            n_samples: int,
-            rewards: Sequence[Reward],
-            record_visits: bool = False
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        """
-        Per-sample trajectory sampler (Python loop). Fallback used by :meth:`_sample` for state spaces too large for
-        the dense per-epoch jump matrices of :meth:`_sample_vectorized`; the two produce the same distribution.
-
-        :param n_samples: Number of trajectories to simulate.
-        :param rewards: Rewards to sample from.
-        :param record_visits: Whether to also return the per-state visit frequencies.
-        :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
-        """
-        n_rewards = len(rewards)
-        samples = np.zeros((n_samples, n_rewards))
-        absorbing = self.state_space.absorbing
-        alpha = self.state_space.alpha
-        states_visited = np.zeros_like(alpha)
-        R = np.array([r._get(self.state_space) for r in rewards])
-
-        # iterate over samples
-        for i in tqdm(range(n_samples), disable=not Settings.use_pbar):
-            mass = np.zeros(n_rewards)
-            t = 0
-            state = np.random.choice(len(alpha), p=alpha)
-            epochs = self.demography.epochs
-
-            def wait_through_isolated_epochs() -> float:
-                """While the current state has zero exit rate it cannot transition within the epoch: accrue its
-                reward over each fully isolated epoch and advance until a positive exit rate returns. The holding
-                time is resampled afterwards by the caller, which is exact by the memorylessness of the exponential
-                (no hazard accrues across a zero-rate epoch)."""
-                nonlocal t, epoch, mass
-                r = -self.state_space.S[state, state]
-                while r == 0:
-                    mass += R[:, state] * (epoch.end_time - t)
-                    t = epoch.end_time
-                    epoch = next(epochs)
-                    self.state_space.update_epoch(epoch)
-                    r = -self.state_space.S[state, state]
-                return r
-
-            try:
-                # advance to the first epoch with a positive exit rate, accruing reward while isolated
-                epoch = next(epochs)
-                self.state_space.update_epoch(epoch)
-                rate = wait_through_isolated_epochs()
-
-                # sample next time step
-                dt = np.random.exponential(1 / rate)
-
-                # iterate over transitions
-                while True:
-
-                    # iterate over epochs the holding time spans
-                    while t + dt >= epoch.end_time:
-                        # reward until epoch boundary
-                        mass += R[:, state] * (epoch.end_time - t)
-                        dt -= (epoch.end_time - t)
-                        t = epoch.end_time
-
-                        # advance epoch
-                        epoch = next(epochs)
-                        self.state_space.update_epoch(epoch)
-
-                        new_rate = -self.state_space.S[state, state]
-                        if new_rate == 0:
-                            # isolated for at least one whole epoch: wait it out (accruing reward) and resample
-                            rate = wait_through_isolated_epochs()
-                            dt = np.random.exponential(1 / rate)
-                            continue
-
-                        # rescale remaining time
-                        dt *= rate / new_rate
-                        rate = new_rate
-
-                    # step completes in current epoch
-                    mass += R[:, state] * dt
-                    t += dt
-
-                    # sample next state
-                    probs = self.state_space.S[state].copy()
-                    probs[state] = 0
-                    state = np.random.choice(len(probs), p=probs / rate)
-
-                    states_visited[state] += 1
-
-                    if absorbing[state]:
-                        raise StopIteration
-
-                    # advance through any epochs in which the new state is isolated, then sample the holding time
-                    rate = wait_through_isolated_epochs()
-                    dt = np.random.exponential(1 / rate)
-
-            except StopIteration:
-                pass
-
-            samples[i] = mass
-
-        # normalize states visited
-        states_visited /= n_samples
-
-        return (samples, states_visited) if record_visits else samples
 
     def plot_accumulation(
             self,

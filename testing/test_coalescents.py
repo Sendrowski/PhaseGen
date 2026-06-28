@@ -1424,11 +1424,11 @@ class CoalescentTestCase(TestCase):
             x = float(th.quantile(q))
             self.assertAlmostEqual(np.mean(s <= x), q, delta=0.03)
 
-    def test_sample_vectorized_matches_scalar(self):
+    def test_sample_batching_matches_single_pass(self):
         """
-        The vectorized ensemble sampler must produce the same distribution as the scalar per-sample loop (and both
-        must agree with the exact result), across a multi-epoch multi-population demography with a zero-rate
-        (isolated) initial epoch.
+        Batched sampling (small :attr:`Settings.sample_batch_size`) must realise the same distribution as a single
+        ensemble pass and agree with the exact result, across a multi-epoch multi-population demography with a
+        zero-rate (isolated) initial epoch.
         """
         from scipy import stats
 
@@ -1438,23 +1438,24 @@ class CoalescentTestCase(TestCase):
         )
         th = pg.Coalescent(n={'p0': 3, 'p1': 3}, demography=dem).tree_height
 
-        saved = pg.Settings.sample_vectorized_max_states
+        saved = pg.Settings.sample_batch_size
         try:
             np.random.seed(0)
-            pg.Settings.sample_vectorized_max_states = 10 ** 9
-            vec = th._sample(20000).ravel()
+            pg.Settings.sample_batch_size = None  # single pass
+            single = th._sample(20000).ravel()
 
             np.random.seed(0)
-            pg.Settings.sample_vectorized_max_states = 0
-            scalar = th._sample(20000).ravel()
+            pg.Settings.sample_batch_size = 3000  # several batches, including a short final one
+            batched = th._sample(20000).ravel()
         finally:
-            pg.Settings.sample_vectorized_max_states = saved
+            pg.Settings.sample_batch_size = saved
 
-        # the two sampling paths are the same law (no significant KS difference)
-        self.assertGreater(stats.ks_2samp(vec, scalar).pvalue, 0.01)
+        # batching does not change the law (no significant KS difference)
+        self.assertEqual(batched.shape, single.shape)
+        self.assertGreater(stats.ks_2samp(single, batched).pvalue, 0.01)
         # and both match the exact mean; coalescence is impossible while the demes are isolated (t < 1)
-        self.assertAlmostEqual(vec.mean(), th.mean, delta=0.1)
-        self.assertTrue((vec >= 1.0).all())
+        self.assertAlmostEqual(batched.mean(), th.mean, delta=0.1)
+        self.assertTrue((batched >= 1.0).all())
 
     def test_sample_empirical_pdf(self):
         """

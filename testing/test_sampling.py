@@ -18,8 +18,8 @@ def _seed():
     np.random.seed(42)
 
 
-def test_sample_scalar_shapes_and_mean():
-    """Scalar ``sample`` returns ``(n_samples,)`` and reproduces the analytic mean."""
+def test_sample_scalar_stat_shapes_and_mean():
+    """Sampling a scalar statistic returns ``(n_samples,)`` and reproduces the analytic mean."""
     for dist in (pg.Coalescent(n=6).tree_height, pg.Coalescent(n=6).total_branch_length):
         s = dist.sample(N_SAMPLES)
         assert s.shape == (N_SAMPLES,)
@@ -108,18 +108,27 @@ def test_tree_height_per_deme_gated_for_multiple_loci():
     assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).tree_height.demes['p0'].mean > 0
 
 
-def test_vectorized_and_scalar_paths_agree():
-    """The vectorized (sparse CSR) and scalar sampling paths realise the same CTMC law, including across epochs."""
+def test_batched_sampling_matches_single_pass():
+    """Batching the ensemble (small ``sample_batch_size``) preserves shape and the CTMC law, including across epochs."""
     from scipy import stats
+    from phasegen.settings import Settings
 
     dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1.0: 2.0}})  # piecewise-constant: forces an epoch crossing
-    for c in (pg.Coalescent(n=8), pg.Coalescent(n=8, demography=dem)):
-        d = c.tree_height
-        np.random.seed(7)
-        vec = d._sample_vectorized(20000, [d.reward]).ravel()
-        np.random.seed(7)
-        sca = d._sample_scalar(20000, [d.reward]).ravel()
-        assert stats.ks_2samp(vec, sca).pvalue > 0.01
+    saved = Settings.sample_batch_size
+    try:
+        for c in (pg.Coalescent(n=8), pg.Coalescent(n=8, demography=dem)):
+            d = c.tree_height
+            np.random.seed(7)
+            Settings.sample_batch_size = None
+            single = d.sample(20000)
+            np.random.seed(7)
+            Settings.sample_batch_size = 2500  # several batches incl. a short final one
+            batched = d.sample(20000)
+            assert batched.shape == single.shape == (20000,)
+            assert stats.ks_2samp(single, batched).pvalue > 0.01
+            assert batched.mean() == pytest.approx(d.mean, rel=0.02)
+    finally:
+        Settings.sample_batch_size = saved
 
 
 def test_sampled_coalescent_matches_analytic():
