@@ -9,6 +9,8 @@ import pytest
 
 import phasegen as pg
 from phasegen.distributions import SampledCoalescent
+from phasegen.distributions.coalescent import AbstractCoalescent
+from phasegen.distributions.empirical import MsprimeCoalescent
 
 N_SAMPLES = 50000
 
@@ -139,3 +141,39 @@ def test_sampled_coalescent_matches_analytic():
     assert sampled.tree_height.mean == pytest.approx(c.tree_height.mean, rel=0.02)
     np.testing.assert_allclose(np.asarray(sampled.sfs.mean), np.asarray(c.sfs.mean.data), atol=0.05)
     np.testing.assert_allclose(np.asarray(sampled.fsfs.mean), np.asarray(c.fsfs.mean.data), atol=0.05)
+
+
+def test_sampled_and_msprime_share_facade():
+    """``SampledCoalescent`` and ``MsprimeCoalescent`` implement the same ``AbstractCoalescent`` facade, so the
+    comparison framework can use them interchangeably as the empirical (candidate) operand."""
+    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=6), n_samples=100)
+    ms = MsprimeCoalescent(n=6)  # cheap: msprime simulation is lazy (triggered on stat access, not construction)
+
+    assert isinstance(sampled, AbstractCoalescent) and isinstance(ms, AbstractCoalescent)
+
+    # the per-statistic distributions and lifecycle hooks the comparison framework relies on (checked on the class
+    # to avoid triggering the lazy cached_property simulations)
+    for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2', 'touch', 'drop'):
+        assert hasattr(SampledCoalescent, name) and hasattr(MsprimeCoalescent, name), name
+
+    # the delegated configuration both expose as instance attributes
+    for name in ('lineage_config', 'locus_config', 'demography', 'model', 'n'):
+        assert hasattr(sampled, name) and hasattr(ms, name), name
+
+
+@pytest.mark.slow
+def test_sampled_and_msprime_agree():
+    """The two empirical backends sample the *same* coalescent process, so their shared statistics agree within
+    Monte-Carlo error (a cross-check independent of the analytic reference)."""
+    dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1.5},
+                        migration_rates={('p0', 'p1'): 0.75, ('p1', 'p0'): 0.75})
+    n = {'p0': 3, 'p1': 3}
+    reps = 100000
+
+    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=n, demography=dem), n_samples=reps, seed=1)
+    ms = MsprimeCoalescent(n=n, demography=dem, num_replicates=reps, seed=1, parallelize=False)
+
+    assert sampled.tree_height.mean == pytest.approx(ms.tree_height.mean, rel=0.03)
+    assert sampled.total_branch_length.mean == pytest.approx(ms.total_branch_length.mean, rel=0.03)
+    np.testing.assert_allclose(np.asarray(sampled.sfs.mean), np.asarray(ms.sfs.mean), rtol=0.05, atol=0.05)
+    np.testing.assert_allclose(np.asarray(sampled.jsfs.mean), np.asarray(ms.jsfs.mean), rtol=0.1, atol=0.05)

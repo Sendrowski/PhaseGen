@@ -1504,11 +1504,13 @@ class MsprimeCoalescent(AbstractCoalescent):
         )
 
 
-class SampledCoalescent:  # pragma: no cover
+class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
     PhaseGen-sampled empirical coalescent. Exposes the same per-statistic empirical distributions as
-    :class:`MsprimeCoalescent` (``tree_height``/``total_branch_length``/``sfs``/``fsfs``/``jsfs``/``sfs2``), but
-    estimated from PhaseGen's own trajectory sampler (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
+    :class:`MsprimeCoalescent` (``tree_height``/``total_branch_length``/``sfs``/``fsfs``/``jsfs``/``sfs2``) -- both
+    implement the :class:`~phasegen.distributions.coalescent.AbstractCoalescent` contract, so the comparison
+    framework uses them interchangeably -- but estimated from PhaseGen's own trajectory sampler
+    (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
 
     Used by :class:`~phasegen.comparison.Comparison` to validate the sampler against the *exact* analytic
     distributions: the analytic :class:`Coalescent` is the reference operand and this object the candidate. The
@@ -1525,14 +1527,19 @@ class SampledCoalescent:  # pragma: no cover
         :param n_samples: Number of trajectories to simulate per statistic.
         :param seed: Random seed.
         """
+        # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
+        # the config after the analytic coalescent is dropped (Comparison / serialization need it)
+        super().__init__(
+            n=coalescent.lineage_config,
+            model=coalescent.model,
+            demography=coalescent.demography,
+            loci=coalescent.locus_config,
+            end_time=coalescent.end_time
+        )
+
         self._coalescent: Optional[Coalescent] = coalescent
         self.n_samples: int = n_samples
         self.seed: Optional[int] = seed
-
-        # delegated config, retained after the analytic coalescent is dropped (Comparison / serialization need it)
-        self.demography = coalescent.demography
-        self.lineage_config = coalescent.lineage_config
-        self.locus_config = coalescent.locus_config
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
