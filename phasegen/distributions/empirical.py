@@ -1,4 +1,8 @@
-"""Empirical (msprime-backed) distributions and the MsprimeCoalescent simulator."""
+"""
+Empirical distributions estimated from simulated genealogies -- via msprime (:class:`MsprimeCoalescent`) or
+PhaseGen's own trajectory sampler (:class:`SampledCoalescent`) -- together with the containers that compute
+statistics from the sampled realisations.
+"""
 
 import itertools
 import logging

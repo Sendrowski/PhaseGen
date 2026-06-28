@@ -36,6 +36,14 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.ConditionalDensity
    ~phasegen.distributions.ConditionalCDF
    ~phasegen.distributions.ConditionalQuantileFunction
+   ~phasegen.distributions.MsprimeCoalescent
+   ~phasegen.distributions.SampledCoalescent
+   ~phasegen.distributions.EmpiricalDistribution
+   ~phasegen.distributions.EmpiricalPhaseTypeDistribution
+   ~phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
+   ~phasegen.distributions.EmpiricalSFSDistribution
+   ~phasegen.distributions.EmpiricalJointSFSDistribution
+   ~phasegen.distributions.EmpiricalTwoLocusSFSDistribution
 
 .. autoclass:: phasegen.distributions.Coalescent
 
@@ -118,3 +126,21 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
 .. autoclass:: phasegen.distributions.ConditionalQuantileFunction
    :members:
    :special-members: __call__
+
+The same statistics can be estimated empirically from simulated genealogies -- via msprime (:class:`~phasegen.distributions.MsprimeCoalescent`) or PhaseGen's own trajectory sampler (:class:`~phasegen.distributions.SampledCoalescent`) -- with the containers below computing the statistics from the sampled realisations.
+
+.. autoclass:: phasegen.distributions.MsprimeCoalescent
+
+.. autoclass:: phasegen.distributions.SampledCoalescent
+
+.. autoclass:: phasegen.distributions.EmpiricalDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalPhaseTypeDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalSFSDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalJointSFSDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalTwoLocusSFSDistribution
