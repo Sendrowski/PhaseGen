@@ -314,6 +314,46 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return MarginalLocusDistributions(self)
 
+    def sample(self, n_samples: int) -> np.ndarray:
+        """
+        Draw samples of the accumulated reward by simulating trajectories through the underlying Markov chain.
+
+        :param n_samples: Number of samples to draw.
+        :return: Array of sampled rewards of shape ``(n_samples,)``.
+        """
+        return self._sample(n_samples).reshape(n_samples)
+
+    @staticmethod
+    def _empirical_locus_agg(x: np.ndarray) -> np.ndarray:
+        """Aggregation over the locus axis used when building the empirical distribution (sum by default; tree
+        height overrides this with the maximum). Mirrors :class:`~phasegen.distributions.empirical.MsprimeCoalescent`."""
+        return x.sum(axis=0)
+
+    def to_empirical(self, n_samples: int) -> 'EmpiricalPhaseTypeDistribution':
+        """
+        Build an empirical (sample-based) counterpart of this distribution by simulating ``n_samples`` trajectories.
+        The returned object exposes the same statistic interface (``mean``/``var``/``pdf``/``cdf``/...) computed from
+        the samples, broken down per deme (:attr:`demes`) and per locus (:attr:`loci`), and is directly comparable to
+        the analytic distribution. The per-(locus, deme) breakdown is obtained by sampling the matching marginal
+        rewards (``DemeReward``/``LocusReward``), exactly the rewards the analytic marginals use.
+
+        :param n_samples: Number of trajectories to simulate.
+        :return: An :class:`~phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution`.
+        """
+        from .empirical import EmpiricalPhaseTypeDistribution
+
+        pops = self.lineage_config.pop_names
+        n_loci = self.locus_config.n
+
+        # stacked rewards over (locus, deme); one sampling pass yields the full (loci, demes) breakdown
+        rewards = [self.loci[locus].demes[pop].reward for locus in range(n_loci) for pop in pops]
+        sampled = self._sample(n_samples, rewards=rewards)  # (n_samples, n_loci * n_demes)
+
+        # (n_samples, n_loci, n_demes) -> (n_loci, n_demes, n_samples), the layout the empirical container expects
+        samples = sampled.reshape(n_samples, n_loci, len(pops)).transpose(1, 2, 0)
+
+        return EmpiricalPhaseTypeDistribution(samples, pops=pops, locus_agg=self._empirical_locus_agg)
+
     def _sample(
             self,
             n_samples: int,
@@ -795,6 +835,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     _quantile_function = _ExpmQuantileFunction
     #: Maximum number of epochs to consider when determining time to almost sure absorption.
     max_epochs: int = 10000
+
+    @staticmethod
+    def _empirical_locus_agg(x: np.ndarray) -> np.ndarray:
+        """The (total) tree height across loci is the deepest per-locus height, so aggregate by the maximum over
+        the locus axis (matching :class:`~phasegen.distributions.empirical.MsprimeCoalescent.tree_height`)."""
+        return x.max(axis=0)
 
     #: Maximum number of time we double the end time when determining time to almost sure absorption.
     max_iter: int = 20

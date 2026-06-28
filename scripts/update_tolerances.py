@@ -38,7 +38,7 @@ new = Comparison.from_yaml(yaml_file)    # the freshly edited config
 # Beta/Dirac model parameters; the model itself is compared by class, since instances have no value equality).
 # NOTE: `seed` is deliberately excluded -- it only selects which random realization was drawn, not the distribution,
 # so the existing cached sample stays a valid ground truth for a tolerance sync (we reuse it, we do not regenerate).
-sim_attrs = ['n', 'pop_sizes', 'migration_rates', 'num_replicates', 'n_loci', 'recombination_rate',
+sim_attrs = ['n', 'pop_sizes', 'migration_rates', 'num_replicates', 'n_samples', 'n_loci', 'recombination_rate',
              'mutation_rate', 'alpha', 'psi', 'c']
 changed = [a for a in sim_attrs if getattr(old, a, None) != getattr(new, a, None)]
 if type(getattr(old, 'model', None)) is not type(getattr(new, 'model', None)):

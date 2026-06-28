@@ -56,6 +56,7 @@ from .empirical import (
     EmpiricalPhaseTypeSFSDistribution,
     EmpiricalTwoLocusSFSDistribution,
     MsprimeCoalescent,
+    SampledCoalescent,
 )
 
 __all__ = [
@@ -100,4 +101,5 @@ __all__ = [
     "EmpiricalPhaseTypeSFSDistribution",
     "EmpiricalTwoLocusSFSDistribution",
     "MsprimeCoalescent",
+    "SampledCoalescent",
 ]

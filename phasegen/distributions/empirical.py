@@ -1494,3 +1494,103 @@ class MsprimeCoalescent(AbstractCoalescent):
             end_time=self.end_time
         )
 
+
+class SampledCoalescent:  # pragma: no cover
+    """
+    PhaseGen-sampled empirical coalescent. Exposes the same per-statistic empirical distributions as
+    :class:`MsprimeCoalescent` (``tree_height``/``total_branch_length``/``sfs``/``fsfs``/``jsfs``/``sfs2``), but
+    estimated from PhaseGen's own trajectory sampler (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
+
+    Used by :class:`~phasegen.comparison.Comparison` to validate the sampler against the *exact* analytic
+    distributions: the analytic :class:`Coalescent` is the reference operand and this object the candidate. The
+    sampled realization is frozen into the comparison fixture at creation time (the per-statistic seeds make it
+    reproducible and independent of access order).
+    """
+
+    #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.
+    _seed_offsets = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
+
+    def __init__(self, coalescent: Coalescent, n_samples: int = 10000, seed: int = None) -> None:
+        """
+        :param coalescent: The analytic coalescent to sample from.
+        :param n_samples: Number of trajectories to simulate per statistic.
+        :param seed: Random seed.
+        """
+        self._coalescent: Optional[Coalescent] = coalescent
+        self.n_samples: int = n_samples
+        self.seed: Optional[int] = seed
+
+        # delegated config, retained after the analytic coalescent is dropped (Comparison / serialization need it)
+        self.demography = coalescent.demography
+        self.lineage_config = coalescent.lineage_config
+        self.locus_config = coalescent.locus_config
+
+    def _to_empirical(self, name: str):
+        """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
+        if self.seed is not None:
+            np.random.seed(self.seed + self._seed_offsets[name])
+
+        return getattr(self._coalescent, name).to_empirical(self.n_samples)
+
+    @cached_property
+    def tree_height(self) -> EmpiricalPhaseTypeDistribution:
+        return self._to_empirical('tree_height')
+
+    @cached_property
+    def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:
+        return self._to_empirical('total_branch_length')
+
+    @cached_property
+    def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
+        return self._to_empirical('sfs')
+
+    @cached_property
+    def fsfs(self) -> EmpiricalPhaseTypeSFSDistribution:
+        return self._to_empirical('fsfs')
+
+    @cached_property
+    def jsfs(self) -> EmpiricalJointSFSDistribution:
+        return self._to_empirical('jsfs')
+
+    @cached_property
+    def sfs2(self) -> EmpiricalTwoLocusSFSDistribution:
+        return self._to_empirical('sfs2')
+
+    def _get_cached_times(self) -> np.ndarray:
+        """Grid for caching the empirical curve (cdf/pdf/quantile) ground truth, as in :class:`MsprimeCoalescent`."""
+        t_max = float(np.max(self.tree_height.samples))
+
+        return np.linspace(0, t_max, 100)
+
+    def touch(self, **kwargs: dict) -> None:
+        """Build and cache the empirical distributions (so the cached stats/surfaces survive :meth:`drop` and are
+        serialized with the comparison)."""
+        t = self._get_cached_times()
+
+        self.tree_height.touch(t)
+        self.total_branch_length.touch(t)
+
+        # the single-locus site-frequency spectra (undefined for multiple loci, where ``sfs2`` is used instead)
+        if self.locus_config.n == 1:
+            self.sfs.touch(t)
+            self.fsfs.touch(t)
+
+            # multi-population: the joint SFS
+            if len(self.lineage_config.pop_names) > 1:
+                _ = self.jsfs
+
+        # two loci: the cross-locus joint surface ground truth and the two-locus SFS
+        if self.locus_config.n == 2:
+            for dist in (self.tree_height, self.total_branch_length):
+                dist.cache_loci_joint_surface([(0, 1)])
+            _ = self.sfs2
+
+    def drop(self) -> None:
+        """Drop the per-sample data and the analytic coalescent; the cached stats and surfaces are retained."""
+        for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2'):
+            if name in self.__dict__:
+                self.__dict__[name].drop()
+
+        self._coalescent = None
+        self.demography = None
+

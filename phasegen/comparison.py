@@ -17,8 +17,8 @@ from matplotlib import pyplot as plt
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .demography import Demography, DiscreteRateChanges
-from .distributions import Coalescent, MsprimeCoalescent, PhaseTypeDistribution, MarginalDistributions, \
-    MarginalLocusDistributions, MarginalDemeDistributions
+from .distributions import Coalescent, MsprimeCoalescent, SampledCoalescent, PhaseTypeDistribution, \
+    MarginalDistributions, MarginalLocusDistributions, MarginalDemeDistributions
 from .locus import LocusConfig
 from .serialization import Serializable
 from .spectrum import SFS, JointSFS, TwoLocusSFS
@@ -54,6 +54,7 @@ class Comparison(Serializable):
             n_loci: int = 1,
             recombination_rate: float = 0,
             num_replicates: int = 10000,
+            n_samples: int = None,
             mutation_rate: float = None,
             record_migration: bool = False,
             simulate_mutations: bool = False,
@@ -86,6 +87,9 @@ class Comparison(Serializable):
         :param n_loci: Number of loci.
         :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
+        :param n_samples: If set, the ``ms`` operand is PhaseGen's own trajectory sampler
+            (:class:`~phasegen.distributions.SampledCoalescent`) drawing ``n_samples`` trajectories, instead of
+            msprime. The comparison then validates PhaseGen's sampler against its exact analytic distributions.
         :param mutation_rate: Mutation rate. Only used if simulate_mutations is True.
         :param record_migration: Whether to record migrations.
         :param simulate_mutations: Whether to simulate mutations. This is used for comparing mutational configurations
@@ -114,6 +118,7 @@ class Comparison(Serializable):
         self.n_loci = n_loci
         self.recombination_rate = recombination_rate
         self.num_replicates = num_replicates
+        self.n_samples = n_samples
         self.mutation_rate = mutation_rate
         self.record_migration = record_migration
         self.simulate_mutations = simulate_mutations
@@ -186,10 +191,9 @@ class Comparison(Serializable):
 
         raise ValueError(f"Unknown coalescent model {name}.")
 
-    @cached_property
-    def ph(self) -> 'Coalescent':
+    def _make_coalescent(self) -> 'Coalescent':
         """
-        PhaseGen coalescent.
+        Build a fresh analytic PhaseGen coalescent from the configuration.
         """
         return Coalescent(
             n=self.n,
@@ -200,10 +204,27 @@ class Comparison(Serializable):
         )
 
     @cached_property
-    def ms(self) -> 'MsprimeCoalescent':
+    def ph(self) -> 'Coalescent':
         """
-        Msprime coalescent.
+        PhaseGen coalescent (the exact analytic reference operand).
         """
+        return self._make_coalescent()
+
+    @cached_property
+    def ms(self) -> 'MsprimeCoalescent | SampledCoalescent':
+        """
+        The empirical (candidate) operand: PhaseGen's own trajectory sampler when ``n_samples`` is set (validated
+        against the exact analytic :attr:`ph`), otherwise the msprime simulation (the independent ground truth).
+        """
+        if self.n_samples is not None:
+            # a fresh analytic coalescent (not self.ph, which must stay out of the serialized fixture); it is
+            # dropped before serialization
+            return SampledCoalescent(
+                coalescent=self._make_coalescent(),
+                n_samples=self.n_samples,
+                seed=self.seed
+            )
+
         return MsprimeCoalescent(
             n=self.n,
             demography=self.get_demography(),
