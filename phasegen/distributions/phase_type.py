@@ -436,14 +436,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         e = np.zeros(n_samples, dtype=int)
         H = np.random.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
         mass = np.zeros((n_samples, n_rewards))
-        states_visited = np.zeros(k)
+        states_visited = np.zeros(k) if record_visits else None
         active = ~absorbing[state]
 
         with np.errstate(over='ignore', invalid='ignore'):
             while active.any():
 
                 # advance active walkers across whole epochs until their next event fits in the current epoch
-                while True:
+                # (skipped entirely for a single (unbounded) epoch, where no boundary can be crossed)
+                while last > 0:
                     a = np.where(active)[0]
                     if a.size == 0:
                         break
@@ -482,15 +483,18 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 u = np.random.random(a.size)
                 nxt = (cum_epochs[e[a], state[a]] < u[:, None]).sum(axis=1)
                 state[a] = nxt
-                np.add.at(states_visited, nxt, 1)
+                if record_visits:
+                    np.add.at(states_visited, nxt, 1)
 
                 # resample the hazard budget for survivors; absorbed walkers leave the ensemble
                 H[a] = np.random.exponential(size=a.size)
                 active[a[absorbing[nxt]]] = False
 
-        states_visited /= n_samples
+        if record_visits:
+            states_visited /= n_samples
+            return mass, states_visited
 
-        return (mass, states_visited) if record_visits else mass
+        return mass
 
     def _sample_scalar(
             self,
