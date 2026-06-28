@@ -1424,6 +1424,38 @@ class CoalescentTestCase(TestCase):
             x = float(th.quantile(q))
             self.assertAlmostEqual(np.mean(s <= x), q, delta=0.03)
 
+    def test_sample_vectorized_matches_scalar(self):
+        """
+        The vectorized ensemble sampler must produce the same distribution as the scalar per-sample loop (and both
+        must agree with the exact result), across a multi-epoch multi-population demography with a zero-rate
+        (isolated) initial epoch.
+        """
+        from scipy import stats
+
+        dem = pg.Demography(
+            pop_sizes={'p0': {0: 1.0, 1.5: 2.0}, 'p1': {0: 1.0, 1.5: 0.5}},
+            migration_rates={('p0', 'p1'): {0: 0.0, 1: 1.0}, ('p1', 'p0'): {0: 0.0, 1: 1.0}}
+        )
+        th = pg.Coalescent(n={'p0': 3, 'p1': 3}, demography=dem).tree_height
+
+        saved = pg.Settings.sample_vectorized_max_states
+        try:
+            np.random.seed(0)
+            pg.Settings.sample_vectorized_max_states = 10 ** 9
+            vec = th._sample(20000).ravel()
+
+            np.random.seed(0)
+            pg.Settings.sample_vectorized_max_states = 0
+            scalar = th._sample(20000).ravel()
+        finally:
+            pg.Settings.sample_vectorized_max_states = saved
+
+        # the two sampling paths are the same law (no significant KS difference)
+        self.assertGreater(stats.ks_2samp(vec, scalar).pvalue, 0.01)
+        # and both match the exact mean; coalescence is impossible while the demes are isolated (t < 1)
+        self.assertAlmostEqual(vec.mean(), th.mean, delta=0.1)
+        self.assertTrue((vec >= 1.0).all())
+
     def test_sample_empirical_pdf(self):
         """
         Test empirical PDF sampling against exact PDF.

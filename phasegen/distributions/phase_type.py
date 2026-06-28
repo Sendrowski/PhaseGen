@@ -332,6 +332,141 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         if rewards is None:
             rewards = [self.reward]
 
+        # the vectorized ensemble path materializes dense per-epoch jump matrices, so it is gated on the state count
+        if self.state_space.k <= Settings.sample_vectorized_max_states:
+            return self._sample_vectorized(n_samples, rewards, record_visits)
+
+        return self._sample_scalar(n_samples, rewards, record_visits)
+
+    def _sample_vectorized(
+            self,
+            n_samples: int,
+            rewards: Sequence[Reward],
+            record_visits: bool = False
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """
+        Vectorized trajectory sampler: advance all ``n_samples`` walkers through the CTMC in lockstep, one wave per
+        jump, instead of looping in Python. Exact (same law as :meth:`_sample_scalar`).
+
+        Each walker carries a remaining hazard budget ``H ~ Exp(1)``, resampled after every jump. The time to its
+        next event in the current epoch is ``H / lambda`` (``lambda`` the exit rate); a walker whose budget outlasts
+        the epoch is advanced to the boundary (accruing reward and consuming ``lambda * duration`` of hazard) and
+        steps into the next epoch. This hazard-budget form handles zero-rate epochs (temporarily isolated demes)
+        uniformly: ``lambda = 0`` consumes no hazard, so the walker simply waits out the epoch accruing reward.
+
+        :param n_samples: Number of trajectories to simulate.
+        :param rewards: Rewards to sample from.
+        :param record_visits: Whether to also return the per-state visit frequencies.
+        :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
+        """
+        n_rewards = len(rewards)
+        k = self.state_space.k
+        absorbing = self.state_space.absorbing
+        alpha = self.state_space.alpha
+        R = np.array([r._get(self.state_space) for r in rewards])  # (n_rewards, k), epoch-invariant
+
+        # materialize the per-epoch generators once: exit rates and cumulative jump distributions. States, rewards,
+        # absorption and the initial distribution are epoch-invariant, so only the rates differ across epochs.
+        end_times, lam_epochs, cum_epochs = [], [], []
+        for epoch in self.demography.epochs:
+            self.state_space.update_epoch(epoch)
+            S = np.asarray(self.state_space.S, dtype=float)
+            lam = -np.diag(S).copy()
+            Q = S.copy()
+            np.fill_diagonal(Q, 0.0)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                P = Q / lam[:, None]  # row-normalized off-diagonal jump probabilities
+            P[lam == 0] = 0.0  # absorbing / isolated rows are never sampled from
+            cum = np.cumsum(P, axis=1)
+            cum[:, -1] = np.inf  # guard inverse-CDF sampling against floating-point overshoot of the last bin
+            end_times.append(epoch.end_time)
+            lam_epochs.append(lam)
+            cum_epochs.append(cum)
+            if epoch.end_time == np.inf:
+                break
+
+        end_times = np.array(end_times)  # (E,)
+        lam_epochs = np.array(lam_epochs)  # (E, k)
+        cum_epochs = np.array(cum_epochs)  # (E, k, k)
+        last = len(end_times) - 1
+
+        # ensemble state
+        state = np.random.choice(k, size=n_samples, p=alpha)
+        t = np.zeros(n_samples)
+        e = np.zeros(n_samples, dtype=int)
+        H = np.random.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
+        mass = np.zeros((n_samples, n_rewards))
+        states_visited = np.zeros(k)
+        active = ~absorbing[state]
+
+        with np.errstate(over='ignore', invalid='ignore'):
+            while active.any():
+
+                # advance active walkers across whole epochs until their next event fits in the current epoch
+                while True:
+                    a = np.where(active)[0]
+                    if a.size == 0:
+                        break
+                    dur = end_times[e[a]] - t[a]  # time to the current epoch boundary (inf in the last epoch)
+                    haz_to_boundary = lam_epochs[e[a], state[a]] * dur  # 0 for isolated states (lambda == 0)
+                    cross = (e[a] < last) & (H[a] > haz_to_boundary)
+                    if not cross.any():
+                        break
+                    ca = a[cross]
+                    dca = end_times[e[ca]] - t[ca]
+                    mass[ca] += R[:, state[ca]].T * dca[:, None]
+                    H[ca] -= lam_epochs[e[ca], state[ca]] * dca
+                    t[ca] = end_times[e[ca]]
+                    e[ca] += 1
+
+                # every active walker now fires its event within its current epoch
+                a = np.where(active)[0]
+                lam = lam_epochs[e[a], state[a]]
+
+                # degenerate non-absorption: a transient state with zero exit rate in the unbounded epoch never
+                # absorbs (e.g. permanently isolated demes), giving an infinite reward
+                stuck = lam == 0
+                if stuck.any():
+                    mass[a[stuck]] = np.inf
+                    active[a[stuck]] = False
+                    keep = ~stuck
+                    a, lam = a[keep], lam[keep]
+                    if a.size == 0:
+                        break
+
+                dt = H[a] / lam
+                mass[a] += R[:, state[a]].T * dt[:, None]
+                t[a] += dt
+
+                # sample the next state via inverse-CDF on the cumulative jump distribution
+                u = np.random.random(a.size)
+                nxt = (cum_epochs[e[a], state[a]] < u[:, None]).sum(axis=1)
+                state[a] = nxt
+                np.add.at(states_visited, nxt, 1)
+
+                # resample the hazard budget for survivors; absorbed walkers leave the ensemble
+                H[a] = np.random.exponential(size=a.size)
+                active[a[absorbing[nxt]]] = False
+
+        states_visited /= n_samples
+
+        return (mass, states_visited) if record_visits else mass
+
+    def _sample_scalar(
+            self,
+            n_samples: int,
+            rewards: Sequence[Reward],
+            record_visits: bool = False
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+        """
+        Per-sample trajectory sampler (Python loop). Fallback used by :meth:`_sample` for state spaces too large for
+        the dense per-epoch jump matrices of :meth:`_sample_vectorized`; the two produce the same distribution.
+
+        :param n_samples: Number of trajectories to simulate.
+        :param rewards: Rewards to sample from.
+        :param record_visits: Whether to also return the per-state visit frequencies.
+        :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
+        """
         n_rewards = len(rewards)
         samples = np.zeros((n_samples, n_rewards))
         absorbing = self.state_space.absorbing
