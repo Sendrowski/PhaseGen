@@ -123,6 +123,37 @@ rule create_2locus_comparison:
 # prefer the two-locus-specific rule for *_2_locus_sfs fixtures (both rules match the same output)
 ruleorder: create_2locus_comparison > create_comparison
 
+def get_scan_fixtures(w):
+    """
+    Serialized fixtures for the non-slow scenario suite (the single source of truth is
+    testing.test_scenarios: all ``configs`` minus ``slow_configs``). Imported lazily so an
+    unrelated snakemake target does not pay the phasegen import cost.
+    """
+    from testing.test_scenarios import configs as scen_configs, slow_configs
+    return [f"results/comparisons/serialized/{c}.json" for c in scen_configs if c not in slow_configs]
+
+# render every non-slow scenario's diff plots (Agg, low DPI) and a manifest tying each comparison to its PNG
+rule render_scenario_scan:
+    input:
+        get_scan_fixtures
+    output:
+        "results/comparisons/scan/manifest.json"
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "MPLBACKEND=Agg python scripts/render_scenario_scan.py results/comparisons/scan"
+
+# build the self-contained, click-to-inspect HTML comparison-scan report from the manifest + rendered PNGs
+rule scenario_scan_report:
+    input:
+        "results/comparisons/scan/manifest.json"
+    output:
+        "results/comparisons/scan/report.html"
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "python scripts/build_scan_report.py results/comparisons/scan"
+
 # generate an independent joint-SFS reference using the moments package (runs in the dev env which provides moments)
 rule generate_jsfs_reference:
     input:
