@@ -172,9 +172,14 @@ class _LSTFunction:
     def _cdf_point(self, t: float) -> float:
         """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the building block of both the exact
         :meth:`_LSTCumulativeDistributionFunction.__call__` and the de Hoog spline."""
-        if t <= 0:
+        if t < 0:
             return 0.0
         d = self._distribution
+        if t == 0:
+            # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
+            # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
+            # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
+            return max(d.lst(1e8).real, 0.0)
         return d._invert(lambda s: d.lst(s) / s, float(t))
 
     def _pdf_point(self, t: float) -> float:

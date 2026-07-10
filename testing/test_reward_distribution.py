@@ -226,6 +226,20 @@ def test_cdf_is_monotone_and_bounded():
     assert F[-1] > 0.99  # essentially absorbed by x = 20
 
 
+def test_cdf_right_continuous_at_atom():
+    """The exact per-point CDF is right-continuous at the atom: ``F(0) = P(R = 0)`` (the point mass), matching
+    the de Hoog curve, rather than the left limit ``F(0-) = 0``. An SFS bin whose class has no subtending branch
+    in some genealogies carries such an atom; a continuous reward (tree height) has none, so its ``F(0) = 0``."""
+    bin_dist = pg.Coalescent(n=6).sfs.bin(3)  # P(L_3 = 0) > 0
+    atom = float(bin_dist.cdf.curve([0.0])[0])
+    assert atom > 0.05  # this bin really does have an atom
+    assert float(bin_dist.cdf(0.0)) == pytest.approx(atom, abs=1e-6)  # scalar matches the curve, not 0
+
+    th = pg.Coalescent(n=6).tree_height.distribution()  # continuous -> no atom
+    assert float(th.cdf(0.0)) == pytest.approx(0.0, abs=1e-6)
+    assert float(th.cdf(-1.0)) == 0.0
+
+
 def test_array_input():
     """CDF and PDF accept array arguments and return arrays."""
     rd = pg.Coalescent(n=5).total_branch_length.distribution()
