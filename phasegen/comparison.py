@@ -408,16 +408,15 @@ class Comparison(Serializable):
         plot = None
         if self.visualize:
             if heatmap_cls is not None and ph_stat.ndim == 2:
-                # plot the joint / two-locus SFS as side-by-side heatmaps, but only when it is 2-dimensional
-                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, cls=heatmap_cls) -> None:
-                    plt.close('all')  # avoid empty plots
-                    fig, axs = plt.subplots(ncols=2, figsize=(8, 5))
-                    if self.show_title: plt.suptitle(msg, fontsize=self.suptitle_fontsize)
-                    axs[0].set_title('phasegen', fontsize=self.title_fontsize)
-                    axs[1].set_title('msprime', fontsize=self.title_fontsize)
-                    cls(ph_stat).plot(ax=axs[0], show=False)
-                    cls(ms_stat).plot(ax=axs[1], show=False)
-                    self._save_and_show(name, pad=1.5)
+                # phasegen / msprime / relative-difference surfaces for a 2-D joint or two-locus SFS (the joint SFS
+                # may be rectangular, so index each axis by its own extent)
+                def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat) -> None:
+                    ys = np.arange(ph_stat.shape[0])
+                    xs = np.arange(ph_stat.shape[1])
+                    xlabel, ylabel = ('allele count pop_1', 'allele count pop_0') if is_joint else ('L_i', 'L_j')
+                    self._plot_surface_triple(
+                        xs, ys, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
+                        xlabel=xlabel, ylabel=ylabel, title=msg if self.show_title else None, name=name)
 
             elif heatmap_cls is None and ph_stat.ndim == 1:
                 def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat) -> None:
