@@ -1,0 +1,28 @@
+n:
+  pop_0: 6
+n_samples: 200000
+pop_sizes:
+  pop_0:
+    0: 2
+    1.1: 0.3
+    3.5: 0.5
+    4.2: 8
+    7.5: 2.3
+model: beta
+alpha: 1.5
+seed: 42
+comparisons:
+  tolerance:
+    empirical:
+      tree_height:
+        mean: 0.004
+        var: 0.013
+        cdf: 0.0053
+        pdf: 0.02
+        quantile: 0.0035
+      total_branch_length:
+        mean: 0.00087
+        var: 0.0075
+      sfs:
+        mean: 0.0036
+        m2: 0.017

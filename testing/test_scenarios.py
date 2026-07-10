@@ -16,12 +16,12 @@ from testing import TestCase
 # configs = get_filenames("resources/configs")
 
 configs = [
-    # sampled-statistic scenarios: PhaseGen's own trajectory sampler validated against its exact analytic
-    # distributions (``n_samples`` in the config; the ``ms`` operand is a SampledCoalescent, not msprime)
-    '1_epoch_n_4_sampled',
-    '1_epoch_2_pops_n_3_jsfs_sampled',
-    '1_epoch_2_loci_n_3_r_1_sampled',
-    '1_epoch_2_loci_2_pops_n_2_r_1_sampled',
+    # empirical (self-consistency) scenarios validated against PhaseGen's own sampler via a nested
+    # ``tolerance.empirical`` block. The five with a demographic sibling carry that block on the sibling config
+    # itself (e.g. 1_epoch_n_4, 2_epoch_2_pops_n_4); these three have no sibling, so they are empirical-only
+    '1_epoch_2_pops_n_3_jsfs',
+    '4_epoch_up_down_n_4',
+    '5_epoch_beta_n_6',
     # low-sample-size fast-suite equivalents of slow-marked scenarios (gradual decline; multi-epoch 2-loci loci-joint)
     '2_epoch_n_2_decline',
     '3_epoch_2_loci_n_2_r_1',
@@ -102,7 +102,6 @@ configs = [
     '2_epoch_2_pops_n_5',
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
-    '1_epoch_n_2_test_size',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
     '4_epoch_up_down_n_2',

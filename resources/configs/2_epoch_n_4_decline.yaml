@@ -9,6 +9,7 @@ pop_sizes:
     1: 1
 model: standard
 seed: 42
+n_samples: 200000
 comparisons:
   tolerance:
     fsfs:
@@ -42,3 +43,16 @@ comparisons:
             pdf: 0.012
           (3, 3):
             cdf: 0.0016
+    empirical:
+      tree_height:
+        mean: 0.0013
+        var: 0.00041
+        cdf: 0.0029
+        pdf: 0.016
+        quantile: 0.0017
+      total_branch_length:
+        mean: 0.0014
+        var: 0.016
+      sfs:
+        mean: 0.0042
+        m2: 0.013

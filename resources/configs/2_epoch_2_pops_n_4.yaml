@@ -19,27 +19,41 @@ migration_rates:
     0: 0.2
 model: standard
 seed: 42
+n_samples: 200000
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.033
-      cdf: 0.1
-      mean: 0.01
-      var: 0.05
+      pdf: 0.013
+      cdf: 0.00098
+      mean: 0.0011
+      var: 0.0018
       #demes:
       #  mean: 0.01
     total_branch_length:
-      mean: 0.01
-      var: 0.05
+      mean: 0.0011
+      var: 0.0014
       #demes:
       #  mean: 0.01
     fsfs:
-      mutation_configs: 0.0022
+      mutation_configs: 0.0021
     sfs:
       mutation_configs: 0.0022
-      mean: 0.01
-      var: 0.05
-      cov: 0.05
-      corr: 0.05
+      mean: 0.002
+      var: 0.0049
+      cov: 0.0062
+      corr: 0.0051
       #demes:
       #  mean: 0.01
+    empirical:
+      tree_height:
+        mean: 0.003
+        var: 0.0027
+        cdf: 0.003
+        pdf: 0.023
+        quantile: 0.0035
+      total_branch_length:
+        mean: 0.00039
+        var: 0.013
+      sfs:
+        mean: 0.0027
+        m2: 0.008

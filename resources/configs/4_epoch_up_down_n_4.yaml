@@ -1,0 +1,25 @@
+n: 4
+n_samples: 200000
+pop_sizes:
+  pop_0:
+    0: 1.2
+    0.3: 10
+    1: 0.8
+    1.4: 10
+model: standard
+seed: 42
+comparisons:
+  tolerance:
+    empirical:
+      tree_height:
+        mean: 0.0032
+        var: 0.00053
+        cdf: 0.0026
+        pdf: 0.075
+        quantile: 0.0045
+      total_branch_length:
+        mean: 0.0049
+        var: 0.019
+      sfs:
+        mean: 0.0071
+        m2: 0.02

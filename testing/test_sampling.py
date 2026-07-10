@@ -1,8 +1,8 @@
 """
 Tests for the public ``sample`` / ``to_empirical`` methods of the distributions and the
 :class:`~phasegen.distributions.SampledCoalescent`. These check that PhaseGen's own trajectory sampler reproduces
-the exact analytic statistics (up to Monte-Carlo error), the self-consistency that the sampled-scenario suite
-(``*_sampled`` configs in ``test_scenarios.py``) exercises end-to-end.
+the exact analytic statistics (up to Monte-Carlo error), the self-consistency that the scenario suite exercises
+end-to-end via the nested ``tolerance.empirical`` blocks in ``test_scenarios.py`` configs.
 """
 import numpy as np
 import pytest
