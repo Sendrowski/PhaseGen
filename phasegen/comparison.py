@@ -295,7 +295,10 @@ class Comparison(Serializable):
             plt.savefig(path, dpi=self.dpi, bbox_inches=bbox)
 
         plt.show()
-        plt.close('all')
+        # under headless Agg, free the figure right away; for a display backend (native window or
+        # PyCharm SciView) leave it open so the plot actually lands -- test teardown closes it
+        if plt.get_backend().lower() == 'agg':
+            plt.close('all')
 
     def compare_stat(
             self,

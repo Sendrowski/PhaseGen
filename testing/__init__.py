@@ -9,8 +9,10 @@ from unittest import TestCase as BaseTestCase
 
 import matplotlib
 
-# use a non-interactive backend so plots don't pop open during tests
-matplotlib.use('Agg')
+# force a non-interactive backend so figures don't pop up during normal test runs; set
+# PHASEGEN_SHOW_PLOTS=1 to leave the backend untouched and view plots (e.g. in PyCharm's SciView)
+if not (os.environ.get('PHASEGEN_SHOW_PLOTS') or os.environ.get('MPLBACKEND')):
+    matplotlib.use('Agg')
 
 
 def prioritize_installed_packages():
