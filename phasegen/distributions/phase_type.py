@@ -22,6 +22,7 @@ from ._moments import MomentEvaluator
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
     from .reward import RewardDistribution, JointRewardDistribution
+    from .empirical import EmpiricalPhaseTypeDistribution
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')

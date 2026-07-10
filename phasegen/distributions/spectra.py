@@ -23,6 +23,11 @@ from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
     from .reward import JointRewardDistribution, RewardDistribution
+    from .empirical import (
+        EmpiricalPhaseTypeSFSDistribution,
+        EmpiricalJointSFSDistribution,
+        EmpiricalTwoLocusSFSDistribution,
+    )
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
