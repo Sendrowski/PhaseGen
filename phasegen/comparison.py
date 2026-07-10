@@ -434,9 +434,11 @@ class Comparison(Serializable):
                 # phasegen / msprime / relative-difference surfaces for a 2-D joint or two-locus SFS (the joint SFS
                 # may be rectangular, so index each axis by its own extent)
                 def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat) -> None:
-                    ys = np.arange(ph_stat.shape[0])
-                    xs = np.arange(ph_stat.shape[1])
-                    xlabel, ylabel = ('allele count pop_1', 'allele count pop_0') if is_joint else ('L_i', 'L_j')
+                    # _plot_surface_triple transposes the grid, so index x by the first axis and y by the second
+                    # (this keeps a rectangular joint SFS, where the two axes differ in length, from mismatching)
+                    xs = np.arange(ph_stat.shape[0])
+                    ys = np.arange(ph_stat.shape[1])
+                    xlabel, ylabel = ('allele count pop_0', 'allele count pop_1') if is_joint else ('L_i', 'L_j')
                     self._plot_surface_triple(
                         xs, ys, ph_stat, ms_stat, self.rel_diff(ms_stat, ph_stat), zlabel=stat,
                         xlabel=xlabel, ylabel=ylabel, title=msg if self.show_title else None, name=name)
