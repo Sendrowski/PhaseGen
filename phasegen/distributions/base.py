@@ -72,17 +72,12 @@ class DistributionFunction:
     Calling it evaluates the function (e.g. ``coal.sfs.pdf(t)`` returns the per-bin densities at ``t``), while
     :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` overlays every bin's density curve).
 
-    This base class is rarely used directly: each property returns one of the thin typed subclasses
-    (:class:`DensityFunction` / :class:`CumulativeDistributionFunction` / :class:`QuantileFunction`, in plain,
-    ``Marginal...``, ``Joint...`` and ``Conditional...`` flavours). They behave identically but carry distinct
-    docstrings describing *what* the function is and *how* it is computed, and -- being real classes with real
-    :meth:`plot` / :meth:`__call__` methods -- they let IDEs resolve ``.plot`` to a definition and surface those
-    docstrings (unlike a dynamically bound attribute). Supersedes the former ``plot_pdf`` / ``plot_cdf`` methods (now
-    deprecated aliases).
+    Each property returns one of the typed subclasses (:class:`DensityFunction` /
+    :class:`CumulativeDistributionFunction` / :class:`QuantileFunction`, in plain, ``Marginal...``, ``Joint...`` and
+    ``Conditional...`` flavours), whose docstrings describe *what* that function is and *how* it is computed.
 
-    A function object holds its owning ``distribution`` and dispatches by :attr:`kind` to the distribution's
-    ``_<kind>`` (evaluate) and ``_plot_<kind>`` (plot) -- so it is fully defined by the distribution, not patched
-    together from loose callbacks.
+    The function holds its owning ``distribution`` and dispatches by :attr:`kind` to the distribution's ``_<kind>``
+    (evaluate) and ``_plot_<kind>`` (plot).
 
     :param distribution: The distribution this function belongs to.
     """
@@ -715,8 +710,7 @@ class CallableDistributionFunctions:
     concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the plotters ``_plot_pdf`` /
     ``_plot_cdf`` / ``_plot_quantile``; this mixin wires them together. Subclasses pick the *flavour* of the returned
     function objects by overriding :attr:`_pdf_function` / :attr:`_cdf_function` / :attr:`_quantile_function` (e.g. a
-    spectrum returns the ``Marginal...`` flavours, a conditional the ``Conditional...`` flavours), which is what gives
-    IDEs the right type and docstring. Also keeps the former ``plot_pdf`` / ``plot_cdf`` methods as deprecated aliases.
+    spectrum returns the ``Marginal...`` flavours, a conditional the ``Conditional...`` flavours).
     """
     #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
     #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
