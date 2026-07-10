@@ -46,6 +46,10 @@ class Comparison(Serializable):
     # Whether to show the title of the plot
     show_title: bool = True
 
+    # Number of sampler trajectories for the ``ms`` operand; None falls back to msprime. Declared at class level
+    # so fixtures serialized before the trajectory sampler was added deserialize without this attribute set.
+    n_samples: int = None
+
     def __init__(
             self,
             n: int | Dict[str, int] | List[int],
