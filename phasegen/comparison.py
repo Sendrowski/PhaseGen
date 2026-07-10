@@ -215,20 +215,27 @@ class Comparison(Serializable):
         return self._make_coalescent()
 
     @cached_property
-    def ms(self) -> 'MsprimeCoalescent | SampledCoalescent':
+    def empirical(self) -> 'SampledCoalescent':
         """
-        The empirical (candidate) operand: PhaseGen's own trajectory sampler when ``n_samples`` is set (validated
-        against the exact analytic :attr:`ph`), otherwise the msprime simulation (the independent ground truth).
+        The self-consistency candidate operand: PhaseGen's own trajectory sampler (``n_samples`` draws), validated
+        against the exact analytic :attr:`ph` rather than an external tool. Drives the nested ``tolerance.empirical``
+        sub-spec -- a *different kind* of check than :attr:`ms` (whether PhaseGen's sampler reproduces PhaseGen's own
+        exact result, not whether the exact result is correct).
         """
-        if self.n_samples is not None:
-            # a fresh analytic coalescent (not self.ph, which must stay out of the serialized fixture); it is
-            # dropped before serialization
-            return SampledCoalescent(
-                coalescent=self._make_coalescent(),
-                n_samples=self.n_samples,
-                seed=self.seed
-            )
+        # a fresh analytic coalescent (not self.ph, which must stay out of the serialized fixture); it is dropped
+        # before serialization
+        return SampledCoalescent(
+            coalescent=self._make_coalescent(),
+            n_samples=self.n_samples,
+            seed=self.seed
+        )
 
+    @cached_property
+    def ms(self) -> 'MsprimeCoalescent':
+        """
+        The external ground-truth candidate operand: an independent msprime simulation. Drives the top-level
+        ``tolerance`` stats -- a falsification test of the exact analytic :attr:`ph` against a separate tool.
+        """
         return MsprimeCoalescent(
             n=self.n,
             demography=self.get_demography(),
@@ -1190,11 +1197,13 @@ class Comparison(Serializable):
 
         self._save_and_show(name, pad=2.8, extra_right=1.2)
 
-    def _pairwise_surface_pairs(self) -> dict:
-        """The per-distribution bin pairs that request a full-grid pairwise surface comparison (the non-``cdf``/``pdf``
-        keys under a ``pairwise`` group), parsed from the comparison config -- used to cache their empirical grids."""
+    def _pairwise_surface_pairs(self, spec: dict = None) -> dict:
+        """The per-distribution bin pairs in ``spec`` that request a full-grid pairwise surface comparison (the
+        non-``cdf``/``pdf`` keys under a ``pairwise`` group) -- used to cache their empirical grids. ``spec`` is a
+        tolerance subtree (the top-level msprime stats, or the nested ``empirical`` sub-spec); it defaults to the
+        whole ``tolerance`` tree (an ``empirical`` sub-block carries no top-level ``pairwise`` key, so it is skipped)."""
         out = {}
-        for dist, data in self._expand_keys(self.comparisons.get('tolerance', {})).items():
+        for dist, data in self._expand_keys(spec if spec is not None else self.comparisons.get('tolerance', {})).items():
             pairwise = data.get('pairwise') if isinstance(data, dict) else None
             if not isinstance(pairwise, dict):
                 continue
@@ -1218,12 +1227,26 @@ class Comparison(Serializable):
         return out
 
     def cache_ground_truth(self) -> None:
-        """Cache the msprime ground truth needed by the configured comparisons: the standard per-statistic caches
-        (:meth:`MsprimeCoalescent.touch`) plus any full-grid pairwise surface grids the config requests. Call before
-        :meth:`MsprimeCoalescent.drop` so the grids are serialized with the comparison."""
-        self.ms.touch()
-        for dist, pairs in self._pairwise_surface_pairs().items():
-            getattr(self.ms, dist).cache_joint_surface(pairs)
+        """Cache the ground truth needed by the configured comparisons -- the standard per-statistic caches
+        (:meth:`MsprimeCoalescent.touch` / :meth:`SampledCoalescent.touch`) plus any full-grid pairwise surface grids.
+        The msprime operand is touched for the top-level ``tolerance`` stats, the sampler for the nested ``empirical``
+        sub-spec; each only if its stats are present, so a config validates against msprime, the sampler, or both. Call
+        before :meth:`drop` so the grids are serialized with the comparison."""
+        tol = self._expand_keys(self.comparisons.get('tolerance', {}))
+        empirical_spec = tol.get('empirical')
+        msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
+
+        if msprime_spec or self.comparisons.get('statistics'):
+            self.ms.touch()
+            for dist, pairs in self._pairwise_surface_pairs(msprime_spec).items():
+                getattr(self.ms, dist).cache_joint_surface(pairs)
+
+        if empirical_spec:
+            if self.n_samples is None:
+                raise ValueError("A 'tolerance.empirical' block requires 'n_samples' to be set in the config.")
+            self.empirical.touch()
+            for dist, pairs in self._pairwise_surface_pairs(empirical_spec).items():
+                getattr(self.empirical, dist).cache_joint_surface(pairs)
 
     def compare(self, title: str = '') -> None:
         """
@@ -1239,13 +1262,28 @@ class Comparison(Serializable):
         plt.rcParams['figure.titlesize'] = self.suptitle_fontsize
         self._comp_index = 0  # sequential comparison counter, prepended as '#i' to each result message / plot title
 
-        for dist, data in self._expand_keys(self.comparisons['tolerance']).items():
+        tol = self._expand_keys(self.comparisons['tolerance'])
+        empirical_spec = tol.pop('empirical', None)  # the nested self-consistency sub-spec (vs the sampler)
+
+        for dist, data in tol.items():
             self._compare_stat_recursively(
                 ph=getattr(self.ph, dist),
                 ms=getattr(self.ms, dist),
                 data=data,
                 title=f"{title}: {dist}",
                 name=dist
+            )
+
+        # nested ``empirical`` sub-spec: the same stats, but the candidate operand is PhaseGen's own sampler
+        # (:attr:`empirical`), not msprime -- a self-consistency check. The ``empirical`` marker rides in the title
+        # (``...: empirical: ...``) so a downstream reader can tell the two kinds of comparison apart.
+        for dist, data in (empirical_spec or {}).items():
+            self._compare_stat_recursively(
+                ph=getattr(self.ph, dist),
+                ms=getattr(self.empirical, dist),
+                data=data,
+                title=f"{title}: empirical: {dist}",
+                name=f"empirical_{dist}"
             )
 
         # coalescent-level scalar statistics (optionally parameterized with population arguments), e.g. F_ST and

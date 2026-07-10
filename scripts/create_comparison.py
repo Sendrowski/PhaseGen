@@ -27,11 +27,15 @@ from phasegen.comparison import Comparison
 c = Comparison.from_yaml(file)
 c.parallelize = parallelize
 
-# cache the msprime ground truth (per-statistic caches + any configured pairwise surface grids)
+# cache the ground truth (msprime for the top-level stats, the sampler for a nested ``empirical`` sub-spec -- each
+# only if present, so a config may validate against either operand or both)
 c.cache_ground_truth()
 
-# drop simulated data
-c.ms.drop()
+# drop the simulated data of whichever operands were built (the cached stats/surfaces are retained + serialized)
+if 'ms' in c.__dict__:
+    c.ms.drop()
+if 'empirical' in c.__dict__:
+    c.empirical.drop()
 
 c.to_file(out)
 
