@@ -383,12 +383,35 @@ class Comparison(Serializable):
         plot = None
         if self.visualize:
             def plot(msg, ph_stat=ph_stat, ms_stat=ms_stat, configs=configs) -> None:
-                plt.plot(ph_stat, label='phasegen')
-                plt.plot(ms_stat, label='msprime')
-                plt.xticks(range(len(configs)), [str(config) for config in configs], rotation=90)
-                plt.legend()
-                if self.show_title: plt.title(msg, fontsize=self.title_fontsize)
-                self._save_and_show(name)
+                plt.close('all')  # avoid empty plots
+                fig, (axs, axd) = plt.subplots(ncols=2, figsize=(13, 5))
+                classes = np.arange(len(configs))
+                labels = [str(config) for config in configs]
+
+                # left: the two probability distributions over configurations
+                axs.plot(ph_stat, label='phasegen')
+                axs.plot(ms_stat, label='msprime')
+                axs.set_xticks(classes)
+                axs.set_xticklabels(labels, rotation=90)
+                axs.legend(fontsize=10)
+                axs.set_title('mutation configs', fontsize=self.title_fontsize)
+
+                # right: per-config absolute difference (the total-variation summand; heights are probabilities, so
+                # the scale is honest -- coloured by magnitude for emphasis)
+                adiff = np.abs(ph_stat - ms_stat)
+                norm = plt.Normalize(0.0, float(adiff.max()) or 1.0)
+                axd.bar(classes, adiff, color=plt.cm.coolwarm(norm(adiff)))
+                axd.set_xticks(classes)
+                axd.set_xticklabels(labels, rotation=90)
+                axd.set_ylabel('absolute difference')
+                axd.set_title('absolute difference', fontsize=self.title_fontsize)
+                sm = plt.cm.ScalarMappable(cmap='coolwarm', norm=norm)
+                sm.set_array([])
+                fig.colorbar(sm, ax=axd)
+
+                if self.show_title:
+                    fig.suptitle(msg, fontsize=self.suptitle_fontsize)
+                self._save_and_show(name, pad=1.5)
 
         return diff, plot
 
