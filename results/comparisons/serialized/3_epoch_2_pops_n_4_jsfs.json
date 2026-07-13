@@ -16,11 +16,9 @@
         "tolerance": {
             "jsfs": {
                 "pairwise": {
-                    "cosine": {
-                        "[((0, 1), (1, 0)), ((0, 1), (2, 0)), ((1, 0), (2, 0))]": {
-                            "cdf": 0.0053,
-                            "pdf": 0.038
-                        }
+                    "[((0, 1), (1, 0)), ((0, 1), (2, 0)), ((1, 0), (2, 0))]": {
+                        "cdf": 0.0053,
+                        "pdf": 0.038
                     }
                 },
                 "mean": 0.0061
@@ -132,7 +130,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 15
+            "py/id": 14
         },
         "demography": null,
         "end_time": null,

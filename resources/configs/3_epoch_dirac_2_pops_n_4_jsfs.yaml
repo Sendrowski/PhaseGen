@@ -30,9 +30,8 @@ comparisons:
   tolerance:
     jsfs:
       pairwise:
-        cosine:
-          '((0, 1), (1, 0))':
-            cdf: 0.0028
-            pdf: 0.018
+        '((0, 1), (1, 0))':
+          cdf: 0.0028
+          pdf: 0.018
       mean: 0.015
       var: 0.022

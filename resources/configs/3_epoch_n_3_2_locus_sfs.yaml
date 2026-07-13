@@ -14,8 +14,7 @@ comparisons:
   tolerance:
     sfs2:
       pairwise:
-        cosine:
-          '[(1, 2), (2, 2)]':
-            cdf: 0.0088
-            pdf: 0.034
+        '[(1, 2), (2, 2)]':
+          cdf: 0.0088
+          pdf: 0.034
       mean: 0.013

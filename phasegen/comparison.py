@@ -219,8 +219,7 @@ class Comparison(Serializable):
         """
         The self-consistency candidate operand: PhaseGen's own trajectory sampler (``n_samples`` draws), validated
         against the exact analytic :attr:`ph` rather than an external tool. Drives the nested ``tolerance.empirical``
-        sub-spec -- a *different kind* of check than :attr:`ms` (whether PhaseGen's sampler reproduces PhaseGen's own
-        exact result, not whether the exact result is correct).
+        sub-spec, a different kind of check than :attr:`ms`.
         """
         # a fresh analytic coalescent (not self.ph, which must stay out of the serialized fixture); it is dropped
         # before serialization
@@ -549,19 +548,6 @@ class Comparison(Serializable):
 
         return diff, plot
 
-    #: Standard thinned grid size per axis for the slow per-point **de Hoog 2D surface** comparison (≈ every other
-    #: node of the 25-point empirical grid). Fixed, not config-exposed: the empirical stays cached on the full grid and
-    #: is subsampled to the same nodes, so de Hoog surfaces cost ~(13/25)^2 of the full grid with no second cache.
-    DE_HOOG_2D_GRID: int = 13
-
-    def _de_hoog_thin(self, n_full: int) -> np.ndarray:
-        """Indices of an evenly-spaced thinned subset of a length-``n_full`` axis for the de Hoog 2D surface (see
-        :attr:`DE_HOOG_2D_GRID`); all indices if the standard size is not smaller."""
-        n = self.DE_HOOG_2D_GRID
-        if n >= n_full:
-            return np.arange(n_full)
-        return np.unique(np.linspace(0, n_full - 1, n).round().astype(int))
-
     @staticmethod
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
@@ -633,13 +619,6 @@ class Comparison(Serializable):
             self.logger.info(msg)
         if self.do_assertion:
             self.n_assertions += 1
-
-    @staticmethod
-    def _method_2d(mode: str, default: str) -> str:
-        """Map a comparison inversion ``mode`` to the joint (2D) ``method`` keyword (``'dehoog'`` / ``'cos'``) passed to
-        ``jd.pdf`` / ``jd.cdf``: ``de_hoog`` -> ``'dehoog'`` (nested de Hoog), ``cosine`` -> ``'cos'`` (cosine
-        expansion); ``None`` keeps the call site's ``default``."""
-        return {'de_hoog': 'dehoog', 'cosine': 'cos'}.get(mode, default)
 
     @staticmethod
     def _curve_method(mode: str) -> str:
@@ -784,7 +763,7 @@ class Comparison(Serializable):
                 if stat == 'loci' and isinstance(sub, dict) and 'pairwise' in sub:
                     rest = {k: v for k, v in sub.items() if k != 'pairwise'}
                     self._compare_loci_pairwise(ph=ph, ms=ms, sub=sub['pairwise'],
-                                                title=f"{title}: loci", name=f"{name}_loci", mode=mode)
+                                                title=f"{title}: loci", name=f"{name}_loci")
 
                 if rest:
                     self._compare_stat_recursively(
@@ -799,15 +778,10 @@ class Comparison(Serializable):
             elif stat == 'pairwise':
 
                 # nested pairwise group. A pair key like '(1, 2)' carries {cdf, pdf} tolerances for the full-grid
-                # surface comparison of that single bin pair (each optionally wrapped in a de_hoog/cosine mode).
+                # surface comparison of that single bin pair.
                 for key, subtol in sub.items():
-                    if key in ('de_hoog', 'cosine'):
-                        self._compare_stat_recursively(ph=ph, ms=ms, data={'pairwise': subtol},
-                                                       title=f"{title}: {key}", name=f"{name}_{key}", mode=key)
-                    else:
-                        pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
-                        self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=subtol, title=title, name=name,
-                                                       mode=mode)
+                    pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                    self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=subtol, title=title, name=name)
 
             elif isinstance(stat, int) or (isinstance(stat, str) and stat.lstrip('-').isdigit()):
 
@@ -827,21 +801,17 @@ class Comparison(Serializable):
                     mode=mode
                 )
 
-    def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str, mode: str = None) -> None:
+    def _compare_loci_pairwise(self, ph, ms, sub: dict, title: str, name: str) -> None:
         """
         Compare the cross-locus joint distribution (the per-locus tree height / total branch length at the two loci,
         separated by recombination) against the msprime ground truth, as a **full-grid surface** over the single locus
         pair ``(0, 1)`` -- the same machinery as the SFS/jSFS/two-locus surfaces (:meth:`_compare_pairwise_surface`),
-        routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. A ``de_hoog`` /
-        ``cosine`` key routes the 2D inversion (``mode``); the ``cdf`` / ``pdf`` tolerances are asserted over the grid.
+        routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. The ``cdf`` / ``pdf``
+        tolerances are asserted over the grid.
         """
-        for key, subtol in sub.items():
-            if key in ('de_hoog', 'cosine'):
-                self._compare_loci_pairwise(ph=ph, ms=ms, sub=subtol, title=f"{title}: {key}",
-                                            name=f"{name}_{key}", mode=key)
         tols = {k: v for k, v in sub.items() if k in ('cdf', 'pdf')}
         if tols:
-            self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name, mode=mode,
+            self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name,
                                            joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
                                            surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
 
@@ -966,26 +936,14 @@ class Comparison(Serializable):
         rd = getattr(ph, '_reward_distribution', ph)
         return np.array([float(rd.quantile(float(qq), method='cos')) for qq in q])
 
-    def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str, mode: str = None,
+    def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str,
                                   joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None) -> None:
         """
         Full-grid comparison of the within-tree joint distribution of one bin pair ``(i, j)``: the analytic
         ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
         ``cdf`` and ``pdf`` requested in ``tols`` it asserts the worst element-wise difference over the grid and (when
-        visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference. A
-        ``de_hoog`` / ``cosine`` key under the pair routes the surfaces through that inversion (``mode='dehoog'/'cos'``).
+        visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference.
         """
-        # per-pair inversion-mode wrappers, e.g. '(1, 2): {de_hoog: {cdf, pdf}, cosine: {cdf, pdf}}'
-        if any(k in ('de_hoog', 'cosine') for k in tols):
-            for k, sub in tols.items():
-                wrapped = k in ('de_hoog', 'cosine')
-                self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=sub if wrapped else {k: sub},
-                                               title=f"{title}: {k}" if wrapped else title,
-                                               name=f"{name}_{k}" if wrapped else name,
-                                               mode=k if wrapped else mode, joint_fn=joint_fn,
-                                               surface_attr=surface_attr, stat_label=stat_label)
-            return
-
         i, j = pair
         entry = next((e for e in getattr(ms, surface_attr, []) if (e[0], e[1]) == (i, j)), None)
         if entry is None:
@@ -1010,21 +968,12 @@ class Comparison(Serializable):
                 continue
             t0 = time.perf_counter()
 
-            # the joint cdf/pdf on the whole grid; default (no mode) uses the fast cosine inversion -- a per-point
-            # de Hoog grid is far slower -- and the atom-edge head where the cosine box is biased is dropped below
-            # (the first two points per axis). A de_hoog/cosine wrapper overrides the inversion.
-            m2d = self._method_2d(mode, 'cos')
-            dehoog = m2d == 'dehoog'
-            # the per-point de Hoog surface is slow (one nested inversion per grid node); evaluate it on a thinned
-            # subset of the standard grid (the empirical is subsampled to the same nodes). The fast cosine path stays
-            # on the full grid.
-            gx, gy = (self._de_hoog_thin(len(xs)), self._de_hoog_thin(len(ys))) if dehoog \
-                else (np.arange(len(xs)), np.arange(len(ys)))
-            xs_d, ys_d = xs[gx], ys[gy]
+            # the joint cdf/pdf on the whole grid (2D cosine inversion). The atom-edge head, where the cosine box is
+            # biased, is dropped below (the first two points per axis).
+            xs_d, ys_d = xs, ys
             ms_grid = (cdf_ms if kind == 'cdf' else pdf_ms)
-            grid_ms = np.asarray(ms_grid, dtype=float)[np.ix_(gx, gy)]
-            grid_ph = np.asarray(jd.cdf(xs_d, ys_d, method=m2d) if kind == 'cdf'
-                                 else jd.pdf(xs_d, ys_d, method=m2d), dtype=float)
+            grid_ms = np.asarray(ms_grid, dtype=float)
+            grid_ph = np.asarray(jd.cdf(xs_d, ys_d) if kind == 'cdf' else jd.pdf(xs_d, ys_d), dtype=float)
 
             xs_p, ys_p = xs_d[sx], ys_d[sy]
             grid_ph, grid_ms = grid_ph[sx, sy], grid_ms[sx, sy]
@@ -1208,20 +1157,9 @@ class Comparison(Serializable):
             if not isinstance(pairwise, dict):
                 continue
 
-            # pair keys are everything that is not an aggregate stat ('cdf'/'pdf'); they may sit directly under
-            # ``pairwise`` or be nested under a de_hoog/cosine mode wrapper, so descend into those
-            pairs = []
-
-            def _collect(d) -> None:
-                for k, v in d.items():
-                    if k in ('cdf', 'pdf'):
-                        continue
-                    if k in ('de_hoog', 'cosine') and isinstance(v, dict):
-                        _collect(v)
-                    else:
-                        pairs.append(ast.literal_eval(k) if isinstance(k, str) else tuple(k))
-
-            _collect(pairwise)
+            # pair keys are everything that is not an aggregate stat ('cdf'/'pdf')
+            pairs = [ast.literal_eval(k) if isinstance(k, str) else tuple(k)
+                     for k in pairwise if k not in ('cdf', 'pdf')]
             if pairs:
                 out[dist] = list(dict.fromkeys(pairs))  # de-dupe, preserve order
         return out

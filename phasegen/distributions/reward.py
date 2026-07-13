@@ -31,6 +31,7 @@ automatically by the inversion.
 import logging
 import functools
 from functools import cached_property
+from math import comb
 from typing import TYPE_CHECKING, Optional
 
 import mpmath as mp
@@ -307,6 +308,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
     so it is the same machinery as the univariate :class:`RewardDistribution` with a two-parameter shift, and is
     multi-epoch-native. Setting one argument to zero recovers a marginal; mixed derivatives at the origin recover
     the cross-moments. The joint CDF/PDF (2D inversion) and the product distribution are views built on top.
+
+    The 2D inversion is the **Fourier-cosine expansion** (:meth:`_cc_box`), which is the only 2D method: it inverts
+    both axes at once from a single coefficient matrix, so a whole grid costs one solve set. The nested per-point
+    alternatives were dropped. Nested **de Hoog** was no more accurate than the cosine grid on realistic demographies
+    (both within a few percent of msprime at the quantile corners) while costing ~1 s per point, which put it out of
+    reach of the scenario suite. Nested **Euler** (which the 1D conditional does need, see :class:`_NestedConditional`)
+    is accurate but likewise per-point, and equally untestable at grid scale. Cosine's known weakness is the
+    steep near-origin rise, mitigated by the window scale (:attr:`_cos2d_window_scale`).
     """
     #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
     #: ``plot_surface`` callback); a joint has no quantile (a 2D quantile is not well-defined)
@@ -316,8 +325,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     #: Number of cosine terms per axis for the 2D Fourier-cosine joint density (:attr:`_cos2d`). The cost is the square
     #: of this (an ``n x n`` coefficient matrix of joint-LST evaluations), so it is smaller than the 1D term count; at
-    #: 128 the heatmap/surface ringing is ~0.5% of the peak (vs ~2.5% at 64). For a de-Hoog-accurate (non-ringing) but
-    #: far slower density, use ``pdf.plot_surface(method='dehoog')`` (nested de Hoog inversion).
+    #: 128 the heatmap/surface ringing is ~0.5% of the peak (vs ~2.5% at 64).
     _cos2d_terms: int = 128
 
     #: Window half-width for the 2D Fourier-cosine expansion, in std-units past the mean per axis (``b = mean + scale *
@@ -373,6 +381,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         tau = st['tau']
         return _lst_from_shift((s_a * tau) * st['ra'] + (s_b * tau) * st['rb'], st['alpha'], st['T_epochs'],
                                st['sparse'], st['lu_perm'])
+
+    def lst_batch(self, s_a, s_b) -> np.ndarray:
+        """The joint LST over a *vector* of nodes in one argument (the other held scalar), evaluated as one batch.
+
+        The inner inversion of :class:`_NestedConditional` always has its whole node set to hand, and batching the
+        per-epoch assembly and matrix exponential across it is ~2x (see :func:`_lst_from_shift_batch`)."""
+        st = self._setup
+        tau = st['tau']
+        s_a, s_b = np.atleast_1d(s_a), np.atleast_1d(s_b)
+        shifts = (np.outer(s_a * tau, st['ra']) + np.outer(s_b * tau, st['rb'])).astype(complex)
+        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
 
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """The joint LST ``Phi(s_a, s_b)`` on the full outer grid ``s_a_vals x s_b_vals`` (shape
@@ -577,7 +596,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
                 "exact 1D marginal by up to %.1f%% there (a sharp / skewed near-origin feature the cosine series "
                 "cannot capture, so the heatmap/surface rings and is biased). Use pdf(...) / cdf(...) with "
-                "method='dehoog' for accurate values.", err * 100,
+                "a finer grid or more terms may be needed.", err * 100,
             )
         return err
 
@@ -603,77 +622,6 @@ class JointRewardDistribution(CallableDistributionFunctions):
         k = min(3, dens.shape[0] - 1)
         return RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k)(xs, ys)
 
-    def _nested_invert(self, xs: np.ndarray, ys: np.ndarray, kind: str, M: int = 8) -> np.ndarray:
-        """
-        A continuous-continuous joint quantity on the grid ``xs x ys`` by **direct nested Laplace inversion** of the
-        joint transform (no cosine expansion). The marginal atoms are first removed by inclusion-exclusion
-        (``cc(s_a, s_b) = Phi(s_a, s_b) - Phi(s_a, inf) - Phi(inf, s_b) + P(both=0)``), so the transform decays and the
-        inversion sees a genuine 2D density transform. ``kind`` selects what is inverted:
-
-        - ``'pdf'``: ``cc`` -> the density ``f(x, y)``;
-        - ``'cdf'``: ``cc / (s_a s_b)`` -> the box integral ``int_0^x int_0^y f`` (dividing a transform by ``s`` is
-          integration).
-
-        For each ``y`` the inner inversion in ``s_b`` is Gaver-Stehfest (it must accept the *complex* ``s_a`` the outer
-        inversion probes it at); the outer inversion in ``s_a`` is de Hoog (far more tolerant of the inner result's
-        double-precision noise than a second Stehfest, which would amplify it catastrophically). A full inner Stehfest
-        per outer de Hoog node per grid point makes this much slower than the cosine path, so use a coarse grid.
-
-        The two inclusion-exclusion marginal terms depend on a single argument each, and the node sets repeat across
-        the grid (de Hoog ``s_a`` down each column, Stehfest ``s_b`` across each row), so they are memoised grid-wide
-        (turning the 3 LST solves per ``cc`` into ~1); the full 2D term is distinct per node pair and is not cached.
-        """
-        xs = np.atleast_1d(np.asarray(xs, dtype=float))
-        ys = np.atleast_1d(np.asarray(ys, dtype=float))
-        big, both0 = 1e8, self._atoms['both0']
-        integrate = kind == 'cdf'  # divide the transform by s on each axis to integrate the density into a box CDF
-
-        marg_a = functools.lru_cache(maxsize=None)(lambda s_a: self.lst(s_a, big))
-        marg_b = functools.lru_cache(maxsize=None)(lambda s_b: self.lst(big, s_b))
-
-        def cc(s_a: complex, s_b: complex) -> complex:
-            """The continuous-continuous transform (marginal atoms removed by inclusion-exclusion)."""
-            return self.lst(s_a, s_b) - marg_a(s_a) - marg_b(s_b) + both0
-
-        out = np.zeros((xs.size, ys.size))
-        for j, y in enumerate(ys):
-            if y <= 0:
-                continue  # both the density and the box vanish on the axis
-            # inner Stehfest inversion of cc(s_a, .) in s_b at y; for the CDF the extra 1/s_b (inner) and 1/s_a (outer)
-            # integrate the density up to (x, y). The outer de Hoog evaluates it at complex s_a.
-            def G(s_a: complex, _y: float = float(y)) -> complex:
-                inner = _stehfest_invert(lambda s_b: cc(s_a, s_b) / s_b if integrate else cc(s_a, s_b), _y, M)
-                return inner / s_a if integrate else inner
-
-            def F(s, _G=G) -> 'mp.mpc':  # de Hoog wants the transform as an mpmath complex
-                v = _G(complex(s))
-                return mp.mpc(v.real, v.imag)
-
-            for i, x in enumerate(xs):
-                if x <= 0:
-                    continue
-                # mpmath's default degree (20) is kept here rather than Settings.dehoog_degree: the outer inversion
-                # sees the noisy inner Stehfest result, and a lower degree spikes near the origin (a higher one in the
-                # far tail) -- the default is the more stable middle ground for this nested, noise-carrying input.
-                out[i, j] = float(mp.invertlaplace(F, float(x), method='dehoog'))
-        return out
-
-    def _density_nested(self, xs: np.ndarray, ys: np.ndarray, M: int = 8) -> np.ndarray:
-        """The continuous joint density by direct nested inversion -- the accurate (slow) ``exact`` counterpart of the
-        cosine :meth:`_density`, and the de Hoog ``pdf``. Clipped to non-negative. See :meth:`_nested_invert`."""
-        raw = self._nested_invert(xs, ys, 'pdf', M)
-        self._warn_if_negative(raw, 'joint density (de Hoog)')
-        return np.clip(raw, 0.0, None)
-
-    @staticmethod
-    def _use_dehoog(method: str) -> bool:
-        """Resolve a 2D inversion ``method`` to a de-Hoog/cosine choice: ``'dehoog'`` -> True, ``'cos'`` -> False, and
-        ``None`` (the default) -> the accurate de Hoog. Pass ``method='cos'`` for the fast cosine inversion (e.g. plots)."""
-        m = 'dehoog' if method is None else method
-        if m not in ('dehoog', 'cos'):
-            raise ValueError(f"method must be 'dehoog', 'cos', or None (the de Hoog default); got {m!r}.")
-        return m == 'dehoog'
-
     @staticmethod
     def _cos_antideriv(u: np.ndarray, x: np.ndarray) -> np.ndarray:
         """``int_0^x cos(u_k t) dt`` for each frequency ``u_k`` and point ``x`` (``sin(u_k x)/u_k``, and ``x`` for
@@ -693,35 +641,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Iy = self._cos_antideriv(st['ub'], np.minimum(ys, st['bb']))   # (len_y, N)
         return Ix @ st['A'] @ Iy.T                                     # (len_x, len_y)
 
-    def _cc_box_dehoog(self, xs: np.ndarray, ys: np.ndarray, M: int = 8) -> np.ndarray:
-        """The continuous-continuous box CDF ``int_0^x int_0^y f_cc`` by direct nested inversion -- the accurate
-        counterpart of the cosine :meth:`_cc_box`. The cosine box reconstructs the density on a single fixed window
-        ``[0, b_a] x [0, b_b]``; for a heavily skewed reward (e.g. a multi-epoch demography whose std greatly exceeds
-        its mean, so the window spans 0 to many tens) a fixed number of cosine terms cannot resolve the sharp
-        near-origin rise, and the box is badly wrong at small ``x``/``y`` (it does not even reduce to the marginal as
-        the other coordinate grows). De Hoog adapts its contour per point, so it has no such limit. See
-        :meth:`_nested_invert`."""
-        return self._nested_invert(xs, ys, 'cdf', M)
-
-    def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray, dehoog: bool = True) -> np.ndarray:
-        """Joint CDF on the grid ``xs x ys``: the axis atoms (marginal sub-transform inversions, one per grid line,
-        always per-point de Hoog) plus the continuous box integral. ``dehoog`` selects the box method: the accurate
-        nested de Hoog (:meth:`_cc_box_dehoog`, the default -- correct even for skewed multi-epoch rewards) or the fast
-        cosine box (:meth:`_cc_box`, for dense plotting grids where the near-origin bias is an acceptable tradeoff)."""
-        big = 1e8
+    def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """Joint CDF on the grid ``xs x ys``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(R_b = 0, R_a <= x)``
+        (1D Fourier-cosine inversions, one per grid line) plus the continuous box integral (:meth:`_cc_box`)."""
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-        both0 = self._atoms['both0']
-        # axis atoms P(R_a=0, R_b<=y) and P(R_b=0, R_a<=x). The cosine path inverts them with the fast 1D Fourier-
-        # cosine (:meth:`_cos_axis`, validated to match de Hoog/msprime -- no de Hoog mixing); the de Hoog box path
-        # inverts them per point with de Hoog, using the exact limit P(both=0) at the unreliable atom edge (t=0).
-        if dehoog:
-            g_a = np.array([both0 if y == 0 else self.marginal('b')._invert(lambda s: self.lst(big, s) / s, float(y)) for y in ys])
-            g_b = np.array([both0 if x == 0 else self.marginal('a')._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
-            cc = self._cc_box_dehoog(xs, ys)
-        else:
-            g_a, g_b = self._cos_axis('a', ys), self._cos_axis('b', xs)
-            cc = self._cc_box(xs, ys)
-        return g_b[:, None] + g_a[None, :] - both0 + cc
+        g_a, g_b = self._cos_axis('a', ys), self._cos_axis('b', xs)
+        return g_b[:, None] + g_a[None, :] - self._atoms['both0'] + self._cc_box(xs, ys)
 
     def conditional(self, on: str = 'a', value: float = 0.0) -> RewardDistribution:
         """
@@ -763,17 +688,25 @@ class JointRewardDistribution(CallableDistributionFunctions):
         when the relative error exceeds ``tol``.
 
         The conditioning marginal's expectation is split into its atom at 0 (``P(R_on = 0) E[R_other | R_on = 0]``)
-        plus an equal-probability midpoint quadrature over its continuous part (``n_points`` conditional means at the
-        marginal's ``(p0, 1)`` quantiles -- so the quadrature weights by the marginal density automatically). Uses only
-        the conditional **mean** (the reliable first-difference cumulant), so it is bounded but not free (a handful of
-        nested inversions per point); call it explicitly rather than on every construction.
+        plus an integral over its continuous part, taken in probability space: substituting ``u = F_on(v)`` turns
+        ``INT E[R_other|v] f_on(v) dv`` into ``INT_0^1 E[R_other | F_on^{-1}(u)] du``, so the marginal density is
+        absorbed into the measure and only quantiles are needed. The ``n_points`` nodes are **Gauss-Legendre**; the
+        integrand grows without bound as ``u -> 1`` (the conditional mean rises with ``v``, and ``v ~ -log(1-u)`` for
+        an exponential-tailed reward), which drags an equal-probability midpoint rule down to ``O(1/n)`` convergence
+        and leaves it a ~0.5% floor at ``n_points = 8``, where Gauss-Legendre holds ~0.05%. Uses only the conditional
+        **mean** (the reliable first-difference cumulant), so it is bounded but not free (a handful of nested
+        inversions per point); call it explicitly rather than on every construction. See
+        :meth:`check_total_probability`, which tests the whole law rather than just its first moment.
 
-        :param n_points: Equal-probability quadrature points over the continuous part of each conditioning marginal.
+        :param n_points: Gauss-Legendre nodes for the integral over the continuous part of each conditioning marginal.
         :param tol: Relative-error threshold above which a violation is logged.
         :return: ``{'a': rel_err_conditioning_on_a, 'b': rel_err_conditioning_on_b}`` (empty for a self-pair).
         """
         if self._is_diagonal:
             return {}  # R_a == R_b a.s.; the conditional is a point mass, nothing to integrate
+
+        x, w = np.polynomial.legendre.leggauss(n_points)
+        us, ws = 0.5 * (x + 1.0), 0.5 * w  # map [-1, 1] -> [0, 1]
 
         out = {}
         for on, other in (('a', 'b'), ('b', 'a')):
@@ -781,20 +714,106 @@ class JointRewardDistribution(CallableDistributionFunctions):
             lhs = float(marg_other._cumulants()[0])  # E[R_other] from the (reliable) ordinary marginal
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
 
-            # continuous part: midpoint rule in probability space over (p0, 1) -> conditional means at those quantiles
-            qs = p0 + (1.0 - p0) * (np.arange(n_points) + 0.5) / n_points
-            cond_means = [self.conditional(on, float(marg_on.quantile(float(q))))._cumulants()[0] for q in qs]
-            rhs = (1.0 - p0) * float(np.mean(cond_means))
+            rhs, n_refused = 0.0, 0
+            for u, weight in zip(us, ws):
+                v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))  # continuous part spans quantiles (p0, 1)
+                try:
+                    rhs += (1.0 - p0) * weight * float(self.conditional(on, v)._cumulants()[0])
+                except ValueError:
+                    n_refused += 1  # dropping this node's contribution shows up as a deficit in ``rhs``
             if p0 > 1e-6:  # atom term P(R_on = 0) E[R_other | R_on = 0]
                 rhs += p0 * float(self.conditional(on, 0.0)._cumulants()[0])
 
             rel = abs(rhs - lhs) / max(abs(lhs), 1e-12)
             out[on] = rel
-            if Settings.check_inversions and rel > tol:
+            if Settings.check_inversions and (rel > tol or n_refused):
+                refused = f", and {n_refused}/{n_points} conditionals could not be built" if n_refused else ""
                 self._logger.warning(
                     f"law of total expectation violated conditioning on R_{on}: E[R_{other}]={lhs:.4g} vs "
-                    f"E[E[R_{other}|R_{on}]]={rhs:.4g} (rel {rel:.1%} > {tol:.0%}); the conditional inversion may be "
-                    f"imprecise here"
+                    f"E[E[R_{other}|R_{on}]]={rhs:.4g} (rel {rel:.1%} > {tol:.0%}){refused}; the conditional inversion "
+                    f"may be imprecise here"
+                )
+        return out
+
+    def check_total_probability(self, n_points: int = 8, n_y: int = 15, tol: float = 0.01) -> dict:
+        """
+        Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total probability**
+        ``F_other(y) = E_{R_on}[ P(R_other <= y | R_on) ]`` for conditioning on each axis, and **log a warning** (per
+        axis) when the sup-norm deviation over ``y`` exceeds ``tol``.
+
+        The companion :meth:`check_total_expectation` tests only the first moment, and moments cancel: a conditional
+        can be several percent wrong pointwise and still integrate to the right mean, because the errors above and
+        below the mean offset. This tests the whole law instead, at every ``y``, and so catches shape errors that the
+        moment check cannot see.
+
+        The conditioning marginal is integrated out in **probability space**: substituting ``u = F_on(v)`` turns
+        ``INT F(y|v) f_on(v) dv`` into ``INT_0^1 F(y | F_on^{-1}(u)) du``, so the marginal density is absorbed into the
+        measure and only quantiles are needed. The atom at 0 (``P(R_on = 0) F(y | R_on = 0)``) is added separately.
+        Both sides are CDFs, so each already carries its own atom at ``R_other = 0`` and the identity holds without a
+        correction. A conditional that *refuses* to build (a non-positive normaliser at an interior quantile) is itself
+        a violation and is reported as such.
+
+        The ``u``-integrand is smooth, so the nodes are **Gauss-Legendre** rather than the equal-probability midpoints
+        of :meth:`check_total_expectation`. This matters: the midpoint rule converges as ``O(n^-2)``, and against a
+        closed-form copula its discretisation error at ``n_points = 8`` is 0.004 to 0.020 (rising with the coupling
+        between the two rewards) *for an exact conditional* -- the same size as the inversion error being hunted, which
+        would make the check measure its own quadrature and read strongly-coupled reward pairs as broken. Gauss-Legendre
+        at ``n_points = 12`` holds that floor below 5e-4, roughly ``tol / 20``.
+
+        Note that the quadrature weights each conditional by ``f_on(v)``, so a conditional that is only wrong far out
+        in the tail contributes little and may pass. This bounds bulk error; it is not a tail certificate.
+
+        **This is expensive**: ``n_points`` nested inversions per axis, each building a CDF curve. On a multi-epoch
+        demography a single conditional costs tens of seconds, so the whole check runs in minutes -- and it is slow
+        precisely *because* it is useful, since the outermost quadrature nodes sit at the ~99th percentile of the
+        conditioning marginal, exactly where the inner inversion has to refine hardest (see
+        :meth:`_NestedConditional._calibrate`). Call it deliberately when a conditional looks suspect, never on every
+        construction. ``n_points = 8`` holds the Gauss-Legendre quadrature floor at ~2.6e-3, comfortably inside
+        ``tol``, while keeping the node count down.
+
+        :param n_points: Gauss-Legendre nodes for the integral over the continuous part of each conditioning marginal.
+        :param n_y: Evaluation points for the sup-norm, at evenly spaced quantiles of the other reward's marginal.
+        :param tol: Sup-norm deviation (an absolute probability) above which a violation is logged.
+        :return: ``{'a': sup_dev_conditioning_on_a, 'b': sup_dev_conditioning_on_b}`` (empty for a self-pair).
+        """
+        if self._is_diagonal:
+            return {}  # R_a == R_b a.s.; the conditional is a point mass, nothing to integrate
+
+        x, w = np.polynomial.legendre.leggauss(n_points)
+        us, ws = 0.5 * (x + 1.0), 0.5 * w  # map [-1, 1] -> [0, 1]
+
+        out = {}
+        for on, other in (('a', 'b'), ('b', 'a')):
+            marg_on, marg_other = self.marginal(on), self.marginal(other)
+            p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
+
+            # evaluate the sup-norm where the other reward actually lives, not on an arbitrary grid
+            ys = np.array([float(marg_other.quantile(float(p))) for p in np.linspace(0.05, 0.95, n_y)])
+            lhs = np.asarray(marg_other.cdf(ys), dtype=float)  # from the (reliable) ordinary marginal
+
+            rhs, n_refused = np.zeros(n_y), 0
+            for u, weight in zip(us, ws):
+                v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))  # continuous part spans quantiles (p0, 1)
+                try:
+                    cond = self.conditional(on, v)
+                except ValueError:
+                    n_refused += 1  # dropping this node's contribution shows up as a deficit in ``rhs``
+                    continue
+                # the CURVE, not ``cond.cdf(ys)``: a per-point de Hoog costs (2 dehoog_degree + 1) outer times
+                # (2 (N0 + m) + 1) inner ``lst`` solves for EVERY y, while the COS curve shares one set of phi
+                # evaluations across the whole grid -- ~11x here, at no measurable accuracy cost
+                rhs += (1.0 - p0) * weight * np.asarray(cond.cdf.curve(ys, method='cos'), dtype=float)
+            if p0 > 1e-6:  # atom term P(R_on = 0) F(y | R_on = 0)
+                rhs = rhs + p0 * np.asarray(self.conditional(on, 0.0).cdf.curve(ys, method='cos'), dtype=float)
+
+            dev = float(np.max(np.abs(rhs - lhs)))
+            out[on] = dev
+            if Settings.check_inversions and (dev > tol or n_refused):
+                refused = f", and {n_refused}/{n_points} conditionals could not be built" if n_refused else ""
+                self._logger.warning(
+                    f"law of total probability violated conditioning on R_{on}: "
+                    f"sup_y |F_{other}(y) - E[F_{other}(y|R_{on})]| = {dev:.3g} > {tol:.3g}{refused}; the conditional "
+                    f"inversion may be imprecise here"
                 )
         return out
 
@@ -824,11 +843,13 @@ class _Conditional(RewardDistribution):
         generous for larger ``scale``, matching the cumulant-based ``mean + scale*std`` it replaces). The mean
         (first-difference ``_cumulants()[0]``) is reliable and used only as the seed; the variance is not."""
         target = min(1.0 - float(np.exp(-scale)), 1.0 - 1e-6)  # scale=12 -> ~1-1e-6 (full support); scale=4 -> ~0.98
-        cdf = self.cdf  # the (per-point de Hoog) CDF function object
+        # the per-point de Hoog inversion, NOT the ``self.cdf`` function object: a conditional's ``cdf`` answers from
+        # the COS grid (``_default_method``), whose fit needs this very support window -- going through it recurses
+        cdf_point = self.cdf._cdf_point
         c1 = float(self._cumulants()[0])
         b = max(c1, 1.0 / self._time_scale, 1e-3)
         for _ in range(n_iter):
-            if float(cdf(b)) >= target:
+            if float(cdf_point(b)) >= target:
                 break
             b *= 1.6
         return b
@@ -872,32 +893,108 @@ class _AtomConditional(_Conditional):
 _STEHFEST_WEIGHTS: dict = {}
 
 
-def _stehfest_weights(M: int) -> list:
-    """Gaver-Stehfest weights ``V_k`` (``k = 1..2M``), cached per order ``M``."""
-    if M not in _STEHFEST_WEIGHTS:
-        V = []
-        for k in range(1, 2 * M + 1):
-            s = mp.mpf(0)
-            for j in range((k + 1) // 2, min(k, M) + 1):
-                s += (mp.mpf(j) ** M * mp.factorial(2 * j) /
-                      (mp.factorial(M - j) * mp.factorial(j) * mp.factorial(j - 1) *
-                       mp.factorial(k - j) * mp.factorial(2 * j - k)))
-            V.append((-1) ** (k + M) * s)
-        _STEHFEST_WEIGHTS[M] = V
-    return _STEHFEST_WEIGHTS[M]
 
 
-def _stehfest_invert(transform, t: float, M: int = 8) -> complex:
+_PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1187353796428800.,
+                    129060195264000., 10559470521600., 670442572800., 33522128640.,
+                    1323241920., 40840800., 960960., 16380., 182., 1.])
+
+
+def _expm_batch(A: np.ndarray) -> np.ndarray:
     """
-    Gaver-Stehfest numerical Laplace inversion of ``transform`` at ``t``, evaluated in extended precision. Unlike
-    mpmath's de Hoog / Talbot (which assume a real-valued transform), this uses purely *real* nodes
-    ``s = k ln2 / t`` with real weights, so it inverts a **complex-valued** transform to a complex result — needed
-    for the nested conditional, whose inner transform is complex when the outer argument is (the COS frequencies).
+    Matrix exponential of a *stack* of matrices ``(k, n, n)``, by Pade-13 with scaling-and-squaring, vectorised over
+    the leading axis.
+
+    Used for the inner-inversion node batch (:func:`_lst_from_shift_batch`), where the same generator is exponentiated
+    against a hundred-odd different diagonal shifts. ``scipy.linalg.expm`` is ~100x the FLOPs a 22x22 Pade-13 needs
+    (~13 matmuls, ~300 kflop): the time goes on its per-call norm estimation, Pade-order selection and allocations,
+    and its own batched mode does not amortise them either. Hoisting that analysis out of the loop -- one scaling
+    choice, stacked matmuls -- is 2.2x here, and matches ``scipy.linalg.expm`` to ~3e-15.
     """
-    a = mp.log(2) / t
-    with mp.workdps(max(mp.mp.dps, 3 * M + 10)):
-        return complex(a * mp.fsum(Vk * mp.mpc(transform(complex(k * a)))
-                                   for k, Vk in enumerate(_stehfest_weights(M), start=1)))
+    n = A.shape[-1]
+    nrm = np.abs(A).sum(-2).max(-1)
+    sq = np.maximum(0, np.ceil(np.log2(np.maximum(nrm / 5.37, 1e-300))).astype(int))
+    As = A / (2.0 ** sq)[:, None, None]
+    I = np.broadcast_to(np.eye(n, dtype=A.dtype), A.shape)
+    A2 = As @ As
+    A4 = A2 @ A2
+    A6 = A2 @ A4
+    U = As @ (A6 @ (_PADE13[13] * A6 + _PADE13[11] * A4 + _PADE13[9] * A2)
+              + _PADE13[7] * A6 + _PADE13[5] * A4 + _PADE13[3] * A2 + _PADE13[1] * I)
+    V = (A6 @ (_PADE13[12] * A6 + _PADE13[10] * A4 + _PADE13[8] * A2)
+         + _PADE13[6] * A6 + _PADE13[4] * A4 + _PADE13[2] * A2 + _PADE13[0] * I)
+    R = np.linalg.solve(V - U, V + U)
+    for k in np.nonzero(sq)[0]:  # square each back up to its own scaling
+        for _ in range(int(sq[k])):
+            R[k] = R[k] @ R[k]
+    return R
+
+
+def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, perm=_AUTO_PERM) -> np.ndarray:
+    """
+    :func:`_lst_from_shift` over a *stack* of shift vectors ``(k, nt)``, sharing the per-epoch matrix assembly and
+    exponentiating the whole batch at once (:func:`_expm_batch`). The inner inversion evaluates the transform at a
+    fixed node set, so it always has a batch to hand; the scalar routine is left untouched for every other caller.
+    """
+    nt = len(alpha)
+    k = len(shifts)
+    vec = np.zeros((k, nt + 1), dtype=complex)
+    vec[:, :nt] = alpha
+
+    for T, t0, t1 in T_epochs[:-1]:
+        Td = T.toarray() if sp.issparse(T) else np.asarray(T)
+        Q = np.zeros((k, nt + 1, nt + 1), dtype=complex)
+        Q[:, :nt, :nt] = Td
+        Q[:, np.arange(nt), np.arange(nt)] -= shifts  # only the diagonal varies across the batch
+        Q[:, :nt, nt] = _exit_rates(T)
+        vec = np.einsum('ki,kij->kj', vec, _expm_batch(Q * (t1 - t0)))
+
+    a, c = vec[:, :nt], vec[:, nt]
+    Tm = T_epochs[-1][0]
+    exit_m = _exit_rates(Tm)
+    out = np.empty(k, dtype=complex)
+    for i in range(k):  # the final-epoch solve keeps the (block-triangular, sparse-capable) LU of the scalar path
+        A = (sp.diags(shifts[i]) if sparse else np.diag(shifts[i])) - Tm
+        out[i] = c[i] + a[i] @ MomentEvaluator._lu_solver(A, sparse, perm)(exit_m)
+    return out
+
+
+#: Starting Fourier truncation for the inner Euler inversion; :meth:`_NestedConditional._calibrate` refines from here.
+_EULER_N0 = 30
+
+
+def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: int = 12) -> complex:
+    """
+    Euler-accelerated Fourier-series (Abate-Whitt) Laplace inversion of ``transform`` at ``t``.
+
+    With period ``T = 2t`` the Bromwich integral becomes the Fourier series
+
+        f(t) ~ (e^{A/2} / 2t) sum_{k=-inf}^{inf} (-1)^k F( (A + 2 pi i k) / (2t) ),
+
+    whose ``2 pi / T`` node spacing makes it genuinely *alternating*, which is what Euler summation requires (a
+    ``pi / T`` spacing gives weights ``i^k``, a period-4 rotation, and the acceleration is then invalid). The tail
+    beyond ``N0`` is Euler-averaged with binomial weights over the partial sums ``S_{N0..N0+m}``.
+
+    Summed **two-sided**, so the inverse may be complex-valued -- no conjugate symmetry is assumed (unlike de Hoog
+    and Talbot, which evaluate only the upper half-plane and take a real part).
+
+    The nodes and weights are *fixed*, so the result is a plain linear combination ``sum_k w_k F(u_k)``: for a
+    two-argument transform this keeps the inversion exactly as analytic in the *other* argument as the transform
+    itself, which is what lets it be nested inside the outer de Hoog (see :meth:`_NestedConditional._G`).
+
+    ``A`` trades aliasing error (``~ e^{-A}``) against amplification of roundoff and of the near-cancelling
+    alternating sum (``~ e^{A/2}``). Larger is *not* better: the aliasing term is negligible here, while by
+    ``A = 36`` the amplification alone puts the bottleneck normaliser 94% off. The residual error is Fourier-series
+    truncation, which ``N0`` (not ``A``) buys down.
+    """
+    ks = np.arange(-(N0 + m), N0 + m + 1)
+    u = (A + 2.0j * np.pi * ks) / (2.0 * t)
+    binom = np.array([comb(m, j) for j in range(m + 1)], dtype=float) / 2.0 ** m
+    # Euler weight of node k: the binomial-averaged fraction of the partial sums S_{N0+j} that include it
+    frac = np.array([binom[max(0, abs(k) - N0):].sum() if abs(k) > N0 else 1.0 for k in ks])
+    w = (np.exp(A / 2.0) / (2.0 * t)) * ((-1.0) ** ks) * frac
+    vals = transform(u)  # the whole node set at once -- see _lst_from_shift_batch
+    return complex(np.sum(w * np.asarray(vals)))
 
 
 class _NestedConditional(_Conditional):
@@ -908,9 +1005,14 @@ class _NestedConditional(_Conditional):
     plotting curves, atom handling, quantile, plotting).
 
     The conditional LST is ``phi(s) = G(s) / G(0)`` where ``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ]`` is the
-    inner (Gaver-Stehfest) inversion of the joint transform ``Phi`` along the conditioned axis at ``value``, and
+    inner inversion of the joint transform ``Phi`` along the conditioned axis at ``value`` (see :meth:`_G`), and
     ``G(0)`` is the marginal density of the conditioning reward there (the normaliser). This resolves the conditional
     exactly, unlike the coarse 2D-cosine slice.
+
+    The inner inversion's resolution (``N0``, its Fourier-series truncation) is calibrated **once** in
+    :meth:`__init__`, by refining until the normaliser ``G(0)`` stops moving, and then held **fixed for every** ``s``.
+    Letting it vary with ``s`` would make ``G`` a *different* linear functional at each ``s`` and so destroy its
+    analyticity in ``s`` -- the one property the outer inversion depends on (see :meth:`_G`).
     """
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
@@ -924,22 +1026,101 @@ class _NestedConditional(_Conditional):
         self.state_space = joint._host.state_space
         self._on = on
         self._value = float(value)
-        self._stehfest_M = 8
         self._logger = logger.getChild(self.__class__.__name__)
         self.label = label
 
-        g0 = self._G(0.0).real  # = marginal density of the conditioning reward at ``value`` (the normaliser)
-        if g0 <= 1e-300:
-            raise ValueError(f"The marginal density at R_{on} = {value} is zero; cannot condition there.")
-        self._G0 = g0
+        self._N0, self._G0 = self._calibrate()
+
+    def _calibrate(self, tol: float = 2e-2, n_max: int = 480) -> tuple:
+        """
+        Pick the inner inversion's Fourier truncation ``N0`` and evaluate the normaliser ``G(0)`` (the marginal
+        density of the conditioning reward at ``value``) with it.
+
+        ``N0`` is refined by doubling until ``G(0)`` stops moving by more than ``tol`` in relative terms. A fixed
+        ``N0`` cannot serve every demography: a sharply peaked reward density has slowly-decaying Fourier
+        coefficients, and where ``N0 = 30`` leaves the normaliser 27% off on a strong bottleneck, ``N0 = 240`` gets it
+        to 4e-5. Refining is also what makes the *easy* cases cheap -- they converge at the first step and never pay
+        for the hard ones.
+
+        ``tol`` is deliberately loose. The Euler sum converges slowly enough in ``N0`` that a tight criterion keeps
+        doubling long after the *conditional* has stopped improving: at ``tol = 1e-3`` a cell whose conditional mean
+        was already within 1.0% of an independent sampler refined to 0.8% and paid 7x for it. The normaliser only has
+        to be good enough not to distort ``phi = G(s) / G(0)``.
+
+        The ``cur > 0`` guard is load-bearing, not a redundant sanity check: a *resolved* density stays positive at
+        every truncation, so a **sign flip along the refinement sequence** is proof that the inversion is returning
+        noise rather than a small number. That is what a deep bottleneck does out in the tail
+        (``+4.6e-4, -1.0e-3, -5.0e-4, +1.4e-4`` as ``N0`` doubles), and it is what makes the refusal robust
+        independently of where ``n_max`` happens to land.
+
+        Non-convergence is the honest failure signal, and it is *not* the same as "the density is zero": for a
+        sufficiently deep bottleneck the true density out in the tail (~1e-7, and smaller) drops below what any
+        float64 Laplace inversion can resolve -- PhaseGen's own de Hoog marginal returns a *negative* density there
+        too. The distribution is perfectly well defined (the reward-bridge sampler recovers a conditional mean of 0.22
+        on exactly the cells refused here); it is the *inversion* that cannot see it. So refuse, and say so, rather
+        than return a confidently wrong number -- the old Gaver-Stehfest path returned 0.0009 for that 0.22.
+
+        :param tol: Relative change in ``G(0)`` below which the truncation is deemed converged.
+        :param n_max: Largest truncation to try before giving up.
+        :return: ``(N0, G(0))``.
+        """
+        n0 = _EULER_N0
+        prev = _euler_invert(self._phi, self._value, N0=n0).real
+        while n0 < n_max:
+            n0 *= 2
+            cur = _euler_invert(self._phi, self._value, N0=n0).real
+            if abs(cur - prev) <= tol * abs(cur) and cur > 0:
+                return n0, cur
+            prev = cur
+
+        if prev <= 1e-300:
+            raise ValueError(
+                f"The marginal density at R_{self._on} = {self._value:g} is not resolvable: the numerical Laplace "
+                f"inversion returns {prev:.3g} there, so the conditional cannot be normalised. The density is far out "
+                f"in the tail and below the float64 resolution of the inversion, not necessarily zero -- conditioning "
+                f"closer to the bulk, or sampling, will work."
+            )
+        raise ValueError(
+            f"The marginal density at R_{self._on} = {self._value:g} did not converge under refinement of the inner "
+            f"inversion (still moving by more than {tol:.0%} at N0 = {n_max}); the conditional there would be "
+            f"unreliable. Condition closer to the bulk, or sample."
+        )
+
+    def _phi(self, u: np.ndarray) -> np.ndarray:
+        """``u -> Phi(., u)`` along the conditioned axis, with the *other* argument held at 0 (the normaliser)."""
+        z = np.zeros(len(u))
+        return self._joint.lst_batch(z, u) if self._on == 'b' else self._joint.lst_batch(u, z)
 
     def _G(self, s: complex) -> complex:
-        """``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ](value)`` (inner inversion along the conditioned axis)."""
+        """
+        ``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ](value)`` (inner inversion along the conditioned axis), by the
+        **Euler-accelerated Fourier series** (Abate-Whitt) -- see :func:`_euler_invert`.
+
+        The inner inversion has to satisfy three constraints at once, and each rules out an obvious method:
+
+        * **accurate.** Rules out Gaver-Stehfest (the previous choice), which samples the transform only on the
+          *real* axis and extrapolates with huge alternating weights. It has no viable operating point on coalescent
+          reward densities: on a bottleneck it still overstates the normaliser by 15x at ``M = 10`` (truncation --
+          it cannot resolve a sharply peaked, multi-scale density from the real axis alone), while ``sum |V_k|``
+          reaches 4e15 by ``M = 12``, so the 1e-16 error of a float64 ``lst`` swamps the answer before the
+          truncation error dies. It returned *negative* densities 3x to 32x too large, which is what produced the
+          spurious "density is zero" refusals in :meth:`__init__`, the negative conditional branch lengths, and the
+          tail errors.
+        * **a fixed linear functional of Phi**, i.e. ``G(s) = sum_k w_k Phi(u_k, s)`` at *fixed* nodes, so that ``G``
+          inherits ``Phi``'s analyticity in ``s``. The **outer** inversion (:meth:`RewardDistribution._invert`) is an
+          ill-conditioned QD recurrence and needs a smooth, analytic ``phi(s)``. This rules out using de Hoog for the
+          inner inversion too: de Hoog is *nonlinear* (Pade/QD acceleration), so ``G(s)`` is accurate pointwise but
+          not smooth in ``s``, and nesting one ill-conditioned recurrence inside another produces a non-monotone CDF
+          wrong by tens of percent even on Kingman.
+        * **nodes on a vertical contour.** Rules out Talbot, whose contour deforms into ``Re(s) -> -inf``, where the
+          per-epoch ``exp((T - s diag(r)) dt)`` overflows.
+
+        Euler satisfies all three. It is summed two-sided, so no conjugate symmetry is assumed and a complex-valued
+        inverse (which ``G_s`` is, whenever ``s`` is complex) needs no special handling.
+        """
         if self._on == 'b':
-            f = lambda u: self._joint.lst(s, u)
-        else:
-            f = lambda u: self._joint.lst(u, s)
-        return _stehfest_invert(f, self._value, self._stehfest_M)
+            return _euler_invert(lambda u: self._joint.lst_batch(np.full(len(u), s), u), self._value, N0=self._N0)
+        return _euler_invert(lambda u: self._joint.lst_batch(u, np.full(len(u), s)), self._value, N0=self._N0)
 
     def lst(self, s: complex) -> complex:
         """The conditional Laplace-Stieltjes transform ``phi(s) = G(s) / G(0)``."""

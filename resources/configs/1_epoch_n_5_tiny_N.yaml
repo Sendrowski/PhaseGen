@@ -25,10 +25,9 @@ comparisons:
       cov: 0.014
       corr: 0.011
       pairwise:
-        cosine:
-          '[(1, 2), (1, 4), (2, 4)]':
-            cdf: 0.5
-            pdf: 0.5
+        '[(1, 2), (1, 4), (2, 4)]':
+          cdf: 0.5
+          pdf: 0.5
       '[1, 2, 4]':
         cosine:
           pdf: 0.5

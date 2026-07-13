@@ -68,12 +68,12 @@ class ComparisonHelpersTestCase(TestCase):
                          {'sfs': {1: {'pdf': 0.1}, 2: {'pdf': 0.1}}})
 
     def test_pairwise_surface_pairs(self):
-        """Only the pair keys (not the legacy ``cdf``/``pdf`` aggregates) are collected for surface caching, descending
-        through ``de_hoog``/``cosine`` mode wrappers, de-duped, and only for distributions that request a surface."""
+        """Only the pair keys (not the legacy ``cdf``/``pdf`` aggregates) are collected for surface caching, de-duped,
+        and only for distributions that request a surface."""
         c = Comparison.__new__(Comparison)
         c.comparisons = {'tolerance': {
-            'sfs': {'pairwise': {'cosine': {'(1, 2)': {'cdf': 0.1, 'pdf': 0.1},
-                                            '(1, 4)': {'cdf': 0.1, 'pdf': 0.1}}}},
+            'sfs': {'pairwise': {'(1, 2)': {'cdf': 0.1, 'pdf': 0.1},
+                                 '(1, 4)': {'cdf': 0.1, 'pdf': 0.1}}},
             'sfs2': {'pairwise': {'(1, 1)': {'cdf': 0.1, 'pdf': 0.1}}},
             'jsfs': {'mean': 0.01},  # no pairwise group -> absent from the result
         }}
@@ -86,7 +86,7 @@ class ComparisonHelpersTestCase(TestCase):
         """A list-of-pairs key under ``pairwise`` is expanded before the pairs are collected."""
         c = Comparison.__new__(Comparison)
         c.comparisons = {'tolerance': {
-            'sfs': {'pairwise': {'cosine': {'[(1, 2), (2, 3)]': {'cdf': 0.1, 'pdf': 0.1}}}},
+            'sfs': {'pairwise': {'[(1, 2), (2, 3)]': {'cdf': 0.1, 'pdf': 0.1}}},
         }}
         self.assertEqual(c._pairwise_surface_pairs()['sfs'], [(1, 2), (2, 3)])
 

@@ -31,7 +31,6 @@ comparisons:
         cdf: 0.00081
         quantile: 0.0013
       pairwise:
-        cosine:
-          '[(1, 2)]':
-            cdf: 0.00099
-            pdf: 0.0095
+        '[(1, 2)]':
+          cdf: 0.00099
+          pdf: 0.0095

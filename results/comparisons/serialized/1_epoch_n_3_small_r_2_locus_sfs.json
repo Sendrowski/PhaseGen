@@ -17,11 +17,9 @@
             "sfs2": {
                 "mean": 0.006,
                 "pairwise": {
-                    "cosine": {
-                        "(1, 2)": {
-                            "cdf": 0.0031,
-                            "pdf": 0.025
-                        }
+                    "(1, 2)": {
+                        "cdf": 0.0031,
+                        "pdf": 0.025
                     }
                 }
             }
@@ -115,7 +113,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 12
+            "py/id": 11
         },
         "demography": null,
         "end_time": null,

@@ -16,11 +16,9 @@
         "tolerance": {
             "sfs2": {
                 "pairwise": {
-                    "cosine": {
-                        "[(1, 2), (2, 2)]": {
-                            "cdf": 0.022,
-                            "pdf": 0.22
-                        }
+                    "[(1, 2), (2, 2)]": {
+                        "cdf": 0.022,
+                        "pdf": 0.22
                     }
                 },
                 "mean": 0.007
@@ -115,7 +113,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 12
+            "py/id": 11
         },
         "demography": null,
         "end_time": null,

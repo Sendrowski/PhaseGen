@@ -40,18 +40,16 @@
                     "quantile": 0.0037
                 },
                 "pairwise": {
-                    "cosine": {
-                        "(1, 2)": {
-                            "cdf": 0.0028,
-                            "pdf": 0.007
-                        },
-                        "[(1, 3), (2, 3)]": {
-                            "cdf": 0.0025,
-                            "pdf": 0.0068
-                        },
-                        "(3, 3)": {
-                            "cdf": 0.0014
-                        }
+                    "(1, 2)": {
+                        "cdf": 0.0028,
+                        "pdf": 0.007
+                    },
+                    "[(1, 3), (2, 3)]": {
+                        "cdf": 0.0025,
+                        "pdf": 0.0068
+                    },
+                    "(3, 3)": {
+                        "cdf": 0.0014
                     }
                 }
             },
@@ -660,7 +658,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1022,10 +1020,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 41
+                        "py/id": 40
                     },
                     "corr": {
-                        "py/id": 42
+                        "py/id": 41
                     }
                 }
             },
@@ -1034,11 +1032,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1400,10 +1398,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 44
+                        "py/id": 43
                     },
                     "corr": {
-                        "py/id": 43
+                        "py/id": 42
                     }
                 }
             },
@@ -1446,11 +1444,11 @@
         "total_tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 33
+                "py/id": 32
             },
             "_cache": {
                 "t": {
-                    "py/id": 35
+                    "py/id": 34
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -1775,7 +1773,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 40
+                "py/id": 39
             },
             "_samples": null,
             "pops_cov": {
@@ -1801,11 +1799,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2167,10 +2165,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 89
+                        "py/id": 88
                     },
                     "corr": {
-                        "py/id": 90
+                        "py/id": 89
                     }
                 }
             },
@@ -2179,11 +2177,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2545,10 +2543,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 92
+                        "py/id": 91
                     },
                     "corr": {
-                        "py/id": 91
+                        "py/id": 90
                     }
                 }
             },
@@ -2591,11 +2589,11 @@
         "total_branch_length": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 33
+                "py/id": 32
             },
             "_cache": {
                 "t": {
-                    "py/id": 35
+                    "py/id": 34
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -2920,7 +2918,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 40
+                "py/id": 39
             },
             "_samples": null,
             "pops_cov": {
@@ -2946,11 +2944,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3312,10 +3310,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 136
+                        "py/id": 135
                     },
                     "corr": {
-                        "py/id": 137
+                        "py/id": 136
                     }
                 }
             },
@@ -3324,11 +3322,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3690,10 +3688,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 139
+                        "py/id": 138
                     },
                     "corr": {
-                        "py/id": 138
+                        "py/id": 137
                     }
                 }
             },
@@ -3749,7 +3747,7 @@
             },
             "_cache": {
                 "t": {
-                    "py/id": 35
+                    "py/id": 34
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -5194,7 +5192,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 40
+                "py/id": 39
             },
             "n": 4,
             "_sfs_dist": {
@@ -5310,7 +5308,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -6918,11 +6916,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -14565,11 +14563,11 @@
         "fsfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 178
+                "py/id": 177
             },
             "_cache": {
                 "t": {
-                    "py/id": 35
+                    "py/id": 34
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -16014,7 +16012,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 40
+                "py/id": 39
             },
             "n": 4,
             "_sfs_dist": {
@@ -16117,11 +16115,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 188
+                        "py/id": 187
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -17729,11 +17727,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 35
+                            "py/id": 34
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -19485,7 +19483,7 @@
         "lineage_config": {
             "py/object": "phasegen.lineage.LineageConfig",
             "_logger": {
-                "py/id": 26
+                "py/id": 25
             },
             "lineages": {
                 "py/object": "numpy.ndarray",
@@ -19502,7 +19500,7 @@
         "locus_config": {
             "py/object": "phasegen.locus.LocusConfig",
             "_logger": {
-                "py/id": 30
+                "py/id": 29
             },
             "n": 1,
             "n_unlinked": 0,
@@ -19510,7 +19508,7 @@
             "_allow_coalescence": true
         },
         "model": {
-            "py/id": 21
+            "py/id": 20
         },
         "demography": null,
         "end_time": null,
@@ -19520,7 +19518,7 @@
         "tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 33
+                "py/id": 32
             },
             "_cache": {
                 "t": {
@@ -19979,11 +19977,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -20347,29 +20345,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 334
+                                "py/id": 333
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 334
+                                "py/id": 333
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 334
+                                "py/id": 333
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 329
+                        "py/id": 328
                     },
                     "corr": {
-                        "py/id": 330
+                        "py/id": 329
                     }
                 }
             },
@@ -20378,11 +20376,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -20746,29 +20744,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 353
+                                "py/id": 352
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 353
+                                "py/id": 352
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 353
+                                "py/id": 352
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 332
+                        "py/id": 331
                     },
                     "corr": {
-                        "py/id": 331
+                        "py/id": 330
                     }
                 }
             },
@@ -20811,19 +20809,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 320
+                        "py/id": 319
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 320
+                        "py/id": 319
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 320
+                        "py/id": 319
                     }
                 }
             }
@@ -20831,11 +20829,11 @@
         "total_branch_length": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 33
+                "py/id": 32
             },
             "_cache": {
                 "t": {
-                    "py/id": 322
+                    "py/id": 321
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -21161,7 +21159,7 @@
             "samples": null,
             "n_samples": 200000,
             "pops": {
-                "py/id": 327
+                "py/id": 326
             },
             "_samples": null,
             "_loci_joint_surface": [],
@@ -21188,11 +21186,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -21556,29 +21554,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 394
+                                "py/id": 393
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 394
+                                "py/id": 393
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 394
+                                "py/id": 393
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 389
+                        "py/id": 388
                     },
                     "corr": {
-                        "py/id": 390
+                        "py/id": 389
                     }
                 }
             },
@@ -21587,11 +21585,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -21955,29 +21953,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 413
+                                "py/id": 412
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 413
+                                "py/id": 412
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 413
+                                "py/id": 412
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 392
+                        "py/id": 391
                     },
                     "corr": {
-                        "py/id": 391
+                        "py/id": 390
                     }
                 }
             },
@@ -22020,19 +22018,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 382
+                        "py/id": 381
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 382
+                        "py/id": 381
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 382
+                        "py/id": 381
                     }
                 }
             }
@@ -22040,11 +22038,11 @@
         "sfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 178
+                "py/id": 177
             },
             "_cache": {
                 "t": {
-                    "py/id": 322
+                    "py/id": 321
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -23490,7 +23488,7 @@
             "samples": null,
             "n_samples": 200000,
             "pops": {
-                "py/id": 327
+                "py/id": 326
             },
             "n": 4,
             "_sfs_dist": {
@@ -23593,11 +23591,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 188
+                        "py/id": 187
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -25195,19 +25193,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 451
+                                "py/id": 450
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 451
+                                "py/id": 450
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 451
+                                "py/id": 450
                             }
                         }
                     }
@@ -25226,11 +25224,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -26809,19 +26807,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 479
+                                "py/id": 478
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 479
+                                "py/id": 478
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 479
+                                "py/id": 478
                             }
                         }
                     }
@@ -26988,19 +26986,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 442
+                        "py/id": 441
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 442
+                        "py/id": 441
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 442
+                        "py/id": 441
                     }
                 }
             }
@@ -27008,11 +27006,11 @@
         "fsfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 178
+                "py/id": 177
             },
             "_cache": {
                 "t": {
-                    "py/id": 322
+                    "py/id": 321
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -28458,7 +28456,7 @@
             "samples": null,
             "n_samples": 200000,
             "pops": {
-                "py/id": 327
+                "py/id": 326
             },
             "n": 4,
             "_sfs_dist": {
@@ -28561,11 +28559,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 188
+                        "py/id": 187
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -30163,19 +30161,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         }
                     }
@@ -30194,11 +30192,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 47
+                        "py/id": 46
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 322
+                            "py/id": 321
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -31777,19 +31775,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 547
+                                "py/id": 546
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 547
+                                "py/id": 546
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 547
+                                "py/id": 546
                             }
                         }
                     }
@@ -31956,19 +31954,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 510
+                        "py/id": 509
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 510
+                        "py/id": 509
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 510
+                        "py/id": 509
                     }
                 }
             }

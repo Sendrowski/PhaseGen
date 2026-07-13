@@ -18,10 +18,9 @@ comparisons:
           cdf: 0.0011
           quantile: 0.0022
       pairwise:
-        cosine:
-          '[(1, 2), (1, 9), (2, 9)]':
-            cdf: 0.002
-            pdf: 0.007
+        '[(1, 2), (1, 9), (2, 9)]':
+          cdf: 0.002
+          pdf: 0.007
     fsfs:
       mutation_configs: 0.0004
     tree_height:

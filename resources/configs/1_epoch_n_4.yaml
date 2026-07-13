@@ -30,15 +30,14 @@ comparisons:
         cdf: 0.0016
         quantile: 0.0037
       pairwise:
-        cosine:
-          (1, 2):
-            cdf: 0.0028
-            pdf: 0.007
-          "[(1, 3), (2, 3)]":
-            cdf: 0.0025
-            pdf: 0.0068
-          (3, 3):
-            cdf: 0.0014
+        (1, 2):
+          cdf: 0.0028
+          pdf: 0.007
+        "[(1, 3), (2, 3)]":
+          cdf: 0.0025
+          pdf: 0.0068
+        (3, 3):
+          cdf: 0.0014
     empirical:
       tree_height:
         mean: 0.0021

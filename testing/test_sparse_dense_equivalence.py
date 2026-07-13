@@ -205,14 +205,14 @@ def test_joint_inversion_sparse_matches_dense(label, make):
     jd = setup(_HUGE)  # dense LU
     assert jd._setup['sparse'] is False, f"{label}: dense path not selected"
     d_lst = np.array([jd.lst(a, b) for a, b in pts])
-    d_cdf = np.asarray(jd.cdf(xs, ys, method='cos'), dtype=float)
-    d_pdf = np.asarray(jd.pdf(xs, ys, method='cos'), dtype=float)
+    d_cdf = np.asarray(jd.cdf(xs, ys), dtype=float)
+    d_pdf = np.asarray(jd.pdf(xs, ys), dtype=float)
 
     jd = setup(0)  # sparse block-triangular LU
     assert jd._setup['sparse'] is True, f"{label}: sparse-LU path not selected"
     np.testing.assert_allclose(np.array([jd.lst(a, b) for a, b in pts]), d_lst,
                                atol=1e-9, rtol=1e-7, err_msg=f"{label}: lst (sparse-LU)")
-    np.testing.assert_allclose(np.asarray(jd.cdf(xs, ys, method='cos'), dtype=float), d_cdf,
+    np.testing.assert_allclose(np.asarray(jd.cdf(xs, ys), dtype=float), d_cdf,
                                atol=1e-9, rtol=1e-7, err_msg=f"{label}: cdf (sparse-LU)")
-    np.testing.assert_allclose(np.asarray(jd.pdf(xs, ys, method='cos'), dtype=float), d_pdf,
+    np.testing.assert_allclose(np.asarray(jd.pdf(xs, ys), dtype=float), d_pdf,
                                atol=1e-9, rtol=1e-7, err_msg=f"{label}: pdf (sparse-LU)")

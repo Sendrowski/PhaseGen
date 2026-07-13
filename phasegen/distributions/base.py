@@ -161,6 +161,18 @@ class _LSTFunction:
     is cached on the *distribution* (the single object the cdf / pdf / quantile of one distribution hang off, see
     :meth:`CallableDistributionFunctions._function`), so all three reuse one fit without reaching into one another.
     """
+    #: Inversion route for curves / quantiles. ``'dehoog'`` (accurate, per-point) or ``'cos'`` (shared frequencies).
+    #: The conditionals override this to ``'cos'``: their transform is a *nested* inversion, so a de Hoog node costs
+    #: an entire inner inversion and the per-point route becomes ~1e4x dearer (293 s vs a shared COS grid on a
+    #: 3-epoch bottleneck) while agreeing with COS to 2e-4 and staying monotone even at a 0.67 atom.
+    _default_method = 'dehoog'
+
+    #: Above this quantile a COS curve is not trusted, and the quantile falls back to the exact per-point de Hoog
+    #: bisection. The cosine CDF force-normalises to 1 at the window end, so the usual ``cdf(b) < q`` tail-fallback
+    #: test can never fire; and where the density is low a small CDF ripple is a large quantile error (``q = 0.999``
+    #: drifts 1.5-3%, against <=0.1% at ``q = 0.99``). ``None`` disables the fallback.
+    _cos_quantile_max: float = 0.99
+
     #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
     _cos_terms_rough: int = 128
     _cos_terms: int = 384
@@ -305,12 +317,12 @@ class _LSTFunction:
         y = np.clip(np.maximum.accumulate(y), 0.0, 1.0)
         return dict(spline=PchipInterpolator(x, y, extrapolate=True), p0=p0, b=b)
 
-    def _cdf_curve(self, x, method: str = 'dehoog') -> np.ndarray:
+    def _cdf_curve(self, x, method: str = None) -> np.ndarray:
         """The shared CDF curve over a whole grid ``x`` (the basis for the quantile inversion and the pdf derivative).
         ``method='dehoog'`` (default) uses the accurate de Hoog + monotone-spline representation; ``method='cos'``
         the faster two-pass COS grid."""
         xa = np.atleast_1d(np.asarray(x, dtype=float))
-        if method == 'cos':
+        if (method or self._default_method) == 'cos':
             xs, cdf = self._cos_cdf_grid
             return np.interp(xa, xs, cdf)
         st = self._dehoog_spline
@@ -323,21 +335,27 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
     (:meth:`curve`) and the plot, on top of the shared :class:`_LSTFunction` machinery."""
 
     def __call__(self, t) -> 'np.ndarray | float':
-        """Exact CDF ``P(R <= t)`` by per-point de Hoog inversion. Scalar or array-valued."""
+        """CDF ``P(R <= t)``. Per-point de Hoog by default; the conditionals (:attr:`_default_method` = ``'cos'``)
+        answer from the shared COS grid instead -- for a nested inversion the per-point route costs an entire inner
+        inversion per de Hoog node, for no accuracy (see :attr:`_default_method`)."""
+        if self._default_method == 'cos':
+            out = self._cdf_curve(t)
+            return out if np.ndim(t) > 0 else float(out[0])
         if np.ndim(t) > 0:
             return np.array([self._cdf_point(float(x)) for x in np.asarray(t)])
         return self._cdf_point(float(t))
 
-    def curve(self, x, method: str = 'dehoog') -> np.ndarray:
-        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). ``method='dehoog'`` (default) uses the
-        accurate de Hoog + monotone-spline representation; ``method='cos'`` the faster two-pass COS grid."""
-        return self._cdf_curve(x, method)
+    def curve(self, x, method: str = None) -> np.ndarray:
+        """Fast CDF over a whole grid ``x`` (for plotting / many-query use). ``method='dehoog'`` uses the accurate
+        de Hoog + monotone-spline representation; ``method='cos'`` the faster two-pass COS grid. Defaults to
+        :attr:`_default_method`."""
+        return self._cdf_curve(x, method or self._default_method)
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
              file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False) -> 'plt.Axes':
+             exact: bool = False, **kwargs) -> 'plt.Axes':
         """Plot the CDF up to the configured plot-endpoint quantile (fast COS inversion, or per-point de Hoog when
-        ``exact=True``)."""
+        ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
         from ..visualization import Visualization
         d = self._distribution
         if x is None and exact:
@@ -349,7 +367,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
                 x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
             y = self(x) if exact else self.curve(x)
         ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
-                                show=show, clear=clear, title=title or d._titled('CDF'))
+                                show=show, clear=clear, title=title or d._titled('CDF'), **kwargs)
         ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
         return ax
 
@@ -359,16 +377,21 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
     derivative of the shared CDF representation (:meth:`curve`) and the plot."""
 
     def __call__(self, t, **kwargs) -> 'np.ndarray | float':
-        """Exact density by per-point de Hoog inversion. Scalar or array-valued."""
+        """Density. Per-point de Hoog by default; the conditionals (:attr:`_default_method` = ``'cos'``) answer from
+        the shared COS grid instead -- see :attr:`_default_method`."""
+        if self._default_method == 'cos':
+            out = self.curve(t)
+            return out if np.ndim(t) > 0 else float(out[0])
         if np.ndim(t) > 0:
             return np.array([self._pdf_point(float(x)) for x in np.asarray(t)])
         return self._pdf_point(float(t))
 
-    def curve(self, x, method: str = 'dehoog') -> np.ndarray:
+    def curve(self, x, method: str = None) -> np.ndarray:
         """Fast PDF over a whole grid ``x``: the derivative of the shared CDF representation (``method='dehoog'`` ->
         the de Hoog + monotone-spline; ``method='cos'`` -> the two-pass COS grid). Deriving the PDF from the CDF
         keeps it clean and non-negative; use the per-point ``__call__`` (de Hoog) for the exact pointwise density."""
         d = self._distribution
+        method = method or self._default_method
         xa = np.atleast_1d(np.asarray(x, dtype=float))
         if method == 'cos':
             xs, cdf = self._cos_cdf_grid
@@ -382,9 +405,9 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
              file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False) -> 'plt.Axes':
+             exact: bool = False, **kwargs) -> 'plt.Axes':
         """Plot the PDF up to the configured plot-endpoint quantile (derivative of the COS CDF, or per-point de Hoog
-        when ``exact=True``)."""
+        when ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
         from ..visualization import Visualization
         d = self._distribution
         if x is None and exact:
@@ -395,14 +418,14 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
                 x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
             y = self(x) if exact else self.curve(x)
         return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title or d._titled('PDF'))
+                                  show=show, clear=clear, title=title or d._titled('PDF'), **kwargs)
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
     """The quantile function of a 1D accumulated-reward distribution: bisection on the shared (monotone) CDF curve,
     with a per-point de Hoog bisection fallback for the far tail."""
 
-    def __call__(self, q: float, precision: float = 1e-8, max_iter: int = 200, method: str = 'dehoog') -> float:
+    def __call__(self, q: float, precision: float = 1e-8, max_iter: int = 200, method: str = None) -> float:
         """
         The ``q``-quantile ``inf{x : F(x) >= q}`` by bisection on the cached (monotone) CDF *curve* -- the accurate de
         Hoog spline by default (``method='dehoog'``), or the cosine curve (``method='cos'``). The curve is built once,
@@ -411,6 +434,10 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         """
         if not 0 <= q <= 1:
             raise ValueError("Quantile must be between 0 and 1.")
+
+        if (method or self._default_method) == 'cos' and self._cos_quantile_max is not None \
+                and q > self._cos_quantile_max:
+            return self._quantile_dehoog(q, precision, max_iter)  # far tail: the cosine curve rings, de Hoog does not
 
         # at or below the atom mass P(R = 0) the quantile is exactly 0; return it directly rather than letting the
         # bisection converge to a few-1e-9 residue (which makes a relative comparison against an exact 0 blow up)
@@ -462,9 +489,10 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
 
     def plot(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
              file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False) -> 'plt.Axes':
+             exact: bool = False, **kwargs) -> 'plt.Axes':
         """Plot the quantile function (value versus probability), inverting the fast COS CDF curve (or the per-point
-        de Hoog bisection when ``exact=True``)."""
+        de Hoog bisection when ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the
+        line."""
         from ..visualization import Visualization
         d = self._distribution
         qe = Settings.plot_endpoint_quantile
@@ -476,7 +504,7 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
             grid = np.linspace(0, self._range(), 512)
             y = np.interp(q, self._cdf_curve(grid), grid)
         return Visualization.plot(ax=ax, x=q, y=y, xlabel='q', ylabel='quantile', label=label, file=file, show=show,
-                                  clear=clear, title=title or d._titled('quantile function'))
+                                  clear=clear, title=title or d._titled('quantile function'), **kwargs)
 
 
 # --- direct grid evaluation (matrix-exponential tree height, empirical samples) --------------------------------------
@@ -570,28 +598,23 @@ class _JointFunction(_SurfacePlottable):
         ys = np.linspace(0, min(d.marginal('b').quantile(q), st['bb']), n_points)
         return xs, ys
 
-    def _grid_values(self, xs: np.ndarray, ys: np.ndarray, dehoog: bool) -> np.ndarray:
+    def _grid_values(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         """The joint kind evaluated on the grid ``xs x ys`` (implemented per kind)."""
         raise NotImplementedError
 
-    def _default_n_points(self, dehoog: bool, surface: bool) -> int:
-        """Default grid resolution (implemented per kind; the slow nested de Hoog uses a coarser grid)."""
+    def _default_n_points(self, surface: bool) -> int:
+        """Default grid resolution (implemented per kind)."""
         raise NotImplementedError
 
     def _joint_title(self) -> str:
         d = self._distribution
         return f"Joint {self.kind.upper()} {d.label}" if d.label else f"Joint reward {self.kind.upper()}"
 
-    def _draw(self, surface: bool, ax, n_points, show, file, title, method) -> 'plt.Axes':
+    def _draw(self, surface: bool, ax, n_points, show, file, title) -> 'plt.Axes':
         from ..visualization import Visualization
-        d = self._distribution
-        dehoog = d._use_dehoog(method)
-        n_points = n_points or self._default_n_points(dehoog, surface)
+        n_points = n_points or self._default_n_points(surface)
         xs, ys = self._joint_grid(n_points)
-        if dehoog:
-            d._logger.info("Computing the joint %s by direct nested de Hoog inversion on a %dx%d grid; this is slow.",
-                           self.kind.upper(), len(xs), len(ys))
-        Z = self._grid_values(xs, ys, dehoog)
+        Z = self._grid_values(xs, ys)
         is_cdf = self.kind == 'cdf'  # a CDF is a probability -> fix its scale to [0, 1]
         return Visualization.plot_surface(
             xs, ys, Z, surface=surface, ax=ax, xlabel='$R_a$', ylabel='$R_b$',
@@ -600,66 +623,57 @@ class _JointFunction(_SurfacePlottable):
         )
 
     def plot(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
-             title: str = None, method: str = 'cos') -> 'plt.Axes':
-        """Heatmap of the joint function. ``method='dehoog'`` uses the accurate nested de Hoog inversion (a coarser
-        default grid); the default ``'cos'`` uses the fast cosine reconstruction."""
-        return self._draw(False, ax, n_points, show, file, title, method)
+             title: str = None) -> 'plt.Axes':
+        """Heatmap of the joint function."""
+        return self._draw(False, ax, n_points, show, file, title)
 
     def plot_surface(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
-                     title: str = None, method: str = 'cos') -> 'plt.Axes':
-        """3D surface of the joint function (see :meth:`plot` for ``method``)."""
-        return self._draw(True, ax, n_points, show, file, title, method)
+                     title: str = None) -> 'plt.Axes':
+        """3D surface of the joint function."""
+        return self._draw(True, ax, n_points, show, file, title)
 
 
 class JointDensity(_JointFunction, DensityFunction):
     """Joint density of two rewards / bins (the within-tree pair of branch lengths).
 
-    - **Callable** ``pdf(x, y)``: the continuous part of the joint law -- the accurate nested de Hoog inversion by
-      default, or the fast 2D cosine expansion with ``method='cos'``. Accepts scalars or arrays.
-    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the fast cosine density, or the
-      nested de Hoog with ``method='dehoog'``.
+    - **Callable** ``pdf(x, y)``: the continuous part of the joint law, by 2D cosine expansion. Accepts scalars or
+      arrays.
+    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the density.
     """
 
-    def __call__(self, x, y, method: str = None) -> 'np.ndarray | float':
+    def __call__(self, x, y) -> 'np.ndarray | float':
         """Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
-        atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none there). ``method`` selects the
-        inversion: ``'cos'`` the fast cosine expansion, ``'dehoog'`` / ``None`` the accurate nested de Hoog."""
+        atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none there)."""
         d = self._distribution
         if d._is_diagonal:
             raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
                                       "almost surely): the law lives on the diagonal and has no 2D density. Use "
                                       "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
-        if d._use_dehoog(method):
-            f = d._density_nested(xs, ys)
-        else:
-            raw = d._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
-            d._warn_if_negative(raw, 'joint density (cosine)')
-            f = np.clip(raw, 0.0, None)
+        f = self._grid_values(xs, ys)
         return float(f.ravel()[0]) if f.size == 1 else f
 
-    def _grid_values(self, xs, ys, dehoog) -> 'np.ndarray':
+    def _grid_values(self, xs, ys) -> 'np.ndarray':
         d = self._distribution
-        return d._density_nested(xs, ys) if dehoog else np.clip(d._density(xs, ys), 0.0, None)
+        raw = d._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
+        d._warn_if_negative(raw, 'joint density (cosine)')
+        return np.clip(raw, 0.0, None)
 
-    def _default_n_points(self, dehoog, surface) -> int:
-        return 25 if dehoog else (80 if surface else 120)
+    def _default_n_points(self, surface) -> int:
+        return 80 if surface else 120
 
 
 class JointCDF(_JointFunction, CumulativeDistributionFunction):
     """Joint CDF of two rewards / bins -- the probability both are at most their thresholds.
 
-    - **Callable** ``cdf(x, y)``: the axis atoms (where a reward is zero) plus the continuous part -- the accurate
-      nested de Hoog box by default (no near-origin bias for skewed multi-epoch rewards), or the fast 2D cosine box
-      with ``method='cos'``. Accepts scalars or arrays.
-    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the fast cosine box, or the nested de
-      Hoog box with ``method='dehoog'``.
+    - **Callable** ``cdf(x, y)``: the axis atoms (where a reward is zero) plus the continuous cosine box integral.
+      Accepts scalars or arrays.
+    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the box CDF.
     """
 
-    def __call__(self, x, y, method: str = None) -> 'np.ndarray | float':
-        """Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms plus the continuous box integral. ``method`` selects
-        the box method: ``'cos'`` the fast cosine box, ``'dehoog'`` / ``None`` the accurate nested de Hoog. When both
-        rewards are identical the law is singular on the diagonal and the CDF reduces to ``P(R <= min(x, y))``."""
+    def __call__(self, x, y) -> 'np.ndarray | float':
+        """Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms plus the continuous box integral. When both rewards are
+        identical the law is singular on the diagonal and the CDF reduces to ``P(R <= min(x, y))``."""
         d = self._distribution
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         if d._is_diagonal:
@@ -668,14 +682,14 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
             G = np.array([[float(d._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
                            for yy in ys] for xx in xs])
         else:
-            G = d._cdf_grid(xs, ys, dehoog=d._use_dehoog(method))
+            G = d._cdf_grid(xs, ys)
         return float(G.ravel()[0]) if G.size == 1 else G
 
-    def _grid_values(self, xs, ys, dehoog) -> 'np.ndarray':
-        return self._distribution._cdf_grid(xs, ys, dehoog=dehoog)
+    def _grid_values(self, xs, ys) -> 'np.ndarray':
+        return self._distribution._cdf_grid(xs, ys)
 
-    def _default_n_points(self, dehoog, surface) -> int:
-        return 25 if dehoog else 60
+    def _default_n_points(self, surface) -> int:
+        return 60
 
 
 # (a bivariate joint has no quantile flavour: a 2D quantile is not well-defined -- use a marginal or conditional)
@@ -691,6 +705,16 @@ class ConditionalDensity(_LSTDensityFunction):
     - **Plot** ``pdf.plot()``: the de Hoog spline density curve; pass ``exact=True`` for the per-point density.
     """
 
+    _default_method = 'cos'
+
+    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
+    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
+    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    _cos_terms: int = 192
+    _cos_terms_rough: int = 96
+
+
+
 
 class ConditionalCDF(_LSTCumulativeDistributionFunction):
     """CDF of one reward conditional on another being held at a value.
@@ -700,6 +724,16 @@ class ConditionalCDF(_LSTCumulativeDistributionFunction):
     - **Plot** ``cdf.plot()``: the de Hoog spline CDF curve; pass ``exact=True`` for the per-point CDF.
     """
 
+    _default_method = 'cos'
+
+    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
+    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
+    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    _cos_terms: int = 192
+    _cos_terms_rough: int = 96
+
+
+
 
 class ConditionalQuantileFunction(_LSTQuantileFunction):
     """Quantile function of one reward conditional on another being held at a value.
@@ -707,6 +741,16 @@ class ConditionalQuantileFunction(_LSTQuantileFunction):
     - **Callable** ``quantile(q)``: bisection on the conditional de Hoog CDF.
     - **Plot** ``quantile.plot()``: the conditional quantile over a probability grid.
     """
+
+    _default_method = 'cos'
+
+    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
+    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
+    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    _cos_terms: int = 192
+    _cos_terms_rough: int = 96
+
+
 
 
 class CallableDistributionFunctions:
