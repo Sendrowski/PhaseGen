@@ -47,6 +47,7 @@ configs = [
     '1_epoch_n_4_mu_1_dirac',
     '1_epoch_n_10_mu_0_01',
     '1_epoch_n_4_large_N',
+    '1_epoch_n_5_tiny_N',
     '2_epoch_n_5_small_N',
     '1_epoch_migration_one_each_n_2',
     '1_epoch_n_2_early_end_time',
