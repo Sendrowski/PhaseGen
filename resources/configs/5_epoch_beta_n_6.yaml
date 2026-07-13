@@ -13,6 +13,10 @@ alpha: 1.5
 seed: 42
 comparisons:
   tolerance:
+    sfs:
+      conditional:
+        '[(1, 2)]':
+          moments: 0.003
     empirical:
       tree_height:
         mean: 0.004

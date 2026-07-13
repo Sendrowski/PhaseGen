@@ -42,3 +42,6 @@ comparisons:
       mean: 0.0054
       cov: 0.012
       corr: 0.0057
+      conditional:
+        '[(1, 2), (2, 5)]':
+          moments: 0.0001

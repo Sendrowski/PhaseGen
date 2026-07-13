@@ -29,6 +29,19 @@ comparisons:
         pdf: 0.015
         cdf: 0.0016
         quantile: 0.0037
+      # self-consistency of the conditional path: no msprime operand, so any bin pair may be listed. ``moments`` pins
+      # each conditional mean pointwise against the exact derivative identity. ``total_expectation`` is deliberately
+      # NOT used here: it is 2-4x dearer and strictly weaker (integrated rather than pointwise, and its own
+      # Gauss-Legendre quadrature, not the conditional, sets its floor). ``quantiles`` targets specific conditioning
+      # values of the conditioning marginal (omit for the default 0.01-0.99 span), and ``curves`` draws that many
+      # conditional densities per axis (~1 s each; nothing is asserted on them). On a single epoch the identity is
+      # exact, so this pins the nested inversion to 1e-4.
+      conditional:
+        '[(1, 2)]':
+          moments: 0.0001
+          curves: 3        # densities are drawn on this pair only: each costs a 0.99 quantile of the nested transform
+        '[(1, 3)]':
+          moments: 0.0001
       pairwise:
         (1, 2):
           cdf: 0.0028

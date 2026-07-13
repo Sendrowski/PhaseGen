@@ -38,7 +38,12 @@
                 },
                 "mean": 0.0054,
                 "cov": 0.012,
-                "corr": 0.0057
+                "corr": 0.0057,
+                "conditional": {
+                    "[(1, 2), (2, 5)]": {
+                        "moments": 0.0001
+                    }
+                }
             }
         }
     },
@@ -126,7 +131,7 @@
             "allow_coalescence": true
         },
         "model": {
-            "py/id": 17
+            "py/id": 19
         },
         "demography": null,
         "end_time": null,
@@ -528,7 +533,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -771,11 +776,11 @@
                 "pop_1": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1017,10 +1022,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 32
+                        "py/id": 34
                     },
                     "corr": {
-                        "py/id": 33
+                        "py/id": 35
                     }
                 }
             },
@@ -1029,11 +1034,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1275,10 +1280,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 35
+                        "py/id": 37
                     },
                     "corr": {
-                        "py/id": 34
+                        "py/id": 36
                     }
                 }
             },
@@ -1311,11 +1316,11 @@
         "total_tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 26
+                "py/id": 28
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 30
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -1530,7 +1535,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 31
+                "py/id": 33
             },
             "_samples": null,
             "pops_cov": {
@@ -1573,11 +1578,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1820,11 +1825,11 @@
                 "pop_1": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2066,10 +2071,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 77
+                        "py/id": 79
                     },
                     "corr": {
-                        "py/id": 78
+                        "py/id": 80
                     }
                 }
             },
@@ -2078,11 +2083,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2324,10 +2329,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 80
+                        "py/id": 82
                     },
                     "corr": {
-                        "py/id": 79
+                        "py/id": 81
                     }
                 }
             },
@@ -2360,11 +2365,11 @@
         "total_branch_length": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 26
+                "py/id": 28
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 30
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -2579,7 +2584,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 31
+                "py/id": 33
             },
             "_samples": null,
             "pops_cov": {
@@ -2622,11 +2627,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2869,11 +2874,11 @@
                 "pop_1": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3115,10 +3120,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 121
+                        "py/id": 123
                     },
                     "corr": {
-                        "py/id": 122
+                        "py/id": 124
                     }
                 }
             },
@@ -3127,11 +3132,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3373,10 +3378,10 @@
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 124
+                        "py/id": 126
                     },
                     "corr": {
-                        "py/id": 123
+                        "py/id": 125
                     }
                 }
             },
@@ -3422,7 +3427,7 @@
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 30
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -4865,7 +4870,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 31
+                "py/id": 33
             },
             "_samples": null,
             "pops_corr": {
@@ -5425,7 +5430,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -7062,11 +7067,11 @@
                 "pop_1": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 170
+                        "py/id": 172
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -8706,11 +8711,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -10506,11 +10511,11 @@
         "fsfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 162
+                "py/id": 164
             },
             "_cache": {
                 "t": {
-                    "py/id": 28
+                    "py/id": 30
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -11953,7 +11958,7 @@
             },
             "samples": null,
             "pops": {
-                "py/id": 31
+                "py/id": 33
             },
             "_samples": null,
             "pops_corr": {
@@ -12500,11 +12505,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 170
+                        "py/id": 172
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -14141,11 +14146,11 @@
                 "pop_1": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 170
+                        "py/id": 172
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -15785,11 +15790,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 38
+                        "py/id": 40
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 28
+                            "py/id": 30
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",

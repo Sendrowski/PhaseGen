@@ -39,6 +39,13 @@ comparisons:
         pdf: 0.028
         cdf: 0.0017
         quantile: 0.003
+      # no ``moments`` here: the derivative identity is not a trustworthy reference on this demography. It disagrees
+      # with the conditional by 12-21%, and it is the identity that is wrong -- f_a(v) is minuscule in the tail of a
+      # bottleneck and the identity divides by it, which de Hoog cannot resolve. So the tower check is used instead:
+      # weaker (it integrates the conditional back out, so errors at different v can cancel) but honest.
+      conditional:
+        '[(1, 2), (1, 4), (2, 4)]':
+          total_expectation: 0.016
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.011

@@ -29,6 +29,11 @@ comparisons:
         pdf: 0.035
         cdf: 0.0024
         quantile: 0.0043
+      # multi-epoch, so the identity is no longer exact: de Hoog's own inversion error (~0.2% here, and non-monotone
+      # in the degree) sets this tolerance, not the conditional under test. See 4_epoch_up_down_n_4.
+      conditional:
+        '[(1, 2), (1, 3), (2, 3)]':
+          moments: 0.003
       pairwise:
         "[(1, 2), (1, 3), (2, 3)]":
           cdf: 0.0069

@@ -10,6 +10,14 @@ model: standard
 seed: 42
 comparisons:
   tolerance:
+    sfs:
+      # the loosest conditional tolerance in the suite, and the limit here is the *reference*, not the conditional: on
+      # this demography a 300M-replicate sampler puts E[R_2 | R_1 = v] at 7.725 at the median conditioning value, where
+      # the nested inversion gives 7.710 (0.2%) and the derivative identity 7.788 (0.8%). The identity's error is de
+      # Hoog's, non-monotone in the degree, so no setting buys it down. Tightening this would flag a fix as a failure.
+      conditional:
+        '[(1, 2), (1, 3)]':
+          moments: 0.015
     empirical:
       tree_height:
         mean: 0.0032

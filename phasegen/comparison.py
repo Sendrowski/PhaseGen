@@ -489,20 +489,18 @@ class Comparison(Serializable):
             y_ms = np.asarray(ms_stat(t))
 
         curve = 'cdf' if stat == 'cdf' else 'pdf'
-        method = self._curve_method(mode)  # cosine -> 'cos', de_hoog -> 'dehoog', None -> the dist's own default
         if stat == 'quantile':
-            y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, method=method)
+            y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, mode=mode)
         elif mode is not None and hasattr(ph, 'bin'):
-            # a moded spectrum pdf/cdf uses each bin's de_hoog/cosine *curve* (the per-point callable is
-            # mode-independent); the monomorphic edge bins are zero placeholders, dropped below
+            # a moded spectrum pdf/cdf compares each bin's *inverted* curve; the monomorphic edge bins are zero
+            # placeholders, dropped below
             nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
             y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
-                             else np.asarray(getattr(ph.bin(b), curve)(t, method=method), dtype=float)
-                             for b in range(nb)])  # ``mode`` is not None here, so ``method`` is set
-        elif mode is not None and hasattr(ph, '_reward_distribution') \
-                and hasattr(getattr(ph._reward_distribution, curve), 'curve'):
-            # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
-            y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t, method=method), dtype=float)
+                             else np.asarray(getattr(ph.bin(b), curve)(t), dtype=float)
+                             for b in range(nb)])
+        elif mode is not None and hasattr(ph, '_reward_distribution'):
+            # a moded scalar reward distribution (e.g. total_branch_length) compares its inverted curve
+            y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t), dtype=float)
         else:
             y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
 
@@ -558,7 +556,8 @@ class Comparison(Serializable):
         between the quantile curves); the remaining scalars (mean/var/cov/corr, ...) use a worst *relative* difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
                 'pdf': 'total variation', 'pairwise_pdf': 'total variation', 'loci_pairwise_pdf': 'total variation',
-                'mutation_configs': 'total variation', 'quantile': 'rel. Wasserstein'}.get(stat, 'max rel')
+                'mutation_configs': 'total variation', 'quantile': 'rel. Wasserstein',
+                'conditional_total_probability': 'max abs'}.get(stat, 'max rel')
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph, *axes) -> float:
@@ -620,14 +619,6 @@ class Comparison(Serializable):
             self.logger.info(msg)
         if self.do_assertion:
             self.n_assertions += 1
-
-    @staticmethod
-    def _curve_method(mode: str) -> str:
-        """Map a comparison inversion mode to the 1D inversion route passed per call to ``cdf`` / ``pdf`` /
-        ``quantile``: ``cosine`` -> ``'cos'`` (the library default); ``de_hoog`` -> ``'dehoog'`` (exact, per-point);
-        ``None`` -> no override, i.e. whatever the distribution's own function does (cosine for an accumulated reward,
-        the matrix exponential for the tree height)."""
-        return {'cosine': 'cos', 'de_hoog': 'dehoog'}.get(mode)
 
     @staticmethod
     def _parse_collection_key(k: str) -> list | None:
@@ -778,6 +769,15 @@ class Comparison(Serializable):
                         mode=mode
                     )
 
+            elif stat == 'conditional':
+
+                # nested conditional group: the self-consistency checks of the conditional path, on freely chosen bin
+                # pairs. Unlike ``pairwise`` these have no msprime operand (they are identities the analytic joint must
+                # satisfy), so a pair needs no cached empirical surface and no fixture regeneration to be added here.
+                for key, subtol in sub.items():
+                    pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                    self._compare_conditional(ph.joint_distribution(*pair), pair, subtol, title, name)
+
             elif stat == 'pairwise':
 
                 # nested pairwise group. A pair key like '(1, 2)' carries {cdf, pdf} tolerances for the full-grid
@@ -851,13 +851,11 @@ class Comparison(Serializable):
                     y_ms_all = y_ms_all.T
                 y_ms = y_ms_all[i]
                 d = ph.bin(i)  # only this bin's distribution (the spectrum-wide quantile would compute every bin)
-                method = self._curve_method(mode)  # cosine -> 'cos', de_hoog -> 'dehoog', None -> the dist's default
-                kw = {} if method is None else dict(method=method)
                 if stat == 'quantile':
-                    y_ph = np.asarray(d.quantile(t, **kw), dtype=float)
+                    y_ph = np.asarray(d.quantile(t), dtype=float)
                     diff = self._quantile_diff(y_ms, y_ph, t)
                 else:
-                    y_ph = np.asarray(d.cdf(t, **kw) if stat == 'cdf' else d.pdf(t, **kw), dtype=float)
+                    y_ph = np.asarray(d.cdf(t) if stat == 'cdf' else d.pdf(t), dtype=float)
                     diff = (float(np.abs(y_ms - y_ph).max()) if stat == 'cdf'
                             else self._pdf_diff(y_ms[2:], y_ph[2:], t[2:]))
 
@@ -903,7 +901,7 @@ class Comparison(Serializable):
             self.n_assertions += 1
 
     @staticmethod
-    def _quantile_values(ph, q, n_bins: int = None, method: str = None) -> np.ndarray:
+    def _quantile_values(ph, q, n_bins: int = None, mode: str = None) -> np.ndarray:
         """
         Quantile values of ``ph`` at probabilities ``q``, via its own (vectorised) quantile function. Returns a 1-D
         array for a scalar distribution, or ``(len(q), n_bins)`` for a spectrum (one column per bin; the monomorphic
@@ -916,20 +914,78 @@ class Comparison(Serializable):
         :param ph: The phase-type distribution (scalar, or a spectrum exposing :meth:`bin`).
         :param q: Probabilities at which to evaluate the quantile.
         :param n_bins: Number of spectrum bins (incl. the monomorphic edges); ``None`` for a scalar distribution.
-        :param method: Inversion route to force (``'cos'`` / ``'dehoog'``), or ``None`` for the distribution's own.
+        :param mode: ``None`` compares the distribution's own quantile (the matrix exponential, for the tree height);
+            an inversion mode (``'cosine'``) compares the *inverted* accumulated-reward quantile instead.
         """
         q = np.asarray(q, dtype=float)
-        kw = {} if method is None else dict(method=method)
 
         if n_bins is not None:
-            if method is None:
+            if mode is None:
                 return np.asarray(ph.quantile(q), dtype=float)
             cols = [np.zeros(len(q)) if b in (0, n_bins - 1)
-                    else np.asarray(ph.bin(b).quantile(q, **kw), dtype=float) for b in range(n_bins)]
+                    else np.asarray(ph.bin(b).quantile(q), dtype=float) for b in range(n_bins)]
             return np.stack(cols, axis=1)
 
-        target = ph if method is None else getattr(ph, '_reward_distribution', ph)
-        return np.asarray(target.quantile(q, **kw), dtype=float)
+        target = ph if mode is None else getattr(ph, '_reward_distribution', ph)
+        return np.asarray(target.quantile(q), dtype=float)
+
+    #: The conditional self-consistency checks a ``pairwise: {pair}: conditional:`` block may request, mapped to the
+    #: :class:`~phasegen.distributions.reward.JointRewardDistribution` method that runs each. All are exact identities
+    #: the conditional must satisfy, so each is asserted against the analytic joint alone -- no msprime, no fixture.
+    _CONDITIONAL_CHECKS = {
+        # pointwise: the conditional mean at each conditioning value, against the exact derivative identity. The two
+        # tower checks below integrate the conditional back out over the conditioning axis, so errors at different
+        # values can cancel; this one cannot be fooled that way.
+        'moments': 'check_conditional_moments',
+        'total_expectation': 'check_total_expectation',
+        'total_probability': 'check_total_probability',
+    }
+
+    #: Reserved keys of a ``conditional:`` block that configure a check rather than declare a tolerance. ``quantiles``
+    #: targets specific conditioning values (of the conditioning marginal) instead of the default span, and ``curves``
+    #: additionally draws that many conditional densities per axis (~1 s each, nothing asserted on them). Both apply to
+    #: ``moments`` only -- the tower checks integrate over the whole conditioning axis and so choose their own nodes.
+    _CONDITIONAL_OPTS = ('quantiles', 'curves')
+
+    def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '') -> None:
+        """
+        Run the requested conditional self-consistency checks for one bin pair and assert each against its tolerance.
+
+        :param jd: The analytic joint distribution of the pair.
+        :param pair: The bin pair ``(i, j)``.
+        :param tols: ``{check_name: tolerance}``, keyed by :attr:`_CONDITIONAL_CHECKS`.
+        :param title: Title prefix for the log line.
+        :param name: Name prefix for the plot file.
+        :raises ValueError: If a requested check is not one of :attr:`_CONDITIONAL_CHECKS`.
+        """
+        opts = {k: tols[k] for k in self._CONDITIONAL_OPTS if k in tols}
+
+        for key, tol in tols.items():
+            if key in self._CONDITIONAL_OPTS:
+                continue
+            if key not in self._CONDITIONAL_CHECKS:
+                raise ValueError(f"Unknown conditional check '{key}' for pair {pair}; expected one of "
+                                 f"{list(self._CONDITIONAL_CHECKS)} (or an option: {list(self._CONDITIONAL_OPTS)}).")
+            t0 = time.perf_counter()
+            res = getattr(jd, self._CONDITIONAL_CHECKS[key])(tol=tol, **(opts if key == 'moments' else {}))
+            diff = max(res.values()) if res else 0.0  # worst over the two conditioning axes
+            runtime = time.perf_counter() - t0
+
+            sub_title = f"{title}: conditional {pair} {key}"
+            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
+            self.runtimes[sub_title] = runtime
+            msg = self._result_message(sub_title, diff, tol, self._diff_label(f"conditional_{key}"), runtime)
+
+            # plot the conditional mean against the conditioning quantile, phasegen (nested inversion) vs the exact
+            # derivative identity, plus the conditional densities themselves when ``curves`` asked for them. Only
+            # ``moments`` yields a curve; the tower checks collapse to a single scalar.
+            if self.visualize and key == 'moments':
+                curves = getattr(jd, 'conditional_moment_curves', {})
+                if curves:
+                    self._plot_conditional_moments(curves, getattr(jd, 'conditional_densities', {}),
+                                                   msg if self.show_title else None,
+                                                   f"{name}_conditional_{pair[0]}_{pair[1]}_{key}")
+            self._log_result(msg, diff, tol)
 
     def _compare_pairwise_surface(self, ph, ms, pair: tuple, tols: dict, title: str, name: str,
                                   joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None) -> None:
@@ -940,12 +996,13 @@ class Comparison(Serializable):
         visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference.
         """
         i, j = pair
+        jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
+
         entry = next((e for e in getattr(ms, surface_attr, []) if (e[0], e[1]) == (i, j)), None)
         if entry is None:
             raise ValueError(f"No cached empirical surface for pair {pair}; regenerate the comparison fixture.")
         _i, _j, xs, ys, cdf_ms, pdf_ms = entry
         xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
-        jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
 
         # a degenerate bin -- one with (almost) no off-zero mass, e.g. a high-frequency class under an extreme
         # multiple-merger (a star-like genealogy) -- has a zero-width empirical support, so its CDF/density grid is
@@ -1024,6 +1081,87 @@ class Comparison(Serializable):
         if stat == 'cdf':
             return np.abs(y_ph - y_ms)
         return np.abs(y_ph - y_ms) / max(float(np.abs(y_ms).mean()), 1e-300)
+
+    def _plot_conditional_moments(self, curves: dict, densities: dict, title: str, name: str) -> None:
+        """
+        The conditional-mean check, in two or three panels: the conditional mean at each conditioning quantile as
+        **grouped bars** (nested inversion beside the exact derivative identity, one group per axis); the **scaled
+        error the check asserts on** as bars coloured by magnitude (the same ``coolwarm`` scale saturating at
+        :attr:`surface_diff_saturation` as the other diff panels) -- the same metric the result line reports, and not a
+        raw absolute difference, which the large-mean bars would dominate while saying nothing where the conditional
+        mean is ~0; and, when ``densities`` were computed, the conditional densities the means summarise.
+
+        Bars, not a curve, for the means: the check evaluates a handful of *discrete* conditioning quantiles, and a
+        line between them would draw an interpolation that was never computed. The densities *are* curves, being the
+        distribution the check does not otherwise look at (the mean comes from the transform, not from this grid).
+
+        :param curves: ``{axis: (quantiles, exact, nested, errors)}``, as stashed by
+            :meth:`~phasegen.distributions.reward.JointRewardDistribution.check_conditional_moments`.
+        :param densities: ``{axis: [(quantile, value, ys, density)]}`` from the same call, possibly empty.
+        :param title: Plot title (the comparison log line), or ``None``.
+        :param name: Plot file name.
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib import cm, colors
+
+        sat = self.surface_diff_saturation
+        norm = colors.Normalize(vmin=0.0, vmax=sat)
+        n_panels = 3 if densities else 2
+        fig, axes = plt.subplots(ncols=n_panels, figsize=(6.5 * n_panels, 5))
+        axm, axd = axes[0], axes[1]
+
+        # lay every (axis, quantile) pair out on one categorical axis, grouped by conditioning axis
+        labels, exact, nested, errs = [], [], [], []
+        for on, (us, ex, ne, er) in curves.items():
+            for u, e, n, r in zip(us, ex, ne, er):
+                labels.append(f"R_{on}\n{u:.2f}")
+                exact.append(e)
+                nested.append(n)
+                errs.append(r)
+        if not labels:
+            plt.close(fig)
+            return
+
+        exact, nested = np.asarray(exact, float), np.asarray(nested, float)
+        x = np.arange(len(labels))
+        w = 0.38
+
+        axm.bar(x - w / 2, nested, w, label='nested inversion', alpha=0.9)
+        axm.bar(x + w / 2, exact, w, label='exact identity', alpha=0.9)
+        axm.set_xticks(x)
+        axm.set_xticklabels(labels, fontsize=8)
+        axm.set_xlabel('conditioning axis and quantile')
+        axm.set_ylabel('conditional mean')
+        axm.legend()
+
+        diff = np.asarray(errs, float)
+        axd.bar(x, diff, 0.6, color=cm.coolwarm(norm(diff)))
+        axd.set_xticks(x)
+        axd.set_xticklabels(labels, fontsize=8)
+        axd.set_xlabel('conditioning axis and quantile')
+        axd.set_ylabel('relative difference')
+        axd.set_ylim(0.0, max(sat, float(diff.max()) * 1.1 if diff.size else sat))
+        axd.set_title('difference', fontsize=self.title_fontsize)
+        fig.colorbar(cm.ScalarMappable(norm=norm, cmap='coolwarm'), ax=axd)
+
+        if densities:
+            # log reward axis: conditioning at u = 0.01 and at u = 0.99 puts the two conditionals orders of magnitude
+            # apart in scale, and on a linear axis every curve but the widest collapses onto the origin
+            axc = axes[2]
+            for on, series in densities.items():
+                other = 'b' if on == 'a' else 'a'
+                for u, v, ys, pdf in series:
+                    axc.plot(ys[1:], pdf[1:], ls='-' if on == 'a' else '--',
+                             label=f"$R_{other} \\mid R_{on} = {v:.3g}$ ($u = {u:.2f}$)")
+            axc.set_xscale('log')
+            axc.set_xlabel('time')
+            axc.set_ylabel('conditional density')
+            axc.set_title('conditional distributions', fontsize=self.title_fontsize)
+            axc.legend(fontsize=7)
+
+        if title and self.show_title:
+            fig.suptitle(title, fontsize=self.suptitle_fontsize)
+        self._save_and_show(name)
 
     def _plot_curves_with_diff(self, t, series, xlabel: str, title: str, name: str) -> None:
         """Two panels side by side: left overlays phasegen (solid) vs msprime (dashed) for each ``series`` entry
