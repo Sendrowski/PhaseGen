@@ -52,6 +52,31 @@ def _single_epoch_reference_cdf(dist, reward):
     return lambda x: float(1 - beta @ sla.expm(A * x) @ ones)
 
 
+def _single_epoch_reference_pdf(dist, reward):
+    """Exact single-epoch density of the same reward-transformed phase-type law: ``f(x) = beta exp(A x) a``, with the
+    exit vector ``a = -A 1`` (the derivative of :func:`_single_epoch_reference_cdf`)."""
+    ss = dist.state_space
+    S = np.asarray(ss.S.todense()) if sp.issparse(ss.S) else np.asarray(ss.S)
+    idx = np.where(~ss.absorbing)[0]
+    T = S[np.ix_(idx, idx)]
+    alpha = np.asarray(ss.alpha)[idx].astype(float)
+    r = np.asarray(reward._get(ss))[idx].astype(float)
+
+    P = np.where(r > 0)[0]
+    Z = np.where(r == 0)[0]
+    if len(Z):
+        neg_zinv = sla.inv(-T[np.ix_(Z, Z)])
+        G = T[np.ix_(P, P)] + T[np.ix_(P, Z)] @ neg_zinv @ T[np.ix_(Z, P)]
+        beta = alpha[P] + alpha[Z] @ neg_zinv @ T[np.ix_(Z, P)]
+    else:
+        G = T[np.ix_(P, P)]
+        beta = alpha[P]
+
+    A = np.diag(1.0 / r[P]) @ G
+    exit_rates = -A @ np.ones(len(P))
+    return lambda x: float(beta @ sla.expm(A * x) @ exit_rates)
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # exact references
 # ----------------------------------------------------------------------------------------------------------------
@@ -79,6 +104,23 @@ def test_single_epoch_sfs_bin_matches_censored_reward_transform(i):
     for x in [0.3, 0.8, 1.5, 3.0]:
         got = rd.cdf(x, method='dehoog')
         assert abs(got - ref(x)) < 1e-5, (i, x, got, ref(x))
+
+
+@pytest.mark.parametrize("n", [4, 6])
+def test_single_epoch_density_matches_reward_transform(n):
+    """The per-point de Hoog *density* equals the exact reward-transform phase-type density (it is the reference the
+    cosine density is validated against, so it needs an independent reference of its own). Checked for an
+    all-positive reward and for an SFS bin, whose zero-reward states are censored."""
+    for dist, reward in [(pg.Coalescent(n=n).total_branch_length, None),
+                         (pg.Coalescent(n=n).sfs, UnfoldedSFSReward(2))]:
+        reward = dist.reward if reward is None else reward
+        rd = dist.distribution() if isinstance(dist, pg.distributions.phase_type.PhaseTypeDistribution) \
+            and reward is dist.reward else dist.distribution(reward=reward)
+        ref = _single_epoch_reference_pdf(dist, reward)
+
+        for x in [0.4, 1.0, 2.0, 4.0]:
+            got = float(rd.pdf(x, method='dehoog'))
+            assert abs(got - ref(x)) < 1e-5, (n, x, got, ref(x))
 
 
 def test_multi_epoch_tree_height_matches_phasegen():
@@ -810,8 +852,8 @@ def test_cos_two_pass_window_monotone_and_plotting_accurate():
         assert d.pdf(x).min() >= -1e-9                         # PDF (from CDF differences) non-negative
 
 
-def test_pdf_curve_via_cdf_differentiation_is_smooth():
-    """pdf_curve (method='cos') differentiates the (stable) COS CDF instead of summing the raw cosine density, so it
+def test_pdf_via_cdf_differentiation_is_smooth():
+    """The cosine pdf differentiates the (stable) cosine CDF instead of summing the raw cosine density, so it
     stays smooth even when the direct density rings (wide support range / heavy tail). Validated on a strong-expansion
     demography and against the per-point de Hoog density."""
     d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).total_branch_length.distribution()
