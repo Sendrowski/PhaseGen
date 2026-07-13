@@ -31,13 +31,14 @@ automatically by the inversion.
 import logging
 import functools
 from functools import cached_property
-from math import comb
+from math import comb, factorial
 from typing import TYPE_CHECKING, Optional
 
 import mpmath as mp
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
+from scipy.integrate import simpson
 
 from ..rewards import Reward
 from ..settings import Settings
@@ -310,6 +311,61 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
     return complex(c + a @ solve(_exit_rates(Tm)))
 
 
+def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
+                           perm=_AUTO_PERM, order: int = 2) -> list:
+    """
+    Taylor coefficients in ``eps`` of :func:`_lst_from_shift` evaluated at the shift ``shift + eps * deriv``, i.e.
+    ``[Phi_0, Phi_1, ..., Phi_order]`` with ``Phi(eps) = sum_k Phi_k eps^k``. So the ``k``-th derivative in ``eps`` is
+    ``k! Phi_k`` — **exactly**, with no finite difference.
+
+    Every quantity is evaluated in the truncated polynomial ring ``R[eps] / (eps^{order+1})``, whose elements are
+    represented by their coefficient tuples. The matrix exponential and the linear solve both commute with the ring
+    homomorphism, so a matrix over the ring is the block-Toeplitz upper-triangular matrix with the coefficient blocks
+    on its diagonals, and:
+
+    * a finite epoch propagates the coefficient vector by ``expm`` of that block matrix (its blocks *are* the Taylor
+      coefficients of the epoch's propagator);
+    * the final epoch's ``x(eps) = (A + eps diag(deriv))^{-1} e`` is obtained by back-substitution in the ring,
+      ``x_0 = A^{-1} e`` and ``x_k = -A^{-1} (deriv * x_{k-1})`` — the same LU, reused.
+
+    Differencing ``Phi`` instead is not viable: the derivative is fed to a de Hoog inversion whose QD recurrence
+    amplifies the ``eps_mach / h`` residue of the difference, which made the inverted value swing by 15% between
+    neighbouring steps ``h``.
+    """
+    nt, k = len(alpha), order + 1
+    n_aug = nt + 1
+
+    # row vector over the ring: blocks [v_0, ..., v_order]
+    vec = np.zeros((k, n_aug), dtype=complex)
+    vec[0] = np.concatenate([alpha, [0.0]])
+
+    for T, t0, t1 in T_epochs[:-1]:
+        dt = t1 - t0
+        Q = np.zeros((n_aug, n_aug), dtype=complex)
+        Q[:nt, :nt] = (T.toarray() if sp.issparse(T) else np.asarray(T)) - np.diag(shift)
+        Q[:nt, nt] = _exit_rates(T)
+        D = np.zeros((n_aug, n_aug), dtype=complex)
+        D[:nt, :nt] = -np.diag(deriv)  # d/deps of the generator: the shift enters as -diag(.)
+
+        M = np.zeros((k * n_aug, k * n_aug), dtype=complex)
+        for i in range(k):
+            M[i * n_aug:(i + 1) * n_aug, i * n_aug:(i + 1) * n_aug] = Q * dt
+            if i + 1 < k:
+                M[i * n_aug:(i + 1) * n_aug, (i + 1) * n_aug:(i + 2) * n_aug] = D * dt
+        vec = (vec.reshape(1, -1) @ sla.expm(M)).reshape(k, n_aug)
+
+    Tm = T_epochs[-1][0]
+    A = (sp.diags(shift) if sparse else np.diag(shift)) - Tm
+    solve = MomentEvaluator._lu_solver(A, sparse, perm)
+
+    xs = [solve(_exit_rates(Tm))]
+    for _ in range(1, k):
+        xs.append(-solve(deriv * xs[-1]))
+
+    a, c = vec[:, :nt], vec[:, nt]
+    return [complex(c[i] + sum(a[j] @ xs[i - j] for j in range(i + 1))) for i in range(k)]
+
+
 class JointRewardDistribution(CallableDistributionFunctions):
     """
     Joint distribution of two accumulated rewards ``R_a = int r_a(X_s) ds`` and ``R_b = int r_b(X_s) ds`` to
@@ -412,6 +468,24 @@ class JointRewardDistribution(CallableDistributionFunctions):
         tau = st['tau']
         return _lst_from_shift((s_a * tau) * st['ra'] + (s_b * tau) * st['rb'], st['alpha'], st['T_epochs'],
                                st['sparse'], st['lu_perm'])
+
+    def lst_taylor(self, s: complex, on: str = 'a', order: int = 2) -> list:
+        """
+        The Taylor coefficients of the joint LST in *one* argument at 0, with the other held at ``s``:
+        ``[Phi_k]`` such that ``Phi(s, eps) = sum_k Phi_k eps^k`` (for ``on = 'a'``; mirrored for ``'b'``). The
+        ``k``-th derivative in the free argument is therefore ``k! Phi_k``, exactly (see
+        :func:`_lst_taylor_from_shift`).
+
+        :param s: The value at which the conditioned argument (``on``) is held.
+        :param on: Which argument is held at ``s``, ``'a'`` or ``'b'``; the coefficients are in the other one.
+        :param order: Highest coefficient to return.
+        :return: ``[Phi_0, ..., Phi_order]``.
+        """
+        st = self._setup
+        tau = st['tau']
+        r_on, r_other = (st['ra'], st['rb']) if on == 'a' else (st['rb'], st['ra'])
+        return _lst_taylor_from_shift((s * tau) * r_on, tau * r_other, st['alpha'], st['T_epochs'], st['sparse'],
+                                      st['lu_perm'], order)
 
     def lst_batch(self, s_a, s_b) -> np.ndarray:
         """The joint LST over a *vector* of nodes in one argument (the other held scalar), evaluated as one batch.
@@ -712,22 +786,20 @@ class JointRewardDistribution(CallableDistributionFunctions):
         # which reuses the full RewardDistribution machinery (de Hoog, two-pass COS curves, atom, plotting)
         return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
 
-    def check_total_expectation(self, n_points: int = 8, tol: float = 0.1) -> dict:
+    def check_total_expectation(self, n_points: int = 32, tol: float = 0.01) -> dict:
         """
         Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total expectation**
         ``E[R_other] = E_{R_on}[ E[R_other | R_on ] ]`` for conditioning on each axis, and **log a warning** (per axis)
         when the relative error exceeds ``tol``.
 
         The conditioning marginal's expectation is split into its atom at 0 (``P(R_on = 0) E[R_other | R_on = 0]``)
-        plus an integral over its continuous part, taken in probability space: substituting ``u = F_on(v)`` turns
-        ``INT E[R_other|v] f_on(v) dv`` into ``INT_0^1 E[R_other | F_on^{-1}(u)] du``, so the marginal density is
-        absorbed into the measure and only quantiles are needed. The ``n_points`` nodes are **Gauss-Legendre**; the
-        integrand grows without bound as ``u -> 1`` (the conditional mean rises with ``v``, and ``v ~ -log(1-u)`` for
-        an exponential-tailed reward), which drags an equal-probability midpoint rule down to ``O(1/n)`` convergence
-        and leaves it a ~0.5% floor at ``n_points = 8``, where Gauss-Legendre holds ~0.05%. Uses only the conditional
-        **mean** (the reliable first-difference cumulant), so it is bounded but not free (a handful of nested
-        inversions per point); call it explicitly rather than on every construction. See
-        :meth:`check_total_probability`, which tests the whole law rather than just its first moment.
+        plus a Gauss-Legendre integral over its continuous part, taken in probability space: substituting
+        ``u = F_on(v)`` turns ``INT E[R_other|v] f_on(v) dv`` into ``INT_0^1 E[R_other | F_on^{-1}(u)] du``, so the
+        marginal density is absorbed into the measure and only quantiles are needed.
+
+        ``n_points`` must not be cut: the integrand grows without bound as ``u -> 1``, so it is the *quadrature*, not
+        the conditional, that limits this check (with a perfect integrand it is still 8% off at 8 nodes, 0.2% at 32).
+        Cost is a handful of nested inversions per node; call it explicitly rather than on every construction.
 
         :param n_points: Gauss-Legendre nodes for the integral over the continuous part of each conditioning marginal.
         :param tol: Relative-error threshold above which a violation is logged.
@@ -771,6 +843,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total probability**
         ``F_other(y) = E_{R_on}[ P(R_other <= y | R_on) ]`` for conditioning on each axis, and **log a warning** (per
         axis) when the sup-norm deviation over ``y`` exceeds ``tol``.
+
+        **Not wired into the scenario suite, and not recommended as a tripwire:** unlike :meth:`check_total_expectation`
+        it does not converge under refinement (it plateaus near 0.01 and then drifts up: 0.037 / 0.0096 / 0.0099 /
+        0.0126 at 8 / 16 / 32 / 64 nodes) while costing 20-160 s, so a reading cannot be attributed to the conditional
+        rather than to the check itself. Use :meth:`check_conditional_moments`, which is exact, pointwise and ~1 s.
 
         The companion :meth:`check_total_expectation` tests only the first moment, and moments cancel: a conditional
         can be several percent wrong pointwise and still integrate to the right mean, because the errors above and
@@ -847,6 +924,268 @@ class JointRewardDistribution(CallableDistributionFunctions):
                     f"inversion may be imprecise here"
                 )
         return out
+
+    def conditional_raw_moments(self, on: str = 'a', value: float = 0.0, k: int = 2) -> list:
+        """
+        The **exact** conditional raw moments ``E[R_other^j | R_on = value]``, ``j = 1..k``.
+
+        Differentiating the joint transform in the *other* argument at 0 turns a conditional moment into a single
+        **1D** Laplace inversion, with no nested inversion anywhere::
+
+            d^j/ds_o^j Phi(s_on, s_o) |_{s_o = 0}  =  (-1)^j L_{s_on}[ E[R_other^j | R_on = v] f_on(v) ]
+
+        because the right-hand side is just the transform of ``v -> E[R_other^j | R_on = v] f_on(v)``. So
+
+            E[R_other^j | R_on = v]  =  L^-1[ (-1)^j d^j Phi ](v)  /  f_on(v),
+
+        with ``f_on(v) = L^-1[Phi(., 0)](v)`` the conditioning marginal's density (the ``j = 0`` case). The derivatives
+        come from :meth:`lst_taylor`, which evaluates the transform in a truncated polynomial ring and so returns them
+        **exactly**: ``d^j Phi = j! Phi_j``. They are *not* finite differences. Differencing here is not viable, even
+        though the transform is analytic: the difference's ``eps_mach / h`` residue is then fed to de Hoog's QD
+        recurrence, which amplifies it enough to swing the inverted value by 15% between neighbouring steps ``h``.
+
+        Costs ``k + 1`` 1D inversions over one shared node set (``2 * dehoog_degree + 1`` linear solves, one Taylor
+        evaluation each), so it is both independent of the nested inversion it validates and cheap enough to scale
+        with the ordinary 1D machinery.
+
+        The inversion is the accuracy floor, and on a **multi-epoch** demography de Hoog's own error (~1%, and
+        non-monotone in ``dehoog_degree``) is what that floor is: verified against a 300M-replicate sampler, the
+        nested inversion is nearer the truth there than this reference is (0.2% against 0.8%). Treat it as exact on a
+        single epoch, and as a ~1% tripwire beyond that.
+
+        :param on: Axis to condition on, ``'a'`` or ``'b'``.
+        :param value: The conditioning value ``R_on = value``.
+        :param k: Highest moment to return.
+        :return: ``[E[R_other], ..., E[R_other^k]]`` given ``R_on = value``.
+        :raises ValueError: If the conditioning marginal's density at ``value`` is not resolvable (so the conditional
+            cannot be normalised), matching :class:`_NestedConditional`.
+        """
+        marg = self.marginal(on)
+
+        # the k+1 inversions share one de Hoog node set (same ``value``, same degree), and one Taylor evaluation yields
+        # every coefficient at a node, so cache on ``s`` rather than paying for the transform once per moment
+        cache = {}
+
+        def taylor(s) -> list:
+            if s not in cache:
+                cache[s] = self.lst_taylor(s, on, order=k)
+            return cache[s]
+
+        f_on = marg._invert(lambda s: taylor(s)[0], value)
+        if f_on <= 1e-12 * max(abs(float(marg.mean)), 1e-12):
+            raise ValueError(
+                f"The marginal density at R_{on} = {value:g} inverts to {f_on:.3g}, so the conditional moments there "
+                f"cannot be normalised. The density is below the float64 resolution of the inversion, not necessarily "
+                f"zero -- condition closer to the bulk."
+            )
+
+        # d^j Phi = j! Phi_j, and the identity carries (-1)^j; both signs cancel into factorial(j) * (-1)^j * Phi_j
+        return [factorial(j) * (-1) ** j * marg._invert(lambda s, j=j: taylor(s)[j], value) / f_on
+                for j in range(1, k + 1)]
+
+    def conditional_moments(self, on: str = 'a', value: float = 0.0) -> tuple:
+        """
+        The **exact** conditional mean and variance of the other reward given ``R_on = value``, from
+        :meth:`conditional_raw_moments`.
+
+        :param on: Axis to condition on, ``'a'`` or ``'b'``.
+        :param value: The conditioning value ``R_on = value``.
+        :return: ``(mean, var)`` of the other reward given ``R_on = value``.
+        :raises ValueError: If the conditioning marginal's density at ``value`` is not resolvable.
+        """
+        m1, m2 = self.conditional_raw_moments(on, value, k=2)
+
+        return m1, max(m2 - m1 ** 2, 0.0)
+
+    #: Quantile span of the conditioning marginal over which :meth:`check_conditional_moments` places its points.
+    #: Runs nearly the whole law: the conditional is resolved just as well at ``u = 0.01`` and ``u = 0.99`` as in the
+    #: middle, and a span confined to the bulk tests only the region where nothing can go wrong.
+    _COND_CHECK_SPAN = (0.01, 0.99)
+
+    #: Floor of the relative-error denominator in :meth:`check_conditional_moments`, as a fraction of the *unconditional*
+    #: mean ``E[R_other]``. Deep in the conditioning tail the conditional mean goes to ~0 (for ``n = 4``, conditioning on
+    #: a huge doubleton length forces the balanced topology, which has no 3-leaf clade at all, so ``E[R_3 | .] -> 0``), and
+    #: a plain relative error there divides two ~1e-6 numbers and reports pure noise as a 4% failure. Scaling against the
+    #: unconditional mean asks the honest question -- is the discrepancy *material* -- and is what lets the span reach the
+    #: tail at all.
+    _COND_CHECK_FLOOR = 0.01
+
+    def check_conditional_moments(self, n_points: int = 5, tol: float = 0.02, quantiles: 'Sequence[float]' = None,
+                                  curves: int = 0) -> dict:
+        """
+        Self-consistency tripwire for the (nested-inversion) conditional path: compare each conditional's **mean**
+        against the exact one from :meth:`conditional_moments`, and **log a warning** (per axis) when the worst
+        scaled error over the conditioning points exceeds ``tol``.
+
+        Where :meth:`check_total_expectation` integrates the conditional back out and so only tests it *on average*
+        over the conditioning axis (errors at different ``v`` can cancel, and its own quadrature sets the floor), this
+        pins it **pointwise**, at each ``v`` separately, against a reference that shares no code with the nested
+        inversion and no quadrature. It is both stronger and several times cheaper, so it is the check to reach for --
+        but only where the reference is sound: :meth:`conditional_moments` is exact on a single epoch and carries de
+        Hoog's ~1% error beyond it, so a multi-epoch tolerance has to be set against the *reference's* floor, and on
+        an extreme bottleneck (where the reference is off by tens of percent) the tower check is the only option.
+
+        The mean under test is the conditional's own (the cumulant of its nested transform), so this asserts the
+        transform, not the cosine ``cdf`` / ``pdf`` grid built on top of it; ``curves`` draws those for inspection.
+
+        The conditioning points span :attr:`_COND_CHECK_SPAN` in quantile space of the conditioning marginal (so they
+        mean the same thing across demographies), and the error is scaled by :attr:`_COND_CHECK_FLOOR`. Pass
+        ``quantiles`` to target specific conditioning values instead.
+
+        :param n_points: Conditioning values per axis, spread over :attr:`_COND_CHECK_SPAN` by quantile. Ignored when
+            ``quantiles`` is given.
+        :param tol: Error threshold above which a violation is logged.
+        :param quantiles: Explicit conditioning quantiles of the conditioning marginal, in ``(0, 1)``.
+        :param curves: Number of conditioning values per axis at which to also evaluate the conditional **density**,
+            for :attr:`conditional_densities` (and so the plots). Nothing is asserted on them; each one builds a
+            cosine grid the mean does not need (~1 s), which is why they are off by default.
+        :return: ``{'a': worst_err_conditioning_on_a, 'b': ...}`` (empty for a self-pair).
+        """
+        us = np.linspace(*self._COND_CHECK_SPAN, n_points) if quantiles is None else np.asarray(quantiles, float)
+        if self._is_diagonal:
+            return {}  # R_a == R_b a.s.; the conditional is a point mass
+
+        out = {}
+        #: per-axis ``(quantiles, exact, nested, errors)`` series of the last run, for the comparison plots. The
+        #: errors are the *scaled* ones asserted on, so a plot shows the same metric the result line reports.
+        self.conditional_moment_curves = {}
+
+        #: per-axis ``[(quantile, value, ys, density)]`` of the last run, when ``curves`` asked for them.
+        self.conditional_densities = {}
+
+        for on, other in (('a', 'b'), ('b', 'a')):
+            marg_on = self.marginal(on)
+            p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
+            floor = self._COND_CHECK_FLOOR * abs(float(self.marginal(other).mean))
+
+            errs, n_refused = [], 0
+            kept, exacts, nesteds, conds = [], [], [], []
+            for u in us:
+                v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
+                try:
+                    exact = self.conditional_moments(on, v)[0]
+                    cond = self.conditional(on, v)
+                    got = float(cond.mean)
+                except ValueError:
+                    n_refused += 1
+                    continue
+                errs.append(abs(got - exact) / max(abs(exact), floor, 1e-12))
+                kept.append(float(u))
+                exacts.append(exact)
+                nesteds.append(got)
+                conds.append((v, cond))
+            self.conditional_moment_curves[on] = (np.array(kept), np.array(exacts), np.array(nesteds),
+                                                  np.array(errs))
+            if curves and kept:
+                # spread the drawn densities over the kept conditioning points rather than taking the first few
+                idx = np.unique(np.linspace(0, len(kept) - 1, min(curves, len(kept))).round().astype(int))
+                self.conditional_densities[on] = [
+                    (kept[i], conds[i][0], *self._density_curve(conds[i][1])) for i in idx
+                ]
+
+            if not errs:
+                continue
+            rel = float(np.max(errs))
+            out[on] = rel
+            if Settings.check_inversions and (rel > tol or n_refused):
+                refused = f", and {n_refused}/{n_points} conditionals could not be built" if n_refused else ""
+                self._logger.warning(
+                    f"conditional mean disagrees with the exact derivative identity conditioning on R_{on}: worst "
+                    f"relative error {rel:.2%} over {len(errs)} points > {tol:.2%}{refused}; the conditional "
+                    f"inversion may be imprecise here"
+                )
+        return out
+
+    def check_conditional_grid_moments(self, n_points: int = 3, tol: float = 0.02, k: int = 3,
+                                       quantiles: 'Sequence[float]' = None) -> dict:
+        """
+        The distribution-level counterpart of :meth:`check_conditional_moments`: compare the raw moments obtained by
+        **integrating each conditional's CDF grid** against the exact ones from :meth:`conditional_raw_moments`, and
+        **log a warning** (per axis) when the worst relative error over the conditioning points and orders exceeds
+        ``tol``.
+
+        This is the only check that exercises the cosine ``cdf`` / ``pdf`` layer. :meth:`check_conditional_moments`
+        cannot: the mean it tests is a cumulant of the *transform*, so a cosine truncation or a residual ripple in the
+        grid would sail straight past it. Here the grid is the thing being integrated, and orders ``k >= 2`` see the
+        tail long before the mean does.
+
+        The moments come from the survival function, ``E[R^j] = int_0^inf j y^(j-1) (1 - F(y)) dy``, rather than from
+        ``int y^j f(y) dy``: the CDF is what the cosine fit actually produces (the density is its gradient), and the
+        atom at 0 -- which a conditional generally has -- contributes nothing to a raw moment of order ``j >= 1`` but
+        would dominate a density quadrature near the origin. The integral is truncated at the grid's own support end.
+
+        :param n_points: Conditioning values per axis, spread over :attr:`_COND_CHECK_SPAN` by quantile. Ignored when
+            ``quantiles`` is given. Fewer than for the mean check by default: each point builds a cosine grid.
+        :param tol: Error threshold above which a violation is logged.
+        :param k: Highest raw moment to compare.
+        :param quantiles: Explicit conditioning quantiles of the conditioning marginal, in ``(0, 1)``.
+        :return: ``{'a': worst_err_conditioning_on_a, 'b': ...}`` (empty for a self-pair).
+        """
+        us = np.linspace(*self._COND_CHECK_SPAN, n_points) if quantiles is None else np.asarray(quantiles, float)
+        if self._is_diagonal:
+            return {}
+
+        out = {}
+        #: per-axis ``(quantiles, orders, errors)`` of the last run, for the comparison plots; ``errors[i, j]`` is the
+        #: relative error of the order-``j+1`` moment at conditioning point ``i``.
+        self.conditional_grid_moment_errors = {}
+
+        for on in ('a', 'b'):
+            marg_on = self.marginal(on)
+            p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
+
+            errs, kept, n_refused = [], [], 0
+            for u in us:
+                v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
+                try:
+                    exact = self.conditional_raw_moments(on, v, k=k)
+                    got = self._grid_raw_moments(self.conditional(on, v), k=k)
+                except ValueError:
+                    n_refused += 1
+                    continue
+                errs.append([abs(g - e) / max(abs(e), 1e-12) for g, e in zip(got, exact)])
+                kept.append(float(u))
+
+            self.conditional_grid_moment_errors[on] = (np.array(kept), np.arange(1, k + 1),
+                                                       np.array(errs).reshape(len(kept), k))
+            if not errs:
+                continue
+            rel = float(np.max(errs))
+            out[on] = rel
+            if Settings.check_inversions and (rel > tol or n_refused):
+                refused = f", and {n_refused}/{len(us)} conditionals could not be built" if n_refused else ""
+                self._logger.warning(
+                    f"the conditional's CDF grid disagrees with the exact raw moments conditioning on R_{on}: worst "
+                    f"relative error {rel:.2%} over {len(errs)} points and orders 1..{k} > {tol:.2%}{refused}; the "
+                    f"cosine grid may be imprecise here"
+                )
+        return out
+
+    @staticmethod
+    def _grid_raw_moments(cond: RewardDistribution, k: int = 3, n: int = 4001) -> list:
+        """
+        The raw moments ``E[R^j]``, ``j = 1..k``, of a conditional **as its CDF grid represents it**: from the
+        survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy`` over the grid's own support end ``b``.
+
+        Simpson on a uniform grid: the integrand ``j y^(j-1) (1 - F(y))`` is smooth and bounded (the atom at 0 sits in
+        ``F(0)``, not in the integrand), unlike the density, which spikes at the origin.
+        """
+        b = cond._range(scale=12.0)
+        ys = np.linspace(0.0, b, n)
+        surv = 1.0 - np.asarray(cond.cdf(ys), float)
+        return [float(simpson(j * ys ** (j - 1) * surv, x=ys)) for j in range(1, k + 1)]
+
+    @staticmethod
+    def _density_curve(cond: RewardDistribution) -> tuple:
+        """The density of one conditional over the same endpoint every 1D distribution plot uses
+        (:attr:`Settings.plot_endpoint_quantile`), for :attr:`conditional_densities`. Log-spaced, unlike those: the
+        conditionals drawn together span orders of magnitude in scale (conditioning at ``u = 0.01`` against ``u =
+        0.99``), and a linear grid would leave the small-reward ones with a handful of points."""
+        # a conditional can be almost entirely the atom at 0 (conditioning on a huge R_on can leave the other bin empty
+        # outright), and its endpoint quantile is then 0; fall back to the bracketed support so the curve has an axis
+        top = float(cond.quantile(Settings.plot_endpoint_quantile)) or cond._range(scale=4.0)
+        ys = np.geomspace(top * 1e-4, top, Settings.plot_n_grid)
+        return ys, np.asarray(cond.pdf(ys), float)
 
 
 class _Conditional(RewardDistribution):
