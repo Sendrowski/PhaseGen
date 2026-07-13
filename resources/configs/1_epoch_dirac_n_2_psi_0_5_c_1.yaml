@@ -21,7 +21,7 @@ comparisons:
       cosine:
         pdf: 0.011
         cdf: 0.0006
-        quantile: 0.00086
+        quantile: 0.00084
     sfs:
       mean: 0.00074
       cov: 0.00047
@@ -29,4 +29,4 @@ comparisons:
       cosine:
         pdf: 0.011
         cdf: 0.0006
-        quantile: 0.00086
+        quantile: 0.00084

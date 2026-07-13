@@ -38,8 +38,8 @@
                 "theta_w": 0.00023,
                 "tajimas_d": 0.0029,
                 "cosine": {
-                    "pdf": 0.012,
-                    "cdf": 0.00096,
+                    "pdf": 0.011,
+                    "cdf": 0.00087,
                     "quantile": 0.0026
                 },
                 "conditional": {

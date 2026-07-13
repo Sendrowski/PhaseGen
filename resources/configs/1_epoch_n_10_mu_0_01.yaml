@@ -14,7 +14,7 @@ comparisons:
       mutation_configs: 0.0005
       '[1, 4, 9]':
         cosine:
-          pdf: 0.019
+          pdf: 0.014
           cdf: 0.0011
           quantile: 0.0022
       pairwise:

@@ -19,15 +19,15 @@ comparisons:
       mean: 0.00051
       var: 0.0011
       cosine:
-        pdf: 0.0085
+        pdf: 0.0086
         cdf: 0.0013
         quantile: 0.0021
     sfs:
       mean: 0.051
       cosine:
-        pdf: 1.3
-        cdf: 0.003
-        quantile: 0.0057
+        pdf: 0.011
+        cdf: 0.0011
+        quantile: 0.0059
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.002

@@ -176,6 +176,19 @@ class _LSTFunction:
     _cos_terms_rough: int = 128
     _cos_terms: int = 384
 
+    #: Support scale (``mean + scale * std``) of the coarse pass, which bounds where the fine pass may put its window.
+    #: At 12 the coarse window can fall *short* of :attr:`_cos_tail_target` for a heavy-tailed bin, and the fine window
+    #: is then pinned to a support end that is too small however tight the target is (an n = 10 mid-frequency bin
+    #: saturates at a 0.6% error in the mean and 4.4% in the second moment).
+    _cos_rough_scale: float = 20.0
+
+    #: CDF mass the fine pass's window must contain. Everything above it is discarded: the fit force-normalises to 1
+    #: at the window end, so the target *is* the tail that the grid keeps. The window trades against near-origin
+    #: resolution (``b / n_terms``), but only weakly, and the tail is by far the more expensive side to get wrong: at
+    #: the old 0.9995 the cut cost 0.05-0.6% of the mean, 0.3-4.4% of the second moment, and put a systematic 2.5e-4
+    #: error in the CDF itself, all of which this removes at no cost in terms or transform evaluations.
+    _cos_tail_target: float = 1.0 - 1e-5
+
     # ---- distribution primitives (thin accessors) --------------------------------------------------------------
     def _range(self, scale: float = 12.0) -> float:
         return self._distribution._range(scale)
@@ -220,15 +233,16 @@ class _LSTFunction:
 
     def _build_cos_coeffs(self) -> dict:
         """
-        COS coefficients, fit in **two passes**: a coarse pass over a generous window (``mean + 12*std``) locates the
-        effective support, then the fit is redone over a window tightened to that support. Matching the window to
-        where the mass actually is -- rather than ``mean + 12*std``, which a heavy tail blows far past the bulk --
-        lets a few hundred cosine terms resolve the curve accurately, removing the ringing at the source.
+        COS coefficients, fit in **two passes**: a coarse pass over a generous window
+        (:attr:`_cos_rough_scale` standard deviations) locates the effective support, then the fit is redone over a
+        window tightened to the support that holds :attr:`_cos_tail_target` of the mass. Matching the window to where
+        the mass actually is -- rather than ``mean + scale*std``, which a heavy tail blows far past the bulk -- lets a
+        few hundred cosine terms resolve the curve accurately, removing the ringing at the source.
         """
-        rough = self._fit_cos(self._range(12.0), self._cos_terms_rough)
+        rough = self._fit_cos(self._range(self._cos_rough_scale), self._cos_terms_rough)
         xs = np.linspace(0.0, rough['b'], 1024)
         cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
-        b = float(np.interp(0.9995, cdf, xs))
+        b = float(np.interp(self._cos_tail_target, cdf, xs))
         return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
 
     def _fit_cos(self, b: float, n_terms: int) -> dict:

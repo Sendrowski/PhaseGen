@@ -13,7 +13,7 @@ comparisons:
     sfs:
       mutation_configs: 0.005
       cosine:
-        pdf: 0.015
+        pdf: 0.012
         cdf: 0.0016
         quantile: 0.0037
       pairwise:
@@ -30,4 +30,4 @@ comparisons:
       cosine:
         pdf: 0.012
         cdf: 0.00083
-        quantile: 0.00077
+        quantile: 0.00075

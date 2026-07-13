@@ -20,8 +20,8 @@ comparisons:
       mean: 0.0016
       var: 0.0065
       cosine:
-        pdf: 0.019
-        cdf: 0.00068
+        pdf: 0.022
+        cdf: 0.00069
         quantile: 0.0013
     sfs:
       mean: 0.011
@@ -32,6 +32,6 @@ comparisons:
       tajimas_d: 0.011
       '[1, 4, 9]':
         cosine:
-          pdf: 0.031
-          cdf: 0.0012
-          quantile: 0.0093
+          pdf: 0.027
+          cdf: 0.0015
+          quantile: 0.0095

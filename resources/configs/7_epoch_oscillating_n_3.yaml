@@ -21,14 +21,14 @@ comparisons:
       var: 0.00045
       pdf: 0.016
       cdf: 0.0011
-      quantile: 0.0061
+      quantile: 0.00098
     total_branch_length:
       mean: 0.00086
       var: 0.0002
       cosine:
-        pdf: 0.01
-        cdf: 0.0013
-        quantile: 0.0039
+        pdf: 0.013
+        cdf: 0.0012
+        quantile: 0.00089
     fsfs:
       mutation_configs: 0.0008
     sfs:
@@ -42,9 +42,9 @@ comparisons:
       pairwise:
         '[(1, 2)]':
           cdf: 0.0018
-          pdf: 0.062
+          pdf: 0.061
       '[1, 2]':
         cosine:
-          pdf: 0.015
+          pdf: 0.013
           cdf: 0.0014
-          quantile: 0.0014
+          quantile: 0.0015

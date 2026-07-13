@@ -18,7 +18,7 @@ comparisons:
       mean: 0.0011
       var: 0.0027
       cosine:
-        pdf: 0.0098
+        pdf: 0.0096
         cdf: 0.0012
         quantile: 0.0016
     sfs:
@@ -26,6 +26,6 @@ comparisons:
       cov: 0.0027
       corr: 0.0005
       cosine:
-        pdf: 0.009
+        pdf: 0.0089
         cdf: 0.0012
         quantile: 0.0016

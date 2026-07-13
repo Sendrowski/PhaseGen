@@ -24,7 +24,7 @@ comparisons:
   tolerance:
     tree_height:
       pdf: 0.032
-      cdf: 0.03
+      cdf: 0.0015
       mean: 0.01
       var: 0.02
     total_branch_length:

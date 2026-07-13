@@ -16,7 +16,7 @@
         "tolerance": {
             "tree_height": {
                 "pdf": 0.04,
-                "cdf": 0.1,
+                "cdf": 0.00084,
                 "mean": 0.01,
                 "var": 0.05,
                 "loci": {

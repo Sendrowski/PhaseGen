@@ -27,15 +27,15 @@
                 "cosine": {
                     "pdf": 0.0089,
                     "cdf": 0.0015,
-                    "quantile": 0.0019
+                    "quantile": 0.0018
                 }
             },
             "sfs": {
                 "mean": 0.002,
                 "cosine": {
-                    "pdf": 0.016,
+                    "pdf": 0.0093,
                     "cdf": 0.0012,
-                    "quantile": 0.0021
+                    "quantile": 0.002
                 },
                 "pairwise": {
                     "[(1, 2)]": {

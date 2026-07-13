@@ -17,7 +17,7 @@
             "sfs": {
                 "mutation_configs": 0.0036,
                 "cosine": {
-                    "pdf": 0.016,
+                    "pdf": 0.013,
                     "cdf": 0.0016,
                     "quantile": 0.0026
                 },

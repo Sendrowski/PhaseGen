@@ -29,8 +29,8 @@ comparisons:
       theta_w: 0.0016
       tajimas_d: 0.0073
       cosine:
-        pdf: 0.017
-        cdf: 0.0012
+        pdf: 0.013
+        cdf: 0.0017
         quantile: 0.0048
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':

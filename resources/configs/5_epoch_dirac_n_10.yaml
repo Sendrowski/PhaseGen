@@ -37,6 +37,6 @@ comparisons:
       mean: 0.007
       '[1, 4, 9]':
         cosine:
-          pdf: 0.017
+          pdf: 0.0078
           cdf: 0.0011
           quantile: 0.0037

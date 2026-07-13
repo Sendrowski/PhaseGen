@@ -38,7 +38,7 @@
                 "theta_w": 0.00065,
                 "tajimas_d": 0.002,
                 "cosine": {
-                    "pdf": 0.014,
+                    "pdf": 0.013,
                     "cdf": 0.0014,
                     "quantile": 0.0049
                 },

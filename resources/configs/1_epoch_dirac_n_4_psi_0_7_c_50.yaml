@@ -25,7 +25,7 @@ comparisons:
     sfs:
       mean: 0.0028
       cosine:
-        pdf: 0.012
+        pdf: 0.0098
         cdf: 0.0012
         quantile: 0.0038
       pairwise:
