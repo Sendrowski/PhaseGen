@@ -802,9 +802,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 # the CURVE, not ``cond.cdf(ys)``: a per-point de Hoog costs (2 dehoog_degree + 1) outer times
                 # (2 (N0 + m) + 1) inner ``lst`` solves for EVERY y, while the COS curve shares one set of phi
                 # evaluations across the whole grid -- ~11x here, at no measurable accuracy cost
-                rhs += (1.0 - p0) * weight * np.asarray(cond.cdf.curve(ys, method='cos'), dtype=float)
+                rhs += (1.0 - p0) * weight * np.asarray(cond.cdf(ys), dtype=float)
             if p0 > 1e-6:  # atom term P(R_on = 0) F(y | R_on = 0)
-                rhs = rhs + p0 * np.asarray(self.conditional(on, 0.0).cdf.curve(ys, method='cos'), dtype=float)
+                rhs = rhs + p0 * np.asarray(self.conditional(on, 0.0).cdf(ys), dtype=float)
 
             dev = float(np.max(np.abs(rhs - lhs)))
             out[on] = dev
@@ -844,7 +844,7 @@ class _Conditional(RewardDistribution):
         (first-difference ``_cumulants()[0]``) is reliable and used only as the seed; the variance is not."""
         target = min(1.0 - float(np.exp(-scale)), 1.0 - 1e-6)  # scale=12 -> ~1-1e-6 (full support); scale=4 -> ~0.98
         # the per-point de Hoog inversion, NOT the ``self.cdf`` function object: a conditional's ``cdf`` answers from
-        # the COS grid (``_default_method``), whose fit needs this very support window -- going through it recurses
+        # the COS grid (the default), whose fit needs this very support window -- going through it recurses
         cdf_point = self.cdf._cdf_point
         c1 = float(self._cumulants()[0])
         b = max(c1, 1.0 / self._time_scale, 1e-3)

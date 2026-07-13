@@ -74,7 +74,7 @@ class ConditionalMsprimeTestCase(TestCase):
                 # CDF shape: the atom-correct de Hoog curve vs the empirical CDF over the bulk
                 grid = np.linspace(0.0, float(np.quantile(lj, 0.99)) + 1e-9, 40)
                 emp = np.searchsorted(lj, grid, side='right') / lj.size
-                ana = np.asarray(cond.cdf.curve(grid), dtype=float)
+                ana = np.asarray(cond.cdf(grid), dtype=float)
                 max_abs = float(np.abs(emp - ana).max())
                 assert max_abs < 0.05, \
                     f"pair {(i, j)} L_{i}={x:.3f}: max|F_emp - F_ana|={max_abs:.4f}"

@@ -251,7 +251,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 # many std can extend far past the mass). Derived cheaply from the COS CDF (one curve per bin) rather
                 # than the per-point de Hoog quantile.
                 end = max(
-                    float(np.interp(q_end, d.cdf.curve(grid := np.linspace(0, d._range(), 256)), grid))
+                    float(np.interp(q_end, d.cdf(grid := np.linspace(0, d._range(), 256)), grid))
                     for _, d in dists
                 )
                 x = np.linspace(0, end, n_points)
@@ -271,9 +271,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             else:
                 xk = x
                 if kind == 'cdf':
-                    y = d.cdf(x) if exact else d.cdf.curve(x)
+                    y = d.cdf(x, method='dehoog') if exact else d.cdf(x)
                 elif kind == 'pdf':
-                    y = d.pdf(x) if exact else d.pdf.curve(x)
+                    y = d.pdf(x, method='dehoog') if exact else d.pdf(x)
                 elif exact:
                     # quantile function via the per-point de Hoog bisection
                     y = np.array([d.quantile(float(p)) for p in x])
@@ -281,7 +281,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                     # quantile function: invert the (fast) COS CDF curve by interpolation rather than a per-point
                     # bisection (which would re-run the de Hoog inversion at every probability and bin)
                     xx = np.linspace(0, d._range(), 512)
-                    y = np.interp(x, d.cdf.curve(xx), xx)
+                    y = np.interp(x, d.cdf(xx), xx)
 
             Visualization.plot(
                 ax=ax,
@@ -681,15 +681,36 @@ class _ExpmQuantileFunction(_GridQuantileFunction):
     """The tree-height quantile by adaptive bisection on the exact (matrix-exponential) CDF, bounded by the time of
     almost-sure absorption. Reaches into the :class:`TreeHeightDistribution` for the epoch machinery."""
 
-    @cache
     def __call__(
+            self,
+            q,
+            expansion_factor: float = 2,
+            precision: float = 1e-5,
+            max_iter: int = 1000
+    ) -> 'np.ndarray | float':
+        """
+        The ``q``-quantile of the CDF, for a scalar or an array of ``q``. The bisection itself is inherently scalar
+        (and cached per level), so an array is answered level by level.
+
+        :param q: Probability level(s) in ``[0, 1]``.
+        :param expansion_factor: Factor by which the bracketing upper bound grows.
+        :param precision: Absolute convergence tolerance of the bisection.
+        :param max_iter: Maximum bisection iterations.
+        :return: The quantile(s), of the same shape as ``q``.
+        """
+        if np.ndim(q) > 0:
+            return np.array([self._quantile(float(p), expansion_factor, precision, max_iter) for p in np.asarray(q)])
+        return self._quantile(float(q), expansion_factor, precision, max_iter)
+
+    @cache
+    def _quantile(
             self,
             q: float,
             expansion_factor: float = 2,
             precision: float = 1e-5,
             max_iter: int = 1000
-    ) -> 'np.ndarray | float':
-        """Find the specified quantile of the CDF using an adaptive bisection method."""
+    ) -> float:
+        """The ``q``-quantile by adaptive bisection on the exact CDF (cached per level)."""
         d = self._distribution
 
         if q < 0 or q > 1:
