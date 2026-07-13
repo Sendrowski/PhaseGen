@@ -89,7 +89,8 @@ class Visualization:
             show: bool = None,
             clear: bool = True,
             label: str = None,
-            title: str = None
+            title: str = None,
+            **kwargs
     ) -> 'plt.Axes':
         """
         Plot function.
@@ -104,9 +105,10 @@ class Visualization:
         :param clear: Whether to clear current figure
         :param label: Label for plot
         :param title: Title for plot
+        :param kwargs: Additional line styling forwarded to the underlying plot (e.g. ``alpha``, ``lw``, ``ls``).
         :return: Axes
         """
-        sns.lineplot(x=x, y=y, ax=ax, label=label)
+        sns.lineplot(x=x, y=y, ax=ax, label=label, **kwargs)
 
         # set axis labels
         ax.set_xlabel(xlabel)

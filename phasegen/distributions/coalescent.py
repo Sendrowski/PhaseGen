@@ -22,7 +22,7 @@ from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDis
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
-    from .empirical import MsprimeCoalescent
+    from .empirical import MsprimeCoalescent, SampledCoalescent
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -795,4 +795,16 @@ class Coalescent(AbstractCoalescent, Serializable):
             simulate_mutations=simulate_mutations,
             seed=seed
         )
+
+    def to_empirical(self, n_samples: int = 100000, seed: int = None) -> 'SampledCoalescent':
+        """
+        Convert to an empirical coalescent sampled with PhaseGen's own vectorised trajectory sampler, exposing the
+        same per-statistic distributions estimated from ``n_samples`` genealogies rather than computed exactly.
+
+        :param n_samples: Number of trajectories to sample per statistic.
+        :param seed: Random seed.
+        :return: The sampled coalescent.
+        """
+        from .empirical import SampledCoalescent
+        return SampledCoalescent(coalescent=self, n_samples=n_samples, seed=seed)
 

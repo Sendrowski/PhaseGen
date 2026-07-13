@@ -475,6 +475,83 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
 
 
+class EmpiricalJointRewardDistribution:  # pragma: no cover
+    """
+    Empirical counterpart of :class:`~phasegen.distributions.reward.JointRewardDistribution`: the sampled joint
+    distribution of two accumulated rewards, built from the per-replicate samples and sliced into the 1D
+    :meth:`marginal` and :meth:`conditional` distributions.
+    """
+
+    def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray, label: str = None) -> None:
+        """
+        :param samples_a: Per-replicate realisations of the first reward.
+        :param samples_b: Per-replicate realisations of the second reward.
+        :param label: Optional human-readable label used in plot titles.
+        """
+        #: Per-replicate realisations of the two rewards.
+        self._a = np.asarray(samples_a, dtype=float)
+        self._b = np.asarray(samples_b, dtype=float)
+
+        #: Optional human-readable label (e.g. ``"SFS bins (1, 2)"``).
+        self.label = label
+
+    def marginal(self, which: str = 'a') -> EmpiricalDistribution:
+        """
+        The empirical marginal distribution of the first reward (``which='a'``) or the second (``which='b'``).
+
+        :param which: Which reward's marginal, ``'a'`` or ``'b'``.
+        :return: The empirical marginal distribution.
+        :raises ValueError: If ``which`` is not ``'a'`` or ``'b'``.
+        """
+        if which not in ('a', 'b'):
+            raise ValueError("`which` must be 'a' or 'b'.")
+        return EmpiricalDistribution(self._a if which == 'a' else self._b)
+
+    def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> EmpiricalDistribution:
+        """
+        The empirical conditional distribution of the *other* reward given ``R_{on}`` close to ``value``, estimated
+        from the replicates whose conditioning reward falls in a window around ``value``. The sampled counterpart of
+        :meth:`~phasegen.distributions.reward.JointRewardDistribution.conditional`.
+
+        :param on: Which reward to condition on, ``'a'`` or ``'b'``.
+        :param value: The conditioning value.
+        :param window: Half-width of the symmetric window, in the conditioning reward's units. Defaults to the
+            smallest window around ``value`` holding at least ``max(200, n / 50)`` replicates, a data-adaptive
+            bandwidth that keeps the estimate stable wherever ``value`` sits (narrower reduces bias, wider reduces
+            noise).
+        :return: The empirical distribution of the other reward over the selected replicates.
+        :raises ValueError: If ``on`` is not ``'a'`` / ``'b'`` or no replicate falls in the window.
+        """
+        if on not in ('a', 'b'):
+            raise ValueError("`on` must be 'a' or 'b'.")
+        cond, other = (self._a, self._b) if on == 'a' else (self._b, self._a)
+        distance = np.abs(cond - value)
+        if window is None:
+            k = min(max(200, cond.size // 50), cond.size - 1)
+            window = float(np.partition(distance, k)[k])
+        mask = distance <= window
+        if not mask.any():
+            raise ValueError(f"No samples within window {window:g} of {value:g}.")
+        return EmpiricalDistribution(other[mask])
+
+    def cdf(self, x: float, y: float) -> float:
+        """The empirical joint CDF ``P(R_a <= x, R_b <= y)``."""
+        return float(((self._a <= x) & (self._b <= y)).mean())
+
+    @property
+    def mean(self) -> np.ndarray:
+        """The pair of marginal means ``(E[R_a], E[R_b])``."""
+        return np.array([self._a.mean(), self._b.mean()])
+
+    def cov(self) -> float:
+        """The empirical covariance of the two rewards."""
+        return float(np.cov(self._a, self._b)[0, 1])
+
+    def corr(self) -> float:
+        """The empirical Pearson correlation of the two rewards."""
+        return float(np.corrcoef(self._a, self._b)[0, 1])
+
+
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
     """
     SFS phase-type distribution based on realisations.
@@ -519,7 +596,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Population names
         self.pops = pops
 
-        # : Number of lineages
+        #: Number of lineages
         self.n = branch_lengths.shape[-1] - 1
 
         #: SFS distribution class
@@ -655,6 +732,24 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             # density via the mixed second difference of the CDF surface (no separate bandwidth needed)
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
+
+    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointRewardDistribution':
+        """
+        The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
+        samples — the sampled counterpart of
+        :meth:`~phasegen.distributions.spectra.SFSDistribution.joint_distribution`, exposing the same
+        :meth:`~EmpiricalJointRewardDistribution.marginal` and :meth:`~EmpiricalJointRewardDistribution.conditional`
+        slices for a sanity check against the exact joint.
+
+        :param i: First frequency class.
+        :param j: Second frequency class.
+        :return: The empirical joint reward distribution of ``(L_i, L_j)``.
+        :raises ValueError: If the per-replicate samples have been dropped.
+        """
+        if self.samples is None:
+            raise ValueError("The per-replicate samples have been dropped; joint_distribution needs them.")
+        s = np.asarray(self.samples)
+        return EmpiricalJointRewardDistribution(s[:, i], s[:, j], label=f"SFS bins ({i}, {j})")
 
     @staticmethod
     def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
@@ -1510,16 +1605,18 @@ class MsprimeCoalescent(AbstractCoalescent):
 
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
-    PhaseGen-sampled empirical coalescent. Exposes the same per-statistic empirical distributions as
-    :class:`MsprimeCoalescent` (``tree_height``/``total_branch_length``/``sfs``/``fsfs``/``jsfs``/``sfs2``) -- both
-    implement the :class:`~phasegen.distributions.coalescent.AbstractCoalescent` contract, so the comparison
-    framework uses them interchangeably -- but estimated from PhaseGen's own trajectory sampler
-    (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
+    PhaseGen-sampled empirical coalescent: the same per-statistic distributions as :class:`MsprimeCoalescent`, but
+    estimated from PhaseGen's own trajectory sampler (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
+    Used by :class:`~phasegen.comparison.Comparison` to validate the sampler against the exact analytic
+    :class:`Coalescent`. The sampled realization is frozen into the comparison fixture at creation time; the
+    per-statistic seeds make it reproducible and independent of access order.
 
-    Used by :class:`~phasegen.comparison.Comparison` to validate the sampler against the *exact* analytic
-    distributions: the analytic :class:`Coalescent` is the reference operand and this object the candidate. The
-    sampled realization is frozen into the comparison fixture at creation time (the per-statistic seeds make it
-    reproducible and independent of access order).
+    .. warning::
+        Each statistic is sampled in its **own** simulation run, so different statistics come from **different
+        genealogies**. Within one statistic the samples are coherent (the SFS bins of a single ``sfs`` draw share
+        their trajectories, so their joints, covariances and correlations are valid), but pairing the raw ``.samples``
+        of *two* statistics is not meaningful -- ``corrcoef(sc.tree_height.samples, sc.total_branch_length.samples)``
+        is ~0 where the truth is ~1.
     """
 
     #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.
@@ -1542,7 +1639,11 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         )
 
         self._coalescent: Optional[Coalescent] = coalescent
+
+        #: Number of trajectories sampled per statistic.
         self.n_samples: int = n_samples
+
+        #: Random seed.
         self.seed: Optional[int] = seed
 
     def _to_empirical(self, name: str):
@@ -1554,26 +1655,32 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     @cached_property
     def tree_height(self) -> EmpiricalPhaseTypeDistribution:
+        """Sampled tree height distribution."""
         return self._to_empirical('tree_height')
 
     @cached_property
     def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:
+        """Sampled total branch length distribution."""
         return self._to_empirical('total_branch_length')
 
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
+        """Sampled unfolded site-frequency spectrum distribution."""
         return self._to_empirical('sfs')
 
     @cached_property
     def fsfs(self) -> EmpiricalPhaseTypeSFSDistribution:
+        """Sampled folded site-frequency spectrum distribution."""
         return self._to_empirical('fsfs')
 
     @cached_property
     def jsfs(self) -> EmpiricalJointSFSDistribution:
+        """Sampled joint (multi-population) site-frequency spectrum distribution."""
         return self._to_empirical('jsfs')
 
     @cached_property
     def sfs2(self) -> EmpiricalTwoLocusSFSDistribution:
+        """Sampled two-locus site-frequency spectrum distribution."""
         return self._to_empirical('sfs2')
 
     def _get_cached_times(self) -> np.ndarray:

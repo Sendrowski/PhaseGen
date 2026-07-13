@@ -79,6 +79,46 @@ def test_to_empirical_sfs2_cross_moment():
     assert e.cross_moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
 
 
+def test_empirical_joint_marginal_conditional_match_analytic():
+    """The empirical joint (sampler) marginals and conditionals reproduce the exact
+    :class:`~phasegen.distributions.JointRewardDistribution` ones — the sanity check
+    :class:`~phasegen.distributions.EmpiricalJointRewardDistribution` enables."""
+    coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
+    ana = coal.sfs.joint_distribution(1, 2)
+    emp = coal.sfs.to_empirical(200000).joint_distribution(1, 2)
+
+    assert emp.corr() == pytest.approx(ana.corr(), abs=0.03)
+    np.testing.assert_allclose(emp.mean, ana.mean, rtol=0.03)
+    assert emp.cdf(1.5, 0.5) == pytest.approx(ana.cdf(1.5, 0.5), abs=0.02)
+
+    # the marginal reproduces the analytic marginal (and the direct bin)
+    assert emp.marginal('a').mean == pytest.approx(ana.marginal('a').mean, rel=0.02)
+    assert emp.marginal('b').mean == pytest.approx(coal.sfs.bin(2).mean, rel=0.02)
+
+    # the conditional shifts with the (negative) correlation, matching the analytic conditional mean
+    for v in (0.5, 1.3):
+        assert emp.conditional('a', v).mean == pytest.approx(ana.conditional('a', v).mean, abs=0.04)
+
+    # an explicit window is honoured; invalid selectors raise
+    assert emp.conditional('a', 0.5, window=0.1).samples.size < emp.conditional('a', 0.5, window=0.5).samples.size
+    with pytest.raises(ValueError):
+        emp.marginal('c')
+    with pytest.raises(ValueError):
+        emp.conditional('c', 0.5)
+
+
+def test_coalescent_to_empirical_returns_sampled_coalescent():
+    """``Coalescent.to_empirical`` mirrors ``to_msprime``: it returns a :class:`SampledCoalescent` whose per-statistic
+    distributions match the exact analytic coalescent."""
+    coal = pg.Coalescent(n=6)
+    emp = coal.to_empirical(N_SAMPLES, seed=42)
+
+    assert isinstance(emp, SampledCoalescent)
+    assert emp.n_samples == N_SAMPLES
+    assert emp.tree_height.mean == pytest.approx(coal.tree_height.mean, rel=0.02)
+    np.testing.assert_allclose(np.asarray(emp.sfs.mean), np.asarray(coal.sfs.mean.data), atol=0.05)
+
+
 def test_to_empirical_exposes_n_samples():
     """``to_empirical`` records the sample count on the empirical object, surviving ``drop``."""
     e = pg.Coalescent(n=5).tree_height.to_empirical(12345)
