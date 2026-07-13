@@ -95,8 +95,8 @@ class DistributionFunction:
     def plot(self, *args, **kwargs) -> 'plt.Axes':
         """
         Plot the distribution function (the distribution's ``_plot_<kind>``). Accepted arguments depend on the
-        distribution; common ones are ``exact`` (use the slower per-point de Hoog inversion instead of the fast COS
-        curve), ``bins`` / ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution),
+        distribution; common ones are ``exact`` (use the slower per-point de Hoog inversion instead of the default
+        cosine one), ``bins`` / ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution),
         ``ax`` / ``show`` / ``file`` / ``title``.
         """
         return getattr(self._distribution, '_plot_' + self.kind)(*args, **kwargs)
@@ -119,10 +119,10 @@ class _SurfacePlottable:
 class DensityFunction(DistributionFunction):
     """Probability density function.
 
-    - **Callable** ``pdf(x)``: the exact pointwise density by per-point de Hoog Laplace inversion (the exact
-      matrix-exponential density for the tree height; a histogram for empirical samples).
-    - **Plot** ``pdf.plot()``: the fast cosine curve (the derivative of the cosine CDF), or the exact per-point
-      density with ``exact=True``.
+    - **Callable** ``pdf(x)``: the density at ``x`` (scalar or array). For an accumulated reward this is the
+      derivative of the cosine CDF; ``method='dehoog'`` gives the exact per-point Laplace inversion instead. The tree
+      height uses the exact matrix exponential, empirical samples a histogram.
+    - **Plot** ``pdf.plot()``: the same, or the per-point inversion with ``exact=True``.
     """
     kind = 'pdf'
 
@@ -130,9 +130,10 @@ class DensityFunction(DistributionFunction):
 class CumulativeDistributionFunction(DistributionFunction):
     """Cumulative distribution function -- the probability of being at most ``x``.
 
-    - **Callable** ``cdf(x)``: the exact value by per-point de Hoog inversion (the exact matrix exponential for the
-      tree height; the empirical CDF for samples).
-    - **Plot** ``cdf.plot()``: the fast cosine curve, or the exact per-point CDF with ``exact=True``.
+    - **Callable** ``cdf(x)``: the probability at ``x`` (scalar or array). For an accumulated reward this is the
+      Fourier-cosine inversion; ``method='dehoog'`` gives the exact per-point Laplace inversion instead. The tree
+      height uses the exact matrix exponential, samples the empirical CDF.
+    - **Plot** ``cdf.plot()``: the same, or the per-point inversion with ``exact=True``.
     """
     kind = 'cdf'
 
@@ -140,9 +141,11 @@ class CumulativeDistributionFunction(DistributionFunction):
 class QuantileFunction(DistributionFunction):
     """Quantile function -- the inverse CDF.
 
-    - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q``, by bisection on the de Hoog CDF (or the
-      sample quantile for empirical data).
-    - **Plot** ``quantile.plot()``: inverts the fast cosine CDF curve (or the per-point bisection with ``exact=True``).
+    - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
+      reward this inverts the same cosine CDF the :class:`CumulativeDistributionFunction` reads, so the two are
+      mutually consistent; in the far tail it falls back to a bisection on the exact per-point inversion, which
+      ``method='dehoog'`` selects throughout. Empirical data uses the sample quantile.
+    - **Plot** ``quantile.plot()``: the same, or the per-point bisection with ``exact=True``.
     """
     kind = 'quantile'
 
@@ -185,7 +188,7 @@ class _LSTFunction:
 
     def _cdf_point(self, t: float) -> float:
         """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the building block of both the exact
-        :meth:`_LSTCumulativeDistributionFunction.__call__` and the de Hoog spline."""
+        :meth:`_LSTCumulativeDistributionFunction.__call__` (``method='dehoog'``) and the far-tail quantile."""
         if t < 0:
             return 0.0
         d = self._distribution
@@ -193,7 +196,7 @@ class _LSTFunction:
             # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
             # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
             # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
-            return max(d.lst(1e8).real, 0.0)
+            return max(d.lst(d._s_inf).real, 0.0)
         return d._invert(lambda s: d.lst(s) / s, float(t))
 
     def _pdf_point(self, t: float) -> float:
@@ -242,7 +245,7 @@ class _LSTFunction:
         CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this window/resolution).
         """
         d = self._distribution
-        p0 = d.lst(1e8).real
+        p0 = d.lst(d._s_inf).real
         w = np.arange(n_terms) * np.pi / b
         chi = np.array([d.lst(-1j * wk) for wk in w])
         if p0 > 1e-9:
@@ -252,7 +255,7 @@ class _LSTFunction:
 
         # the largest backward step of the (continuous) CDF is the sensitive ringing detector (a visibly rippling CDF
         # can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a substantial one
-        # (rtol 1e-2 of the [0,1] CDF range -- a looser bar than the de Hoog spline's, the cosine series being coarser)
+        # (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp feature)
         xd = np.linspace(0.0, b, max(512, 2 * n_terms))
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
         d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
@@ -719,7 +722,7 @@ class CallableDistributionFunctions:
     def _function(self, kind: str, factory) -> 'Any':
         """Return the (cached) distribution-function object for ``kind``, built once via ``factory`` and stored on
         this distribution. Caching the object -- not just rebuilding a thin wrapper -- is what lets the function
-        object's own cached curves (the de Hoog spline, the COS coefficients) persist across ``.cdf`` / ``.pdf`` /
+        object's own cached cosine coefficients / CDF grid persist across ``.cdf`` / ``.pdf`` /
         ``.quantile`` accesses, since the three share the one distribution they hang off. Honors the global cache
         switch (:attr:`Settings.cache`)."""
         cache = self.__dict__.setdefault('_function_cache', {})

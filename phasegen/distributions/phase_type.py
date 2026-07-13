@@ -152,6 +152,19 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return time_scale(self)
 
+    @property
+    def _s_inf(self) -> float:
+        """
+        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
+
+        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
+        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
+        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
+        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
+        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
+        """
+        return 1e8 / self._time_scale
+
     @cached_property
     def _reward_epoch_data_scaled(self) -> dict:
         """:attr:`_reward_epoch_data` rescaled by :attr:`_time_scale` for the LST inversion (shared across all rewards

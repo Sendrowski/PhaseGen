@@ -113,6 +113,19 @@ class RewardDistribution(CallableDistributionFunctions):
         with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``."""
         return getattr(getattr(self, '_host', None), '_time_scale', 1.0)
 
+    @property
+    def _s_inf(self) -> float:
+        """
+        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
+
+        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
+        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
+        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
+        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
+        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
+        """
+        return 1e8 / self._time_scale
+
     @cached_property
     def mean(self) -> float:
         """Mean ``E[R]`` of the accumulated reward (the exact first moment from the moment engine). The conditional
@@ -317,6 +330,24 @@ class JointRewardDistribution(CallableDistributionFunctions):
     is accurate but likewise per-point, and equally untestable at grid scale. Cosine's known weakness is the
     steep near-origin rise, mitigated by the window scale (:attr:`_cos2d_window_scale`).
     """
+    @property
+    def _time_scale(self) -> float:
+        """The inversion time scale of the host distribution."""
+        return getattr(self._host, '_time_scale', 1.0)
+
+    @property
+    def _s_inf(self) -> float:
+        """
+        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
+
+        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
+        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
+        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
+        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
+        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
+        """
+        return 1e8 / self._time_scale
+
     #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
     #: ``plot_surface`` callback); a joint has no quantile (a 2D quantile is not well-defined)
     _pdf_function = JointDensity
@@ -486,7 +517,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _atoms(self) -> dict:
         """Atom probabilities from the ``s -> inf`` limits of ``Phi``: ``P(R_a = 0)``, ``P(R_b = 0)``,
         ``P(R_a = 0, R_b = 0)`` (an SFS bin is empty with positive probability)."""
-        big = 1e8
+        big = self._s_inf
         return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
 
     @cached_property
@@ -498,7 +529,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         R_b = 0)`` (key ``'b'``, sub-transform ``lst(., inf)``) and ``g_a(y) = P(R_a = 0, R_b <= y)`` (key ``'a'``,
         ``lst(inf, .)``), with atom ``P(both = 0)`` at 0 and continuous mass up to ``P(R_b = 0)`` / ``P(R_a = 0)``,
         COS-inverted over the corresponding marginal's support window."""
-        big = 1e8
+        big = self._s_inf
         both0 = self._atoms['both0']
         out = {}
         for key, total, marg in (('b', self._atoms['b0'], self.marginal('a')),
@@ -534,7 +565,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         sees the smooth part: ``cf_cc(w_a, w_b) = Phi(-i w_a, -i w_b) - Phi(-i w_a, inf) - Phi(inf, -i w_b) +
         P(both = 0)``. Returns the coefficient matrix and the (zero-based) ranges/frequencies.
         """
-        n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, 1e8
+        n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
         ca, va = self.marginal('a')._cumulants()
         cb, vb = self.marginal('b')._cumulants()
@@ -582,7 +613,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         absolute near-origin CDF discrepancy.
         """
         st = self._cos2d
-        big = 1e8
+        big = self._s_inf
         ma = self.marginal('a')
         xs = np.linspace(0.0, float(ma.quantile(0.4)), 5)[1:]  # near-origin small-x points, where the bias concentrates
         # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
@@ -672,7 +703,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         other_name = 'b' if on == 'a' else 'a'
 
         # condition on the atom {R_on = 0}: the sub-distribution of the other reward there, normalised by its mass.
-        # _AtomConditional reuses the full RewardDistribution machinery (de Hoog, adaptive-spline curves, quantile,
+        # _AtomConditional reuses the full RewardDistribution machinery (the cosine cdf/pdf/quantile, de Hoog,
         # plotting), like _NestedConditional does for value > 0 -- so both conditional cases share one accurate path.
         if value == 0:
             return _AtomConditional(self, on, f"R_{other_name} | R_{on} = 0")
@@ -825,7 +856,7 @@ class _Conditional(RewardDistribution):
     noisy nested transform makes :meth:`_cumulants` collapse the **variance** to its floor, which would shrink the
     support window (:meth:`_range`) to a point near the mean and truncate the distribution. So a conditional sizes its
     support window by **bracketing the exact CDF** instead: a handful of (exact de Hoog) evaluations, memoised per
-    scale. Everything else (de Hoog ``cdf``/``pdf``, the adaptive-grid + monotone-spline curve, quantile, plotting) is
+    scale. Everything else (the ``cdf`` / ``pdf`` / ``quantile`` and their plots) is
     inherited unchanged.
     """
 
@@ -861,7 +892,7 @@ class _AtomConditional(_Conditional):
     sub-distribution of the other reward there, normalised by the atom mass ``P(R_on = 0)``. Its LST is the marginal
     sub-transform restricted to that atom (``Phi(inf, .)`` for ``on='a'``, ``Phi(., inf)`` for ``on='b'``) divided by
     the atom mass, so it plugs straight into the full :class:`RewardDistribution` machinery -- de Hoog ``cdf``/``pdf``,
-    the adaptive-grid + monotone-spline curves, quantile and plotting -- exactly like :class:`_NestedConditional` does
+    the cosine ``cdf`` / ``pdf``, quantile and plotting -- exactly like :class:`_NestedConditional` does
     for the ``value > 0`` case, so both conditional cases share one accurate path. The residual atom at 0
     (``P(both = 0) / P(R_on = 0)``) surfaces automatically as ``p0 = lst(inf)``.
     """
@@ -873,7 +904,7 @@ class _AtomConditional(_Conditional):
         atom = joint._atoms['a0' if on == 'a' else 'b0']
         if atom < 1e-9:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
-        big = 1e8
+        big = self._s_inf
         self._joint = joint
         # the conditional reuses the host's state space / time-scale (its ``lst`` is the marginal sub-transform; there
         # is no own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``)
