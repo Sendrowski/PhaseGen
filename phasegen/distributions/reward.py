@@ -1096,23 +1096,31 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 )
         return out
 
-    def check_conditional_grid_moments(self, n_points: int = 3, tol: float = 0.02, k: int = 3,
+    def check_conditional_grid_moments(self, n_points: int = 3, tol: float = 0.02, k: int = 2,
                                        quantiles: 'Sequence[float]' = None) -> dict:
         """
         The distribution-level counterpart of :meth:`check_conditional_moments`: compare the raw moments obtained by
         **integrating each conditional's CDF grid** against the exact ones from :meth:`conditional_raw_moments`, and
-        **log a warning** (per axis) when the worst relative error over the conditioning points and orders exceeds
+        **log a warning** (per axis) when the worst scaled error over the conditioning points and orders exceeds
         ``tol``.
 
         This is the only check that exercises the cosine ``cdf`` / ``pdf`` layer. :meth:`check_conditional_moments`
-        cannot: the mean it tests is a cumulant of the *transform*, so a cosine truncation or a residual ripple in the
-        grid would sail straight past it. Here the grid is the thing being integrated, and orders ``k >= 2`` see the
-        tail long before the mean does.
+        cannot: the mean it tests is a cumulant of the *transform*, so a truncation or a residual ripple in the grid
+        would sail straight past it. Here the grid is the thing being integrated, and order 2 sees the tail long
+        before the mean does.
 
-        The moments come from the survival function, ``E[R^j] = int_0^inf j y^(j-1) (1 - F(y)) dy``, rather than from
+        The moments come from the survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy``, rather than from
         ``int y^j f(y) dy``: the CDF is what the cosine fit actually produces (the density is its gradient), and the
         atom at 0 -- which a conditional generally has -- contributes nothing to a raw moment of order ``j >= 1`` but
-        would dominate a density quadrature near the origin. The integral is truncated at the grid's own support end.
+        would dominate a density quadrature near the origin.
+
+        Errors are scaled against the *unconditional* raw moments, as in :meth:`check_conditional_moments` and for the
+        same reason: deep in the conditioning tail the conditional collapses onto its atom at 0, and an unscaled
+        relative error there divides two vanishing numbers and reports noise as a total failure.
+
+        ``k`` stops at 2 by design. The cosine CDF is accurate to ~1e-6 *absolutely*, so where the survival function
+        is itself ~1e-5 that is a large relative error, and a third moment weights exactly there by ``y^3``: order 3
+        reports several percent on a grid that is sound, which measures the amplification and not the grid.
 
         :param n_points: Conditioning values per axis, spread over :attr:`_COND_CHECK_SPAN` by quantile. Ignored when
             ``quantiles`` is given. Fewer than for the mean check by default: each point builds a cosine grid.
@@ -1127,12 +1135,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
         out = {}
         #: per-axis ``(quantiles, orders, errors)`` of the last run, for the comparison plots; ``errors[i, j]`` is the
-        #: relative error of the order-``j+1`` moment at conditioning point ``i``.
+        #: scaled error of the order-``j+1`` moment at conditioning point ``i``.
         self.conditional_grid_moment_errors = {}
 
-        for on in ('a', 'b'):
+        for on, other in (('a', 'b'), ('b', 'a')):
             marg_on = self.marginal(on)
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
+            floors = [self._COND_CHECK_FLOOR * abs(m) for m in self._uncond_raw_moments(other, k)]
 
             errs, kept, n_refused = [], [], 0
             for u in us:
@@ -1143,7 +1152,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 except ValueError:
                     n_refused += 1
                     continue
-                errs.append([abs(g - e) / max(abs(e), 1e-12) for g, e in zip(got, exact)])
+                errs.append([abs(g - e) / max(abs(e), f, 1e-12) for g, e, f in zip(got, exact, floors)])
                 kept.append(float(u))
 
             self.conditional_grid_moment_errors[on] = (np.array(kept), np.arange(1, k + 1),
@@ -1161,8 +1170,15 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 )
         return out
 
+    def _uncond_raw_moments(self, which: str, k: int) -> list:
+        """The exact *unconditional* raw moments ``E[R^j]``, ``j = 1..k``, of one of the two rewards, straight from the
+        moment engine (no inversion anywhere). They set the error floor of :meth:`check_conditional_grid_moments`."""
+        reward = self.reward_a if which == 'a' else self.reward_b
+        return [float(MomentEvaluator.moment(self._host, k=j, rewards=(reward,) * j, center=False))
+                for j in range(1, k + 1)]
+
     @staticmethod
-    def _grid_raw_moments(cond: RewardDistribution, k: int = 3, n: int = 4001) -> list:
+    def _grid_raw_moments(cond: RewardDistribution, k: int = 2, n: int = 4001) -> list:
         """
         The raw moments ``E[R^j]``, ``j = 1..k``, of a conditional **as its CDF grid represents it**: from the
         survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy`` over the grid's own support end ``b``.

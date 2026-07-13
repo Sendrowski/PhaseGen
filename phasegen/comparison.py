@@ -937,15 +937,19 @@ class Comparison(Serializable):
         # tower checks below integrate the conditional back out over the conditioning axis, so errors at different
         # values can cancel; this one cannot be fooled that way.
         'moments': 'check_conditional_moments',
+        # the same identity, but against the moments of the conditional's cosine cdf/pdf GRID rather than of its
+        # transform -- the only check that reaches that layer, and several times dearer (a grid per conditioning point)
+        'grid_moments': 'check_conditional_grid_moments',
         'total_expectation': 'check_total_expectation',
         'total_probability': 'check_total_probability',
     }
 
-    #: Reserved keys of a ``conditional:`` block that configure a check rather than declare a tolerance. ``quantiles``
-    #: targets specific conditioning values (of the conditioning marginal) instead of the default span, and ``curves``
-    #: additionally draws that many conditional densities per axis (~1 s each, nothing asserted on them). Both apply to
-    #: ``moments`` only -- the tower checks integrate over the whole conditioning axis and so choose their own nodes.
-    _CONDITIONAL_OPTS = ('quantiles', 'curves')
+    #: Reserved keys of a ``conditional:`` block that configure a check rather than declare a tolerance, mapped to the
+    #: checks they apply to. ``quantiles`` targets specific conditioning values (of the conditioning marginal) instead
+    #: of the default span; ``curves`` additionally draws that many conditional densities per axis (~1 s each, nothing
+    #: asserted on them). Neither reaches the tower checks, which integrate over the whole conditioning axis and so
+    #: choose their own nodes.
+    _CONDITIONAL_OPTS = {'quantiles': ('moments', 'grid_moments'), 'curves': ('moments',)}
 
     def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '') -> None:
         """
@@ -958,16 +962,15 @@ class Comparison(Serializable):
         :param name: Name prefix for the plot file.
         :raises ValueError: If a requested check is not one of :attr:`_CONDITIONAL_CHECKS`.
         """
-        opts = {k: tols[k] for k in self._CONDITIONAL_OPTS if k in tols}
-
         for key, tol in tols.items():
             if key in self._CONDITIONAL_OPTS:
                 continue
             if key not in self._CONDITIONAL_CHECKS:
                 raise ValueError(f"Unknown conditional check '{key}' for pair {pair}; expected one of "
                                  f"{list(self._CONDITIONAL_CHECKS)} (or an option: {list(self._CONDITIONAL_OPTS)}).")
+            opts = {o: tols[o] for o, checks in self._CONDITIONAL_OPTS.items() if o in tols and key in checks}
             t0 = time.perf_counter()
-            res = getattr(jd, self._CONDITIONAL_CHECKS[key])(tol=tol, **(opts if key == 'moments' else {}))
+            res = getattr(jd, self._CONDITIONAL_CHECKS[key])(tol=tol, **opts)
             diff = max(res.values()) if res else 0.0  # worst over the two conditioning axes
             runtime = time.perf_counter() - t0
 

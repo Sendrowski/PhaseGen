@@ -42,6 +42,7 @@
                 "conditional": {
                     "[(1, 2)]": {
                         "moments": 0.0001,
+                        "grid_moments": 0.015,
                         "curves": 3
                     },
                     "[(1, 3)]": {

@@ -39,7 +39,11 @@ comparisons:
       conditional:
         '[(1, 2)]':
           moments: 0.0001
-          curves: 3        # densities are drawn on this pair only: each costs a 0.99 quantile of the nested transform
+          # ``grid_moments`` is the same identity taken against the conditional's cosine cdf/pdf GRID rather than its
+          # transform, so it is the only check that reaches that layer -- but it builds a grid per conditioning point,
+          # so it is several times dearer and is wired on one pair per config, not on every pair.
+          grid_moments: 0.015
+          curves: 3        # densities are drawn on this pair only: each costs an endpoint quantile of the conditional
         '[(1, 3)]':
           moments: 0.0001
       pairwise:

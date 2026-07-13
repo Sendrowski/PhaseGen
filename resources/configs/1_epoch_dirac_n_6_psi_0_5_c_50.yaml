@@ -34,7 +34,10 @@ comparisons:
         cdf: 0.00087
         quantile: 0.0026
       conditional:
-        '[(1, 2), (1, 5), (2, 5)]':
+        '[(1, 2)]':
+          moments: 0.0001
+          grid_moments: 0.04
+        '[(1, 5), (2, 5)]':
           moments: 0.0001
       pairwise:
         '[(1, 2), (1, 5), (2, 5)]':
