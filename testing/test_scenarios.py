@@ -84,6 +84,7 @@ configs = [
     '1_epoch_migration_one_each_n_6',
     '1_epoch_2_loci_n_3_r_0',
     '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_6_r_1',
     '1_epoch_n_2',
     '1_epoch_n_4',
     '2_epoch_n_4_growth',
