@@ -385,6 +385,24 @@ rule plot_execution_time:
     script:
         "scripts/plot_heatmap_execution_times.py"
 
+# plot vectorized-sampling time for the same scenarios (for comparison with the exact-computation times)
+rule plot_sampling_time:
+    output:
+        "results/graphs/sampling_times.png"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/plot_heatmap_sampling_times.py"
+
+# copy a generated graph into the docs image directory (so the docs figures are refreshed automatically)
+rule copy_graph_to_docs:
+    input:
+        "results/graphs/{name}.png"
+    output:
+        "docs/images/{name}.png"
+    shell:
+        "cp {input} {output}"
+
 # plot state space sizes
 rule plot_state_space_sizes:
     output:

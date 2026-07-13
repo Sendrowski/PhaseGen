@@ -28,10 +28,12 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.QuantileFunction
    ~phasegen.distributions.MarginalDensity
    ~phasegen.distributions.MarginalCDF
+   ~phasegen.distributions.SFSDensity
    ~phasegen.distributions.SFSCDF
    ~phasegen.distributions.MarginalQuantileFunction
    ~phasegen.distributions.JointDensity
    ~phasegen.distributions.JointCDF
+   ~phasegen.distributions.JointSFSDensity
    ~phasegen.distributions.JointSFSCDF
    ~phasegen.distributions.ConditionalDensity
    ~phasegen.distributions.ConditionalCDF
@@ -41,6 +43,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.EmpiricalDistribution
    ~phasegen.distributions.EmpiricalPhaseTypeDistribution
    ~phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
+   ~phasegen.distributions.EmpiricalJointRewardDistribution
    ~phasegen.distributions.EmpiricalSFSDistribution
    ~phasegen.distributions.EmpiricalJointSFSDistribution
    ~phasegen.distributions.EmpiricalTwoLocusSFSDistribution
@@ -95,6 +98,10 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :members:
    :special-members: __call__
 
+.. autoclass:: phasegen.distributions.SFSDensity
+   :members:
+   :special-members: __call__
+
 .. autoclass:: phasegen.distributions.SFSCDF
    :members:
    :special-members: __call__
@@ -108,6 +115,10 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :special-members: __call__
 
 .. autoclass:: phasegen.distributions.JointCDF
+   :members:
+   :special-members: __call__
+
+.. autoclass:: phasegen.distributions.JointSFSDensity
    :members:
    :special-members: __call__
 
@@ -138,6 +149,8 @@ The same statistics can be estimated empirically from simulated genealogies -- v
 .. autoclass:: phasegen.distributions.EmpiricalPhaseTypeDistribution
 
 .. autoclass:: phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
+
+.. autoclass:: phasegen.distributions.EmpiricalJointRewardDistribution
 
 .. autoclass:: phasegen.distributions.EmpiricalSFSDistribution
 

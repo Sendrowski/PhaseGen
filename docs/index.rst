@@ -17,11 +17,13 @@ Contents
 
    reference/Python/installation
    reference/Python/quickstart
+   reference/Python/distribution_functions
    reference/Python/spectra
    reference/Python/multiple_merger_coalescents
    reference/Python/rewards
    reference/Python/demography
    reference/Python/mutation_configs
+   reference/Python/empirical_distributions
    reference/Python/inference
    reference/performance
    reference/Python/miscellaneous

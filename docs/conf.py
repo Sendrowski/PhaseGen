@@ -42,6 +42,10 @@ pygments_style = 'default'
 # disable notebook execution
 nb_execution_mode = 'off'
 
+# merge consecutive stdout/stderr chunks from one cell into a single output block (a mid-cell flush would
+# otherwise split e.g. three prints into two separate output blocks)
+nb_merge_streams = True
+
 templates_path = ['_templates']
 # 'jupyter_execute' is a myst-nb build artifact; excluding it keeps Sphinx from scanning (and recursively
 # re-nesting) it as source, which otherwise floods the build with "not in any toctree" warnings.

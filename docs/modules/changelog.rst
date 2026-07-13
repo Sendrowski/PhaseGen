@@ -3,6 +3,13 @@
 Changelog
 =========
 
+[2.0.0] - 2026-07-10
+^^^^^^^^^^^^^^^^^^^^
+- Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` slices.
+- Add a vectorised trajectory sampler (:meth:`to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`SampledCoalescent <phasegen.distributions.SampledCoalescent>`) as a sampled counterpart of every distribution.
+- Support time-inhomogeneous (multi-epoch) demographies for :meth:`mutational block configurations <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>`.
+- Substantially speed up the closed-form last-epoch moments with a block-triangular sparse LU (strongly-connected-component ordering, ``NATURAL`` column order), giving order-of-magnitude speedups on jSFS and two-locus spectra by lowering the dense/sparse crossover to a few hundred states (:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`).
+
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
 - Add the cross-locus correlation of the two-locus SFS via :meth:`TwoLocusSFSDistribution.corr() <phasegen.distributions.TwoLocusSFSDistribution.corr>`.

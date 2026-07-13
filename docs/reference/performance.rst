@@ -25,4 +25,11 @@ To obtain moments we need to exponentiate matrices whose size equals the state s
    :width: 60%
    :align: center
 
+Where the exact computation becomes too costly, the statistics can instead be estimated from PhaseGen's own vectorised sampler (:meth:`~phasegen.distributions.Coalescent.to_empirical`). Its cost grows with the number of samples rather than the size of the state space, so it stays roughly flat across the scenarios above. The figure below shows the runtime for drawing 100,000 samples, on the same colour scale as above; the largest case that takes several seconds to compute exactly is sampled in under a tenth of a second.
+
+.. image:: ../images/sampling_times.png
+   :alt: Sampling times
+   :width: 60%
+   :align: center
+
 
