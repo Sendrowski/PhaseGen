@@ -111,6 +111,17 @@ class Settings:
     #: (e.g. 8-10) for a further speed-up at still-excellent accuracy (~1e-9 to 1e-11).
     dehoog_degree: int = 15
 
+    #: Quantile above which the ``quantile`` of an accumulated-reward distribution (1D, and the 1D conditionals of a
+    #: joint) switches from the Fourier-cosine grid to the exact per-point de Hoog bisection. The cosine grid is the
+    #: only route for ``cdf`` / ``pdf``; it is fast and vectorised, but it force-normalises to 1 at the end of its
+    #: support window, so it loses the far tail outright -- on a bottleneck it reports ``1 - cdf = 0`` from ``y ~ 8``
+    #: on, where de Hoog and a 60M-replicate sampler both still find 1.5e-3 of mass. Where the density is low, that
+    #: missing mass is a *large* quantile error: at ``q = 0.99`` the cosine quantile is already 2.8% off for an SFS bin
+    #: and 8.5% off for a conditional (whose law is more skewed, so the same truncation costs more). By ``q = 0.98``
+    #: the worst case across single-epoch / bottleneck / expansion / Beta, marginal and conditional alike, is 0.6%.
+    #: Set to ``None`` to disable the fallback and always read the cosine grid.
+    dehoog_tail_quantile: Optional[float] = 0.98
+
     #: Whether to emit a logged warning when a numerical inversion looks imprecise: a substantially negative density
     #: or a non-monotone CDF curve (Gibbs ringing), the residual cosine ripple, or a violated law of total expectation
     #: in :meth:`~phasegen.distributions.reward.JointRewardDistribution.check_total_expectation`. These are cheap

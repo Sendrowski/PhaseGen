@@ -88,7 +88,7 @@ def test_single_epoch_total_branch_length_matches_reward_transform(n):
     ref = _single_epoch_reference_cdf(dist, dist.reward)
 
     for x in [0.5, 1.0, 2.0, 4.0, 7.0]:
-        got = rd.cdf(x, method='dehoog')  # the exact per-point inversion is what is pinned against the reference
+        got = rd.cdf._cdf_point(x)  # the exact per-point inversion is what is pinned against the reference
         assert abs(got - ref(x)) < 1e-5, (n, x, got, ref(x))
 
 
@@ -102,7 +102,7 @@ def test_single_epoch_sfs_bin_matches_censored_reward_transform(i):
     ref = _single_epoch_reference_cdf(dist, reward)
 
     for x in [0.3, 0.8, 1.5, 3.0]:
-        got = rd.cdf(x, method='dehoog')
+        got = rd.cdf._cdf_point(x)
         assert abs(got - ref(x)) < 1e-5, (i, x, got, ref(x))
 
 
@@ -119,7 +119,7 @@ def test_single_epoch_density_matches_reward_transform(n):
         ref = _single_epoch_reference_pdf(dist, reward)
 
         for x in [0.4, 1.0, 2.0, 4.0]:
-            got = float(rd.pdf(x, method='dehoog'))
+            got = float(rd.pdf._pdf_point(x))
             assert abs(got - ref(x)) < 1e-5, (n, x, got, ref(x))
 
 
@@ -131,7 +131,7 @@ def test_multi_epoch_tree_height_matches_phasegen():
     rd = coal.tree_height.distribution()
 
     for x in [0.2, 0.7, 1.3, 2.0, 3.5]:  # deliberately not 0.4 / 1.0 (epoch boundaries)
-        got = rd.cdf(x, method='dehoog')
+        got = rd.cdf._cdf_point(x)
         assert abs(got - float(coal.tree_height.cdf(x))) < 1e-5, (x, got, float(coal.tree_height.cdf(x)))
 
 
@@ -200,10 +200,11 @@ def test_cos_matches_dehoog():
         # compare within the bulk: from above the immediate x=0 boundary (a localized cosine artifact for strongly
         # shifted bins) up to the 0.99 quantile (the COS window is matched to ~the 0.9995 quantile)
         xs = np.linspace(0.15 * rd.quantile(0.99), rd.quantile(0.99), 40)
-        peak = float(np.max(rd.pdf(xs, method='dehoog')))
-        np.testing.assert_allclose(rd.cdf(xs), rd.cdf(xs, method='dehoog'), atol=5e-3)
+        peak = float(np.max([rd.pdf._pdf_point(float(x)) for x in xs]))
+        np.testing.assert_allclose(rd.cdf(xs), [rd.cdf._cdf_point(float(x)) for x in xs], atol=5e-3)
         # the PDF is derived from CDF differences; allow a small boundary/atom error relative to the peak
-        np.testing.assert_allclose(rd.pdf(xs), rd.pdf(xs, method='dehoog'), atol=max(2e-2, 0.05 * peak))
+        np.testing.assert_allclose(rd.pdf(xs), [rd.pdf._pdf_point(float(x)) for x in xs],
+                               atol=max(2e-2, 0.05 * peak))
 
 
 def test_cos_curve_recovers_atom():
@@ -627,7 +628,7 @@ def test_conditional_support_window_covers_distribution(i, j, value):
 
     # the de Hoog spline curve matches the exact per-point de Hoog away from the atom
     x = 0.5 * b
-    assert float(c.cdf(x)) == pytest.approx(float(c.cdf(x, method='dehoog')), abs=5e-3)
+    assert float(c.cdf(x)) == pytest.approx(float(c.cdf._cdf_point(x)), abs=5e-3)
 
     # the high quantile is now accurate (curve reaches it / falls back correctly): F(q_0.99) ~ 0.99
     assert c.cdf(c.quantile(0.99)) == pytest.approx(0.99, abs=1e-2)
@@ -753,7 +754,7 @@ def test_empirical_sfs_distribution_functions_plot():
 
 
 def test_cos_inversion_imprecision_warning(caplog):
-    """The COS plotting inversion (cdf_curve with method='cos') warns (via the logger) when it is likely imprecise
+    """The cosine inversion warns (via the logger) when it is likely imprecise
     (ringing it cannot resolve / window too small), and stays silent on well-behaved curves."""
     import logging
 
@@ -812,24 +813,24 @@ def test_plot_exact_de_hoog_matches_per_point():
 
     x = np.linspace(0.1, d.quantile(0.9), 15)
     ax = d.cdf.plot(x=x, show=False, exact=True)
-    assert np.allclose(ax.lines[-1].get_ydata(), d.cdf(x, method='dehoog'), atol=1e-8)
+    assert np.allclose(ax.lines[-1].get_ydata(), [d.cdf._cdf_point(float(v)) for v in x], atol=1e-8)
     ax.figure.clf()
 
     ax = d.pdf.plot(x=x, show=False, exact=True)
-    assert np.allclose(ax.lines[-1].get_ydata(), d.pdf(x, method='dehoog'), atol=1e-8)
+    assert np.allclose(ax.lines[-1].get_ydata(), [d.pdf._pdf_point(float(v)) for v in x], atol=1e-8)
     ax.figure.clf()
 
 
 def test_cos_default_matches_per_point_dehoog():
     """The default inversion (cosine) matches the exact per-point de Hoog on a heavy-tailed bin that stresses it: the
     CDF is monotone and accurate, the density is non-negative, and the quantile inverts the same representation the
-    CDF is read from (so cdf and quantile are mutually consistent). ``method='dehoog'`` selects the exact route."""
+    CDF is read from (so cdf and quantile are mutually consistent)."""
     d = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(5)
     xs = np.linspace(0.1 * d.quantile(0.95), d.quantile(0.95), 60)
 
     F = d.cdf(xs)
     assert np.all(np.diff(F) >= -1e-9)                       # monotone CDF
-    assert np.abs(F - d.cdf(xs, method='dehoog')).max() < 2e-3
+    assert np.abs(F - [d.cdf._cdf_point(float(x)) for x in xs]).max() < 2e-3
     assert d.pdf(xs).min() >= -1e-9                          # non-negative density (CDF-derivative)
 
     assert float(d.cdf(float(d.quantile(0.5)))) == pytest.approx(0.5, abs=2e-3)
@@ -848,7 +849,7 @@ def test_cos_two_pass_window_monotone_and_plotting_accurate():
         x = np.linspace(0.1 * d.quantile(0.99), d.quantile(0.99), 300)
         F = d.cdf(x)
         assert np.all(np.diff(F) >= -1e-9)                     # CDF monotone
-        assert np.abs(F - d.cdf(x, method='dehoog')).max() < 1.5e-2
+        assert np.abs(F - [d.cdf._cdf_point(float(v)) for v in x]).max() < 1.5e-2
         assert d.pdf(x).min() >= -1e-9                         # PDF (from CDF differences) non-negative
 
 

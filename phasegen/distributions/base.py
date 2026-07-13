@@ -120,8 +120,8 @@ class DensityFunction(DistributionFunction):
     """Probability density function.
 
     - **Callable** ``pdf(x)``: the density at ``x`` (scalar or array). For an accumulated reward this is the
-      derivative of the cosine CDF; ``method='dehoog'`` gives the exact per-point Laplace inversion instead. The tree
-      height uses the exact matrix exponential, empirical samples a histogram.
+      derivative of the cosine CDF. The tree height uses the exact matrix exponential, empirical samples a
+      histogram.
     - **Plot** ``pdf.plot()``: the same, or the per-point inversion with ``exact=True``.
     """
     kind = 'pdf'
@@ -131,8 +131,7 @@ class CumulativeDistributionFunction(DistributionFunction):
     """Cumulative distribution function -- the probability of being at most ``x``.
 
     - **Callable** ``cdf(x)``: the probability at ``x`` (scalar or array). For an accumulated reward this is the
-      Fourier-cosine inversion; ``method='dehoog'`` gives the exact per-point Laplace inversion instead. The tree
-      height uses the exact matrix exponential, samples the empirical CDF.
+      Fourier-cosine inversion. The tree height uses the exact matrix exponential, samples the empirical CDF.
     - **Plot** ``cdf.plot()``: the same, or the per-point inversion with ``exact=True``.
     """
     kind = 'cdf'
@@ -143,8 +142,8 @@ class QuantileFunction(DistributionFunction):
 
     - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
       reward this inverts the same cosine CDF the :class:`CumulativeDistributionFunction` reads, so the two are
-      mutually consistent; in the far tail it falls back to a bisection on the exact per-point inversion, which
-      ``method='dehoog'`` selects throughout. Empirical data uses the sample quantile.
+      mutually consistent; above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` it falls back to a bisection
+      on the exact per-point inversion. Empirical data uses the sample quantile.
     - **Plot** ``quantile.plot()``: the same, or the per-point bisection with ``exact=True``.
     """
     kind = 'quantile'
@@ -160,24 +159,19 @@ class _LSTFunction:
     and scale *primitives* (``lst`` / ``_invert`` / ``_cumulants`` / ``_range`` / ``_time_scale`` / ``_titled`` /
     the inversion guards) from ``self._distribution`` and turns them into the cdf / pdf / quantile.
 
-    There are two representations, and the cdf / pdf / quantile all go through both:
+    One representation serves the cdf / pdf / quantile: the **two-pass Fourier-cosine grid**. A single fit answers a
+    whole array, and it is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang
+    off, see :meth:`CallableDistributionFunctions._function`), so all three read the same grid and are mutually
+    consistent by construction -- the pdf is its derivative and the quantile its inverse interpolation.
 
-    - the **two-pass Fourier-cosine grid** (``method='cos'``, the default): one fit answers a whole array, so it is
-      the vectorised route. Cached on the *distribution* (the single object the cdf / pdf / quantile of one
-      distribution hang off, see :meth:`CallableDistributionFunctions._function`), so all three reuse one fit.
-    - the **per-point de Hoog inversion** (``method='dehoog'``): one Laplace inversion per point, exact. It is the
-      reference the cosine grid is validated against, and the far tail of the quantile falls back to it.
+    The **per-point de Hoog inversion** (:meth:`_cdf_point` / :meth:`_pdf_point`) is exact but costs one Laplace
+    inversion per point. It is not a route the caller selects; it survives in exactly two places, where the cosine grid
+    demonstrably fails:
 
-    Cosine is the default because it is what the scenario suite can actually test at scale: against msprime the two
-    agree to within sampling noise except on kinked densities, where cosine's Gibbs ringing costs it (a 2-epoch rapid
-    decline: 2e-3 vs 3e-4 against the per-point reference), while costing 5-40x less.
+    - the **quantile tail** (above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`), because the cosine CDF
+      force-normalises to 1 at the end of its window and so loses the far tail outright;
+    - the ``exact=True`` **plots**, and the test suite's exactness pins.
     """
-    #: Above this quantile the cosine grid is not trusted, and the quantile falls back to the exact per-point de Hoog
-    #: bisection. The cosine CDF force-normalises to 1 at the window end, so the usual ``cdf(b) < q`` tail-fallback
-    #: test can never fire; and where the density is low a small CDF ripple is a large quantile error (``q = 0.999``
-    #: drifts 1.5-3%, against <=0.1% at ``q = 0.99``). ``None`` disables the fallback.
-    _cos_quantile_max: float = 0.99
-
     #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
     _cos_terms_rough: int = 128
     _cos_terms: int = 384
@@ -188,7 +182,7 @@ class _LSTFunction:
 
     def _cdf_point(self, t: float) -> float:
         """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the building block of both the exact
-        :meth:`_LSTCumulativeDistributionFunction.__call__` (``method='dehoog'``) and the far-tail quantile."""
+        the ``exact=True`` plots, the test suite's exactness pins, and the far-tail quantile."""
         if t < 0:
             return 0.0
         d = self._distribution
@@ -304,19 +298,15 @@ class _LSTFunction:
 class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):
     """The CDF of a 1D accumulated-reward distribution, on top of the shared :class:`_LSTFunction` machinery."""
 
-    def __call__(self, t, method: str = 'cos') -> 'np.ndarray | float':
+    def __call__(self, t) -> 'np.ndarray | float':
         """
-        CDF ``P(R <= t)``, for a scalar or an array of ``t``. ``method='cos'`` (default) reads the cached cosine grid,
-        so a whole array costs one fit; ``method='dehoog'`` inverts per point (exact, one Laplace inversion each).
+        CDF ``P(R <= t)``, for a scalar or an array of ``t``, read off the cached cosine grid, so a whole array costs
+        one fit.
 
         :param t: Point(s) at which to evaluate the CDF.
-        :param method: Inversion route, ``'cos'`` or ``'dehoog'``.
         :return: The CDF at ``t``, of the same shape.
         """
-        if method == 'cos':
-            out = self._cos_cdf(t)
-        else:
-            out = np.array([self._cdf_point(float(x)) for x in np.atleast_1d(np.asarray(t, dtype=float))])
+        out = self._cos_cdf(t)
         return out if np.ndim(t) > 0 else float(out[0])
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
@@ -333,7 +323,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
         else:
             if x is None:
                 x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = self(x, method='dehoog') if exact else self(x)
+            y = np.array([self._cdf_point(float(v)) for v in x]) if exact else self(x)
         ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
                                 show=show, clear=clear, title=title or d._titled('CDF'), **kwargs)
         ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
@@ -343,24 +333,19 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
     """The density of a 1D accumulated-reward distribution."""
 
-    def __call__(self, t, method: str = 'cos', **kwargs) -> 'np.ndarray | float':
+    def __call__(self, t, **kwargs) -> 'np.ndarray | float':
         """
-        Density, for a scalar or an array of ``t``. ``method='cos'`` (default) differentiates the cached cosine CDF,
-        which keeps the density consistent with it and free of the raw cosine sum's Gibbs negativity;
-        ``method='dehoog'`` inverts per point (exact).
+        Density, for a scalar or an array of ``t``, by differentiating the cached cosine CDF -- which keeps the density
+        consistent with it and free of the raw cosine sum's Gibbs negativity.
 
         :param t: Point(s) at which to evaluate the density.
-        :param method: Inversion route, ``'cos'`` or ``'dehoog'``.
         :return: The density at ``t``, of the same shape.
         """
         d = self._distribution
         ta = np.atleast_1d(np.asarray(t, dtype=float))
-        if method == 'cos':
-            xs, cdf = self._cos_cdf_grid
-            out = np.interp(ta, xs, np.gradient(cdf, xs))
-            out = d._warn_if_negative(out, d._titled('density (cosine)'))
-        else:
-            out = np.array([self._pdf_point(float(x)) for x in ta])
+        xs, cdf = self._cos_cdf_grid
+        out = np.interp(ta, xs, np.gradient(cdf, xs))
+        out = d._warn_if_negative(out, d._titled('density (cosine)'))
         return out if np.ndim(t) > 0 else float(out[0])
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
@@ -376,7 +361,7 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
         else:
             if x is None:
                 x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = self(x, method='dehoog') if exact else self(x)
+            y = np.array([self._pdf_point(float(v)) for v in x]) if exact else self(x)
         return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
                                   show=show, clear=clear, title=title or d._titled('PDF'), **kwargs)
 
@@ -385,26 +370,25 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
     """The quantile function of a 1D accumulated-reward distribution: inverse interpolation of the cosine CDF grid,
     with a per-point de Hoog bisection for the far tail."""
 
-    def __call__(self, q, precision: float = 1e-8, max_iter: int = 200, method: str = 'cos') -> 'np.ndarray | float':
+    def __call__(self, q, precision: float = 1e-8, max_iter: int = 200) -> 'np.ndarray | float':
         """
-        The ``q``-quantile ``inf{x : F(x) >= q}``, for a scalar or an array of ``q``. ``method='cos'`` (default)
-        inverts the cached monotone cosine CDF grid by interpolation, so a whole array is one vectorised pass;
-        ``method='dehoog'`` bisects on the per-point inversion (a full Laplace inversion per step).
+        The ``q``-quantile ``inf{x : F(x) >= q}``, for a scalar or an array of ``q``.
 
-        Beyond :attr:`_cos_quantile_max` the cosine grid is not trusted and the de Hoog bisection takes over: the
-        cosine CDF force-normalises to 1 at the window end, and where the density is low a small CDF ripple is a large
-        quantile error. At or below the atom mass ``P(R = 0)`` the quantile is exactly 0.
+        The cosine CDF grid is monotone, so up to :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` the quantile
+        is its inverse *interpolation* -- a whole array in one vectorised pass, and exactly consistent with
+        :class:`_LSTCumulativeDistributionFunction`. Above that quantile the grid is not trusted (it force-normalises
+        to 1 at the end of its window, losing the far tail) and the exact per-point de Hoog bisection takes over. At or
+        below the atom mass ``P(R = 0)`` the quantile is exactly 0.
 
         Just *above* a large atom the cosine quantile is accurate in absolute terms but loses relative precision,
         because the quantile is itself near zero there: for a bin empty with probability 0.44, ``q = 0.5`` lands at
         0.041 against the exact 0.036 (16% relative, but 0.006 absolute against a 0.95-quantile of 13.3). This is the
         cosine series' Gibbs artifact at the jump, and it decays away from the atom (4% at ``q = 0.6``, 0.04% at
-        ``q = 0.95``). Use ``method='dehoog'`` where a small quantile's relative precision matters.
+        ``q = 0.95``).
 
         :param q: Probability level(s) in ``[0, 1]``.
         :param precision: Absolute convergence tolerance of the de Hoog bisection.
         :param max_iter: Maximum bisection / bracketing iterations.
-        :param method: Inversion route, ``'cos'`` or ``'dehoog'``.
         :return: The quantile(s), of the same shape as ``q``.
         :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
         """
@@ -412,13 +396,11 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
-        if method == 'cos':
-            xs, cdf = self._cos_cdf_grid
-            out = np.interp(qa, cdf, xs)  # the grid is monotone, so the inverse is an interpolation
-            tail = qa > self._cos_quantile_max if self._cos_quantile_max is not None else np.zeros_like(qa, bool)
-        else:
-            out, tail = np.zeros_like(qa), np.ones_like(qa, dtype=bool)
+        xs, cdf = self._cos_cdf_grid
+        out = np.interp(qa, cdf, xs)  # the grid is monotone, so the inverse is an interpolation
 
+        cut = Settings.dehoog_tail_quantile
+        tail = qa > cut if cut is not None else np.zeros_like(qa, bool)
         for i in np.flatnonzero(tail):
             out[i] = self._quantile_dehoog(float(qa[i]), precision, max_iter)
 
@@ -467,7 +449,7 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         qe = Settings.plot_endpoint_quantile
         if q is None:
             q = np.linspace(1.0 - qe, qe, n_points or Settings.plot_n_grid)
-        y = self(q, method='dehoog') if exact else self(q)
+        y = np.array([self._quantile_dehoog(float(v)) for v in q]) if exact else self(q)
         return Visualization.plot(ax=ax, x=q, y=y, xlabel='q', ylabel='quantile', label=label, file=file, show=show,
                                   clear=clear, title=title or d._titled('quantile function'), **kwargs)
 
@@ -666,7 +648,7 @@ class ConditionalDensity(_LSTDensityFunction):
     """Density of one reward conditional on another being held at a value (e.g. one bin's length given another's).
 
     The conditional transform is itself a *nested* inversion (an inner inversion along the conditioned axis, then the
-    outer one), so a single de Hoog node costs an entire inner inversion and ``method='dehoog'`` is ~1e4x dearer here
+    outer one), so a single de Hoog node costs an entire inner inversion and the per-point route is ~1e4x dearer here
     than for a marginal (293 s against a shared cosine grid on a 3-epoch bottleneck) while agreeing with it to 2e-4.
     """
 

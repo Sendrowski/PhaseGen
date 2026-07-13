@@ -284,9 +284,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             else:
                 xk = x
                 if kind == 'cdf':
-                    y = d.cdf(x, method='dehoog') if exact else d.cdf(x)
+                    y = np.array([d.cdf._cdf_point(float(v)) for v in x]) if exact else d.cdf(x)
                 elif kind == 'pdf':
-                    y = d.pdf(x, method='dehoog') if exact else d.pdf(x)
+                    y = np.array([d.pdf._pdf_point(float(v)) for v in x]) if exact else d.pdf(x)
                 elif exact:
                     # quantile function via the per-point de Hoog bisection
                     y = np.array([d.quantile(float(p)) for p in x])
