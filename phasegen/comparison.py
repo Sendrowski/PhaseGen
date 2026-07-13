@@ -498,7 +498,7 @@ class Comparison(Serializable):
             nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
             y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
                              else np.asarray(getattr(ph.bin(b), curve)(t, method=method), dtype=float)
-                             for b in range(nb)])
+                             for b in range(nb)])  # ``mode`` is not None here, so ``method`` is set
         elif mode is not None and hasattr(ph, '_reward_distribution') \
                 and hasattr(getattr(ph._reward_distribution, curve), 'curve'):
             # a moded scalar reward distribution (e.g. total_branch_length) uses its mode-dependent curve
@@ -516,17 +516,20 @@ class Comparison(Serializable):
                 y_ms = y_ms.T
             y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
 
-        # Metric: the CDF (bounded in [0,1]) uses the worst *absolute* difference (its first two points -- the
-        # near-zero head / per-bin atom at 0 -- are discarded, where the difference is unstable); the pdf the
-        # total-variation distance between the densities (:meth:`_pdf_diff`); the quantile the relative Wasserstein-1
-        # distance (:meth:`_quantile_diff`, atom-robust without dropping points).
+        # Metric: the CDF (bounded in [0,1]) uses the worst *absolute* difference over the *whole* grid, including
+        # the point at 0 -- so the atom ``P(R = 0)`` of an SFS bin is asserted rather than skipped. It is well defined
+        # on both sides (analytically ``phi(inf)``, empirically the fraction of zero replicates) and the cosine
+        # inversion splits it off instead of trying to resolve the jump, so keeping it costs nothing: across the
+        # scenarios the worst CDF difference is unchanged for a scalar reward and rises at most 0.0008 -> 0.0011 for
+        # a bin. The pdf still drops the head: an empirical density *at* an atom is a delta spike, so a density
+        # comparison there is ill-posed, not merely noisy. The quantile uses the relative Wasserstein-1 distance
+        # (:meth:`_quantile_diff`, atom-robust without dropping points).
         if stat == 'pdf':
             ms_p = y_ms[:, 2:] if per_bin else y_ms
             ph_p = y_ph[:, 2:] if per_bin else y_ph
             diff = self._pdf_diff(ms_p, ph_p, t[2:] if per_bin else t)
         elif stat == 'cdf':
-            d = (y_ms - y_ph)[:, 2:] if per_bin else (y_ms - y_ph)[2:]
-            diff = float(np.abs(d).max())
+            diff = float(np.abs(y_ms - y_ph).max())
         else:  # quantile
             diff = self._quantile_diff(y_ms, y_ph, t)
 
@@ -821,7 +824,7 @@ class Comparison(Serializable):
         scalar ``mean`` / ``var`` of bin ``i``, and its 1D ``pdf`` / ``cdf`` / ``quantile`` (bin ``i``'s reward
         distribution vs the cached empirical per-bin curves). The per-statistic metric matches the spectrum-wide
         comparison: the CDF uses the worst absolute difference, the pdf the mean absolute difference, and the
-        quantile / mean / var a relative difference (the near-zero head is dropped for the curves, as elsewhere).
+        quantile / mean / var a relative difference (the pdf drops the near-zero head; the CDF keeps the atom).
         A ``de_hoog`` / ``cosine`` key under the bin routes its sub-stats through that inversion (``mode``).
         """
         for stat, tol in tols.items():
@@ -848,14 +851,14 @@ class Comparison(Serializable):
                     y_ms_all = y_ms_all.T
                 y_ms = y_ms_all[i]
                 d = ph.bin(i)  # only this bin's distribution (the spectrum-wide quantile would compute every bin)
-                method = self._curve_method(mode)  # de_hoog/None -> 'dehoog', cosine -> 'cos' (passed per call)
+                method = self._curve_method(mode)  # cosine -> 'cos', de_hoog -> 'dehoog', None -> the dist's default
+                kw = {} if method is None else dict(method=method)
                 if stat == 'quantile':
-                    y_ph = np.array([float(d.quantile(float(q), method=method)) for q in t])
+                    y_ph = np.asarray(d.quantile(t, **kw), dtype=float)
                     diff = self._quantile_diff(y_ms, y_ph, t)
                 else:
-                    y_ph = np.asarray(d.cdf(t, method=method) if stat == 'cdf'
-                                      else d.pdf(t, method=method), dtype=float)
-                    diff = (float(np.abs(y_ms - y_ph)[2:].max()) if stat == 'cdf'
+                    y_ph = np.asarray(d.cdf(t, **kw) if stat == 'cdf' else d.pdf(t, **kw), dtype=float)
+                    diff = (float(np.abs(y_ms - y_ph).max()) if stat == 'cdf'
                             else self._pdf_diff(y_ms[2:], y_ph[2:], t[2:]))
 
             else:
