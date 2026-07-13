@@ -96,14 +96,6 @@ class Settings:
     #: per-axis resolution for performance.
     plot_n_grid: int = 200
 
-    #: Relative tolerance for building the accurate de Hoog + monotone-spline curve representation (the default
-    #: ``cdf_curve`` / ``pdf_curve`` and the quantile-by-bisection on it). The adaptive build refines until the
-    #: spline matches the de Hoog inversion to about this fraction of the range, then every query is a cheap spline
-    #: evaluation. Tighter -> more accurate (and more de Hoog solves in the one-time build); the default ~1e-3 gives a
-    #: CDF / quantile accuracy of a few 1e-5. Distinct from :attr:`plot_adaptive_tol`, which only sets the (coarser)
-    #: visual grid of the per-point ``exact=True`` plots.
-    inversion_tol: float = 1e-3
-
     #: Relative tolerance for the adaptive plot grid used by the exact (de Hoog) ``cdf()`` / ``pdf()`` plots. The grid
     #: starts coarse and bisects any interval whose midpoint deviates from the chord by more than this fraction of the
     #: curve's range, concentrating the expensive de Hoog evaluations where the curve bends (e.g. the near-zero atom
