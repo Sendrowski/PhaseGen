@@ -17,7 +17,7 @@
             "sfs": {
                 "conditional": {
                     "[(1, 2)]": {
-                        "moments": 0.003
+                        "moments": 0.019
                     }
                 }
             },
