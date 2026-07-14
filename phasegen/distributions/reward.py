@@ -171,15 +171,27 @@ class RewardDistribution(CallableDistributionFunctions):
         linear in it; accuracy is non-monotonic, peaking near 15). (Parallelising the independent node solves across
         threads was tried and did not pay off -- the per-node matrix assembly holds the GIL, so the solves do not
         parallelise; whole-curve speed comes from the Fourier-cosine plotting path instead.)
+
+        The inversion runs in **tau-scaled time**, which makes it scale-invariant. For any transform ``G`` with
+        inverse ``g`` (a density or a CDF alike),
+
+            g(t) = (1 / tau) * L^-1[ sigma -> G(sigma / tau) ](t / tau),
+
+        so the contour nodes and the inverted value both stay O(1) however large the demography's rewards are.
+        Inverting at the raw ``t`` instead lets de Hoog's accuracy drift with the units: on a large-N demography
+        (rewards ~1e7) it put the *reference* conditional mean 16% off at the 0.75 conditioning quantile, while the
+        same demography rescaled to N ~ 1e-6 -- the identical model in different units -- was accurate to 1%.
         """
         if t <= 0:
             return 0.0
 
+        tau = self._time_scale
+
         def F(s) -> 'mp.mpc':
-            val = transform(complex(s))
+            val = transform(complex(s) / tau)
             return mp.mpc(val.real, val.imag)
 
-        return float(mp.invertlaplace(F, t, method='dehoog', degree=Settings.dehoog_degree))
+        return float(mp.invertlaplace(F, t / tau, method='dehoog', degree=Settings.dehoog_degree)) / tau
 
     def _titled(self, base: str) -> str:
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
@@ -484,8 +496,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
         st = self._setup
         tau = st['tau']
         r_on, r_other = (st['ra'], st['rb']) if on == 'a' else (st['rb'], st['ra'])
-        return _lst_taylor_from_shift((s * tau) * r_on, tau * r_other, st['alpha'], st['T_epochs'], st['sparse'],
-                                      st['lu_perm'], order)
+
+        # differentiate in the *tau-scaled* free argument and put the tau^j back afterwards, which is exact (it is a
+        # constant factor per order). Differentiating in the unscaled one instead puts blocks of magnitude 1, tau and
+        # tau^2 into the same augmented matrix -- 1, 1e7 and 1e14 on a large-N demography -- and ``expm``'s
+        # scaling-and-squaring, driven by the largest of them, then costs the O(1) block its precision
+        coeffs = _lst_taylor_from_shift((s * tau) * r_on, r_other, st['alpha'], st['T_epochs'], st['sparse'],
+                                        st['lu_perm'], order)
+        return [c * tau ** j for j, c in enumerate(coeffs)]
 
     def lst_batch(self, s_a, s_b) -> np.ndarray:
         """The joint LST over a *vector* of nodes in one argument (the other held scalar), evaluated as one batch.
@@ -972,7 +990,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
             return cache[s]
 
         f_on = marg._invert(lambda s: taylor(s)[0], value)
-        if f_on <= 1e-12 * max(abs(float(marg.mean)), 1e-12):
+
+        # a density has units of 1 / reward, so the floor below which the inversion cannot resolve it scales like
+        # 1 / E[R_on], NOT like E[R_on]: a large-N demography carries rewards of ~1e7 and so healthy densities of
+        # ~1e-7, every one of which a floor proportional to the mean would reject as unresolvable (it rejected every
+        # conditioning point of every large-N scenario, leaving those checks asserting nothing at all)
+        if not f_on > 1e-12 / max(abs(float(marg.mean)), 1e-300):
             raise ValueError(
                 f"The marginal density at R_{on} = {value:g} inverts to {f_on:.3g}, so the conditional moments there "
                 f"cannot be normalised. The density is below the float64 resolution of the inversion, not necessarily "
@@ -1058,7 +1081,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
             floor = self._COND_CHECK_FLOOR * abs(float(self.marginal(other).mean))
 
-            errs, n_refused = [], 0
+            errs, refused = [], []
             kept, exacts, nesteds, conds = [], [], [], []
             for u in us:
                 v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
@@ -1067,7 +1090,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                     cond = self.conditional(on, v)
                     got = float(cond.mean)
                 except ValueError:
-                    n_refused += 1
+                    refused.append(float(u))
                     continue
                 errs.append(abs(got - exact) / max(abs(exact), floor, 1e-12))
                 kept.append(float(u))
@@ -1083,18 +1106,38 @@ class JointRewardDistribution(CallableDistributionFunctions):
                     (kept[i], conds[i][0], *self._density_curve(conds[i][1])) for i in idx
                 ]
 
-            if not errs:
-                continue
-            rel = float(np.max(errs))
-            out[on] = rel
-            if Settings.check_inversions and (rel > tol or n_refused):
-                refused = f", and {n_refused}/{n_points} conditionals could not be built" if n_refused else ""
-                self._logger.warning(
-                    f"conditional mean disagrees with the exact derivative identity conditioning on R_{on}: worst "
-                    f"relative error {rel:.2%} over {len(errs)} points > {tol:.2%}{refused}; the conditional "
-                    f"inversion may be imprecise here"
-                )
+            out[on] = self._verdict(on, errs, refused, tol, 'conditional mean', 'the exact derivative identity')
         return out
+
+    def _verdict(self, on: str, errs: list, refused: list, tol: float, what: str, against: str) -> float:
+        """
+        The worst error of one conditioning axis, treating a conditioning point that could **not** be built as a
+        failure (``inf``) rather than dropping it.
+
+        A check must not thin its own question set: silently skipping the points that refuse, and reporting the worst
+        of whatever survived, means a check that resolved *nothing* reports a perfect score (``max`` of an empty set),
+        which is exactly what every large-N scenario did. Where a demography genuinely cannot resolve a conditioning
+        value, the config has to say so by narrowing ``quantiles`` -- visibly, in the config.
+        """
+        if refused:
+            if Settings.check_inversions:
+                self._logger.warning(
+                    f"{len(refused)}/{len(errs) + len(refused)} conditionals on R_{on} could not be built (at the "
+                    f"conditioning quantiles {[f'{u:.2f}' for u in refused]}), so {what} cannot be checked there; "
+                    f"narrow the checked quantiles if this demography truly cannot resolve them"
+                )
+            return float('inf')
+
+        if not errs:
+            return float('inf')
+
+        rel = float(np.max(errs))
+        if Settings.check_inversions and rel > tol:
+            self._logger.warning(
+                f"{what} disagrees with {against} conditioning on R_{on}: worst relative error {rel:.2%} over "
+                f"{len(errs)} points > {tol:.2%}; the conditional may be imprecise here"
+            )
+        return rel
 
     def check_conditional_grid_moments(self, n_points: int = 3, tol: float = 0.02, k: int = 2,
                                        quantiles: 'Sequence[float]' = None) -> dict:
@@ -1143,31 +1186,22 @@ class JointRewardDistribution(CallableDistributionFunctions):
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
             floors = [self._COND_CHECK_FLOOR * abs(m) for m in self._uncond_raw_moments(other, k)]
 
-            errs, kept, n_refused = [], [], 0
+            errs, kept, refused = [], [], []
             for u in us:
                 v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
                 try:
                     exact = self.conditional_raw_moments(on, v, k=k)
                     got = self._grid_raw_moments(self.conditional(on, v), k=k)
                 except ValueError:
-                    n_refused += 1
+                    refused.append(float(u))
                     continue
                 errs.append([abs(g - e) / max(abs(e), f, 1e-12) for g, e, f in zip(got, exact, floors)])
                 kept.append(float(u))
 
             self.conditional_grid_moment_errors[on] = (np.array(kept), np.arange(1, k + 1),
                                                        np.array(errs).reshape(len(kept), k))
-            if not errs:
-                continue
-            rel = float(np.max(errs))
-            out[on] = rel
-            if Settings.check_inversions and (rel > tol or n_refused):
-                refused = f", and {n_refused}/{len(us)} conditionals could not be built" if n_refused else ""
-                self._logger.warning(
-                    f"the conditional's CDF grid disagrees with the exact raw moments conditioning on R_{on}: worst "
-                    f"relative error {rel:.2%} over {len(errs)} points and orders 1..{k} > {tol:.2%}{refused}; the "
-                    f"cosine grid may be imprecise here"
-                )
+            flat = [e for row in errs for e in row]
+            out[on] = self._verdict(on, flat, refused, tol, "the conditional's CDF grid", 'the exact raw moments')
         return out
 
     def _uncond_raw_moments(self, which: str, k: int) -> list:
@@ -1181,12 +1215,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _grid_raw_moments(cond: RewardDistribution, k: int = 2, n: int = 4001) -> list:
         """
         The raw moments ``E[R^j]``, ``j = 1..k``, of a conditional **as its CDF grid represents it**: from the
-        survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy`` over the grid's own support end ``b``.
+        survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy``.
+
+        The window ``b`` is the **cosine fit's own**, not ``_range``: the fit force-normalises to 1 there, so the
+        survival is zero beyond it by construction and a wider window adds nothing but wasted resolution. On a small-N
+        demography the two differ by ten orders of magnitude (``_range`` returns 1e5 where the conditional's mean is
+        1e-5), which leaves every quadrature node past the support and makes the integral meaningless.
 
         Simpson on a uniform grid: the integrand ``j y^(j-1) (1 - F(y))`` is smooth and bounded (the atom at 0 sits in
         ``F(0)``, not in the integrand), unlike the density, which spikes at the origin.
         """
-        b = cond._range(scale=12.0)
+        b = float(cond.cdf._cos_coeffs['b'])
         ys = np.linspace(0.0, b, n)
         surv = 1.0 - np.asarray(cond.cdf(ys), float)
         return [float(simpson(j * ys ** (j - 1) * surv, x=ys)) for j in range(1, k + 1)]
@@ -1225,15 +1264,29 @@ class _Conditional(RewardDistribution):
         return cache[scale]
 
     def _range_via_cdf(self, scale: float = 12.0, n_iter: int = 80) -> float:
-        """Double ``b`` from a robust seed until the exact CDF ``cdf(b)`` exceeds a generous target probability (more
-        generous for larger ``scale``, matching the cumulant-based ``mean + scale*std`` it replaces). The mean
-        (first-difference ``_cumulants()[0]``) is reliable and used only as the seed; the variance is not."""
+        """Grow ``b`` from a seed until the exact CDF ``cdf(b)`` exceeds a generous target probability (more generous
+        for larger ``scale``, matching the cumulant-based ``mean + scale*std`` it replaces). The mean (first-difference
+        ``_cumulants()[0]``) is reliable and used as the seed; the variance is not.
+
+        The bracket only ever grows, so an over-large seed is never walked back: it has to start *below* the support,
+        not above it. Seeding it at ``1 / time_scale`` (as this once did) is fine for a large-N demography, where that
+        is negligible against the mean, and catastrophic for a small one -- at ``N = 1e-5`` it seeds at ``1e5`` for a
+        conditional whose mass lies below ``1e-4``, the exact CDF is already 1 there, and the support comes out ten
+        million times too wide, leaving the cosine fit unable to resolve the distribution at all."""
         target = min(1.0 - float(np.exp(-scale)), 1.0 - 1e-6)  # scale=12 -> ~1-1e-6 (full support); scale=4 -> ~0.98
         # the per-point de Hoog inversion, NOT the ``self.cdf`` function object: a conditional's ``cdf`` answers from
         # the COS grid (the default), whose fit needs this very support window -- going through it recurses
         cdf_point = self.cdf._cdf_point
-        c1 = float(self._cumulants()[0])
-        b = max(c1, 1.0 / self._time_scale, 1e-3)
+
+        # the conditional's own mean, falling back to the *unconditional* mean of the same reward (exact, from the
+        # moment engine) when the conditional is essentially the atom at 0 and its mean vanishes
+        b = float(self._cumulants()[0])
+        if not b > 0:
+            other = 'b' if self._on == 'a' else 'a'
+            b = abs(float(self._joint.marginal(other).mean))
+        if not b > 0:
+            return 1e-3
+
         for _ in range(n_iter):
             if float(cdf_point(b)) >= target:
                 break
