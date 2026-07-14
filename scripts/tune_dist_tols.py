@@ -1,12 +1,19 @@
 """
-Tighten the comparison tolerances of one or more scenario configs to ~1.5x their observed diffs, by running the
-comparison against the (already regenerated) fixture and rewriting each tolerance leaf. The fixtures are fixed and
-phasegen is deterministic, so the observed diff is reproducible -- 1.5x gives modest headroom for library drift.
+Retune the comparison tolerances of one or more scenario configs, by running the comparison against the (already
+regenerated) fixture and rewriting each tolerance leaf to
 
-    python scripts/tune_dist_tols.py [--allow-loosen] <config_name> [<config_name> ...]
+    max( 1.5x observed diff,  SIGMA_FLOOR x the msprime reference's own standard error )
 
-Each leaf is clamped to ``min(current, 1.5x observed)``, so re-tuning against a regenerated fixture cannot walk a
-bound outward. ``--allow-loosen`` lifts the clamp.
+    python scripts/tune_dist_tols.py [--allow-loosen] [--only=kind,kind] <config_name> [<config_name> ...]
+
+phasegen is deterministic and the fixture is fixed, so the observed diff is reproducible and 1.5x gives modest
+headroom for library drift. But the *reference* is a finite sample, and a tolerance below its sampling error is not a
+bound at all -- it records that one random draw happened to land close. Regenerate the fixture and the same
+distribution yields a different realisation, which then fails for no reason. Hence the floor (see :func:`noise_floor`).
+
+Each leaf is otherwise clamped to ``min(current, 1.5x observed)``, so a re-tune cannot walk a bound outward;
+``--allow-loosen`` lifts that clamp (needed when a comparison's *metric* changed, not just its value). The floor
+applies either way, and is the one thing that may raise a bound in tighten-only mode.
 
 Leaves with no matching observed diff are left untouched. Run AFTER regenerating the fixture(s)."""
 import ast
@@ -15,6 +22,8 @@ import math
 import re
 import sys
 import warnings
+
+import numpy as np
 
 warnings.filterwarnings('ignore')
 from ruamel.yaml import YAML
@@ -36,7 +45,7 @@ yaml.representer.add_representer(
                                                           flow_style=True))
 
 KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm3', 'm4',
-         'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs'}
+         'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs', 'mass'}
 MODES = {'cosine', 'de_hoog'}
 
 
@@ -47,6 +56,108 @@ def nudge(d: float) -> float:
     e = math.floor(math.log10(t))
     f = 10 ** (e - 1)
     return round(math.ceil(t / f) * f, 6)
+
+
+#: Standard errors of the reference that a tolerance must clear, as a multiple. A tolerance below the noise of the very
+#: sample it is compared against is not a bound at all: it records that one random draw happened to land close, and the
+#: next regeneration of the fixture -- a different realisation of the *same* distribution -- breaks it for no reason.
+#:
+#: 4 sigma, because a scenario asserts dozens of statistics and the suite must not flake: the worst of that many draws
+#: sits well beyond 2 sigma even when everything is correct.
+SIGMA_FLOOR = 4.0
+
+
+def noise_floor(comp, path: list) -> float:
+    """The reference's own sampling error for one tolerance leaf, expressed on the scale its comparison metric is
+    measured on. A tolerance is never set below :attr:`SIGMA_FLOOR` times this.
+
+    The moment statistics read the standard errors the reference cached before dropping its samples
+    (:meth:`~phasegen.distributions.empirical.EmpiricalDistribution.cache_standard_errors`) and divide by the value, as
+    the metric itself does (``rel_diff`` is the worst *relative* difference over the bins, so the worst *relative*
+    standard error over the bins is the matching scale). The remaining metrics get an analytic scale: a CDF is compared
+    absolutely, and its binomial standard error peaks at ``0.5 / sqrt(n)``.
+
+    The pdf (total variation) and quantile (Wasserstein) metrics integrate over the whole grid, so their noise is
+    concentrated -- unlike a signed moment difference, an observed value cannot land far below it by luck -- and 1.5x
+    the observed diff is already a reproducible bound. They take the generic ``1 / sqrt(n)`` scale.
+
+    :param comp: The comparison, carrying the cached ground truth.
+    :param path: The tolerance leaf's YAML key path, whose head selects the reference: an ``empirical`` block is
+        compared against phasegen's own sampler (with its own, much smaller, replicate count), everything else against
+        msprime.
+    :return: The reference's standard error on the metric's own scale, or 0 if it cannot be determined.
+    """
+    operand = comp.empirical if path[0] == 'empirical' else comp.ms
+    path = path[1:] if path[0] == 'empirical' else path
+
+    ref = getattr(operand, path[0], None)
+    if ref is None:
+        return 0.0
+
+    if 'atom' in path:
+        return atom_noise_floor(ref, path)
+
+    n = getattr(ref, 'n_samples', None)
+    if not n:
+        return 0.0
+    root = np.sqrt(float(n))
+
+    kind, factor = path[-1], 1.0
+    if kind == 'std':
+        kind, factor = 'var', 0.5  # SE[std] / std is half the relative error of the variance
+
+    errors = getattr(ref, 'standard_errors', None) or {}
+    if kind in errors:
+        value = np.abs(np.asarray(getattr(ref, kind), dtype=float))
+        # the same denominator the metric uses; a vanishing entry (an off-diagonal covariance) is left out rather than
+        # dividing by zero -- the metric blows up there too, and such a leaf is tuned from its observed diff alone
+        rel = np.divide(np.asarray(errors[kind], dtype=float), value, out=np.zeros_like(value), where=value > 0)
+        return factor * float(np.max(rel[np.isfinite(rel)], initial=0.0))
+
+    if kind == 'cdf':
+        return 0.5 / root
+
+    return 1.0 / root
+
+
+def atom_noise_floor(ref, path: list) -> float:
+    """The noise floor of an atom-conditional leaf. Its reference is not the full sample but the sub-sample on which
+    the conditioning reward vanishes, ``{R_on = 0}``, which is smaller by the atom's mass and correspondingly noisier;
+    an atom on a rare bin can leave a few thousand replicates out of a million. The leaf covers both conditioning axes,
+    so the worst of the two applies.
+
+    The atom mass is a proportion of the *full* sample, and is compared absolutely, so its error is binomial.
+
+    :param ref: The reference distribution, carrying the cached atom-conditional ground truth.
+    :param path: The tolerance leaf's key path (below any ``empirical`` head).
+    :return: The reference's standard error on the metric's own scale, or 0 if it cannot be determined.
+    """
+    pairs = next((_collection(p) for p in path if _collection(p) is not None), None) or []
+    kind = path[-1]
+
+    floors = [0.0]
+    for i, j, on, mass, dist in getattr(ref, '_atom_conditional', []):
+        if (i, j) not in pairs:
+            continue
+
+        if kind == 'mass':
+            floors.append(float(np.sqrt(max(mass, 0.0) * (1.0 - mass) / ref.n_samples)))
+            continue
+
+        # an axis whose reward never vanishes has no atom and no conditional sample, and asserts only a zero mass
+        if dist is None or not dist.n_samples:
+            continue
+
+        errors = getattr(dist, 'standard_errors', None) or {}
+        if kind in errors:
+            value = abs(float(np.asarray(getattr(dist, kind), dtype=float)))
+            floors.append(float(errors[kind]) / value if value > 0 else 0.0)
+        elif kind == 'cdf':
+            floors.append(0.5 / np.sqrt(dist.n_samples))
+        else:
+            floors.append(1.0 / np.sqrt(dist.n_samples))
+
+    return max(floors)
 
 
 def observed(name: str) -> dict:
@@ -101,6 +212,11 @@ def title_for(path: list) -> list:
     mode = next((p for p in path if p in MODES), None)
     coll = next((_collection(p) for p in path if _collection(p) is not None), None)
 
+    if 'atom' in path:
+        # ``<dist>: conditional: (i, j): atom: <kind>`` is logged once per conditioning axis, both sharing the leaf
+        return [f"{path[0]}: conditional ({p[0]}, {p[1]}) atom on {axis}: {kind}"
+                for p in (coll or []) for axis in ('a', 'b')]
+
     if 'pairwise' in path:
         i = path.index('pairwise')
         stat = ': '.join(path[:i])
@@ -123,14 +239,20 @@ def title_for(path: list) -> list:
 
 
 def retune(name: str, tighten_only: bool = True, only: set = None) -> int:
-    """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff), clamped to
-    ``min(current, nudge(observed))`` unless ``tighten_only`` is off: the 1.5x rule re-derives a leaf from whatever
-    the current fixture yields, so without the clamp a re-tune after a fixture regeneration loosens every bound whose
-    fresh observation is a little worse.
+    """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff), but never below the
+    reference's own sampling error (:attr:`SIGMA_FLOOR` times :func:`noise_floor`), and clamped to
+    ``min(current, ...)`` unless ``tighten_only`` is off: the 1.5x rule re-derives a leaf from whatever the current
+    fixture yields, so without the clamp a re-tune after a fixture regeneration loosens every bound whose fresh
+    observation is a little worse.
+
+    The floor is what makes a tolerance a *bound* rather than a record of one lucky draw. 1.5x an observed diff that
+    happens to land far below the sampling noise is not reproducible: regenerate the fixture and the same distribution
+    yields a different realisation, which then fails.
 
     With ``only`` (a set of statistic kinds) only those kinds are retuned, leaving every other leaf untouched -- used
     to retune a single metric (e.g. after changing the difference metric for ``mutation_configs``)."""
     obs = observed(name)
+    comp = Comparison.from_file(f"results/comparisons/serialized/{name}.json")
     p = f"resources/configs/{name}.yaml"
     with open(p) as f:
         orig = f.read()
@@ -151,6 +273,8 @@ def retune(name: str, tighten_only: bool = True, only: set = None) -> int:
                     new = nudge(max(matched))  # one leaf can cover several titles (bin/pair list) -> worst observed
                     if tighten_only and isinstance(v, (int, float)):
                         new = min(float(v), new)
+                    # never tighter than the noise of the sample being compared against, however lucky this draw was
+                    new = max(new, nudge(SIGMA_FLOOR * noise_floor(comp, kp) / 1.5))
                     if new != v:
                         node[k] = new
                         changed[0] += 1

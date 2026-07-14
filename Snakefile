@@ -70,6 +70,23 @@ rule all:
         )
 
 # create comparisons
+# Rebuild EVERY comparison fixture from scratch:
+#
+#   snakemake -F -j8 --use-conda --keep-going regenerate_fixtures
+#
+# Needed whenever the library changes what is *cached* into a fixture (a new cache_* call, or a change to the meaning
+# of a cached curve). A fixture declares only its config YAML as an input, so a library change never invalidates it.
+#
+# `-F` is required: mtime is not a working trigger here (a config newer than its fixture still reports "Nothing to be
+# done"), and a shell `touch` on the configs does not help. Use snakemake's own `--touch` to mark outputs current.
+#
+# Exactly ONE layer of parallelism. The msprime simulation parallelises internally, so either run it serially and fan
+# out over fixtures (PG_PARALLELIZE=0 with -j8, several times faster for this mostly-small-n suite), or let it
+# parallelise internally with -j1. Never both: that is fully serial, on one core.
+rule regenerate_fixtures:
+    input:
+        expand("results/comparisons/serialized/{config}.json", config=configs)
+
 rule create_comparison:
     input:
         "resources/configs/{config}.yaml"
