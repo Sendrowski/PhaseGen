@@ -156,3 +156,37 @@ class PairwiseSurfaceGuardTestCase(TestCase):
         with self.assertRaises(ValueError):
             c._compare_pairwise_surface(ph=None, ms=ms, pair=(1, 2), tols={'cdf': 0.0},
                                         title='t', name='n', joint_fn=lambda i, j: _ExplodingJD())
+
+    def test_no_config_declares_a_duplicate_key(self):
+        """A YAML mapping silently keeps only the *last* of two identical keys, so a duplicated bin-pair key under
+        ``conditional:`` deletes a whole block of checks without any error. That is invisible in a passing run -- the
+        checks simply stop existing -- so guard every config against it."""
+        import pathlib
+
+        import yaml as pyyaml
+        from yaml.constructor import ConstructorError
+
+        class NoDuplicates(pyyaml.SafeLoader):
+            pass
+
+        def construct(loader, node, deep=False) -> dict:
+            seen = set()
+            for key_node, _ in node.value:
+                key = loader.construct_object(key_node, deep=True)
+                key = tuple(key) if isinstance(key, list) else key
+                if key in seen:
+                    raise ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+                seen.add(key)
+            return pyyaml.SafeLoader.construct_mapping(loader, node, deep)
+
+        NoDuplicates.add_constructor(pyyaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct)
+        # the multi-population configs key migration rates by a !!python/tuple of deme names
+        NoDuplicates.add_constructor('tag:yaml.org,2002:python/tuple',
+                                     lambda loader, node: tuple(loader.construct_sequence(node)))
+
+        configs = sorted(pathlib.Path('resources/configs').glob('*.yaml'))
+        self.assertGreater(len(configs), 100)
+
+        for path in configs:
+            with self.subTest(config=path.name):
+                pyyaml.load(path.read_text(), Loader=NoDuplicates)

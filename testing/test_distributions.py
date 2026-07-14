@@ -76,18 +76,61 @@ class DistributionTestCase(TestCase):
 
         self.assertEqual(str(context.exception), 'Specified quantile must be between 0 and 1.')
 
-    def test_update_transition_matrix(self):
+    def test_propagated_vector_matches_the_dense_transition_matrix(self):
         """
-        Test _update function against CDF for different times.
+        The tree height propagates the row vector ``w = alpha @ T`` rather than the ``k x k`` matrix ``T``, so that
+        the (sparse) matrix-exponential action can be applied to it at large ``n``. Pin it against the dense
+        transition matrix it replaces, and against the CDF read off it.
         """
+        from phasegen.expm import Backend
+        expm = Backend.expm
+
         dist = self.get_test_coalescent().tree_height
         e = dist.reward._get(dist.state_space)
         alpha = dist.state_space.alpha
 
-        for t in [0, 0.001, 0.01, 0.1, 1, 10, 100]:
-            u, T, epoch = dist._update(t, 0, np.eye(dist.state_space.k), next(dist.demography.epochs))
+        for t in [0.001, 0.01, 0.1, 1, 10, 100]:
+            # the dense reference: T = prod_e exp(Q_e tau_e), accumulated epoch by epoch
+            T = np.eye(dist.state_space.k)
+            epoch, u_prev = dist.demography.get_epoch(0), 0.0
+            while t > epoch.end_time:
+                dist.state_space.update_epoch(epoch)
+                T = T @ expm(dist._dense_rate_matrix() * (epoch.end_time - u_prev))
+                u_prev, epoch = epoch.end_time, dist.demography.get_epoch(epoch.end_time)
+            dist.state_space.update_epoch(epoch)
+            T = T @ expm(dist._dense_rate_matrix() * (t - u_prev))
 
+            w = dist._sweep_to(alpha.astype(float), 0.0, t, dist.demography.get_epoch(0))
+
+            np.testing.assert_allclose(w, alpha @ T, rtol=1e-8, atol=1e-12)
             self.assertAlmostEqual(1 - alpha @ T @ e, dist.cdf(t))
+
+    def test_matrix_exponential_action_agrees_with_the_dense_path(self):
+        """
+        The tree-height cdf / pdf / quantile must not depend on which propagation path
+        :attr:`Settings.expm_action_min_dim` selects: the sparse action and the dense exponential compute the same
+        thing. This is what a state space too large to densify relies on, and the CDF used to ignore the setting
+        outright and form the dense ``k x k`` propagator regardless.
+        """
+        import phasegen as pg
+        from phasegen.settings import Settings
+
+        t = np.linspace(0.1, 6, 25)
+        q = np.array([0.01, 0.1, 0.5, 0.9, 0.99])
+        demo = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.1, 1.5: 2.0}})
+
+        dense = pg.Coalescent(n=15, demography=demo).tree_height
+        ref = dense.cdf(t), dense.pdf(t), dense.quantile(q)
+
+        try:
+            Settings.expm_action_min_dim = 1  # force every propagation through the sparse action
+            action = pg.Coalescent(n=15, demography=demo).tree_height
+            got = action.cdf(t), action.pdf(t), action.quantile(q)
+        finally:
+            Settings.expm_action_min_dim = 1500
+
+        for a, b in zip(ref, got):
+            np.testing.assert_allclose(b, a, rtol=1e-8, atol=1e-10)
 
     def test_cdf_unsorted_times_preserve_input_order(self):
         """
@@ -104,12 +147,18 @@ class DistributionTestCase(TestCase):
 
     def test_quantile(self):
         """
-        Test quantile function.
+        The quantile is the inverse of the CDF. It reads the hazard grid, whose nodes are exact matrix-exponential
+        CDF values, so the round trip is limited by the interpolation between them rather than by a bisection
+        tolerance (which is what it used to be, and had to be passed in).
         """
         dist = self.get_test_coalescent().tree_height
 
-        for (quantile, tol) in itertools.product([0, 0.01, 0.5, 0.99, 1], [1e-1, 1e-5, 1e-10]):
-            self.assertAlmostEqual(dist.cdf(dist.quantile(quantile, precision=tol)), quantile, delta=tol)
+        for q in [0.01, 0.5, 0.99]:
+            self.assertAlmostEqual(dist.cdf(dist.quantile(q)), q, delta=1e-4)
+
+        # the boundary levels are the ends of the support
+        self.assertEqual(dist.quantile(0), 0)
+        self.assertAlmostEqual(dist.cdf(dist.quantile(1)), 1, delta=1e-10)
 
     def test_tree_height_per_population(self):
         """

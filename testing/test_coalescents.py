@@ -125,8 +125,15 @@ class CoalescentTestCase(TestCase):
 
     def test_non_absorbing_demography_quantile_raises(self):
         """
-        The CDF-side search (quantile, and the pdf / plot_cdf paths that rely on it) must also guard against a
-        demography that never absorbs, rather than spinning to its iteration ceiling.
+        The quantile must guard against a demography that never absorbs, rather than spinning to its iteration
+        ceiling: it needs the whole support (its grid runs to the absorption time), and a level above the mass that
+        does absorb has no answer at all.
+
+        The *pointwise* cdf and pdf are a different matter and must not raise. The distribution is defective, not
+        undefined: here pop_1 holds a lineage that can never migrate or coalesce, so no mass ever absorbs and
+        ``P(T <= t)`` is identically 0 -- a correct answer, read off the propagated vector without ever asking where
+        the distribution ends. (The pdf used to raise here, but only incidentally: it was a finite difference of the
+        CDF whose step was ``quantile(0.99) / 1e10``, so it went through the quantile to get one.)
         """
         coal = pg.Coalescent(
             n={'pop_0': 2, 'pop_1': 1, 'pop_2': 1},
@@ -139,8 +146,10 @@ class CoalescentTestCase(TestCase):
         with self.assertRaisesRegex(ValueError, "does not absorb"):
             _ = coal.tree_height.quantile(0.99)
 
-        with self.assertRaisesRegex(ValueError, "does not absorb"):
-            _ = coal.tree_height.pdf(1.0)
+        # none of the mass absorbs, so the CDF stays at 0 however far out it is asked -- finite, and not an error
+        for t in (1.0, 1e3, 1e6):
+            self.assertAlmostEqual(coal.tree_height.cdf(t), 0.0, delta=1e-12)
+            self.assertAlmostEqual(coal.tree_height.pdf(t), 0.0, delta=1e-12)
 
     def test_temporary_isolation_resolves_and_absorbs(self):
         """

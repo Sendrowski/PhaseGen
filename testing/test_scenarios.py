@@ -123,6 +123,9 @@ configs = [
     '1_epoch_beta_n_20',
     '1_epoch_dirac_n_20',
     '5_epoch_n_20',
+    # a large sample size, restricted to the statistics whose state space stays linear in n (tree height, total
+    # branch length): the guard against a distribution path that quietly ignores the sparse/dense configuration
+    '2_epoch_n_100',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',

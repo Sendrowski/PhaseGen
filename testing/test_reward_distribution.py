@@ -1077,6 +1077,106 @@ def test_conditional_on_atom_is_scale_invariant(scale):
     assert dimensionless(scale) == pytest.approx(dimensionless(1.0), rel=1e-6)
 
 
+@pytest.mark.parametrize('label, coal', [
+    ('1epoch', lambda: pg.Coalescent(n=5)),
+    ('3epoch', lambda: pg.Coalescent(n=5, demography=pg.Demography(
+        pop_sizes={'pop_0': {0.0: 1.0, 0.3: 0.2, 1.0: 1.5}}))),
+    ('beta', lambda: pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5))),
+])
+def test_atom_conditional_matches_the_sampler_exactly(label, coal):
+    """
+    Conditioning on the atom is the one conditional a sampler validates **exactly**: ``{R_a = 0}`` is a
+    positive-probability event, so the replicates with an empty bin *are* the conditioning set -- no window, no
+    bandwidth, none of the O(h) bias that makes a sampled ``R_b | R_a = v`` a rough check at best (see
+    :class:`~phasegen.distributions.EmpiricalJointRewardDistribution`).
+
+    Worth pinning because nothing else does: every scenario's conditional check places its conditioning points at
+    ``quantile(p0 + (1 - p0) u)``, strictly *above* the atom, so ``value = 0`` -- a different class
+    (``_AtomConditional``, whose transform is an exact closed-form ratio rather than a nested inversion) -- is never
+    exercised there.
+    """
+    coal = coal()
+    jd = coal.sfs.joint_distribution(4, 1)  # P(R_4 = 0) is substantial for n = 5
+    cond = jd.conditional('a', 0.0)
+
+    samples = np.asarray(coal.sfs.sample(500_000))
+    empty = samples[:, 4] == 0.0  # the atom event {R_4 = 0}, selected exactly
+    other = samples[empty, 1]
+
+    # the atom's mass itself
+    assert float(jd._atoms['a0']) == pytest.approx(empty.mean(), abs=5e-3)
+
+    # E[R_1 | R_4 = 0] against the sample mean over the empty-bin replicates
+    se = other.std() / np.sqrt(other.size)
+    assert float(cond.mean) == pytest.approx(other.mean(), abs=max(6 * se, 1e-3 * other.mean()))
+
+    # the variance, which on the atom is the *only* route (the derivative identity divides by the continuous
+    # conditioning density and cannot be evaluated at 0), so the sample is the one thing that pins it
+    assert float(cond.var) == pytest.approx(other.var(), rel=0.02)
+    assert float(cond.moment(2)) == pytest.approx((other ** 2).mean(), rel=0.02)
+
+    # the whole CDF, not just the mean: the exact atom conditional against the empirical one over the same replicates
+    grid = np.linspace(0, float(cond.quantile(0.95)), 25)
+    ecdf = (other[:, None] <= grid[None, :]).mean(axis=0)
+    assert np.abs(np.asarray(cond.cdf(grid)) - ecdf).max() < 0.02
+
+
+def test_atom_conditional_refuses_the_derivative_identity():
+    """The derivative identity normalises by the conditioning marginal's *continuous* density, which at 0 is not the
+    atom's mass, so it does not describe the atom conditional. It must refuse rather than quietly divide by whatever
+    the density inverts to there."""
+    jd = pg.Coalescent(n=5).sfs.joint_distribution(4, 1)
+    cond = jd.conditional('a', 0.0)
+
+    with pytest.raises(NotImplementedError, match='atom'):
+        cond._raw_moments(k=2)
+
+    # and the higher raw moments are likewise unavailable there, while the first two are not
+    with pytest.raises(NotImplementedError):
+        cond.moment(3)
+
+    assert cond.moment(2) == pytest.approx(float(cond.var) + float(cond.mean) ** 2)
+
+
+def test_windowed_conditional_mean_cancels_the_window_bias():
+    """The empirical conditional keeps the replicates in a window around the conditioning value, so weighting them
+    equally (Nadaraya-Watson) is ``O(h)``-biased wherever the conditional mean has slope in ``v``: the conditioning
+    values are not symmetric inside the window. The local-linear fit cancels that term.
+
+    Constructed so the truth is known: ``E[R_b | R_a = v] = v`` exactly, with ``R_a`` drawn from a distribution whose
+    density falls off steeply, so a symmetric window holds far more replicates below ``v`` than above and the plain
+    window mean must undershoot.
+    """
+    rng = np.random.default_rng(42)
+    a = rng.exponential(1.0, 400_000)
+    b = a + rng.normal(0.0, 0.1, a.size)  # E[R_b | R_a = v] = v
+
+    jd = pg.distributions.EmpiricalJointRewardDistribution(a, b)
+
+    v, h = 0.5, 0.3
+    cond = jd.conditional('a', v, window=h)
+
+    plain = float(np.mean(cond.samples))  # what a Nadaraya-Watson estimate would give
+    assert abs(plain - v) > 0.01  # the window bias is real and not negligible at this bandwidth
+    assert float(cond.mean) == pytest.approx(v, abs=0.005)  # the local-linear intercept removes it
+
+
+def test_conditional_moments_live_on_the_conditional():
+    """The conditional's mean has two independent routes -- the second cumulant difference of its own (nested)
+    transform, and the derivative identity on the joint transform -- and they must agree. Both are reached from the
+    conditional itself."""
+    jd = pg.Coalescent(n=5).sfs.joint_distribution(4, 1)
+    v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
+    cond = jd.conditional('a', v)
+
+    assert float(cond.mean) == pytest.approx(cond._raw_moments(k=1)[0], rel=1e-3)
+
+    # the variance has only the identity behind it, so pin its consistency with the raw moments it comes from
+    m1, m2 = cond._raw_moments(k=2)
+    assert float(cond.var) == pytest.approx(m2 - m1 ** 2, rel=1e-9)
+    assert float(cond.moment(2)) == pytest.approx(m2, rel=1e-9)
+
+
 def _round_trip_cases() -> list:
     """(label, distribution) pairs spanning the 1D representations the cdf/quantile pair has to hold across: a plain
     bin, a heavy upper tail (the case the cosine window truncates), several epochs, a multiple-merger model, a
@@ -1117,6 +1217,57 @@ def test_cdf_of_quantile_is_the_identity(label, d):
         assert float(d.cdf(x)) == pytest.approx(q, abs=1e-5), f"{label}: round trip broken at q = {q}"
 
 
+def test_atom_larger_than_the_cut():
+    """An atom can carry the CDF past the cut in a single jump, and the grid must still be the distribution's.
+
+    The grid joins the fit's half to the exact half at ``x_cut``, the point where the CDF reaches the cut, and the
+    node there carries the fit's value -- which is normally the cut itself. An atom breaks that: if ``P(R = 0)``
+    already exceeds the cut then ``x_cut`` is 0 and the value there is the *atom*, well above the cut. Stamping the
+    cut on it shifted every node of the grid by the difference, putting a 2e-2 error in the CDF of a Dirac bin whose
+    atom is 0.99 -- against a tolerance of 1e-3.
+    """
+    d = pg.Coalescent(n=5, model=pg.DiracCoalescent(psi=0.99999999, c=50)).sfs.bin(3)  # a near-total merger
+    atom = d.cdf._cdf_point(0.0)
+
+    assert atom > Settings.dehoog_tail_quantile, f"the atom ({atom:.4f}) no longer exceeds the cut; pick another case"
+    assert float(d.cdf(0.0)) == pytest.approx(atom, abs=1e-6), "the grid lost the atom at the origin"
+
+    for x in (1e-6, 0.01, 0.1, 1.0):
+        assert float(d.cdf(x)) == pytest.approx(d.cdf._cdf_point(x), abs=1e-3), f"the grid is shifted at x = {x}"
+
+
+@pytest.mark.parametrize('cut', [0.0, 0.5, 0.98])
+def test_dehoog_cut_spans_its_range(cut):
+    """``Settings.dehoog_tail_quantile`` is a knob over the whole range, not just a tail switch: it is the CDF level
+    at or above which the grid's nodes take their value from the exact inversion rather than the cosine fit. At 0 the
+    grid is entirely exact, at 1 entirely the fit, and in between each node takes whichever is trusted at its level.
+    Nothing else depends on it -- the interpolation rule is the same everywhere.
+
+    It used to invert at the bottom: ``cut = 0`` asks for an all-exact grid and produced an all-*cosine* one, because
+    the cut's own quantile is then 0 and a guard read that as "no tail wanted". So the setting silently did the
+    opposite of what it said at exactly the end a user would reach for to validate the fit.
+    """
+    Settings.dehoog_tail_quantile = cut
+    d = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(2)
+
+    x = float(d.quantile(0.999))
+    nodes, _ = d.cdf._cdf_grid(q_max=0.999)
+    n_exact = len(d.cdf._shared('cdf_exact', list))
+
+    assert n_exact > 0, f"cut = {cut} built no exact nodes"
+    assert (n_exact == len(nodes)) == (cut == 0.0), f"cut = {cut}: expected an all-exact grid only at 0"
+
+    # wherever the exact inversion supplies the grid, the far quantile must match a bisection on it
+    lo, hi = 0.0, 2 * x
+    while d.cdf._cdf_point(hi) < 0.999:
+        hi *= 2
+    while hi - lo > 1e-7 * x:
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if d.cdf._cdf_point(mid) < 0.999 else (lo, mid)
+
+    assert x == pytest.approx(0.5 * (lo + hi), rel=1e-4), f"cut = {cut}: far quantile is not the exact one"
+
+
 def test_grid_answers_do_not_depend_on_call_order():
     """The lazily grown tail must not change an answer the grid has already given.
 
@@ -1146,6 +1297,15 @@ def test_grid_answers_do_not_depend_on_call_order():
     shallow = float(deep.quantile(0.99))
     deep.quantile(0.999999)  # grows the ladder further
     assert float(deep.quantile(0.99)) == shallow, "growing the tail moved an answer already given"
+
+    # the grid a caller sees is the cache, never a slice of it trimmed to the span they happened to ask for: the span
+    # decides only whether the ladder is *extended*. Trimming is what let a query at exactly the cut clamp to the node
+    # below it, because the grid handed back stopped just short of the cut.
+    d = make()
+    d.quantile(0.999)  # the ladder now exists
+    wide, _ = d.cdf._cdf_grid(x_max=1e9)
+    narrow, _ = d.cdf._cdf_grid(x_max=0.0)  # a query that reaches nowhere near it must still see it
+    assert np.array_equal(narrow, wide), "the grid was trimmed to the requested span"
 
 
 def test_far_tail_is_exact_not_saturated():

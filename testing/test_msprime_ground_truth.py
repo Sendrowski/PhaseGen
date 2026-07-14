@@ -6,10 +6,13 @@ ground truth in the scenario comparisons) with tiny samples and few replicates, 
 cost of the slow comparison suite. They assert only that the statistics are produced and finite, not their accuracy
 (the slow scenario tests validate accuracy against the analytical results).
 """
+import math
+
 import jsonpickle
 import numpy as np
 
 import phasegen as pg
+from phasegen.distributions.empirical import EmpiricalDistribution
 from testing import TestCase
 
 
@@ -125,6 +128,41 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         l1, l2, xs, ys, cdf, pdf = ms.total_branch_length._loci_joint_surface[0]
         assert (l1, l2) == (0, 1)
         self._assert_valid_surface(xs, ys, cdf, pdf)
+
+    def test_standard_errors_match_the_closed_forms(self):
+        """The block estimator reproduces the exact standard errors of an exponential sample, for which the moments of
+        every order are known. The closed forms are only available here (they need the ``2k``-th moment for the ``k``-th
+        raw moment, and the fourth central moment for the variance), which is why the estimator exists."""
+        n, scale = 200_000, 2.0
+        dist = EmpiricalDistribution(np.random.default_rng(0).exponential(scale, n))
+        dist.cache_standard_errors()
+
+        # for Exp(scale): E[X^k] = k! scale^k, so Var[m_k_hat] = (E[X^2k] - E[X^k]^2) / n
+        moment = lambda k: float(math.factorial(k)) * scale ** k
+
+        for k, name in [(1, 'mean'), (2, 'm2'), (3, 'm3'), (4, 'm4')]:
+            exact = np.sqrt((moment(2 * k) - moment(k) ** 2) / n)
+            self.assertAlmostEqual(float(dist.standard_errors[name]) / exact, 1, delta=0.25)
+
+        # Var[var_hat] = (mu4 - mu2^2) / n, with the central moments mu2 = scale^2 and mu4 = 9 scale^4
+        exact_var = np.sqrt((9 * scale ** 4 - scale ** 4) / n)
+        self.assertAlmostEqual(float(dist.standard_errors['var']) / exact_var, 1, delta=0.25)
+
+    def test_standard_errors_survive_the_drop(self):
+        """The standard errors are cached by ``touch`` and outlive the samples, so a serialized comparison can still
+        tell how much of a discrepancy against its ground truth is that ground truth's own Monte-Carlo noise."""
+        ms = self._ms(pg.Coalescent(n=4))
+        ms.touch()
+        ms.drop()
+
+        for dist in (ms.tree_height, ms.total_branch_length, ms.sfs):
+            self.assertIsNone(dist.samples)
+            for name in ('mean', 'var', 'm3', 'm4'):
+                self.assertTrue(np.all(np.isfinite(dist.standard_errors[name])))
+                self.assertTrue(np.all(np.asarray(dist.standard_errors[name]) >= 0))
+
+        # the per-bin standard errors of a spectrum line up with its bins
+        self.assertEqual(np.shape(ms.sfs.standard_errors['mean']), np.shape(np.asarray(ms.sfs.mean)))
 
     def test_surface_survives_serialization(self):
         """The cached surface (numpy grids) round-trips through the jsonpickle serialization used for the fixtures
