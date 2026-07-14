@@ -1312,11 +1312,14 @@ class _AtomConditional(_Conditional):
         atom = joint._atoms['a0' if on == 'a' else 'b0']
         if atom < 1e-9:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
-        big = self._s_inf
         self._joint = joint
         # the conditional reuses the host's state space / time-scale (its ``lst`` is the marginal sub-transform; there
-        # is no own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``)
+        # is no own reward to bind, so ``_setup`` is never invoked -- see ``_time_scale``). This must be bound BEFORE
+        # ``_s_inf`` is read: ``_time_scale`` reaches the host through ``getattr(self, '_host', None)``, so probing
+        # first silently falls through to tau = 1 and hard-codes the probe at 1e8 -- exactly what ``_s_inf`` exists to
+        # prevent (at tau = 1e-6 the transform has not decayed at all by 1e8 and the sub-transform is simply wrong)
         self._host = joint._host
+        big = self._s_inf
         self.state_space = joint._host.state_space
         self._on = on
         self._atom = atom
@@ -1327,9 +1330,6 @@ class _AtomConditional(_Conditional):
     def lst(self, s: complex) -> complex:
         """Conditional LST: the marginal sub-transform on the atom ``{R_on = 0}``, normalised by the atom mass."""
         return self._sub(s) / self._atom
-
-
-_STEHFEST_WEIGHTS: dict = {}
 
 
 

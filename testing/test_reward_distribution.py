@@ -1044,3 +1044,25 @@ def test_coalescent_distribution_accessors():
     assert j.mean[0] == pytest.approx(c.moment(1, rewards=[UnfoldedSFSReward(1)], center=False))
     assert float(j.cov()) == pytest.approx(j.moment(1, 1) - j.moment(1, 0) * j.moment(0, 1))
     assert 0.0 <= float(j.cdf(1.0, 1.0)) <= 1.0
+
+
+@pytest.mark.parametrize('scale', [1e-6, 1e7])
+def test_conditional_on_atom_is_scale_invariant(scale):
+    """Rescaling every population size and epoch boundary by a constant leaves every *dimensionless* quantity
+    unchanged -- it is the same coalescent in different units. Conditioning on the atom {R_i = 0} is where this is
+    easiest to break: the sub-transform is probed at ``s -> inf``, and a probe that does not scale with the rates
+    (which go like 1 / tau) is not in the limit at all on a small-N demography. ``_AtomConditional`` read ``_s_inf``
+    before binding ``_host``, so ``_time_scale`` fell through to 1.0 and the probe was hard-coded at 1e8: the two
+    demographies below then disagreed by 0.75% on a quantity that cannot depend on units.
+    """
+    def dimensionless(s: float) -> float:
+        demography = pg.Demography(pop_sizes={'pop_0': {0: 1.0 * s, 1.0 * s: 5.0 * s}})
+        joint = pg.Coalescent(n=5, demography=demography).sfs.joint_distribution(4, 1)
+
+        # P(R_4 = 0) = 0.5 for n = 5, so the atom conditional is a real path, not a corner case
+        assert float(joint._atoms['a0']) == pytest.approx(0.5, abs=1e-6)
+
+        # E[R_1 | R_4 = 0], made dimensionless by the unconditional mean of the same reward
+        return float(joint.conditional('a', 0.0).mean) / abs(float(joint.marginal('b').mean))
+
+    assert dimensionless(scale) == pytest.approx(dimensionless(1.0), rel=1e-6)
