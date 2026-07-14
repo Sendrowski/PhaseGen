@@ -103,9 +103,98 @@ class QuantileFunction(DistributionFunction):
     kind = 'quantile'
 
 
+# --- the shared CDF representation ----------------------------------------------------------------------------------
+
+class _HazardGrid:
+    """
+    The one representation the cdf, pdf and quantile of a continuous distribution are read off: a grid of nodes and
+    the **cumulative hazard** ``H = -log(1 - F)`` on them, interpolated linearly in ``x``.
+
+    The map is the whole definition: ``F(x) = 1 - exp(-H(x))``, so the cdf reads it forwards
+    (:meth:`_interp_cdf`), the quantile backwards (:meth:`_interp_quantile`) and the pdf differentiates it
+    (:meth:`_interp_pdf`). No root-find, no finite difference, and the three are exact mutual inverses of one
+    another rather than agreeing to a tolerance.
+
+    ``H`` is the coordinate because it is the one in which both halves of the curve are near-straight: near the
+    origin ``H ~ F``, so a chord in ``H`` is the obvious linear interpolation of the CDF; out in the tail ``H`` is
+    ``-log S``, which an (asymptotically exponential) survival traces almost exactly. Linear in ``H`` is a
+    piecewise-constant *hazard*, the natural interpolant of a survival function.
+
+    Where the nodes come from is the subclass's business, and the two sources differ because their point evaluators
+    do: :class:`_LSTFunction` inverts the Laplace transform, which is dear enough (by some three orders of magnitude)
+    that it fits a cosine series for the body and pays for exact nodes only in the tail, while the tree height's
+    :class:`~phasegen.distributions.phase_type._ExpmFunction` exponentiates the rate matrix, cheap enough that every
+    node is exact.
+    """
+
+    def _shared(self, key: str, build) -> 'Any':
+        """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
+        (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`Settings.cache`."""
+        cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
+        if key in cache:
+            return cache[key]
+        val = build()
+        if Settings.cache:
+            cache[key] = val
+        return val
+
+    def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
+        """
+        The grid: its nodes and the cumulative hazard on them, both ascending.
+
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes and the cumulative hazard on them.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def _hazard(cdf: 'np.ndarray | float') -> np.ndarray:
+        """The cumulative hazard ``H = -log(1 - F)``, the coordinate the grid is interpolated in. Capped, so a CDF
+        that has saturated at 1 (as the cosine fit does at the end of its window) does not take it to infinity."""
+        return -np.log1p(-np.minimum(np.asarray(cdf, dtype=float), 1.0 - 1e-16))
+
+    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+        """
+        The CDF between the grid's nodes: ``F(x) = 1 - exp(-H(x))``, with the cumulative hazard ``H`` interpolated
+        linearly in ``x``. A chord in ``F`` out in the tail would instead join the nodes underneath a concave curve,
+        biasing the far-tail quantile 1e-3 long.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param hazard: The cumulative hazard on them.
+        :return: The CDF at ``t``.
+        """
+        return -np.expm1(-np.interp(t, nodes, hazard))
+
+    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+        """The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
+        other way. Levels at or below the atom ``P(R = 0)`` land on the first node, which is 0.
+
+        :param q: Probability levels.
+        :param nodes: The grid's nodes.
+        :param hazard: The cumulative hazard on them.
+        :return: The quantiles at ``q``.
+        """
+        return np.interp(self._hazard(q), hazard, nodes)
+
+    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+        """The derivative of :meth:`_interp_cdf`'s map: ``f = dF/dx = S * dH/dx``, the survival times the hazard rate.
+        Non-negative by construction, so it cannot inherit the raw cosine sum's Gibbs negativity.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param hazard: The cumulative hazard on them.
+        :return: The density at ``t``.
+        """
+        h = np.interp(t, nodes, hazard)
+
+        return np.exp(-h) * np.interp(t, nodes, np.gradient(hazard, nodes))
+
+
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
 
-class _LSTFunction:
+class _LSTFunction(_HazardGrid):
     """
     Mixin owning the 1D accumulated-reward inversion machinery for the function objects of an LST distribution
     (:class:`~phasegen.distributions.reward.RewardDistribution` and its conditional flavours; a bare
@@ -155,19 +244,20 @@ class _LSTFunction:
     #: error in the CDF itself, all of which this removes at no cost in terms or transform evaluations.
     _cos_tail_target: float = 1.0 - 1e-5
 
-    #: Decrement of ``log(1 - F)`` between consecutive exact de Hoog nodes above
-    #: :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`: each node sits one fixed factor of survival below the
-    #: last (``e**0.25``, so ~40 nodes span the mass from the cut down to :attr:`_tail_target`). Spacing the ladder by
-    #: survival rather than by ``x`` is what makes it scale-free. A ladder geometric in ``x`` takes its step from the
-    #: magnitude of ``x_cut``, which says nothing about how fast the tail decays: on a rapid decline the survival falls
-    #: twentyfold over 0.07 while ``x_cut`` is 0.91, so a 5% step straddles two decay lengths, three nodes cover the
-    #: whole tail, and interpolating between them puts a 2.4e-3 error in the CDF. The step below is set by the decay
-    #: length itself, so it cannot lose the tail's scale that way.
-    _tail_dlog: float = 0.25
+    #: Spacing of the exact (de Hoog) nodes, as a decrement of the cumulative hazard ``H = -log(1 - F)`` -- the
+    #: coordinate the whole grid is interpolated in (see :meth:`_interp_cdf`). One spacing resolves body and tail
+    #: alike because ``H`` is both: near the origin ``H ~ F``, so a step in ``H`` is a step in probability; near
+    #: ``F -> 1`` it is ``-log S``, so a step is a fixed factor of survival. A ladder in ``F`` alone cannot resolve a
+    #: survival of 1e-6, and one in ``log S`` alone takes enormous steps through the body, where ``S`` barely moves.
+    _hazard_step: float = 0.25
 
-    #: Mass the tail ladder is grown to (unless a query asks for more), and the node budget bounding it.
+    #: Probability spacing of the exact nodes, applied alongside :attr:`_hazard_step`. Redundant at the default cut
+    #: (in the far tail ``H`` is the finer of the two), it is what resolves the body when the cut is set low.
+    _cdf_step: float = 0.01
+
+    #: Survival the exact nodes are carried down to (unless a query asks for more), and the node budget bounding them.
     _tail_target: float = 1.0 - 1e-6
-    _tail_max_nodes: int = 256
+    _max_exact_nodes: int = 512
 
     # ---- distribution primitives (thin accessors) --------------------------------------------------------------
     def _range(self, scale: float = 12.0) -> float:
@@ -198,17 +288,6 @@ class _LSTFunction:
         return d._invert(d.lst, float(t))
 
     # ---- shared CDF representation (cached on the distribution) -------------------------------------------------
-    def _shared(self, key: str, build) -> 'Any':
-        """Return a shared CDF-representation entry, built once via ``build`` and cached on the distribution (so the
-        cdf / pdf / quantile of one distribution reuse it). Honors :attr:`Settings.cache`."""
-        cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
-        if key in cache:
-            return cache[key]
-        val = build()
-        if Settings.cache:
-            cache[key] = val
-        return val
-
     @property
     def _cos_coeffs(self) -> dict:
         return self._shared('cos_coeffs', self._build_cos_coeffs)
@@ -291,162 +370,126 @@ class _LSTFunction:
         cdf[order] = np.maximum.accumulate(cdf[order])
         return cdf
 
-    def _tail_decay(self, tail: list) -> float:
+    def _exact_step(self, nodes: list) -> float:
         """
-        The survival's local decay length ``lambda = -S / S'`` at the end of the tail ladder, which sets the next
-        node's step. Seeded at the cut from the cosine grid's own density (free), and thereafter read off the last two
-        exact nodes, where ``lambda = dx / log(S_prev / S)`` is what an exponential tail would have. The step is capped
-        at the current node so a near-flat survival cannot make the ladder jump the tail outright.
+        The distance from the last exact node to the next: whichever of a step in the cumulative hazard and a step in
+        the probability is the *finer* there, converted to a distance by the local density (``dx = dF / f``, and
+        ``dx = dH * S / f`` since ``dH/dx = f / S``).
 
-        :param tail: The ``(x, F)`` nodes so far, in increasing order.
-        :return: The decay length at the last node.
+        Neither spacing suffices alone. A ladder in ``F`` cannot reach a survival of 1e-6 -- it would need a million
+        steps -- while a ladder in ``H`` takes enormous strides through the body, where the survival barely moves; on
+        a rapid decline the second put a 4.5e-3 error in the CDF. Taking the finer of the two makes one rule resolve
+        the whole curve, so the cut is free to sit anywhere, including 0.
+
+        The step is set by the exact values already in hand (and, for the first, by the fit's density), never by what
+        was queried, so the nodes land in the same places however the caller arrives at them.
+
+        :param nodes: The ``(x, F)`` nodes so far, ascending.
+        :return: The step to the next node.
         """
-        x, f = tail[-1]
-        s = 1.0 - f
+        x, cdf = nodes[-1]
+        survival = 1.0 - cdf
 
-        if s <= 0:
-            return x
+        if len(nodes) == 1:
+            xs, cs = self._cos_cdf_grid
+            density = float(np.interp(x, xs, np.gradient(cs, xs)))
+        else:
+            x_prev, cdf_prev = nodes[-2]
+            density = (cdf - cdf_prev) / (x - x_prev) if x > x_prev else 0.0
 
-        # at the anchor there is no previous node to take a slope from, so seed from the cosine grid's own density
-        if len(tail) == 1:
+        if density <= 0 or survival <= 0:
+            return float(self._cos_coeffs['b'])
+
+        return float(min(min(self._hazard_step * survival, self._cdf_step) / density, self._cos_coeffs['b']))
+
+    def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
+        """
+        The ``(x, F)`` nodes whose values come from the exact inversion, marching outward from the cut. Cached on the
+        distribution and *extended* when a query reaches past their end -- never rebuilt, and never trimmed to the
+        span that happens to be asked for. Every node ever computed stays in the grid, so an answer cannot change
+        because a later call asked for something further out, and the ~19 ms an exact node costs is paid once.
+
+        The march only *starts* when a query enters this half of the curve. A plot, whose endpoint quantile sits below
+        the default cut, therefore leaves the ladder at its anchor and pays nothing.
+
+        The nodes cannot be placed by the fit's own quantile, tempting as that is: the fit force-normalises to 1 at
+        the end of its window, so its quantile saturates there and a node asked for at a far level lands where the
+        *fit* believes that level is -- inside the window, at a point whose true CDF is far lower. The ladder then
+        tops out below the level being asked for and the quantile runs off the end of it. Marching outward on the
+        exact values instead, the nodes go wherever the distribution actually is, including past the fit's window.
+
+        :param x_cut: Where the CDF reaches the cut.
+        :param cut: CDF value at or above which the exact inversion supplies the grid.
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes, ascending.
+        """
+        nodes = self._shared('cdf_exact', list)
+
+        if not nodes:
+            # the anchor carries the *fit's* value at the cut, so it sits exactly on the fit's own curve and joins the
+            # two halves without a step. That value is usually the cut itself, but not always: an atom at 0 carries
+            # the CDF straight past the cut in one jump, so ``x_cut`` is 0 and the value there is the atom, well above
+            # the cut. Stamping the cut on it instead shifted the whole grid by the difference (2e-2 on a Dirac bin
+            # whose atom is 0.99). Where the grid is exact throughout there is no fit to anchor to, so the value is
+            # the exact one.
             xs, cdf = self._cos_cdf_grid
-            density = float(np.interp(x, xs, np.gradient(cdf, xs)))
-            return min(s / density, x) if density > 0 else x
+            nodes.append((x_cut, self._cdf_point(x_cut) if cut <= 0.0 else float(np.interp(x_cut, xs, cdf))))
 
-        x_prev, f_prev = tail[-2]
-        s_prev = 1.0 - f_prev
+        if x_max <= x_cut and q_max <= cut:
+            return nodes  # the query stays in the fit's half, so the expensive nodes are left unbuilt
 
-        return min((x - x_prev) / np.log(s_prev / s), x) if s_prev > s else x
+        target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
+        while len(nodes) < self._max_exact_nodes:
+            x, cdf = nodes[-1]
+            # stop once the ladder covers the query and holds the target mass; a CDF that has saturated at 1 says
+            # nothing more about points beyond it either, so it ends the march regardless
+            if cdf >= target and (x >= x_max or cdf >= 1.0 - 1e-12):
+                break
+            x = x + self._exact_step(nodes)
+            nodes.append((x, self._cdf_point(x)))
+
+        return nodes
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """
-        The single CDF representation the cdf, pdf and quantile all read: the cosine nodes below the tail cut, exact
-        de Hoog nodes above it. Because all three read *this*, through the one interpolation rule of
-        :meth:`_interp_cdf` / :meth:`_interp_pdf` / :meth:`_interp_quantile`, they are mutual inverses by construction
-        and the density does not saturate where the cosine window ends.
+        The :class:`_HazardGrid` of an LST distribution: one grid of nodes, carrying the cosine fit's values below
+        :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` and the exact de Hoog inversion's above it. The cut
+        is a plain probability, so it is a knob over the whole range: at 1 the grid is entirely the (cheap,
+        vectorised) fit, at 0 entirely the (exact, ~19 ms a node) inversion, and in between each node takes the value
+        of whichever is trusted at its own level. Nothing else about the grid depends on it -- in particular not the
+        interpolation rule, which is :meth:`~_HazardGrid._interp_cdf`'s hazard rule everywhere.
 
-        The cosine fit force-normalises to 1 at the end of its window, so beyond it an interpolation reports a
-        survival of exactly zero. The tail therefore has to come from the exact inversion, which is far too expensive
-        to build eagerly (~19 ms a node, on every SFS bin). It is instead materialised on first use, and only as far
-        as the query reaches: a plot, whose endpoint quantile sits below the cut, never pays for it at all.
+        The cosine fit has to be corrected above *some* level because it force-normalises to 1 at the end of its
+        window, so beyond that an interpolation of it reports a survival of exactly zero: the CDF came back as exactly
+        1.0 and the density as exactly 0 for a bin whose true survival there is 1e-3.
 
-        The tail is anchored at ``x_cut`` carrying the *cosine's* value there, which is ``cut`` by construction --
-        so the anchor lies exactly on the cosine's own piecewise linear curve and inserting it perturbs nothing. That
-        is what keeps the grid free of any dependence on the order it was queried in: the readers answer everything
-        below the cut from the cosine nodes alone, and a query above the cut is what builds the tail in the first
-        place. Were the tail instead to supply the value at the end of the cell straddling the cut, that cell's
-        answers would silently depend on whether some earlier call had happened to reach past the cut.
+        The exact nodes are far too expensive to build eagerly, so they are materialised on first use and only as far
+        as the query reaches. A plot, whose endpoint quantile sits below the default cut, never builds one.
 
         :param x_max: Largest point the caller will evaluate.
         :param q_max: Largest probability level the caller will invert.
-        :return: The nodes, the monotone CDF on them, and the number of leading cosine nodes (so the readers know
-            where the tail rule starts).
+        :return: The nodes and the cumulative hazard on them, both ascending.
         """
         xs, cdf = self._cos_cdf_grid
         cut = Settings.dehoog_tail_quantile
+        cut = 1.0 if cut is None else float(np.clip(cut, 0.0, 1.0))
 
-        if cut is None:
-            return xs, cdf, len(xs)
+        # the fit's own nodes, up to the cut. The saturated ones carry no information -- the fit force-normalises to 1
+        # at the end of its window -- and would pin the hazard at its cap, so they go whatever the cut is.
+        keep = (cdf < cut) & (cdf < 1.0 - 1e-12)
+        nodes, values = xs[keep], cdf[keep]
 
-        x_cut = float(np.interp(cut, cdf, xs))
+        x_cut = float(np.interp(cut, cdf, xs)) if cut > 0.0 else 0.0
 
-        # nothing above the cut is being asked for, so the tail stays unbuilt
-        if not 0 < x_cut < np.inf or (x_max <= x_cut and q_max <= cut):
-            return xs, cdf, len(xs)
+        if cut < 1.0:
+            exact = self._exact_nodes(x_cut, cut, x_max, q_max)
+            nodes = np.concatenate([nodes, [x for x, _ in exact]])
+            values = np.concatenate([values, [c for _, c in exact]])
 
-        tail = self._shared('cdf_tail', list)
-        if not tail:
-            tail.append((x_cut, cut))
+        order = np.argsort(nodes, kind='stable')
 
-        target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
-        while len(tail) < self._tail_max_nodes:
-            x, f = tail[-1]
-            # stop once the ladder both covers the query and holds the target mass; a CDF that has saturated at 1
-            # cannot say anything more about points beyond it either, so it ends the growth regardless
-            if f >= target and (x >= x_max or f >= 1.0 - 1e-12):
-                break
-            x = x + self._tail_dlog * self._tail_decay(tail)
-            tail.append((x, self._cdf_point(x)))
-
-        keep = xs < x_cut
-        nodes = np.concatenate([xs[keep], [x for x, _ in tail]])
-        values = np.concatenate([cdf[keep], np.maximum.accumulate([f for _, f in tail])])
-
-        return nodes, values, int(keep.sum())
-
-    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
-        """
-        The CDF between the grid's nodes. Below the cut the nodes are dense and the interpolation is the obvious
-        linear one. Above it they are a fixed factor of survival apart, and a chord in ``F`` would join them under a
-        concave curve, biasing the far-tail quantile 1e-3 long. The survival of a coalescent tail is close to
-        exponential, so ``log(1 - F)`` is close to a straight line and is what the tail interpolates in:
-        ``S(x) = S_i exp(-(x - x_i) / lambda_i)``. :meth:`_interp_quantile` inverts this very map and
-        :meth:`_interp_pdf` differentiates it, which is what makes the three exactly consistent.
-
-        :param t: Points to evaluate at.
-        :param nodes: The grid's nodes.
-        :param cdf: The CDF on them.
-        :param n: Number of leading cosine nodes.
-        :return: The CDF at ``t``.
-        """
-        xs, cs = self._cos_cdf_grid
-        out = np.interp(t, xs, cs)  # below the cut this is the whole answer, and no tail node enters it
-
-        if n < len(nodes):
-            tail = t > nodes[n]
-            if tail.any():
-                out[tail] = 1.0 - np.exp(np.interp(t[tail], nodes[n:], self._log_survival(cdf[n:])))
-
-        return out
-
-    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
-        """The exact inverse of :meth:`_interp_cdf`'s map, so that ``cdf(quantile(q)) == q``.
-
-        :param q: Probability levels.
-        :param nodes: The grid's nodes.
-        :param cdf: The CDF on them.
-        :param n: Number of leading cosine nodes.
-        :return: The quantiles at ``q``.
-        """
-        xs, cs = self._cos_cdf_grid
-        out = np.interp(q, cs, xs)  # the grid is monotone, so below the cut the inverse is an interpolation
-
-        if n < len(nodes):
-            tail = q > cdf[n]  # ``cdf[n]`` is the cut itself, the anchor the tail hangs off
-            if tail.any():
-                ls = self._log_survival(cdf[n:])
-                out[tail] = np.interp(-self._log_survival(q[tail]), -ls, nodes[n:])
-
-        return out
-
-    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
-        """The derivative of :meth:`_interp_cdf`'s map: a finite difference of the dense cosine nodes below the cut,
-        and above it the analytic ``f(x) = S(x) / lambda_i`` of the log-linear tail, which is positive and continuous
-        within an interval rather than a staircase of chords.
-
-        :param t: Points to evaluate at.
-        :param nodes: The grid's nodes.
-        :param cdf: The CDF on them.
-        :param n: Number of leading cosine nodes.
-        :return: The density at ``t``.
-        """
-        xs, cs = self._cos_cdf_grid
-        out = np.interp(t, xs, np.gradient(cs, xs))
-
-        if n < len(nodes):
-            tail = t > nodes[n]
-            if tail.any():
-                ls, xs = self._log_survival(cdf[n:]), nodes[n:]
-                i = np.clip(np.searchsorted(xs, t[tail]) - 1, 0, len(xs) - 2)
-                decay = (xs[i + 1] - xs[i]) / np.maximum(ls[i] - ls[i + 1], 1e-300)
-                out[tail] = np.exp(np.interp(t[tail], xs, ls)) / decay
-
-        return out
-
-    @staticmethod
-    def _log_survival(cdf: np.ndarray) -> np.ndarray:
-        """``log(1 - F)``, floored so that a CDF saturated at 1 does not take the logarithm to negative infinity."""
-        return np.log(np.maximum(1.0 - np.asarray(cdf, dtype=float), 1e-300))
+        return nodes[order], np.maximum.accumulate(self._hazard(values[order]))
 
 
 class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):
@@ -579,14 +622,12 @@ class _GridDensityFunction(DensityFunction):
     """Density whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
 
     def plot(self, ax: 'plt.Axes' = None, t: np.ndarray = None, show: bool = True, file: str = None,
-             clear: bool = True, label: str = None, title: str = 'PDF', dx: float = None) -> 'plt.Axes':
+             clear: bool = True, label: str = None, title: str = 'PDF') -> 'plt.Axes':
         from ..visualization import Visualization
         d = self._distribution
-        if dx is None:
-            dx = d.quantile(Settings.plot_endpoint_quantile) / 1e10
         if t is None:
             t = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
-        return Visualization.plot(ax=ax, x=t, y=self(t, dx=dx), xlabel='t', ylabel='f(t)', label=label, file=file,
+        return Visualization.plot(ax=ax, x=t, y=self(t), xlabel='t', ylabel='f(t)', label=label, file=file,
                                   show=show, clear=clear, title=title)
 
 
@@ -597,8 +638,9 @@ class _GridQuantileFunction(QuantileFunction):
              clear: bool = True, label: str = None, title: str = 'Quantile function') -> 'plt.Axes':
         from ..visualization import Visualization
         if q is None:
-            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, Settings.plot_n_grid)
-        return Visualization.plot(ax=ax, x=q, y=np.array([self(float(p)) for p in q]), xlabel='q', ylabel='quantile',
+            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile,
+                            Settings.plot_n_grid)
+        return Visualization.plot(ax=ax, x=q, y=self(q), xlabel='q', ylabel='quantile',
                                   label=label, file=file, show=show, clear=clear, title=title)
 
 
@@ -1286,7 +1328,9 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         Plot cumulative distribution function.
 
         :param ax: Axes to plot on.
-        :param t: Values to evaluate the CDF at. By default, 200 evenly spaced values between 0 and the 99th percentile.
+        :param t: Values to evaluate the CDF at. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -1330,13 +1374,14 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
 
         :param ax: The axes to plot on.
         :param t: Values to evaluate the density function at.
-            By default, 200 evenly spaced values between 0 and the 99th percentile.
+            Defaults to a grid over :attr:`~phasegen.settings.Settings.plot_n_grid`
+            points up to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param label: Label for the plot.
         :param title: Title of the plot.
-        :param dx: Step size for numerical differentiation. By default, the 99th percentile divided by 1e10.
+        :param dx: Step size for numerical differentiation. Defaults to the plot endpoint divided by 1e10.
         :return: Axes.
         """
         from ..visualization import Visualization

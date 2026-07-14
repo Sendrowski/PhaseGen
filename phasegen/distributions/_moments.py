@@ -760,21 +760,21 @@ class MomentEvaluator:
 
         return absorbing, reach
 
-    def _assert_absorbs(self, T: np.ndarray) -> None:
+    def _assert_absorbs(self, w: np.ndarray) -> None:
         """
         Raise if the demography can never absorb. Distinguishes a *structural* barrier (an isolated deme or a
         one-way/blocked migration in the final, unbounded epoch, leaving lineages that can never coalesce) from a
-        merely slow or numerically imprecise computation. ``T`` is the transition matrix integrated to a large time,
-        so ``alpha @ T`` is the occupation distribution there and its support is exactly the mass still in play; the
-        final epoch's rate graph (``state_space`` is expected to be updated to it) tells us which states can
-        structurally reach absorption. Residual mass parked on states that cannot is permanent. Shared by the
-        absorption-time and quantile searches, both of which otherwise silently run to their iteration ceiling.
+        merely slow or numerically imprecise computation. ``w = alpha @ T`` is the occupation distribution at a large
+        time, so its support is exactly the mass still in play; the final epoch's rate graph (``state_space`` is
+        expected to be updated to it) tells us which states can structurally reach absorption. Residual mass parked on
+        states that cannot is permanent. Called by the absorption-time search, which otherwise silently runs to its
+        iteration ceiling.
 
-        :param T: Transition matrix integrated from time 0 to a large time in the final, unbounded epoch.
+        :param w: Occupation distribution ``alpha @ T`` at a large time in the final, unbounded epoch.
         :raises ValueError: if a non-negligible fraction of the mass can never reach a common ancestor.
         """
         _, reach = self._reaches_absorption()
-        stuck = float((self.state_space.alpha @ T)[~reach].sum())
+        stuck = float(np.asarray(w)[~reach].sum())
 
         if stuck > 1e-8:
             raise ValueError(

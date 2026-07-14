@@ -1,8 +1,8 @@
 """Phase-type distribution (moment engine) and the tree-height distribution."""
 
 import logging
-from ..caching import cached_property, cache
-from typing import Tuple, Collection, Iterable, Sequence, Union, TYPE_CHECKING
+from ..caching import cached_property
+from typing import Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.sparse as sp
 from ..demography import Demography, Epoch
@@ -15,7 +15,7 @@ from ..spectrum import SFS
 from ..state_space import LineageCountingStateSpace, StateSpace
 
 from .base import CallableDistributionFunctions, DensityAwareDistribution, MarginalDemeDistributions, \
-    MarginalLocusDistributions, MomentAwareDistribution, \
+    MarginalLocusDistributions, MomentAwareDistribution, _HazardGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
 from ._moments import MomentEvaluator
 
@@ -553,8 +553,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             of having reached absorption at a certain time.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and the
-            99th percentile.
+        :param end_times: Times when to evaluate the moment. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
@@ -573,7 +574,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         from ..visualization import Visualization
 
         if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
+            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
+                                    Settings.plot_n_grid)
 
         if rewards is None:
             rewards = (self.reward,) * k
@@ -597,181 +599,159 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         )
 
 
-class _ExpmCumulativeDistributionFunction(_GridCumulativeDistributionFunction):
+class _ExpmFunction(_HazardGrid):
+    """
+    Mixin owning the tree-height's matrix-exponential machinery for its function objects. The point evaluator is
+    ``d._sweep`` (see :meth:`TreeHeightDistribution._sweep`), which propagates ``w = alpha @ prod_e exp(Q_e tau_e)``
+    through the epochs and reads off both ``F(t) = 1 - w @ e`` and ``f(t) = -w @ Q @ e`` -- the CDF *and* its exact
+    derivative, so nothing here differences the CDF numerically.
+
+    An expm point is orders of magnitude cheaper than the de Hoog inversion of an LST distribution
+    (:class:`~.base._LSTFunction`), so the cdf and pdf simply evaluate it and are exact at every point asked for. The
+    quantile is the one function the transform cannot hand back directly, and it reads the shared
+    :class:`~.base._HazardGrid` -- whose nodes are exact expm values throughout -- by inverse interpolation, in one
+    vectorised pass.
+    """
+    #: Nodes of the grid the quantile inverts. Matches the LST grid's :attr:`~.base._LSTFunction._cos_n_grid`, and
+    #: like it costs only an evaluation each (here a matrix-vector product) against the exponentials behind it.
+    _n_grid: int = 8192
+
+    #: Octaves the locating pass spans below ``t_max``, and its nodes per octave. Doubling down from ``t_max``, rather
+    #: than stepping uniformly, is what makes the pass indifferent to *where* the mass sits: ``t_max`` is fixed by the
+    #: slowest rate in the demography and the bulk by the fastest, so on a bottleneck the two are orders of magnitude
+    #: apart.
+    _n_probe_octaves: int = 30
+    _n_probe_per_octave: int = 16
+
+    #: Cumulative hazard per segment of the resolving pass. The segments are the level sets of the locating pass's
+    #: hazard, so the nodes end up graded *by the curve*: dense where it turns, sparse through the long flat tail.
+    _segment_hazard_step: float = 1.0
+
+    def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
+        """The grid, built once and spanning the whole support (unlike the LST grid, there is no expensive far tail
+        to extend into lazily: the nodes are exact everywhere and cost a matrix-vector product each)."""
+        return self._shared('expm_cdf_grid', self._build_cdf_grid)
+
+    def _build_cdf_grid(self) -> tuple:
+        """
+        The grid, in **two passes**, mirroring the two-pass cosine fit of an LST distribution: a coarse pass over
+        octaves doubling down from ``t_max`` locates where the CDF actually rises, then the nodes are laid down
+        uniformly *within* segments of equal cumulative hazard, read off that pass.
+
+        Grading the nodes by the hazard rather than spreading them along the axis is what makes this accurate. A
+        uniform grid over ``[0, t_max]`` spends its nodes where nothing happens: ``t_max`` is set by the slowest rate
+        in the demography and the bulk by the fastest, so under a bottleneck almost every node lands in the empty tail
+        and the few left across the bulk leave cells straddling percents of the mass.
+
+        The epoch boundaries are forced in as segment bounds: the rates change there, so the CDF has a kink, and a
+        node on the kink is what keeps the piecewise-linear hazard from cutting the corner.
+        """
+        d = self._distribution
+        t_max = float(d.t_max)
+
+        # pass 1 (locate): octaves down from t_max, uniform within each, so one exponential covers each octave
+        octaves = [0.0] + [t_max * 2.0 ** -k for k in range(self._n_probe_octaves, -1, -1)]
+        x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
+        h_probe = np.maximum.accumulate(self._hazard(cdf_probe))
+
+        # pass 2 (resolve): segment bounds at equal steps of that hazard, plus the epoch kinks
+        levels = np.arange(0.0, h_probe[-1], self._segment_hazard_step)
+        bounds = set(np.interp(levels, h_probe, x_probe))
+        bounds |= {e.start_time for e in d._get_epochs_until_unbounded() if 0.0 < e.start_time < t_max}
+        bounds = sorted(bounds | {0.0, t_max})
+
+        nodes, cdf, _ = d._sweep_uniform(bounds, self._n_grid)
+
+        return nodes, np.maximum.accumulate(self._hazard(cdf))
+
+
+class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistributionFunction):
     """The tree-height CDF by direct matrix exponentiation: ``P(R <= t) = 1 - alpha @ prod_e exp(Q_e tau_e) @ e``,
-    accumulating the per-epoch transition matrices up to ``t``. Reaches into the
-    :class:`TreeHeightDistribution` for the state space, demography, epochs and reward (the exit vector)."""
+    exact at every point asked for."""
 
     def __call__(self, t) -> 'np.ndarray | float':
-        """Cumulative distribution function. Scalar or array-valued; raises for non-default rewards."""
+        """
+        CDF ``P(R <= t)``, for a scalar or an array of ``t``.
+
+        :param t: Point(s) at which to evaluate the CDF.
+        :return: The CDF at ``t``, of the same shape.
+        :raises NotImplementedError: If the distribution's reward is not the tree height.
+        """
         d = self._distribution
 
-        # raise error if rewards are not default
+        if not isinstance(d.reward, TreeHeightReward):
+            raise NotImplementedError("CDF not implemented for non-default rewards.")
+
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
+
+        if np.any(ta < 0):
+            raise ValueError("Negative values are not allowed.")
+
+        # the sweep is monotone in time, so evaluate in sorted order and restore the caller's order afterwards
+        order = np.argsort(ta)
+        probs = np.empty_like(ta)
+        probs[order] = d._sweep(ta[order])[0]
+
+        if np.isnan(probs).any():
+            d._logger.critical("NaN values in CDF. This is likely due to an ill-conditioned rate matrix.")
+
+        return probs if np.ndim(t) > 0 else float(probs[0])
+
+
+class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
+    """The tree-height quantile by inverse interpolation of the shared hazard grid (:meth:`_ExpmFunction._cdf_grid`),
+    whose nodes carry exact matrix-exponential CDF values."""
+
+    def __call__(self, q) -> 'np.ndarray | float':
+        """
+        The ``q``-quantile ``inf{t : F(t) >= q}``, for a scalar or an array of ``q``, in one vectorised pass.
+
+        Levels beyond the grid's last node clamp to it: that node is the time of almost-sure absorption (or the
+        user-supplied end time), so there is nothing above it to resolve.
+
+        :param q: Probability level(s) in ``[0, 1]``.
+        :return: The quantile(s), of the same shape as ``q``.
+        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        """
+        qa = np.atleast_1d(np.asarray(q, dtype=float))
+
+        if np.any((qa < 0) | (qa > 1)):
+            raise ValueError("Specified quantile must be between 0 and 1.")
+
+        out = self._interp_quantile(qa, *self._cdf_grid())
+
+        return out if np.ndim(q) > 0 else float(out[0])
+
+
+class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
+    """The tree-height density by direct matrix exponentiation: ``f(t) = -alpha @ prod_e exp(Q_e tau_e) @ Q @ e``,
+    the exit-rate reading of the same propagated vector the CDF is read off. Exact, and in particular not a finite
+    difference of the CDF (which it used to be, at a step of ``quantile(0.99) / 1e10``, where the subtraction throws
+    away most of the CDF's significant digits)."""
+
+    def __call__(self, t) -> 'np.ndarray | float':
+        """
+        Density, for a scalar or an array of ``t``.
+
+        :param t: Point(s) at which to evaluate the density.
+        :return: The density at ``t``, of the same shape.
+        :raises NotImplementedError: If the distribution's reward is not the tree height.
+        """
+        d = self._distribution
+
         if not isinstance(d.reward, TreeHeightReward):
             raise NotImplementedError("PDF not implemented for non-default rewards.")
 
-        # assume scalar if not array
-        if not isinstance(t, Iterable):
-            return self(np.array([t]))[0]
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
 
-        # check for negative values
-        if np.any(t < 0):
+        if np.any(ta < 0):
             raise ValueError("Negative values are not allowed.")
 
-        # sort array in ascending order but keep track of original indices
-        t_sorted: Collection[float] = np.sort(t).astype(float)
+        order = np.argsort(ta)
+        dens = np.empty_like(ta)
+        dens[order] = d._sweep(ta[order])[1]
 
-        epochs = enumerate(d.demography.epochs)
-        i_epoch, epoch = next(epochs)
-
-        # get the transition matrix for the first epoch
-        d.state_space.update_epoch(epoch)
-
-        # initialize transition matrix
-        T = np.eye(d.state_space.k)
-        u_prev = 0
-
-        # initialize probabilities
-        probs = np.zeros_like(t_sorted)
-
-        # take reward vector as exit vector
-        e = d.reward._get(d.state_space)
-
-        # iterate through sorted values
-        for i, u in enumerate(t_sorted):
-
-            # iterate over epochs between u_prev and u
-            while u > epoch.end_time:
-                d._check_numerical_stability(d.state_space.S, i_epoch)
-
-                # update transition matrix with remaining time in current epoch
-                T @= expm(d._dense_rate_matrix() * (epoch.end_time - u_prev))
-
-                # fetch and update for next epoch
-                u_prev = epoch.end_time
-                i_epoch, epoch = next(epochs)
-                d.state_space.update_epoch(epoch)
-
-            d._check_numerical_stability(d.state_space.S, i_epoch)
-
-            # update transition matrix with remaining time in current epoch
-            T @= expm(d._dense_rate_matrix() * (u - u_prev))
-
-            probs[i] = 1 - d.state_space.alpha @ T @ e
-
-            u_prev = u
-
-        # sort probabilities back to original order (inverse of the sorting permutation)
-        probs = probs[np.argsort(np.argsort(t))]
-
-        if np.isnan(probs).any():
-            d._logger.critical(
-                "NaN values in CDF. This is likely due to an ill-conditioned rate matrix."
-            )
-
-        return probs
-
-
-class _ExpmQuantileFunction(_GridQuantileFunction):
-    """The tree-height quantile by adaptive bisection on the exact (matrix-exponential) CDF, bounded by the time of
-    almost-sure absorption. Reaches into the :class:`TreeHeightDistribution` for the epoch machinery."""
-
-    def __call__(
-            self,
-            q,
-            expansion_factor: float = 2,
-            precision: float = 1e-5,
-            max_iter: int = 1000
-    ) -> 'np.ndarray | float':
-        """
-        The ``q``-quantile of the CDF, for a scalar or an array of ``q``. The bisection itself is inherently scalar
-        (and cached per level), so an array is answered level by level.
-
-        :param q: Probability level(s) in ``[0, 1]``.
-        :param expansion_factor: Factor by which the bracketing upper bound grows.
-        :param precision: Absolute convergence tolerance of the bisection.
-        :param max_iter: Maximum bisection iterations.
-        :return: The quantile(s), of the same shape as ``q``.
-        """
-        if np.ndim(q) > 0:
-            return np.array([self._quantile(float(p), expansion_factor, precision, max_iter) for p in np.asarray(q)])
-        return self._quantile(float(q), expansion_factor, precision, max_iter)
-
-    @cache
-    def _quantile(
-            self,
-            q: float,
-            expansion_factor: float = 2,
-            precision: float = 1e-5,
-            max_iter: int = 1000
-    ) -> float:
-        """The ``q``-quantile by adaptive bisection on the exact CDF (cached per level)."""
-        d = self._distribution
-
-        if q < 0 or q > 1:
-            raise ValueError("Specified quantile must be between 0 and 1.")
-
-        if expansion_factor <= 1:
-            raise ValueError("Expansion factor must be greater than 1.")
-
-        # finite upper bound for the search: the time of almost-sure absorption (any quantile q < 1 lies below it).
-        # This also guards against a demography that never absorbs — ``_get_absorption_time`` raises in that case —
-        # and keeps the expansion below from doubling ``b`` to an overflow-inducing ceiling. A user-supplied end
-        # time bounds the (necessarily proper) distribution instead.
-        b_max = d.end_time if d.end_time is not None else d._get_absorption_time()
-
-        # initialize bounds
-        a, b = 0, 1
-
-        T_a = np.eye(d.state_space.k)
-        epoch_a, epoch_b = d.demography.get_epoch(0), d.demography.get_epoch(0)
-        b, T_b, epoch_b = d._update(min(b, b_max), a, T_a, epoch_b)
-
-        i = 0
-
-        # expand the upper bound until its CDF reaches q (bounded by the absorption time, so it always terminates)
-        while d._cum(T_b) < q and b < b_max and i < max_iter:
-            b, T_b, epoch_b = d._update(min(b * expansion_factor, b_max), b, T_b, epoch_b)
-
-            i += 1
-
-        # use bisection method within the determined bounds
-        while d._cum(T_b) - d._cum(T_a) > precision and i < max_iter:
-            m, T_m, epoch_m = d._update((a + b) / 2, a, T_a, epoch_a)
-
-            if d._cum(T_m) < q:
-                a, T_a, epoch_a = m, T_m, epoch_m
-            else:
-                b, T_b, epoch_b = m, T_m, epoch_m
-
-            i += 1
-
-        # warn if maximum number of iterations reached
-        if i - 1 == max_iter:
-            raise RuntimeError("Maximum number of iterations reached when determining quantile.")
-
-        return (a + b) / 2
-
-
-class _ExpmDensityFunction(_GridDensityFunction):
-    """The tree-height density by numerical differentiation of the exact (matrix-exponential) CDF (which is exact
-    and continuous, so a central difference is accurate)."""
-
-    def __call__(self, t: float | Sequence[float], dx: float = None) -> float | np.ndarray:
-        """Density function (central difference of the CDF)."""
-        d = self._distribution
-
-        if dx is None:
-            dx = d.quantile(0.99) / 1e10
-
-        if isinstance(t, Iterable):
-            t = np.array(t)
-
-        # determine (non-negative) evaluation points
-        x1 = np.max([t - dx / 2, np.zeros_like(t)], axis=0)
-        x2 = x1 + dx
-
-        return (d.cdf(x2) - d.cdf(x1)) / dx
+        return dens if np.ndim(t) > 0 else float(dens[0])
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
@@ -859,39 +839,31 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         #: End time
         self.end_time: float | None = end_time
 
-    def _update(
-            self,
-            u: float,
-            u_prev: float,
-            T: np.ndarray,
-            epoch: 'Epoch'
-    ) -> Tuple[float, np.ndarray, 'Epoch']:
+    def _propagate(self, w: np.ndarray, tau: float) -> np.ndarray:
         """
-        Update transition matrix and time.
+        Advance the row vector ``w = alpha @ prod exp(Q tau)`` by ``tau`` in the *current* epoch: ``w @ exp(S tau)``.
 
-        :param u: Time to update to.
-        :param u_prev: Previous time.
-        :param T: Transition matrix.
-        :param epoch: Current epoch.
-        :return: Updated time, transition matrix, and epoch.
+        Only ``alpha @ T @ e`` is ever read off the propagator, so the row vector is carried rather than the ``k x k``
+        matrix, and the choice of how to apply the exponential follows the same configuration as the moment engine
+        (:meth:`~._moments.MomentEvaluator._accumulate`): above :attr:`~phasegen.settings.Settings.expm_action_min_dim`
+        the (sparse) matrix-exponential *action* is applied to the vector, below it the dense exponential is formed.
+        A dense ``k x k`` exponential of a state space this machinery is asked for at large ``n`` is precisely what
+        :attr:`~phasegen.settings.Settings.dense_rate_matrix_max_states` exists to avoid.
+
+        :param w: The row vector to advance.
+        :param tau: Time to advance by, within the current epoch.
+        :return: The advanced row vector.
         """
-        self.state_space.update_epoch(epoch)
+        if tau <= 0:
+            return w
 
-        while u > epoch.end_time:
+        S = self.state_space.S
 
-            # update transition matrix with remaining time in current epoch
-            tau = epoch.end_time - u_prev
-            T = T @ expm(self._dense_rate_matrix() * tau)
-            u_prev = epoch.end_time
+        # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
+        if self.state_space.k >= Settings.expm_action_min_dim:
+            return Backend.expm_multiply((sp.csr_matrix(S) * tau).T.tocsr(), w)
 
-            # fetch and update for next epoch
-            epoch = self.demography.get_epoch(epoch.end_time)
-            self.state_space.update_epoch(epoch)
-        else:
-            # update transition matrix
-            T = T @ expm(self._dense_rate_matrix() * (u - u_prev))
-
-        return u, T, epoch
+        return w @ expm(self._dense_rate_matrix() * tau)
 
     @cached_property
     def _e(self) -> np.ndarray:
@@ -900,14 +872,110 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         return self.reward._get(self.state_space)
 
-    def _cum(self, T: np.ndarray) -> float:
+    def _cum(self, w: np.ndarray) -> float:
         """
-        Get cumulative probability for given transition matrix.
+        The cumulative probability carried by a propagated row vector: ``F(t) = 1 - w @ e``.
 
-        :param T: Transition matrix.
+        :param w: The propagated row vector ``alpha @ T``.
         :return: Cumulative probability.
         """
-        return float(1 - self.state_space.alpha @ T @ self._e)
+        return float(1 - w @ self._e)
+
+    def _sweep_to(self, w: np.ndarray, u_prev: float, u: float, epoch: 'Epoch') -> np.ndarray:
+        """
+        Advance the row vector from ``u_prev`` to ``u``, crossing whatever epoch boundaries lie between (the rate
+        matrix changes at each, so the exponential is taken piecewise). Leaves the state space updated to the epoch
+        containing ``u``, whose rate matrix the caller needs to read off the density.
+
+        :param w: The row vector at ``u_prev``.
+        :param u_prev: Time the vector is currently at.
+        :param u: Time to advance to.
+        :param epoch: Epoch containing ``u_prev``.
+        :return: The row vector at ``u``.
+        """
+        self.state_space.update_epoch(epoch)
+
+        while u > epoch.end_time:
+            self._check_numerical_stability(self.state_space.S, 0)
+            w = self._propagate(w, epoch.end_time - u_prev)
+
+            u_prev = epoch.end_time
+            epoch = self.demography.get_epoch(epoch.end_time)
+            self.state_space.update_epoch(epoch)
+
+        self._check_numerical_stability(self.state_space.S, 0)
+
+        return self._propagate(w, u - u_prev)
+
+    def _exit_rates(self) -> np.ndarray:
+        """The exit-rate vector ``-S @ e`` of the *current* epoch: the density is ``f(t) = w @ (-S @ e)`` for the
+        propagated ``w``, since ``F = 1 - w e`` and ``d/dt (w e) = w S e``."""
+        return -(self.state_space.S @ self._e)
+
+    def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The exact CDF *and* density at the ascending times ``t``, in one pass: propagate ``w = alpha @ T(u)`` through
+        the epochs, reading off ``F = 1 - w @ e`` and ``f = w @ (-S @ e)`` at each. The density is the exit-rate
+        reading of the very same vector, so it costs one matrix-vector product and needs no finite difference.
+
+        :param t: Ascending times to evaluate at.
+        :return: The CDF and the density at ``t``.
+        """
+        w = np.asarray(self.state_space.alpha, dtype=float)
+        epoch = self.demography.get_epoch(0)
+        u_prev = 0.0
+
+        cdf, pdf = np.zeros(len(t)), np.zeros(len(t))
+
+        for i, u in enumerate(t):
+            w = self._sweep_to(w, u_prev, float(u), epoch)
+            epoch = self.demography.get_epoch(float(u))
+
+            cdf[i] = self._cum(w)
+            pdf[i] = float(w @ self._exit_rates())
+            u_prev = float(u)
+
+        return cdf, pdf
+
+    def _sweep_uniform(self, bounds: Sequence[float], n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        The exact CDF and density on roughly ``n`` nodes, spread uniformly *within* each segment of ``bounds``, with
+        every bound landing exactly on a node. The node budget is split equally between segments, so the segmentation
+        is what grades the nodes (see :meth:`~._ExpmFunction._build_cdf_grid`, which chooses segments of equal
+        cumulative hazard).
+
+        Uniform within a segment is what makes this affordable at large ``n``: the propagator ``exp(S dt)`` is then
+        the same for every step of the segment, so the dense path forms one exponential per segment and applies it
+        repeatedly, rather than one per node.
+
+        :param bounds: Ascending segment boundaries, the first of which the propagation starts from.
+        :param n: Approximate total number of nodes.
+        :return: The nodes, the CDF and the density on them.
+        """
+        w = np.asarray(self.state_space.alpha, dtype=float)
+        self.state_space.update_epoch(self.demography.get_epoch(bounds[0]))
+
+        nodes, cdf, pdf = [bounds[0]], [self._cum(w)], [float(w @ self._exit_rates())]
+        n_seg = max(1, int(round(n / (len(bounds) - 1))))
+
+        for i_seg, (start, end) in enumerate(zip(bounds[:-1], bounds[1:])):
+            self.state_space.update_epoch(self.demography.get_epoch((start + end) / 2))
+            self._check_numerical_stability(self.state_space.S, i_seg)
+
+            dt = (end - start) / n_seg
+
+            # the same step throughout the segment, so the dense path exponentiates once and reuses the propagator
+            dense = self.state_space.k < Settings.expm_action_min_dim
+            P = expm(self._dense_rate_matrix() * dt) if dense else None
+            s = self._exit_rates()
+
+            for j in range(n_seg):
+                w = w @ P if dense else self._propagate(w, dt)
+                nodes.append(start + (j + 1) * dt)
+                cdf.append(self._cum(w))
+                pdf.append(float(w @ s))
+
+        return np.array(nodes), np.array(cdf), np.array(pdf)
 
     @cached_property
     def t_max(self) -> float:
@@ -938,7 +1006,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         can happen before almost sure absorption (exponential runaway growth, temporary isolation in different demes).
         """
         i = 0
-        T = np.eye(self.state_space.k)
         epoch = self.demography.get_epoch(0)
 
         self._check_demography_conditioning()
@@ -946,13 +1013,14 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         t = 2 ** int(np.log2(np.mean(list(epoch.pop_sizes.values()))))
         expansion_factor = 2
 
-        t, T, epoch = self._update(t, 0, T, epoch)
-        p = self._cum(T)
+        w = self._sweep_to(np.asarray(self.state_space.alpha, dtype=float), 0.0, t, epoch)
+        p = self._cum(w)
 
         # multiple time by expansion_factor until we reach p_absorption
         while p < self.p_absorption and i < self.max_iter:
-            t, T, epoch = self._update(t * expansion_factor, t, T, epoch)
-            p = self._cum(T)
+            w = self._sweep_to(w, t, t * expansion_factor, self.demography.get_epoch(t))
+            t = t * expansion_factor
+            p = self._cum(w)
 
             if np.isnan(p):
                 self._logger.critical(
@@ -967,7 +1035,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # if absorption was not reached, fail loudly for a demography that *never* absorbs rather than returning the
         # doubling ceiling (see :meth:`_assert_absorbs`).
         if p < self.p_absorption and not np.isnan(p):
-            self._assert_absorbs(T)
+            self._assert_absorbs(w)
 
         if i - 1 == self.max_iter:
             self._logger.warning(
@@ -987,12 +1055,14 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param n_samples: Number of samples to generate.
         :param reward: Reward function to use for sampling. If not specified,
             the default reward of the distribution is used.
-        :param t: Values at which to evaluate the CDF. Default to 100 evenly spaced values
-            between 0 and the 99th percentile.
+        :param t: Values at which to evaluate the CDF. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :return: Sorted array of sampled total rewards.
         """
         if t is None:
-            t = np.linspace(0, self.tree_height.quantile(0.99), 100)
+            t = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
+                            Settings.plot_n_grid)
 
         samples = self._sample(n_samples, reward).reshape(n_samples)
 
@@ -1020,8 +1090,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param n_samples: Number of samples to generate.
         :param reward: Reward function to use for sampling. If not specified,
             the default reward of the distribution is used.
-        :param t: Values at which to evaluate the CDF. Default to 100 evenly spaced values
-            between 0 and the 99th percentile.
+        :param t: Values at which to evaluate the CDF. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -1033,7 +1104,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         from ..visualization import Visualization
 
         if t is None:
-            t = np.linspace(0, self.tree_height.quantile(0.99), 100)
+            t = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
+                            Settings.plot_n_grid)
 
         y = self._empirical_cdf(n_samples, reward, t)
 
