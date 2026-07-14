@@ -31,6 +31,7 @@ from .phase_type import (
 )
 from .reward import (
     RewardDistribution,
+    ConditionalRewardDistribution,
     JointRewardDistribution,
 )
 from .spectra import (
@@ -85,6 +86,7 @@ __all__ = [
     "TreeHeightDistribution",
     "TotalBranchLengthDistribution",
     "RewardDistribution",
+    "ConditionalRewardDistribution",
     "JointRewardDistribution",
     "SFSDistribution",
     "TajimaSFSMixin",

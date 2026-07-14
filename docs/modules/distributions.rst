@@ -21,6 +21,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.MarginalLocusDistributions
    ~phasegen.distributions.MarginalDemeDistributions
    ~phasegen.distributions.RewardDistribution
+   ~phasegen.distributions.ConditionalRewardDistribution
    ~phasegen.distributions.JointRewardDistribution
    ~phasegen.distributions.DistributionFunction
    ~phasegen.distributions.DensityFunction
@@ -69,6 +70,8 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.MarginalDemeDistributions
 
 .. autoclass:: phasegen.distributions.RewardDistribution
+
+.. autoclass:: phasegen.distributions.ConditionalRewardDistribution
 
 .. autoclass:: phasegen.distributions.JointRewardDistribution
 

@@ -382,8 +382,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             of having reached absorption at a certain time.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
-            the 99th percentile.
+        :param end_times: Times when to evaluate the moment. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
@@ -406,7 +407,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             ax = plt.gca()
 
         if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
+            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
+                                    Settings.plot_n_grid)
 
         if rewards is None:
             rewards = (self.reward,) * k
@@ -1609,7 +1611,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
         Plot accumulation of joint SFS moments over time, one curve per (polymorphic) bin.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. Defaults to 200 points up to the 99th percentile.
+        :param end_times: Times when to evaluate the moment. Defaults to :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards.
         :param ax: The axes to plot on.
@@ -1628,7 +1631,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
             ax = plt.gca()
 
         if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(0.99), 200)
+            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
+                                    Settings.plot_n_grid)
 
         end_times = np.asarray(list(end_times))
 

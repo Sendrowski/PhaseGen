@@ -9,6 +9,9 @@ Changelog
 - Add a vectorised trajectory sampler (:meth:`to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`SampledCoalescent <phasegen.distributions.SampledCoalescent>`) as a sampled counterpart of every distribution.
 - Support time-inhomogeneous (multi-epoch) demographies for :meth:`mutational block configurations <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>`.
 - Substantially speed up the closed-form last-epoch moments with a block-triangular sparse LU (strongly-connected-component ordering, ``NATURAL`` column order), giving order-of-magnitude speedups on jSFS and two-locus spectra by lowering the dense/sparse crossover to a few hundred states (:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`).
+- Make the tree-height density exact (the exit-rate reading of the propagated vector, rather than a finite difference of the CDF) and the quantile a vectorised inverse interpolation of the shared hazard grid, rather than a per-level bisection of the CDF.
+- Propagate the tree-height cdf / pdf / quantile through the same dense / sparse / matrix-exponential-action machinery as the moments (:attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`), so a large state space is no longer densified into a ``k x k`` propagator.
+- Return a public :class:`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>` from :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`, carrying its own :attr:`var <phasegen.distributions.ConditionalRewardDistribution.var>` and :meth:`moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
 
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
