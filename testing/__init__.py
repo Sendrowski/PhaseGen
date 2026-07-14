@@ -7,6 +7,17 @@ import sys
 from pathlib import Path
 from unittest import TestCase as BaseTestCase
 
+# Pin the BLAS/numba thread pools to one thread per process. Under ``pytest -n auto`` every xdist worker would
+# otherwise open a pool sized to the whole machine, and the workers spend their time contending rather than working
+# (the suite takes 21:30 instead of 5:20). This must happen before numpy is imported, because BLAS reads the
+# variables when its shared library loads; the root ``conftest`` gets there first, and this repeats it for the case
+# where the suite is run with a rootdir that does not pick that conftest up. ``blas_pinned_late`` records the case
+# the variables cannot fix -- numpy already resident, so its pool is already sized -- which ``conftest`` reports.
+blas_pinned_late = 'numpy' in sys.modules and not os.environ.get('PHASEGEN_ALLOW_THREADS')
+
+for _var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS'):
+    os.environ.setdefault(_var, '1')
+
 import matplotlib
 
 # force a non-interactive backend so figures don't pop up during normal test runs; set

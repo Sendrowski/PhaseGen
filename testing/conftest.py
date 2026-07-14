@@ -1,9 +1,41 @@
 """
 Shared pytest fixtures and hooks for the test suite.
 """
+import os
 from itertools import product
 
 import pytest
+
+_THREAD_VARS = ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS')
+
+
+def pytest_configure(config):
+    """
+    Refuse to run with unpinned BLAS/numba thread pools.
+
+    An unpinned run is not merely slow (4x, under ``-n auto``): the thread count changes the summation order of the
+    matrix exponential, and a tolerance tuned against one core count is then not reproducible on another. That is how
+    the conditional identity of the psi = 0.5, c = 50 Dirac came to sit on a bound it only met on this machine. A
+    warning would scroll past unread in a 700-test run, so this is an error. Set ``PHASEGEN_ALLOW_THREADS=1`` to run
+    unpinned deliberately (e.g. when timing a single test).
+    """
+    if os.environ.get('PHASEGEN_ALLOW_THREADS'):
+        return
+
+    from testing import blas_pinned_late
+
+    if blas_pinned_late:
+        raise pytest.UsageError(
+            "numpy was imported before the thread limits were set, so BLAS has already sized its pool and "
+            f"{', '.join(_THREAD_VARS)} no longer bite. Run pytest from the repository root (so the root conftest is "
+            "picked up), or set the variables in the environment before invoking it."
+        )
+
+    if unpinned := [v for v in _THREAD_VARS if os.environ.get(v) != '1']:
+        raise pytest.UsageError(
+            f"unpinned thread pools ({', '.join(unpinned)}); tolerances are tuned against single-threaded summation "
+            "order and the suite is 4x slower without them. Set them to 1, or PHASEGEN_ALLOW_THREADS=1 to override."
+        )
 
 
 @pytest.fixture(autouse=True)
