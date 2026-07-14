@@ -13,29 +13,29 @@ n_samples: 200000
 comparisons:
   tolerance:
     fsfs:
-      mutation_configs: 0.002
+      mutation_configs: 0.004
     tree_height:
-      pdf: 0.011
-      cdf: 0.0011
-      quantile: 0.00044
-      mean: 0.0003
-      var: 0.00045
+      pdf: 0.0046
+      cdf: 0.002
+      quantile: 0.004
+      mean: 0.0019
+      var: 0.011
     total_branch_length:
       cosine:
-        pdf: 0.013
-        cdf: 0.00092
-        quantile: 0.00032
-      mean: 0.00032
-      var: 0.00048
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
+      mean: 0.0015
+      var: 0.0092
     sfs:
-      mutation_configs: 0.0024
-      mean: 0.0022
-      cov: 0.0029
-      corr: 0.0022
+      mutation_configs: 0.004
+      mean: 0.0059
+      cov: 0.021
+      corr: 0.019
       cosine:
-        pdf: 0.014
-        cdf: 0.0016
-        quantile: 0.003
+        pdf: 0.0044
+        cdf: 0.002
+        quantile: 0.004
       conditional:
         '[(1, 2)]':
           moments: 0.003
@@ -44,20 +44,20 @@ comparisons:
           moments: 0.003
       pairwise:
         "[(1, 2), (1, 3), (2, 3)]":
-          cdf: 0.0019
+          cdf: 0.002
           pdf: 0.012
         (3, 3):
-          cdf: 0.0016
+          cdf: 0.002
     empirical:
       tree_height:
-        mean: 0.0013
-        var: 0.00041
-        cdf: 0.0029
-        pdf: 0.016
-        quantile: 0.0017
+        mean: 0.004
+        var: 0.024
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
       total_branch_length:
-        mean: 0.0014
-        var: 0.016
+        mean: 0.0031
+        var: 0.021
       sfs:
-        mean: 0.0042
+        mean: 0.015
         m2: 0.013

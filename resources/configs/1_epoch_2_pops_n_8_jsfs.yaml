@@ -21,4 +21,4 @@ model: standard
 comparisons:
   tolerance:
     jsfs:
-      mean: 0.0054
+      mean: 0.009

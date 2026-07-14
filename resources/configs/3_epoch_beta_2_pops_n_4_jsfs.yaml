@@ -30,7 +30,7 @@ comparisons:
     jsfs:
       pairwise:
         '((0, 1), (1, 0))':
-          cdf: 0.0024
+          cdf: 0.0045
           pdf: 0.05
-      mean: 0.0078
+      mean: 0.009
       var: 0.0095

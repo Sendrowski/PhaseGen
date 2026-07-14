@@ -37,6 +37,7 @@
     "n_loci": 2,
     "recombination_rate": 1.0,
     "num_replicates": 200000,
+    "n_samples": null,
     "mutation_rate": null,
     "record_migration": false,
     "simulate_mutations": false,
@@ -169,41 +170,7 @@
             },
             "_left": null,
             "_right": null,
-            "_joint": [
-                {
-                    "py/tuple": [
-                        1,
-                        2,
-                        1.5497084383419342,
-                        [
-                            {
-                                "py/tuple": [
-                                    1.1172555387630725,
-                                    0.7077191153195939,
-                                    0.308505,
-                                    0.2640935828946787
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.649113778470962,
-                                    0.38058789319199404,
-                                    0.297255,
-                                    0.2322331356340658
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    1.9934784626161788,
-                                    0.9363880529668921,
-                                    0.536455,
-                                    0.1186724543192674
-                                ]
-                            }
-                        ]
-                    ]
-                }
-            ],
+            "n_samples": 200000,
             "_joint_surface": [
                 {
                     "py/tuple": [

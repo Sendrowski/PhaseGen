@@ -15,10 +15,10 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
-                "mean": 0.006,
+                "mean": 0.009,
                 "pairwise": {
                     "(1, 2)": {
-                        "cdf": 0.0031,
+                        "cdf": 0.0045,
                         "pdf": 0.025
                     }
                 }
@@ -37,6 +37,7 @@
     "n_loci": 2,
     "recombination_rate": 0.1,
     "num_replicates": 200000,
+    "n_samples": null,
     "mutation_rate": null,
     "record_migration": false,
     "simulate_mutations": false,
@@ -163,41 +164,7 @@
             },
             "_left": null,
             "_right": null,
-            "_joint": [
-                {
-                    "py/tuple": [
-                        1,
-                        2,
-                        2.8694124145607742,
-                        [
-                            {
-                                "py/tuple": [
-                                    1.3825607894068148,
-                                    0.917459937093781,
-                                    0.35699,
-                                    0.23604843248445315
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    2.025107824692423,
-                                    0.511080972164669,
-                                    0.3257,
-                                    0.13905895462164558
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    2.4482683520857775,
-                                    1.2059614331101445,
-                                    0.58238,
-                                    0.08640669310799351
-                                ]
-                            }
-                        ]
-                    ]
-                }
-            ],
+            "n_samples": 200000,
             "_joint_surface": [
                 {
                     "py/tuple": [

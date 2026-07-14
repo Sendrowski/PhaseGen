@@ -14,6 +14,6 @@ comparisons:
     sfs2:
       pairwise:
         '[(1, 2), (2, 2)]':
-          cdf: 0.0041
+          cdf: 0.0045
           pdf: 0.063
-      mean: 0.0016
+      mean: 0.009

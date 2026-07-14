@@ -37,24 +37,24 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      mean: 0.01
-      var: 0.02
+      mean: 0.0006
+      var: 0.012
       #demes:
       #  mean: 0.01
     total_branch_length:
-      mean: 0.01
-      var: 0.02
+      mean: 0.00087
+      var: 0.0066
       #demes:
       #  mean: 0.01
     sfs:
-      mean: 0.01
-      cov: 0.07
-      corr: 0.07
+      mean: 0.007
+      cov: 0.033
+      corr: 0.03
       #demes:
       #  mean: 0.01
     fsfs:
-      mean: 0.01
-      cov: 0.07
-      corr: 0.07
+      mean: 0.0049
+      cov: 0.024
+      corr: 0.02
       #demes:
       #  mean: 0.01

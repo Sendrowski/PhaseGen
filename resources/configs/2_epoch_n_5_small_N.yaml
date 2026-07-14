@@ -13,26 +13,26 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      cdf: 0.0011
-      mean: 0.0017
-      var: 0.0033
-      pdf: 0.011
-      quantile: 0.002
+      cdf: 0.002
+      mean: 0.0039
+      var: 0.01
+      pdf: 0.004
+      quantile: 0.004
     total_branch_length:
-      mean: 0.0016
-      var: 0.0033
+      mean: 0.0037
+      var: 0.0096
       cosine:
-        pdf: 0.023
-        cdf: 0.0011
-        quantile: 0.0017
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
     sfs:
       mutation_configs: 0.0044
-      mean: 0.0033
-      cov: 0.0075
-      corr: 0.0035
+      mean: 0.0077
+      cov: 0.034
+      corr: 0.033
       cosine:
-        pdf: 0.013
-        cdf: 0.0017
+        pdf: 0.004
+        cdf: 0.002
         quantile: 0.0048
       # N = 1e-6 across two epochs, the hardest end of the scale, and the exact rescaling of 2_epoch_n_5_large_N (see
       # there). The transform is fine (``moments`` holds to 1e-3), but the conditional's cosine grid rings here
@@ -41,9 +41,19 @@ comparisons:
       conditional:
         '[(1, 2), (2, 4)]':
           moments: 0.001
+        '[(2, 4)]':
+          # the atom conditional against the msprime sample (see 1_epoch_n_4). A small-N demography, the opposite reward
+          # scale to 1_epoch_n_4_large_N.
+          atom:
+            mass: 0.002
+            mean: 0.0058
+            var: 0.015
+            cdf: 0.0029
+            pdf: 0.0057
+            quantile: 0.0057
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.0036
           pdf: 0.014
     fsfs:
-      mutation_configs: 0.0028
+      mutation_configs: 0.004

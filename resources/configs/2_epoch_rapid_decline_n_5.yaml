@@ -12,31 +12,31 @@ seed: 42
 comparisons:
   tolerance:
     fsfs:
-      mutation_configs: 0.0012
+      mutation_configs: 0.004
     tree_height:
-      pdf: 0.055
-      cdf: 0.00086
-      mean: 0.00032
-      var: 0.0032
-      quantile: 0.00033
+      pdf: 0.0062
+      cdf: 0.002
+      mean: 0.00094
+      var: 0.0079
+      quantile: 0.004
     total_branch_length:
-      mean: 0.00021
-      var: 0.0017
+      mean: 0.0011
+      var: 0.0061
       cosine:
-        pdf: 0.0011
-        cdf: 0.00033
-        quantile: 0.00026
+        pdf: 0.0049
+        cdf: 0.002
+        quantile: 0.004
     sfs:
-      mutation_configs: 0.0022
-      mean: 0.004
-      cov: 0.059
-      corr: 0.06
-      theta_pi: 7.6e-05
-      theta_w: 0.00021
+      mutation_configs: 0.004
+      mean: 0.0057
+      cov: 0.061
+      corr: 0.063
+      theta_pi: 0.004
+      theta_w: 0.004
       tajimas_d: 0.0069
       cosine:
-        pdf: 0.036
-        cdf: 0.0019
+        pdf: 0.0066
+        cdf: 0.002
         quantile: 0.0048
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':

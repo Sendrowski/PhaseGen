@@ -1,0 +1,28 @@
+# A large sample size, restricted to the statistics that stay tractable there: the tree height and the total branch
+# length live on the lineage-counting state space, whose dimension is linear in n (the SFS needs the block-counting
+# space, whose dimension is the partition count, so it is deliberately absent here). Two epochs, so the propagation
+# crosses an epoch boundary. This is the scenario that would have caught the tree-height CDF forming a dense k x k
+# propagator regardless of the sparse/dense configuration.
+n: 100
+num_replicates: 100000
+pop_sizes:
+  pop_0:
+    0: 1
+    0.5: 0.2
+model: standard
+seed: 42
+comparisons:
+  tolerance:
+    tree_height:
+      pdf: 0.014
+      cdf: 0.0064
+      mean: 0.0035
+      var: 0.033
+      quantile: 0.013
+    total_branch_length:
+      mean: 0.0013
+      var: 0.021
+      cosine:
+        pdf: 0.013
+        cdf: 0.0064
+        quantile: 0.013

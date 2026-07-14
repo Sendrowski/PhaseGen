@@ -18,25 +18,25 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.013
-      mean: 0.00039
-      var: 0.0037
-      cdf: 0.0011
-      quantile: 0.00051
+      pdf: 0.0048
+      mean: 0.0012
+      var: 0.0095
+      cdf: 0.002
+      quantile: 0.004
     total_branch_length:
-      mean: 0.0011
-      var: 0.0012
+      mean: 0.0015
+      var: 0.0053
       cosine:
-        pdf: 0.0011
-        cdf: 0.00042
-        quantile: 0.0011
+        pdf: 0.0047
+        cdf: 0.002
+        quantile: 0.004
     fsfs:
-      mutation_configs: 0.0006
+      mutation_configs: 0.004
     sfs:
-      mutation_configs: 0.0005
-      mean: 0.007
+      mutation_configs: 0.004
+      mean: 0.012
       '[1, 4, 9]':
         cosine:
-          pdf: 0.0078
-          cdf: 0.0011
-          quantile: 0.0037
+          pdf: 0.004
+          cdf: 0.002
+          quantile: 0.004

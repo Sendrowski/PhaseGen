@@ -10,28 +10,28 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.011
-      cdf: 0.00087
-      mean: 0.00093
-      var: 0.0065
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0036
+      var: 0.0085
       loci:
         pairwise:
           cdf: 0.013
           pdf: 0.07
         mean: 0.01
         var: 0.05
-        cov: 0.0051
+        cov: 0.0085
         corr: 0.0035
     total_branch_length:
-      mean: 0.00042
-      var: 0.0036
+      mean: 0.0033
+      var: 0.0081
       loci:
         pairwise:
           cdf: 0.013
           pdf: 0.07
         mean: 0.01
         var: 0.05
-        cov: 0.0051
+        cov: 0.0081
         corr: 0.0035
     #sfs:
     #  mean: 0.01

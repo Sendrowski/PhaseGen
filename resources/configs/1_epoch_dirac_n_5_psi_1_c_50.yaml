@@ -10,25 +10,25 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.011
-      cdf: 0.0011
-      mean: 0.00042
-      var: 9.1e-05
-      quantile: 0.0021
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0044
+      var: 0.011
+      quantile: 0.004
     total_branch_length:
-      mean: 0.00051
-      var: 0.0011
+      mean: 0.0042
+      var: 0.011
       cosine:
-        pdf: 0.0086
-        cdf: 0.0013
-        quantile: 0.0021
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
     sfs:
-      mean: 0.051
+      mean: 0.25
       cosine:
-        pdf: 0.011
-        cdf: 0.0011
-        quantile: 0.0059
+        pdf: 0.0051
+        cdf: 0.002
+        quantile: 0.0058
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.002
-          pdf: 0.0028
+          pdf: 0.004

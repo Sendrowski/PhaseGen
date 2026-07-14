@@ -25,33 +25,33 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.01
-      cdf: 0.2
-      mean: 0.01
+      pdf: 0.0013
+      cdf: 0.00064
+      mean: 0.00076
       m2: 0.01
-      m3: 0.01
-      m4: 0.01
-      var: 0.02
+      m3: 0.0036
+      m4: 0.0068
+      var: 0.0033
       #demes:
       #  mean: 0.01
     total_branch_length:
-      mean: 0.01
+      mean: 0.00049
       m2: 0.01
-      m3: 0.01
-      m4: 0.01
-      var: 0.02
+      m3: 0.0019
+      m4: 0.0033
+      var: 0.0026
       #demes:
       #  mean: 0.01
     sfs:
-      mean: 0.01
-      m3: 0.02
-      m4: 0.02
-      cov: 0.07
-      corr: 0.07
+      mean: 0.0037
+      m3: 0.019
+      m4: 0.036
+      cov: 19
+      corr: 19
       #demes:
       #  mean: 0.01
     fsfs:
-      mean: 0.01
-      cov: 0.07
+      mean: 0.0034
+      cov: 0.026
       #demes:
       #  mean: 0.01

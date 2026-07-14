@@ -9,28 +9,28 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.011
-      cdf: 0.0011
-      mean: 0.0017
-      var: 0.0033
-      quantile: 0.002
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0039
+      var: 0.01
+      quantile: 0.004
     total_branch_length:
-      mean: 0.0016
-      var: 0.0033
+      mean: 0.0037
+      var: 0.0096
       cosine:
-        pdf: 0.023
-        cdf: 0.0011
-        quantile: 0.0017
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
     sfs:
-      mean: 0.0033
-      cov: 0.0075
-      corr: 0.0035
-      theta_pi: 0.0018
-      theta_w: 0.0016
+      mean: 0.0077
+      cov: 0.034
+      corr: 0.033
+      theta_pi: 0.004
+      theta_w: 0.004
       tajimas_d: 0.0073
       cosine:
-        pdf: 0.013
-        cdf: 0.0017
+        pdf: 0.004
+        cdf: 0.002
         quantile: 0.0048
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':

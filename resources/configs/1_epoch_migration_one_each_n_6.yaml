@@ -25,23 +25,34 @@ comparisons:
       demes:
         mean: 0.01
         var: 0.02
-      pdf: 0.032
-      cdf: 0.0011
-      mean: 0.0015
-      var: 0.0098
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0025
+      var: 0.0094
     total_branch_length:
       demes:
         mean: 0.01
         var: 0.02
-      mean: 0.00083
-      var: 0.0074
+      mean: 0.002
+      var: 0.0082
     sfs:
       demes:
         mean: 0.01
         # var: 0.02 variance not supported by MsprimeCoalescent
-      mean: 0.0054
-      cov: 0.012
-      corr: 0.0057
+      mean: 0.0079
+      cov: 0.046
+      corr: 0.044
       conditional:
         '[(1, 2), (2, 5)]':
           moments: 0.0001
+
+        '[(2, 5)]':
+          # the atom conditional against the msprime sample (see 1_epoch_n_4). Two populations under migration, so the
+          # atom conditional is pinned on a structured state space and not only on a panmictic one.
+          atom:
+            mass: 0.002
+            mean: 0.0045
+            var: 0.014
+            cdf: 0.0026
+            pdf: 0.0051
+            quantile: 0.0051

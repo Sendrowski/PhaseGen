@@ -11,25 +11,55 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      # the loosest conditional tolerance in the suite, and the limit here is the *reference*, not the conditional: on
-      # this demography a 300M-replicate sampler puts E[R_2 | R_1 = v] at 7.725 at the median conditioning value, where
-      # the nested inversion gives 7.710 (0.2%) and the derivative identity 7.788 (0.8%). The identity's error is de
-      # Hoog's, non-monotone in the conditioning value and in the degree, so no setting buys it down, and the tower
-      # check is no better here (1.2%). This is a gross-regression tripwire, not a precision bound; tightening it would
-      # flag a fix as a failure.
+      # the loosest conditional tolerance in the suite, and the limit here is the *reference*, not the conditional. On
+      # this demography the derivative identity is not merely biased, it is pointwise *noisy*: a relative change of
+      # 1e-6 in the conditioning value v swings it by +-1%, because de Hoog places its nodes by v, so a hair's change
+      # in v reshuffles the roundoff its QD recurrence amplifies. At the median v of the (1, 2) pair conditioning on
+      # R_2 it lands 4.35% off.
+      #
+      # Both sides were arbitrated against a sampler (20M draws, local-linear regression of R_1 on R_2 in a shrinking
+      # window, so the O(h) bias goes to 0): the truth there is 9.529 +- 0.009, the nested inversion gives 9.52901 and
+      # the identity 9.44096. The nested value is also bit-stable in dehoog_degree, where the identity swings 9.60 ->
+      # 9.48 -> 9.53 -> 9.40 over degrees 10..40. Averaging the identity over a neighbourhood of v does not rescue it
+      # either (9.432, still 1% low), so no setting buys it down.
+      #
+      # The same held for the other axis, against a 300M-replicate sampler: E[R_2 | R_1 = v] is 7.725 at the median,
+      # where the nested inversion gives 7.710 (0.2%) and the identity 7.788 (0.8%). This is a gross-regression
+      # tripwire, not a precision bound; tightening it would flag a fix as a failure.
       conditional:
         '[(1, 2), (1, 3)]':
-          moments: 0.03
+          moments: 0.06
+        '[(1, 3)]':
+          # the atom conditional, against the msprime sample (see 1_epoch_n_4). The nested conditional above carries de
+          # Hoog's few-percent floor on this demography; the atom transform is an exact closed-form ratio, so it stays
+          # tight even here -- which is the point of checking it on a multi-epoch demography.
+          atom:
+            mass: 0.019
+            mean: 0.099
+            var: 0.36
+            cdf: 0.035
+            pdf: 0.07
+            quantile: 0.07
+        '[(1, 2)]':
+          # the nested conditional against msprime: the only place a *sample* decides it away from the atom (every
+          # other conditional check is an identity the analytic joint must satisfy, so an error shared by the
+          # transform and the identity would pass them all). A sample can only estimate the conditional over a
+          # window, so both sides are averaged over the same one and the O(h) window bias cancels rather than being
+          # corrected for. Tolerances are in SIGMAS of the sample, the only floor left once the bias is gone.
+          windowed:
+            quantiles: [0.25, 0.5, 0.75]
+            window: 0.2
+            mean: 5
     empirical:
       tree_height:
-        mean: 0.0032
-        var: 0.00053
-        cdf: 0.0026
-        pdf: 0.075
-        quantile: 0.0045
+        mean: 0.01
+        var: 0.026
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
       total_branch_length:
-        mean: 0.0049
-        var: 0.019
+        mean: 0.0094
+        var: 0.025
       sfs:
-        mean: 0.0071
+        mean: 0.02
         m2: 0.02

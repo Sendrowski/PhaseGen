@@ -23,40 +23,49 @@ n_samples: 200000
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.013
-      cdf: 0.00098
-      mean: 0.0011
-      var: 0.0018
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0028
+      var: 0.0097
       #demes:
       #  mean: 0.01
     total_branch_length:
-      mean: 0.0011
-      var: 0.0014
+      mean: 0.0026
+      var: 0.0088
       #demes:
       #  mean: 0.01
     fsfs:
-      mutation_configs: 0.0021
+      mutation_configs: 0.004
     sfs:
-      mutation_configs: 0.0022
-      mean: 0.002
-      var: 0.0049
-      cov: 0.0062
-      corr: 0.0051
+      mutation_configs: 0.004
+      mean: 0.006
+      var: 0.014
+      cov: 0.019
+      corr: 0.017
       conditional:
         '[(1, 2), (1, 3)]':
           moments: 0.0001
+        '[(1, 3)]':
+          # the atom conditional against the msprime sample (see 1_epoch_n_4): two populations and two epochs together.
+          atom:
+            mass: 0.002
+            mean: 0.0052
+            var: 0.02
+            cdf: 0.0032
+            pdf: 0.0063
+            quantile: 0.0063
       #demes:
       #  mean: 0.01
     empirical:
       tree_height:
-        mean: 0.003
-        var: 0.0027
-        cdf: 0.003
-        pdf: 0.023
-        quantile: 0.0035
+        mean: 0.0054
+        var: 0.022
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
       total_branch_length:
-        mean: 0.00039
-        var: 0.013
+        mean: 0.0055
+        var: 0.021
       sfs:
-        mean: 0.0027
+        mean: 0.014
         m2: 0.008

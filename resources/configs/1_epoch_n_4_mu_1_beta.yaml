@@ -12,23 +12,23 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.0036
+      mutation_configs: 0.004
       cosine:
-        pdf: 0.013
-        cdf: 0.0016
-        quantile: 0.0026
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
       pairwise:
         '[(1, 2), (1, 3), (2, 3)]':
           cdf: 0.0021
           pdf: 0.0062
     fsfs:
-      mutation_configs: 0.0024
+      mutation_configs: 0.004
     tree_height:
-      pdf: 0.011
-      cdf: 0.00083
-      quantile: 0.00096
+      pdf: 0.004
+      cdf: 0.002
+      quantile: 0.004
     total_branch_length:
       cosine:
-        pdf: 0.012
-        cdf: 0.00098
-        quantile: 0.0014
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004

@@ -11,11 +11,11 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.005
+      mutation_configs: 0.0048
       cosine:
-        pdf: 0.012
-        cdf: 0.0016
-        quantile: 0.0037
+        pdf: 0.0046
+        cdf: 0.002
+        quantile: 0.004
       # N = 1e9, the far end of the scale. The conditional is a branch-length quantity and so does not depend on the
       # mutation rate: it reports exactly what 1_epoch_n_4_large_N does (identity exact, grid 0.9%).
       conditional:
@@ -29,11 +29,11 @@ comparisons:
     fsfs:
       mutation_configs: 0.004
     tree_height:
-      pdf: 0.016
-      cdf: 0.0013
-      quantile: 0.00098
+      pdf: 0.0049
+      cdf: 0.002
+      quantile: 0.004
     total_branch_length:
       cosine:
-        pdf: 0.012
-        cdf: 0.00083
-        quantile: 0.00075
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004

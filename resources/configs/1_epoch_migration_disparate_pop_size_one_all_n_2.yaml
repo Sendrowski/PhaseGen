@@ -17,18 +17,18 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.023
-      cdf: 0.00081
-      mean: 0.01
-      var: 0.02
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0037
+      var: 0.011
     total_branch_length:
-      mean: 0.01
-      var: 0.02
+      mean: 0.0037
+      var: 0.011
     sfs:
-      mean: 0.01
-      cov: 0.02
-      corr: 0.02
+      mean: 0.0037
+      cov: 0.011
+      corr: 0.0005
     fsfs:
-      mean: 0.01
-      cov: 0.02
-      corr: 0.02
+      mean: 0.0037
+      cov: 0.011
+      corr: 0.0005

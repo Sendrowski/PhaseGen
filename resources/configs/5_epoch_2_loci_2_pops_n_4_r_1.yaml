@@ -31,21 +31,21 @@ seed: 42
 comparisons:
   tolerance:
     tree_height:
-      mean: 0.00035
-      var: 0.0014
+      mean: 0.0029
+      var: 0.0094
       loci:
         mean: 0.01
         var: 0.02
-        cov: 0.03
-        corr: 0.03
+        cov: 0.0094
+        corr: 0.011
     total_branch_length:
-      mean: 0.00033
-      var: 0.0036
+      mean: 0.0026
+      var: 0.009
       loci:
         mean: 0.01
         var: 0.02
-        cov: 0.027
-        corr: 0.027
+        cov: 0.009
+        corr: 0.0088
     #sfs:
     #  mean: 0.01
     #  var: 0.05

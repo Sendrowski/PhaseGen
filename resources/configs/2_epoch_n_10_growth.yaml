@@ -11,8 +11,8 @@ comparisons:
     sfs:
       "[1, 3, 9]":
         cosine:
-          pdf: 0.017
-          cdf: 0.0017
+          pdf: 0.004
+          cdf: 0.002
           quantile: 0.0067
       pairwise:
         (1, 2):

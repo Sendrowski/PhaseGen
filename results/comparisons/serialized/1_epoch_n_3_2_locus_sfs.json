@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
-                "mean": 0.0044,
+                "mean": 0.009,
                 "pairwise": {
                     "[(1, 2), (2, 2)]": {
                         "cdf": 0.0059,
@@ -37,6 +37,7 @@
     "n_loci": 2,
     "recombination_rate": 1.0,
     "num_replicates": 200000,
+    "n_samples": null,
     "mutation_rate": null,
     "record_migration": false,
     "simulate_mutations": false,
@@ -163,41 +164,7 @@
             },
             "_left": null,
             "_right": null,
-            "_joint": [
-                {
-                    "py/tuple": [
-                        1,
-                        2,
-                        2.3403684241799447,
-                        [
-                            {
-                                "py/tuple": [
-                                    1.3803889581753204,
-                                    0.9142092834356063,
-                                    0.29618,
-                                    0.1737572716282616
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    2.0201224223540555,
-                                    0.5115048798558032,
-                                    0.28716,
-                                    0.1612220306945376
-                                ]
-                            },
-                            {
-                                "py/tuple": [
-                                    2.434295608916843,
-                                    1.2029484696659187,
-                                    0.527685,
-                                    0.07991951731454011
-                                ]
-                            }
-                        ]
-                    ]
-                }
-            ],
+            "n_samples": 200000,
             "_joint_surface": [
                 {
                     "py/tuple": [

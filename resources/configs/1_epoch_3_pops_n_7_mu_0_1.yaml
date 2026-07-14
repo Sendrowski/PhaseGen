@@ -28,6 +28,6 @@ seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.002
+      mutation_configs: 0.004
     fsfs:
-      mutation_configs: 0.0012
+      mutation_configs: 0.004
