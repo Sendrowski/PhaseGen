@@ -1,5 +1,9 @@
 n: 5
 num_replicates: 1000000
+simulate_mutations: true
+# the exact rescaling of the mutation rate of 2_epoch_n_5_large_N, so theta * E[total branch length] ~ 3 here too
+mutation_rate: 300000
+mass_threshold: 0.9
 pop_sizes:
   pop_0:
     0: 0.000001
@@ -22,6 +26,7 @@ comparisons:
         cdf: 0.0011
         quantile: 0.0017
     sfs:
+      mutation_configs: 0.0044
       mean: 0.0033
       cov: 0.0075
       corr: 0.0035
@@ -29,7 +34,16 @@ comparisons:
         pdf: 0.013
         cdf: 0.0017
         quantile: 0.0048
+      # N = 1e-6 across two epochs, the hardest end of the scale, and the exact rescaling of 2_epoch_n_5_large_N (see
+      # there). The transform is fine (``moments`` holds to 1e-3), but the conditional's cosine grid rings here
+      # (``grid_moments`` reports ~15%), as it does on growth and up_down, so it is deliberately not asserted -- a 20%
+      # bound would certify nothing.
+      conditional:
+        '[(1, 2), (2, 4)]':
+          moments: 0.001
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.0036
           pdf: 0.014
+    fsfs:
+      mutation_configs: 0.0028

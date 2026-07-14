@@ -1,5 +1,12 @@
 n: 5
 num_replicates: 1000000
+simulate_mutations: true
+# theta * E[total branch length] ~ 3, the band the other mutational configs sit in (1.2 to 4.2). The cost of a
+# mutational configuration grows with the size of its count lattice, so a larger theta is not merely a different
+# regime but an intractable one: at 1 / N0 the second epoch (5 * N0) pushes the expected count to 10 and the
+# enumeration to 90% mass never finishes.
+mutation_rate: 3.0e-08
+mass_threshold: 0.9
 pop_sizes:
   pop_0:
     0: 10000000
@@ -22,6 +29,7 @@ comparisons:
         cdf: 0.0011
         quantile: 0.0017
     sfs:
+      mutation_configs: 0.0044
       mean: 0.0033
       cov: 0.0075
       corr: 0.0035
@@ -29,7 +37,16 @@ comparisons:
         pdf: 0.013
         cdf: 0.0017
         quantile: 0.0048
+      # the exact rescaling of 2_epoch_n_5_small_N (N and the epoch boundary both scaled by 1e13), so every check here
+      # is scale-free and must report the identical number there. It does, to five digits, which is what pins the tau
+      # rescaling of the inversion and of the Taylor-ring derivatives. ``grid_moments`` is not asserted: the
+      # conditional's cosine grid rings at ~15% on this demography, in both twins alike.
+      conditional:
+        '[(1, 2), (2, 4)]':
+          moments: 0.001
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.0036
           pdf: 0.014
+    fsfs:
+      mutation_configs: 0.0028

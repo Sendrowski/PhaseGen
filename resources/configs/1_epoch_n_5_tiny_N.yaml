@@ -1,5 +1,8 @@
 n: 5
 num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 100000       # 1 / N0, which puts theta * E[total branch length] at 4.2, the band the other configs sit in
+mass_threshold: 0.9
 pop_sizes:
   pop_0:
     0: 0.00001
@@ -21,9 +24,19 @@ comparisons:
         cdf: 0.0013
         quantile: 0.00075
     sfs:
+      mutation_configs: 0.0071
       mean: 0.0018
       cov: 0.014
       corr: 0.011
+      # N = 1e-5: the conditional's support bracket used to seed at 1 / time_scale = 1e5 for a distribution whose mass
+      # lies below 1e-4, so its cosine grid was fit over a window ten million times too wide and could not resolve it
+      # at all. ``grid_moments`` is what caught that (``moments`` never touches the window), and pins it here.
+      conditional:
+        '[(1, 2)]':
+          moments: 0.0001
+          grid_moments: 0.01
+        '[(2, 4)]':
+          moments: 0.0001
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.0021
@@ -33,3 +46,5 @@ comparisons:
           pdf: 0.012
           cdf: 0.0014
           quantile: 0.005
+    fsfs:
+      mutation_configs: 0.0039
