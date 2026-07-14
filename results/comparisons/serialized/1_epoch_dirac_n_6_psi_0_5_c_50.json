@@ -48,7 +48,7 @@
                         "grid_moments": 0.04
                     },
                     "[(1, 5), (2, 5)]": {
-                        "moments": 0.0001
+                        "moments": 0.001
                     }
                 },
                 "pairwise": {

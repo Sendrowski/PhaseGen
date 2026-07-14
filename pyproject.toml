@@ -33,6 +33,9 @@ pygments = "^2.15.1"
 
 [tool.pytest.ini_options]
 testpaths = ["testing"]
+# report the slowest tests on every run: the scenario comparisons are where runtime goes, and a check added to a
+# config (a conditional grid, a pairwise surface) can cost tens of seconds without anything else showing it
+addopts = "--durations=25 --durations-min=1.0"
 markers = [
     "slow: marks tests as slow, e.g. msprime comparisons or large state spaces (deselect with '-m \"not slow\"')",
 ]
