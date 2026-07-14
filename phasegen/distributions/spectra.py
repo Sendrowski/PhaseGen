@@ -52,9 +52,8 @@ class _SFSAggregateFunction:
 class SFSDensity(_SFSAggregateFunction, MarginalDensity):
     """Per-bin SFS densities -- the density of each frequency class's branch length, one curve per bin.
 
-    - **Callable** ``pdf(t)``: every bin's density at ``t`` by per-point de Hoog inversion.
-    - **Plot** ``pdf.plot()``: overlays every polymorphic bin's fast cosine density curve (the derivative of the
-      cosine CDF), or the per-point de Hoog with ``exact=True``.
+    - **Callable** ``pdf(t)``: every bin's ``pdf(t)``, the derivative of that bin's cosine CDF grid.
+    - **Plot** ``pdf.plot()``: overlays those same curves, one per polymorphic bin.
     """
 
 
@@ -62,17 +61,17 @@ class SFSCDF(_SFSAggregateFunction, MarginalCDF):
     """Per-bin SFS cumulative distribution functions -- the probability each frequency class's branch length is at
     most ``t``, one curve per bin.
 
-    - **Callable** ``cdf(t)``: every bin's CDF at ``t`` by per-point de Hoog inversion.
-    - **Plot** ``cdf.plot()``: overlays every polymorphic bin's fast cosine CDF curve, or the per-point de Hoog with
-      ``exact=True``.
+    - **Callable** ``cdf(t)``: every bin's ``cdf(t)``, read off that bin's cosine CDF grid.
+    - **Plot** ``cdf.plot()``: overlays those same curves, one per polymorphic bin.
     """
 
 
 class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length).
 
-    - **Callable** ``quantile(q)``: each bin's quantile by bisection on its de Hoog CDF.
-    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast cosine CDF curve.
+    - **Callable** ``quantile(q)``: every bin's ``quantile(q)`` -- the inverse interpolation of that bin's cosine CDF
+      grid, handing over to the de Hoog bisection above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`.
+    - **Plot** ``quantile.plot()``: overlays those same curves, one per bin.
     """
 
 
@@ -472,8 +471,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             show: bool = True,
             file: str = None,
             clear: bool = True,
-            title: str = 'SFS bin CDFs',
-            exact: bool = False
+            title: str = 'SFS bin CDFs'
     ) -> 'plt.Axes':
         """
         Plot the cumulative distribution function of every SFS bin at once.
@@ -486,11 +484,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('cdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def _plot_pdf(
             self,
@@ -502,7 +499,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             file: str = None,
             clear: bool = True,
             title: str = 'SFS bin PDFs',
-            exact: bool = False
     ) -> 'plt.Axes':
         """
         Plot the probability density function of every SFS bin at once.
@@ -515,11 +511,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('pdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def _plot_quantile(
             self,
@@ -531,7 +526,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             file: str = None,
             clear: bool = True,
             title: str = 'SFS bin quantile functions',
-            exact: bool = False
     ) -> 'plt.Axes':
         """
         Plot the quantile function of every SFS bin at once (bin branch length versus probability ``q``).
@@ -544,11 +538,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('quantile', self._bin_distribution_items(bins), ax, q, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def get_accumulation(
             self,
@@ -1479,7 +1472,6 @@ class JointSFSDistribution(PhaseTypeDistribution):
             file: str = None,
             clear: bool = True,
             title: str = 'Joint SFS bin CDFs',
-            exact: bool = False
     ) -> 'plt.Axes':
         """
         Plot the cumulative distribution function of every joint SFS bin at once.
@@ -1492,11 +1484,10 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('cdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def _plot_pdf(
             self,
@@ -1508,7 +1499,6 @@ class JointSFSDistribution(PhaseTypeDistribution):
             file: str = None,
             clear: bool = True,
             title: str = 'Joint SFS bin PDFs',
-            exact: bool = False
     ) -> 'plt.Axes':
         """
         Plot the probability density function of every joint SFS bin at once.
@@ -1521,11 +1511,10 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('pdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def _plot_quantile(
             self,
@@ -1537,7 +1526,6 @@ class JointSFSDistribution(PhaseTypeDistribution):
             file: str = None,
             clear: bool = True,
             title: str = 'Joint SFS bin quantile functions',
-            exact: bool = False
     ) -> 'plt.Axes':
         """
         Plot the quantile function of every joint SFS bin at once (bin branch length versus probability ``q``).
@@ -1550,11 +1538,10 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
         :param title: Title of the plot.
-        :param exact: Use the slower per-point de Hoog inversion instead of the fast COS curve.
         :return: Axes.
         """
         return self._plot_reward_curves('quantile', self._config_distribution_items(configs), ax, q, n_points, show,
-                                        file, clear, title, exact)
+                                        file, clear, title)
 
     def accumulate(
             self,

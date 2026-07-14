@@ -794,30 +794,39 @@ def test_plot_n_grid_setting_controls_grid_size():
                 ax = getattr(c.sfs, kind).plot(show=False)
                 assert ax.lines[0].get_xdata().shape[0] == n
                 ax.figure.clf()
-        # the exact (de Hoog) curve uses the same grid setting
-        pg.Settings.plot_n_grid = 17
-        ax = c.sfs.pdf.plot(show=False, exact=True)
-        assert ax.lines[0].get_xdata().shape[0] == 17
-        ax.figure.clf()
     finally:
         pg.Settings.plot_n_grid = prev
 
 
-def test_plot_exact_de_hoog_matches_per_point():
-    """The ``exact=True`` plotting path draws the per-point de Hoog values (cdf / pdf), not the default cosine ones."""
+def test_plot_draws_the_function_it_evaluates():
+    """A plotted curve is the very function the caller evaluates -- there is no second, plot-only approximation.
+
+    The quantile is the one that used to break this: its plot inverted a private 512-point CDF curve over the cumulant
+    window, which is neither the grid the cosine fit uses nor the de Hoog far tail, so ``quantile.plot()`` drew a
+    different function from the one ``quantile(q)`` returns.
+    """
     import matplotlib
     matplotlib.use('Agg')
 
     c = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10}))
-    d = c.sfs.bin(2)  # a single 1D bin distribution
+    d = c.sfs.bin(2)
 
-    x = np.linspace(0.1, d.quantile(0.9), 15)
-    ax = d.cdf.plot(x=x, show=False, exact=True)
-    assert np.allclose(ax.lines[-1].get_ydata(), [d.cdf._cdf_point(float(v)) for v in x], atol=1e-8)
+    x = np.linspace(0.1, float(d.quantile(0.9)), 15)
+    for kind in ('cdf', 'pdf'):
+        ax = getattr(d, kind).plot(x=x, show=False)
+        assert np.allclose(ax.lines[-1].get_ydata(), getattr(d, kind)(x), rtol=1e-12, atol=1e-12)
+        ax.figure.clf()
+
+    q = np.linspace(0.1, 0.9, 15)
+    ax = d.quantile.plot(q=q, show=False)
+    assert np.allclose(ax.lines[-1].get_ydata(), d.quantile(q), rtol=1e-12, atol=1e-12)
     ax.figure.clf()
 
-    ax = d.pdf.plot(x=x, show=False, exact=True)
-    assert np.allclose(ax.lines[-1].get_ydata(), [d.pdf._pdf_point(float(v)) for v in x], atol=1e-8)
+    # and the same through the spectrum-level (aggregate) plot path, which had its own quantile implementation
+    ax = c.sfs.quantile.plot(q=q, show=False)
+    drawn = {round(float(line.get_ydata()[0]), 12) for line in ax.lines}
+    expected = {round(float(c.sfs.bin(i).quantile(q[0])), 12) for i in (1, 2, 3)}
+    assert expected <= drawn
     ax.figure.clf()
 
 
@@ -1066,3 +1075,105 @@ def test_conditional_on_atom_is_scale_invariant(scale):
         return float(joint.conditional('a', 0.0).mean) / abs(float(joint.marginal('b').mean))
 
     assert dimensionless(scale) == pytest.approx(dimensionless(1.0), rel=1e-6)
+
+
+def _round_trip_cases() -> list:
+    """(label, distribution) pairs spanning the 1D representations the cdf/quantile pair has to hold across: a plain
+    bin, a heavy upper tail (the case the cosine window truncates), several epochs, a multiple-merger model, a
+    non-bin reward, and a conditional (whose transform is itself a nested inversion)."""
+    expansion = pg.Demography(pop_sizes={0: 1, 1: 10})
+
+    cases = [
+        ('sfs bin 2, constant', pg.Coalescent(n=4).sfs.bin(2)),
+        ('sfs bin 2, heavy tail', pg.Coalescent(n=4, demography=expansion).sfs.bin(2)),
+        ('sfs bin 1, 3 epochs', pg.Coalescent(
+            n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.1, 2: 5})).sfs.bin(1)),
+        ('sfs bin 2, beta MMC', pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5)).sfs.bin(2)),
+        ('total branch length, n=10', pg.Coalescent(n=10).total_branch_length),
+    ]
+
+    # a conditional: its lst is a nested inversion, so it exercises the same tail rule on a far noisier transform
+    joint = pg.Coalescent(n=4, demography=expansion).sfs.joint_distribution(1, 2)
+    v = float(joint.marginal('a').quantile(0.5))
+    cases.append(('R_2 | R_1 = median', joint.conditional('a', v)))
+
+    return cases
+
+
+@pytest.mark.parametrize('label, d', _round_trip_cases(), ids=lambda x: x if isinstance(x, str) else '')
+def test_cdf_of_quantile_is_the_identity(label, d):
+    """``cdf(quantile(q)) == q``: the 1D cdf and quantile must be mutual inverses, on both sides of the tail cut.
+
+    Both read one grid -- the cosine fit below :attr:`Settings.dehoog_tail_quantile`, exact de Hoog nodes above -- and
+    an interpolation of a monotone function and its inverse round-trip exactly, whichever side of the cut they land
+    on. The quantile used to bisect the exact inversion out there while the cdf kept interpolating a cosine fit that
+    force-normalises to 1 at the end of its window, so on the heavy-tailed bin ``cdf(quantile(0.999))`` came back as
+    exactly 1.0: a survival of zero where the truth is 1e-3.
+    """
+    cut = Settings.dehoog_tail_quantile
+
+    for q in (0.25, 0.5, 0.9, cut - 1e-3, cut, cut + 1e-3, 0.99, 0.999):
+        x = float(d.quantile(q))
+        assert float(d.cdf(x)) == pytest.approx(q, abs=1e-5), f"{label}: round trip broken at q = {q}"
+
+
+def test_grid_answers_do_not_depend_on_call_order():
+    """The lazily grown tail must not change an answer the grid has already given.
+
+    The cdf, pdf and quantile share one grid whose exact de Hoog tail is materialised only when a query reaches past
+    :attr:`Settings.dehoog_tail_quantile`, and grown only as far as that query needs. So the node set depends on what
+    has been *asked*, and the danger is that it feeds back into the values: interpolate a point, let some later call
+    extend or fill in the ladder, and the same point comes back different. Tolerances are tuned on those numbers, so
+    an answer that depends on the caller's history is a defect even when it is a small one.
+
+    Two things rule it out. The ladder only ever appends (its step is fixed by the distribution's own decay length,
+    never by the query), so no bracket already interpolated can move. And everything below the cut is read off the
+    cosine nodes alone -- including the cell that straddles the cut, which is why the tail is anchored there carrying
+    the cosine's own value.
+    """
+    make = lambda: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(2)  # noqa: E731
+
+    x = np.linspace(0.1, float(make().quantile(0.97)), 50)  # below the cut, so a fresh grid has no tail at all
+    virgin = make()
+    cold = np.array([virgin.cdf(x), virgin.pdf(x)])
+
+    warm = make()
+    warm.quantile(0.999)  # reaches into the tail, so the ladder now exists
+    assert np.array_equal(np.array([warm.cdf(x), warm.pdf(x)]), cold), "the tail changed the answers below the cut"
+
+    # and a deeper query must not disturb what the shallower one already returned
+    deep = make()
+    shallow = float(deep.quantile(0.99))
+    deep.quantile(0.999999)  # grows the ladder further
+    assert float(deep.quantile(0.99)) == shallow, "growing the tail moved an answer already given"
+
+
+def test_far_tail_is_exact_not_saturated():
+    """Past the cosine window the cdf, pdf and quantile must still be the distribution's, not the window's.
+
+    The cosine fit force-normalises to 1 at the end of its window, so interpolating it clamps there: the cdf came back
+    as exactly 1.0 and the density as exactly 0 for every point beyond, reporting no mass at all on a bin whose true
+    survival at ``quantile(0.999)`` is 1e-3. The grid therefore carries exact de Hoog nodes above
+    :attr:`Settings.dehoog_tail_quantile`, joined in log-survival: a chord in ``F`` would leave the quantile 1e-3
+    long, systematically, the tail being concave.
+
+    All three functions read those nodes, so all three are checked against the per-point inversion here -- the
+    quantile against a bisection on it, the one reference the grid cannot be its own judge of.
+    """
+    d = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs.bin(2)
+    cdf_point, pdf_point = d.cdf._cdf_point, d.cdf._pdf_point
+
+    for q in (0.99, 0.999, 0.9999):
+        x = float(d.quantile(q))
+
+        lo, hi = 0.0, 2 * x
+        while cdf_point(hi) < q:
+            hi *= 2
+        while hi - lo > 1e-7 * x:
+            mid = 0.5 * (lo + hi)
+            lo, hi = (mid, hi) if cdf_point(mid) < q else (lo, mid)
+        exact = 0.5 * (lo + hi)
+
+        assert x == pytest.approx(exact, rel=1e-4), f"quantile({q}) = {x:.6g}, exact {exact:.6g}"
+        assert float(d.cdf(x)) == pytest.approx(cdf_point(x), abs=1e-6), f"cdf past the window at q = {q}"
+        assert float(d.pdf(x)) == pytest.approx(pdf_point(x), rel=1e-2), f"density past the window at q = {q}"

@@ -111,8 +111,15 @@ class RewardDistribution(CallableDistributionFunctions):
     def _time_scale(self) -> float:
         """The inversion time-scale (average Ne at ``t = 0``; ``1.0`` outside the large-N regime), read straight from
         the host. Decoupled from :attr:`_setup` so the conditional flavours -- whose ``lst`` is a nested transform
-        with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``."""
-        return getattr(getattr(self, '_host', None), '_time_scale', 1.0)
+        with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``.
+
+        Deliberately *not* defaulted. Every flavour binds ``_host`` in its constructor, so a missing one means the
+        attribute is being read too early -- and a default of 1.0 would answer that with a plausible number rather
+        than an error, silently unscaling every rate-scaled quantity downstream (the ``s -> inf`` atom probe, the
+        cumulant step, the inversion contour). ``_AtomConditional`` did exactly this and was wrong by 0.75% on a
+        small-N demography for as long as it existed.
+        """
+        return self._host._time_scale
 
     @property
     def _s_inf(self) -> float:
@@ -400,8 +407,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
     """
     @property
     def _time_scale(self) -> float:
-        """The inversion time scale of the host distribution."""
-        return getattr(self._host, '_time_scale', 1.0)
+        """The inversion time scale of the host distribution. Not defaulted, for the reason given on
+        :attr:`RewardDistribution._time_scale`: a fallback of 1.0 hides an unset host behind a plausible number."""
+        return self._host._time_scale
 
     @property
     def _s_inf(self) -> float:

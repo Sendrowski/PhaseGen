@@ -202,25 +202,25 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return self._reward_distribution.quantile(q)
 
     def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = 'CDF',
-                  exact: bool = False) -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None,
+                  title: str = 'CDF') -> 'plt.Axes':
         """Plot the CDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
         return self._plot_reward_curves('cdf', [(label or 'cdf', self.reward)], ax, t, n_points, show, file, clear,
-                                        title, exact)
+                                        title)
 
     def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None, title: str = 'PDF',
-                  exact: bool = False) -> 'plt.Axes':
+                  file: str = None, clear: bool = True, label: str = None,
+                  title: str = 'PDF') -> 'plt.Axes':
         """Plot the PDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
         return self._plot_reward_curves('pdf', [(label or 'pdf', self.reward)], ax, t, n_points, show, file, clear,
-                                        title, exact)
+                                        title)
 
     def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
                        file: str = None, clear: bool = True, label: str = None,
-                       title: str = 'Quantile function', exact: bool = False) -> 'plt.Axes':
+                       title: str = 'Quantile function') -> 'plt.Axes':
         """Plot the quantile function (accumulated reward versus probability ``q``)."""
         return self._plot_reward_curves('quantile', [(label or 'quantile', self.reward)], ax, q, n_points, show, file,
-                                        clear, title, exact)
+                                        clear, title)
 
     def _plot_reward_curves(
             self,
@@ -232,13 +232,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             show: bool,
             file: str,
             clear: bool,
-            title: str,
-            exact: bool = False
+            title: str
     ) -> 'plt.Axes':
         """
-        Plot the CDF or PDF curve of each ``(label, reward)`` in ``items`` on one axes. By default this uses the fast
-        COS inversion (sharing the per-epoch generators across all rewards on this state space); pass ``exact=True``
-        to evaluate each point with the slower but more accurate per-point de Hoog inversion instead.
+        Plot the CDF, PDF or quantile curve of each ``(label, reward)`` in ``items`` on one axes, evaluating each
+        through that distribution's own ``cdf`` / ``pdf`` / ``quantile`` -- so a plotted curve is by construction the
+        function the caller gets when they evaluate it, and not a second approximation of it.
         """
         import matplotlib.pyplot as plt
         from ..visualization import Visualization
@@ -248,10 +247,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             if clear:
                 ax.clear()
 
-        from .base import adaptive_grid
-
         dists = [(label, self.distribution(reward=reward)) for label, reward in items]
-        user_x = x is not None
 
         if x is None:
             n_points = n_points or Settings.plot_n_grid
@@ -274,27 +270,13 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
         xlabel = 'q' if kind == 'quantile' else 'accumulated branch length'
 
-        # for the expensive exact (de Hoog) cdf/pdf, place each bin's points adaptively where its own curve bends
-        # (resolving e.g. the near-zero atom spike), unless the caller supplied an explicit grid
-        adaptive = exact and not user_x and kind in ('cdf', 'pdf')
-
         for k, (label, d) in enumerate(dists):
-            if adaptive:
-                xk, y = adaptive_grid(d.cdf if kind == 'cdf' else d.pdf, 0.0, float(x[-1]), max_points=n_points)
-            else:
-                xk = x
-                if kind == 'cdf':
-                    y = np.array([d.cdf._cdf_point(float(v)) for v in x]) if exact else d.cdf(x)
-                elif kind == 'pdf':
-                    y = np.array([d.pdf._pdf_point(float(v)) for v in x]) if exact else d.pdf(x)
-                elif exact:
-                    # quantile function via the per-point de Hoog bisection
-                    y = np.array([d.quantile(float(p)) for p in x])
-                else:
-                    # quantile function: invert the (fast) COS CDF curve by interpolation rather than a per-point
-                    # bisection (which would re-run the de Hoog inversion at every probability and bin)
-                    xx = np.linspace(0, d._range(), 512)
-                    y = np.interp(x, d.cdf(xx), xx)
+            xk = x
+            # each curve is the distribution's own function, evaluated over the grid. The quantile in particular is
+            # NOT re-derived here: it used to invert a private 512-point CDF curve over the cumulant window, which is
+            # neither the grid the cosine fit uses nor the de Hoog far tail, so the plotted quantile was a different
+            # function from the one ``quantile(q)`` returns
+            y = getattr(d, kind)(x)
 
             Visualization.plot(
                 ax=ax,

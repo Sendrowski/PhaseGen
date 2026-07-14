@@ -96,30 +96,24 @@ class Settings:
     #: per-axis resolution for performance.
     plot_n_grid: int = 200
 
-    #: Relative tolerance for the adaptive plot grid used by the exact (de Hoog) ``cdf()`` / ``pdf()`` plots. The grid
-    #: starts coarse and bisects any interval whose midpoint deviates from the chord by more than this fraction of the
-    #: curve's range, concentrating the expensive de Hoog evaluations where the curve bends (e.g. the near-zero atom
-    #: spike of an SFS bin) instead of wasting them on flat tails. Lower it for finer curves, raise it for fewer
-    #: evaluations; the point count is still capped at :attr:`plot_n_grid`.
-    plot_adaptive_tol: float = 2e-3
-
-    #: Degree of the de Hoog numerical Laplace inversion used by the exact per-point ``cdf()`` / ``pdf()`` (and
-    #: ``exact=True`` plots). The inversion evaluates the transform at ``2 * degree + 1`` contour nodes (each a linear
+    #: Degree of the de Hoog numerical Laplace inversion used by the exact per-point CDF / density (the
+    #: far-tail quantile, the conditional support bracket, the joint wiggle check). The inversion evaluates the transform at ``2 * degree + 1`` contour nodes (each a linear
     #: solve), so the cost is linear in the degree. Accuracy is *non-monotonic*: it improves up to ~15 (near machine
     #: precision) and then degrades as the ill-conditioned QD recurrence amplifies roundoff at fixed precision. The
     #: default of 15 is the sweet spot -- both more accurate and faster than mpmath's own default (20). Lower it
     #: (e.g. 8-10) for a further speed-up at still-excellent accuracy (~1e-9 to 1e-11).
     dehoog_degree: int = 15
 
-    #: Quantile above which the ``quantile`` of an accumulated-reward distribution (1D, and the 1D conditionals of a
-    #: joint) switches from the Fourier-cosine grid to the exact per-point de Hoog bisection. The cosine grid is the
-    #: only route for ``cdf`` / ``pdf``; it is fast and vectorised, but it force-normalises to 1 at the end of its
-    #: support window, so it loses the far tail outright -- on a bottleneck it reports ``1 - cdf = 0`` from ``y ~ 8``
-    #: on, where de Hoog and a 60M-replicate sampler both still find 1.5e-3 of mass. Where the density is low, that
-    #: missing mass is a *large* quantile error: at ``q = 0.99`` the cosine quantile is already 2.8% off for an SFS bin
-    #: and 8.5% off for a conditional (whose law is more skewed, so the same truncation costs more). By ``q = 0.98``
-    #: the worst case across single-epoch / bottleneck / expansion / Beta, marginal and conditional alike, is 0.6%.
-    #: Set to ``None`` to disable the fallback and always read the cosine grid.
+    #: Quantile above which the CDF grid of an accumulated-reward distribution (1D, and the 1D conditionals of a joint)
+    #: stops being the Fourier-cosine fit and becomes exact de Hoog nodes -- read by the ``cdf``, ``pdf`` and
+    #: ``quantile`` alike, which all interpolate that one grid. The cosine fit is fast and vectorised but it
+    #: force-normalises to 1 at the end of its support window, so it loses the far tail outright: on a bottleneck it
+    #: reports ``1 - cdf = 0`` from ``y ~ 8`` on, where de Hoog and a 60M-replicate sampler both still find 1.5e-3 of
+    #: mass. Where the density is low, that missing mass is a *large* quantile error: at ``q = 0.99`` the cosine
+    #: quantile is already 2.8% off for an SFS bin and 8.5% off for a conditional (whose law is more skewed, so the
+    #: same truncation costs more). By ``q = 0.98`` the worst case across single-epoch / bottleneck / expansion / Beta,
+    #: marginal and conditional alike, is 0.6%. The nodes are materialised lazily, on the first query that reaches past
+    #: the cut. Set to ``None`` to disable the extension and read the cosine fit throughout.
     dehoog_tail_quantile: Optional[float] = 0.98
 
     #: Whether to emit a logged warning when a numerical inversion looks imprecise: a substantially negative density

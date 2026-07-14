@@ -19,51 +19,6 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
-def adaptive_grid(f, a: float, b: float, n_init: int = 9, tol: float = None, max_points: int = None) -> 'Tuple[np.ndarray, np.ndarray]':
-    """
-    Adaptively sample a scalar function ``f`` on ``[a, b]``, concentrating evaluations where the curve bends.
-
-    Starts from a coarse uniform grid and repeatedly bisects any interval whose midpoint value deviates from the
-    straight chord between its endpoints by more than ``tol`` times the function's range. For an expensive ``f`` (the
-    per-point de Hoog inversion) this hits a given visual accuracy with far fewer evaluations than a uniform grid --
-    e.g. it resolves the near-zero atom spike of an SFS bin density that a uniform grid would miss.
-
-    :param f: Scalar function to sample (called as ``f(x)`` for a float ``x``).
-    :param a: Left endpoint.
-    :param b: Right endpoint.
-    :param n_init: Number of initial uniform points (>= 2).
-    :param tol: Relative deviation tolerance; defaults to :attr:`Settings.plot_adaptive_tol`.
-    :param max_points: Maximum number of evaluations; defaults to :attr:`Settings.plot_n_grid`.
-    :return: Sorted ``(x, y)`` arrays.
-    """
-    from collections import deque
-
-    tol = Settings.plot_adaptive_tol if tol is None else tol
-    max_points = Settings.plot_n_grid if max_points is None else max_points
-
-    xs = list(np.linspace(a, b, n_init))
-    ys = [float(f(x)) for x in xs]
-    thr = tol * max(max(ys) - min(ys), 1e-300)
-
-    # work queue of intervals; bisect those whose midpoint departs from the chord by more than the threshold
-    stack = deque((xs[i], ys[i], xs[i + 1], ys[i + 1]) for i in range(len(xs) - 1))
-    ex, ey = [], []
-    while stack and len(xs) + len(ex) < max_points:
-        xl, yl, xr, yr = stack.popleft()
-        xm = 0.5 * (xl + xr)
-        ym = float(f(xm))
-        ex.append(xm)
-        ey.append(ym)
-        if abs(ym - 0.5 * (yl + yr)) > thr:
-            stack.append((xl, yl, xm, ym))
-            stack.append((xm, ym, xr, yr))
-
-    x = np.array(xs + ex)
-    y = np.array(ys + ey)
-    order = np.argsort(x)
-    return x[order], y[order]
-
-
 class DistributionFunction:
     """
     A distribution function -- callable (evaluate) and plottable -- returned by a distribution's ``pdf`` / ``cdf`` /
@@ -94,10 +49,10 @@ class DistributionFunction:
 
     def plot(self, *args, **kwargs) -> 'plt.Axes':
         """
-        Plot the distribution function (the distribution's ``_plot_<kind>``). Accepted arguments depend on the
-        distribution; common ones are ``exact`` (use the slower per-point de Hoog inversion instead of the default
-        cosine one), ``bins`` / ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution),
-        ``ax`` / ``show`` / ``file`` / ``title``.
+        Plot the distribution function (the distribution's ``_plot_<kind>``) -- the same function :meth:`__call__`
+        evaluates, over a grid. Accepted arguments depend on the distribution; common ones are ``bins`` /
+        ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution), ``ax`` / ``show`` /
+        ``file`` / ``title``.
         """
         return getattr(self._distribution, '_plot_' + self.kind)(*args, **kwargs)
 
@@ -122,7 +77,7 @@ class DensityFunction(DistributionFunction):
     - **Callable** ``pdf(x)``: the density at ``x`` (scalar or array). For an accumulated reward this is the
       derivative of the cosine CDF. The tree height uses the exact matrix exponential, empirical samples a
       histogram.
-    - **Plot** ``pdf.plot()``: the same, or the per-point inversion with ``exact=True``.
+    - **Plot** ``pdf.plot()``: the same function, over a grid.
     """
     kind = 'pdf'
 
@@ -132,7 +87,7 @@ class CumulativeDistributionFunction(DistributionFunction):
 
     - **Callable** ``cdf(x)``: the probability at ``x`` (scalar or array). For an accumulated reward this is the
       Fourier-cosine inversion. The tree height uses the exact matrix exponential, samples the empirical CDF.
-    - **Plot** ``cdf.plot()``: the same, or the per-point inversion with ``exact=True``.
+    - **Plot** ``cdf.plot()``: the same function, over a grid.
     """
     kind = 'cdf'
 
@@ -141,10 +96,9 @@ class QuantileFunction(DistributionFunction):
     """Quantile function -- the inverse CDF.
 
     - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
-      reward this inverts the same cosine CDF the :class:`CumulativeDistributionFunction` reads, so the two are
-      mutually consistent; above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` it falls back to a bisection
-      on the exact per-point inversion. Empirical data uses the sample quantile.
-    - **Plot** ``quantile.plot()``: the same, or the per-point bisection with ``exact=True``.
+      reward this inverts the very CDF grid the :class:`CumulativeDistributionFunction` reads, so the two are exact
+      mutual inverses. Empirical data uses the sample quantile.
+    - **Plot** ``quantile.plot()``: the same function, over a grid of probabilities.
     """
     kind = 'quantile'
 
@@ -159,18 +113,23 @@ class _LSTFunction:
     and scale *primitives* (``lst`` / ``_invert`` / ``_cumulants`` / ``_range`` / ``_time_scale`` / ``_titled`` /
     the inversion guards) from ``self._distribution`` and turns them into the cdf / pdf / quantile.
 
-    One representation serves the cdf / pdf / quantile: the **two-pass Fourier-cosine grid**. A single fit answers a
-    whole array, and it is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang
-    off, see :meth:`CallableDistributionFunctions._function`), so all three read the same grid and are mutually
-    consistent by construction -- the pdf is its derivative and the quantile its inverse interpolation.
+    One representation serves the cdf / pdf / quantile: the **CDF grid** of :meth:`_cdf_grid`, a two-pass
+    Fourier-cosine fit carrying exact de Hoog nodes above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`,
+    where the fit force-normalises to 1 and so loses the tail outright. A single fit answers a whole array, and the
+    grid is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang off, see
+    :meth:`CallableDistributionFunctions._function`), so all three read it and are mutually consistent by construction:
+    the pdf is its derivative and the quantile its inverse interpolation, making ``cdf(quantile(q)) == q`` exact.
 
     The **per-point de Hoog inversion** (:meth:`_cdf_point` / :meth:`_pdf_point`) is exact but costs one Laplace
-    inversion per point. It is not a route the caller selects; it survives in exactly two places, where the cosine grid
-    demonstrably fails:
+    inversion (~19 ms) per point, so it is never a route the caller selects -- there is no ``exact=`` switch, and every
+    plotted curve is the very function the caller evaluates. It is memoised per distribution and used to build:
 
-    - the **quantile tail** (above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`), because the cosine CDF
-      force-normalises to 1 at the end of its window and so loses the far tail outright;
-    - the ``exact=True`` **plots**, and the test suite's exactness pins.
+    - the grid's own **far-tail nodes**, materialised on first use and only as far as the query reaches, so a plot
+      (whose endpoint quantile sits below the cut) never pays for them;
+    - a **conditional's support window** (``_Conditional._range_via_cdf``), which brackets the exact CDF because the
+      nested transform's finite-difference variance is unusable;
+    - the **joint's near-origin wiggle check** (``JointRewardDistribution._cos2d_wiggle_check``), cached per joint;
+    - the exactness pins of the test suite, which need a reference the grid cannot be its own judge of.
     """
     #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
     _cos_terms_rough: int = 128
@@ -189,13 +148,29 @@ class _LSTFunction:
     #: error in the CDF itself, all of which this removes at no cost in terms or transform evaluations.
     _cos_tail_target: float = 1.0 - 1e-5
 
+    #: Decrement of ``log(1 - F)`` between consecutive exact de Hoog nodes above
+    #: :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`: each node sits one fixed factor of survival below the
+    #: last (``e**0.25``, so ~40 nodes span the mass from the cut down to :attr:`_tail_target`). Spacing the ladder by
+    #: survival rather than by ``x`` is what makes it scale-free. A ladder geometric in ``x`` takes its step from the
+    #: magnitude of ``x_cut``, which says nothing about how fast the tail decays: on a rapid decline the survival falls
+    #: twentyfold over 0.07 while ``x_cut`` is 0.91, so a 5% step straddles two decay lengths, three nodes cover the
+    #: whole tail, and interpolating between them puts a 2.4e-3 error in the CDF. The step below is set by the decay
+    #: length itself, so it cannot lose the tail's scale that way.
+    _tail_dlog: float = 0.25
+
+    #: Mass the tail ladder is grown to (unless a query asks for more), and the node budget bounding it.
+    _tail_target: float = 1.0 - 1e-6
+    _tail_max_nodes: int = 256
+
     # ---- distribution primitives (thin accessors) --------------------------------------------------------------
     def _range(self, scale: float = 12.0) -> float:
         return self._distribution._range(scale)
 
     def _cdf_point(self, t: float) -> float:
-        """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the building block of both the exact
-        the ``exact=True`` plots, the test suite's exactness pins, and the far-tail quantile."""
+        """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the exact reference the cosine grid is
+        checked against, the nodes of its far-tail extension, the conditional support bracket and the joint wiggle
+        check. Memoised per distribution: one inversion costs ~19 ms, so it is the *points* that are worth caching,
+        not any grid assembled from them."""
         if t < 0:
             return 0.0
         d = self._distribution
@@ -204,7 +179,11 @@ class _LSTFunction:
             # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
             # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
             return max(d.lst(d._s_inf).real, 0.0)
-        return d._invert(lambda s: d.lst(s) / s, float(t))
+
+        cache = self._shared('cdf_points', dict)
+        if t not in cache:
+            cache[t] = d._invert(lambda s: d.lst(s) / s, float(t))
+        return cache[t]
 
     def _pdf_point(self, t: float) -> float:
         """Per-point de Hoog density (``L[pdf] = phi(s)``)."""
@@ -278,17 +257,19 @@ class _LSTFunction:
         return np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
 
     def _build_cos_cdf_grid(self) -> tuple:
-        """A fine, monotone CDF on ``[0, b]`` underlying the COS plotting curves (the curve / quantile inversion
-        interpolate it, so they are mutually consistent and computed once)."""
+        """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of :meth:`_cdf_grid`,
+        computed once per distribution."""
         fit = self._cos_coeffs
         xs = np.linspace(0.0, fit['b'], 2048)
         return xs, np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
 
     def _cos(self, x: np.ndarray, kind: str, n_terms: int = None, scale: float = 12.0) -> np.ndarray:
         """
-        Evaluate the COS fit as a whole CDF/PDF curve over the grid ``x`` (for plotting; the exact per-point
-        cdf / pdf use de Hoog). The default window uses the cached two-pass fit; an explicit ``scale`` refits over
-        ``[0, mean + scale*std]`` (used in tests). The CDF is clipped to ``[0, 1]`` and made monotone.
+        Evaluate the raw COS fit as a whole CDF/PDF curve over the grid ``x``. No caller reads its density: the
+        published pdf differentiates the CDF grid instead, precisely because the raw cosine sum rings (and goes
+        negative) at an atom. This is the handle the tests judging the fit itself need. The default window uses the
+        cached two-pass fit; an explicit ``scale`` refits over ``[0, mean + scale*std]``. The CDF is clipped to
+        ``[0, 1]`` and made monotone.
         """
         fit = self._cos_coeffs if scale == 12.0 else self._fit_cos(self._range(scale), n_terms or self._cos_terms)
         b, w, fk, p0 = fit['b'], fit['w'], fit['fk'], fit['p0']
@@ -303,10 +284,162 @@ class _LSTFunction:
         cdf[order] = np.maximum.accumulate(cdf[order])
         return cdf
 
-    def _cos_cdf(self, x) -> np.ndarray:
-        """The cosine CDF over ``x``, read off the cached monotone grid (so cdf / pdf / quantile stay consistent)."""
+    def _tail_decay(self, tail: list) -> float:
+        """
+        The survival's local decay length ``lambda = -S / S'`` at the end of the tail ladder, which sets the next
+        node's step. Seeded at the cut from the cosine grid's own density (free), and thereafter read off the last two
+        exact nodes, where ``lambda = dx / log(S_prev / S)`` is what an exponential tail would have. The step is capped
+        at the current node so a near-flat survival cannot make the ladder jump the tail outright.
+
+        :param tail: The ``(x, F)`` nodes so far, in increasing order.
+        :return: The decay length at the last node.
+        """
+        x, f = tail[-1]
+        s = 1.0 - f
+
+        if s <= 0:
+            return x
+
+        # at the anchor there is no previous node to take a slope from, so seed from the cosine grid's own density
+        if len(tail) == 1:
+            xs, cdf = self._cos_cdf_grid
+            density = float(np.interp(x, xs, np.gradient(cdf, xs)))
+            return min(s / density, x) if density > 0 else x
+
+        x_prev, f_prev = tail[-2]
+        s_prev = 1.0 - f_prev
+
+        return min((x - x_prev) / np.log(s_prev / s), x) if s_prev > s else x
+
+    def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
+        """
+        The single CDF representation the cdf, pdf and quantile all read: the cosine nodes below the tail cut, exact
+        de Hoog nodes above it. Because all three read *this*, through the one interpolation rule of
+        :meth:`_interp_cdf` / :meth:`_interp_pdf` / :meth:`_interp_quantile`, they are mutual inverses by construction
+        and the density does not saturate where the cosine window ends.
+
+        The cosine fit force-normalises to 1 at the end of its window, so beyond it an interpolation reports a
+        survival of exactly zero. The tail therefore has to come from the exact inversion, which is far too expensive
+        to build eagerly (~19 ms a node, on every SFS bin). It is instead materialised on first use, and only as far
+        as the query reaches: a plot, whose endpoint quantile sits below the cut, never pays for it at all.
+
+        The tail is anchored at ``x_cut`` carrying the *cosine's* value there, which is ``cut`` by construction --
+        so the anchor lies exactly on the cosine's own piecewise linear curve and inserting it perturbs nothing. That
+        is what keeps the grid free of any dependence on the order it was queried in: the readers answer everything
+        below the cut from the cosine nodes alone, and a query above the cut is what builds the tail in the first
+        place. Were the tail instead to supply the value at the end of the cell straddling the cut, that cell's
+        answers would silently depend on whether some earlier call had happened to reach past the cut.
+
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes, the monotone CDF on them, and the number of leading cosine nodes (so the readers know
+            where the tail rule starts).
+        """
         xs, cdf = self._cos_cdf_grid
-        return np.interp(np.atleast_1d(np.asarray(x, dtype=float)), xs, cdf)
+        cut = Settings.dehoog_tail_quantile
+
+        if cut is None:
+            return xs, cdf, len(xs)
+
+        x_cut = float(np.interp(cut, cdf, xs))
+
+        # nothing above the cut is being asked for, so the tail stays unbuilt
+        if not 0 < x_cut < np.inf or (x_max <= x_cut and q_max <= cut):
+            return xs, cdf, len(xs)
+
+        tail = self._shared('cdf_tail', list)
+        if not tail:
+            tail.append((x_cut, cut))
+
+        target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
+        while len(tail) < self._tail_max_nodes:
+            x, f = tail[-1]
+            # stop once the ladder both covers the query and holds the target mass; a CDF that has saturated at 1
+            # cannot say anything more about points beyond it either, so it ends the growth regardless
+            if f >= target and (x >= x_max or f >= 1.0 - 1e-12):
+                break
+            x = x + self._tail_dlog * self._tail_decay(tail)
+            tail.append((x, self._cdf_point(x)))
+
+        keep = xs < x_cut
+        nodes = np.concatenate([xs[keep], [x for x, _ in tail]])
+        values = np.concatenate([cdf[keep], np.maximum.accumulate([f for _, f in tail])])
+
+        return nodes, values, int(keep.sum())
+
+    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
+        """
+        The CDF between the grid's nodes. Below the cut the nodes are dense and the interpolation is the obvious
+        linear one. Above it they are a fixed factor of survival apart, and a chord in ``F`` would join them under a
+        concave curve, biasing the far-tail quantile 1e-3 long. The survival of a coalescent tail is close to
+        exponential, so ``log(1 - F)`` is close to a straight line and is what the tail interpolates in:
+        ``S(x) = S_i exp(-(x - x_i) / lambda_i)``. :meth:`_interp_quantile` inverts this very map and
+        :meth:`_interp_pdf` differentiates it, which is what makes the three exactly consistent.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param cdf: The CDF on them.
+        :param n: Number of leading cosine nodes.
+        :return: The CDF at ``t``.
+        """
+        xs, cs = self._cos_cdf_grid
+        out = np.interp(t, xs, cs)  # below the cut this is the whole answer, and no tail node enters it
+
+        if n < len(nodes):
+            tail = t > nodes[n]
+            if tail.any():
+                out[tail] = 1.0 - np.exp(np.interp(t[tail], nodes[n:], self._log_survival(cdf[n:])))
+
+        return out
+
+    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
+        """The exact inverse of :meth:`_interp_cdf`'s map, so that ``cdf(quantile(q)) == q``.
+
+        :param q: Probability levels.
+        :param nodes: The grid's nodes.
+        :param cdf: The CDF on them.
+        :param n: Number of leading cosine nodes.
+        :return: The quantiles at ``q``.
+        """
+        xs, cs = self._cos_cdf_grid
+        out = np.interp(q, cs, xs)  # the grid is monotone, so below the cut the inverse is an interpolation
+
+        if n < len(nodes):
+            tail = q > cdf[n]  # ``cdf[n]`` is the cut itself, the anchor the tail hangs off
+            if tail.any():
+                ls = self._log_survival(cdf[n:])
+                out[tail] = np.interp(-self._log_survival(q[tail]), -ls, nodes[n:])
+
+        return out
+
+    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, cdf: np.ndarray, n: int) -> np.ndarray:
+        """The derivative of :meth:`_interp_cdf`'s map: a finite difference of the dense cosine nodes below the cut,
+        and above it the analytic ``f(x) = S(x) / lambda_i`` of the log-linear tail, which is positive and continuous
+        within an interval rather than a staircase of chords.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param cdf: The CDF on them.
+        :param n: Number of leading cosine nodes.
+        :return: The density at ``t``.
+        """
+        xs, cs = self._cos_cdf_grid
+        out = np.interp(t, xs, np.gradient(cs, xs))
+
+        if n < len(nodes):
+            tail = t > nodes[n]
+            if tail.any():
+                ls, xs = self._log_survival(cdf[n:]), nodes[n:]
+                i = np.clip(np.searchsorted(xs, t[tail]) - 1, 0, len(xs) - 2)
+                decay = (xs[i + 1] - xs[i]) / np.maximum(ls[i] - ls[i + 1], 1e-300)
+                out[tail] = np.exp(np.interp(t[tail], xs, ls)) / decay
+
+        return out
+
+    @staticmethod
+    def _log_survival(cdf: np.ndarray) -> np.ndarray:
+        """``log(1 - F)``, floored so that a CDF saturated at 1 does not take the logarithm to negative infinity."""
+        return np.log(np.maximum(1.0 - np.asarray(cdf, dtype=float), 1e-300))
 
 
 class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):
@@ -314,30 +447,26 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 
     def __call__(self, t) -> 'np.ndarray | float':
         """
-        CDF ``P(R <= t)``, for a scalar or an array of ``t``, read off the cached cosine grid, so a whole array costs
-        one fit.
+        CDF ``P(R <= t)``, for a scalar or an array of ``t``, interpolated on the shared CDF grid
+        (:meth:`_LSTFunction._cdf_grid`), so a whole array costs one fit.
 
         :param t: Point(s) at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
         """
-        out = self._cos_cdf(t)
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        out = self._interp_cdf(ta, *self._cdf_grid(x_max=float(ta.max(initial=0.0))))
+
         return out if np.ndim(t) > 0 else float(out[0])
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False, **kwargs) -> 'plt.Axes':
-        """Plot the CDF up to the configured plot-endpoint quantile (the cosine grid, or per-point de Hoog when
-        ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
+             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
+        """Plot the CDF up to the configured plot-endpoint quantile. The curve is ``self(x)``, i.e. exactly the
+        function the caller evaluates. Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
         from ..visualization import Visualization
         d = self._distribution
-        if x is None and exact:
-            # de Hoog is expensive per point -> place the points adaptively where the curve bends
-            x, y = adaptive_grid(self._cdf_point, 0.0, d.quantile(Settings.plot_endpoint_quantile),
-                                 max_points=n_points)
-        else:
-            if x is None:
-                x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = np.array([self._cdf_point(float(v)) for v in x]) if exact else self(x)
+        if x is None:
+            x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
+        y = self(x)
         ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
                                 show=show, clear=clear, title=title or d._titled('CDF'), **kwargs)
         ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
@@ -349,60 +478,52 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
 
     def __call__(self, t, **kwargs) -> 'np.ndarray | float':
         """
-        Density, for a scalar or an array of ``t``, by differentiating the cached cosine CDF -- which keeps the density
-        consistent with it and free of the raw cosine sum's Gibbs negativity.
+        Density, for a scalar or an array of ``t``, by differentiating the shared CDF grid
+        (:meth:`_LSTFunction._cdf_grid`) -- which keeps it consistent with the CDF, free of the raw cosine sum's Gibbs
+        negativity, and non-zero in the far tail, where the cosine window alone ends and its derivative is flat zero.
 
         :param t: Point(s) at which to evaluate the density.
         :return: The density at ``t``, of the same shape.
         """
         d = self._distribution
         ta = np.atleast_1d(np.asarray(t, dtype=float))
-        xs, cdf = self._cos_cdf_grid
-        out = np.interp(ta, xs, np.gradient(cdf, xs))
-        out = d._warn_if_negative(out, d._titled('density (cosine)'))
+        out = self._interp_pdf(ta, *self._cdf_grid(x_max=float(ta.max(initial=0.0))))
+        out = d._warn_if_negative(out, d._titled('density'))
         return out if np.ndim(t) > 0 else float(out[0])
 
     def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False, **kwargs) -> 'plt.Axes':
-        """Plot the PDF up to the configured plot-endpoint quantile (derivative of the cosine CDF, or per-point de Hoog
-        when ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
+             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
+        """Plot the PDF up to the configured plot-endpoint quantile (the derivative of the cosine CDF grid). The curve
+        is ``self(x)``, i.e. exactly the function the caller evaluates. Extra keyword arguments (``alpha``, ``lw``,
+        ...) are forwarded to the line."""
         from ..visualization import Visualization
         d = self._distribution
-        if x is None and exact:
-            x, y = adaptive_grid(self._pdf_point, 0.0, d.quantile(Settings.plot_endpoint_quantile),
-                                 max_points=n_points)
-        else:
-            if x is None:
-                x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-            y = np.array([self._pdf_point(float(v)) for v in x]) if exact else self(x)
+        if x is None:
+            x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
+        y = self(x)
         return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
                                   show=show, clear=clear, title=title or d._titled('PDF'), **kwargs)
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
-    """The quantile function of a 1D accumulated-reward distribution: inverse interpolation of the cosine CDF grid,
-    with a per-point de Hoog bisection for the far tail."""
+    """The quantile function of a 1D accumulated-reward distribution: inverse interpolation of the shared CDF grid."""
 
-    def __call__(self, q, precision: float = 1e-8, max_iter: int = 200) -> 'np.ndarray | float':
+    def __call__(self, q) -> 'np.ndarray | float':
         """
         The ``q``-quantile ``inf{x : F(x) >= q}``, for a scalar or an array of ``q``.
 
-        The cosine CDF grid is monotone, so up to :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` the quantile
-        is its inverse *interpolation* -- a whole array in one vectorised pass, and exactly consistent with
-        :class:`_LSTCumulativeDistributionFunction`. Above that quantile the grid is not trusted (it force-normalises
-        to 1 at the end of its window, losing the far tail) and the exact per-point de Hoog bisection takes over. At or
-        below the atom mass ``P(R = 0)`` the quantile is exactly 0.
+        The shared CDF grid (:meth:`_LSTFunction._cdf_grid`) is monotone, so the quantile is its inverse
+        *interpolation* -- a whole array in one vectorised pass. There is no Laplace inversion that returns a quantile
+        directly (the transform gives ``F``, so a quantile is always a root of it), but reading the same piecewise
+        linear ``F`` the CDF reads makes the two exact mutual inverses, ``cdf(quantile(q)) == q``. At or below the
+        atom mass ``P(R = 0)`` the quantile is exactly 0.
 
-        Just *above* a large atom the cosine quantile is accurate in absolute terms but loses relative precision,
-        because the quantile is itself near zero there: for a bin empty with probability 0.44, ``q = 0.5`` lands at
-        0.041 against the exact 0.036 (16% relative, but 0.006 absolute against a 0.95-quantile of 13.3). This is the
-        cosine series' Gibbs artifact at the jump, and it decays away from the atom (4% at ``q = 0.6``, 0.04% at
-        ``q = 0.95``).
+        Just *above* a large atom the quantile is accurate in absolute terms but loses relative precision, because it
+        is itself near zero there: for a bin empty with probability 0.44, ``q = 0.5`` lands at 0.041 against the exact
+        0.036 (16% relative, but 0.006 absolute against a 0.95-quantile of 13.3). This is the cosine series' Gibbs
+        artifact at the jump, and it decays away from the atom (4% at ``q = 0.6``, 0.04% at ``q = 0.95``).
 
         :param q: Probability level(s) in ``[0, 1]``.
-        :param precision: Absolute convergence tolerance of the de Hoog bisection.
-        :param max_iter: Maximum bisection / bracketing iterations.
         :return: The quantile(s), of the same shape as ``q``.
         :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
         """
@@ -410,60 +531,20 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
-        xs, cdf = self._cos_cdf_grid
-        out = np.interp(qa, cdf, xs)  # the grid is monotone, so the inverse is an interpolation
-
-        cut = Settings.dehoog_tail_quantile
-        tail = qa > cut if cut is not None else np.zeros_like(qa, bool)
-        for i in np.flatnonzero(tail):
-            out[i] = self._quantile_dehoog(float(qa[i]), precision, max_iter)
+        out = self._interp_quantile(qa, *self._cdf_grid(q_max=float(qa.max(initial=0.0))))
 
         return out if np.ndim(q) > 0 else float(out[0])
 
-    def _quantile_dehoog(self, q: float, precision: float = 1e-8, max_iter: int = 200) -> float:
-        """Exact ``q``-quantile by bisection on the per-point de Hoog CDF (a full inversion per step). The robust
-        route for the far tail, where the cosine grid is not trusted."""
-        d = self._distribution
-
-        # at or below the atom mass P(R = 0) the quantile is exactly 0; return it directly rather than letting the
-        # bisection converge to a few-1e-9 residue (which makes a relative comparison against an exact 0 blow up)
-        if q <= self._cdf_point(0.0):
-            return 0.0
-        # bracket: grow the upper bound until its CDF exceeds q (seed from the reward's mean via the LST,
-        # E[R] = -phi'(0)). The step is scaled by ``1/tau`` so the seed evaluation does not overflow for large-N.
-        h = 1e-3 / d._time_scale
-        mean = (1.0 - d.lst(h).real) / h
-        lo, hi = 0.0, max(mean, 1.0)
-        for _ in range(max_iter):
-            if self._cdf_point(hi) >= q:
-                break
-            hi *= 2
-        else:
-            raise RuntimeError("Failed to bracket the quantile.")
-
-        for _ in range(max_iter):
-            mid = 0.5 * (lo + hi)
-            if self._cdf_point(mid) < q:
-                lo = mid
-            else:
-                hi = mid
-            if hi - lo < precision:
-                break
-
-        return 0.5 * (lo + hi)
-
     def plot(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None,
-             exact: bool = False, **kwargs) -> 'plt.Axes':
-        """Plot the quantile function (value versus probability), inverting the fast COS CDF curve (or the per-point
-        de Hoog bisection when ``exact=True``). Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the
-        line."""
+             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
+        """Plot the quantile function (value versus probability). The curve is ``self(q)``, i.e. exactly the function
+        the caller evaluates. Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
         from ..visualization import Visualization
         d = self._distribution
         qe = Settings.plot_endpoint_quantile
         if q is None:
             q = np.linspace(1.0 - qe, qe, n_points or Settings.plot_n_grid)
-        y = np.array([self._quantile_dehoog(float(v)) for v in q]) if exact else self(q)
+        y = self(q)
         return Visualization.plot(ax=ax, x=q, y=y, xlabel='q', ylabel='quantile', label=label, file=file, show=show,
                                   clear=clear, title=title or d._titled('quantile function'), **kwargs)
 
@@ -519,24 +600,25 @@ class _GridQuantileFunction(QuantileFunction):
 class MarginalDensity(DensityFunction):
     """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin).
 
-    - **Callable** ``pdf(x)``: every bin's density at ``x`` by per-point de Hoog inversion.
-    - **Plot** ``pdf.plot()``: overlays every bin's fast cosine density curve (or per-point de Hoog with ``exact=True``).
+    - **Callable** ``pdf(x)``: every bin's ``pdf(x)``, the derivative of that bin's cosine CDF grid.
+    - **Plot** ``pdf.plot()``: overlays those same curves, one per bin.
     """
 
 
 class MarginalCDF(CumulativeDistributionFunction):
     """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
 
-    - **Callable** ``cdf(x)``: every bin's probability of being at most ``x`` by per-point de Hoog inversion.
-    - **Plot** ``cdf.plot()``: overlays every bin's fast cosine CDF curve (or per-point de Hoog with ``exact=True``).
+    - **Callable** ``cdf(x)``: every bin's ``cdf(x)``, read off that bin's cosine CDF grid.
+    - **Plot** ``cdf.plot()``: overlays those same curves, one per bin.
     """
 
 
 class MarginalQuantileFunction(QuantileFunction):
     """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin).
 
-    - **Callable** ``quantile(q)``: each bin's quantile by bisection on its de Hoog CDF.
-    - **Plot** ``quantile.plot()``: overlays every bin's quantile, inverting the fast cosine CDF curve.
+    - **Callable** ``quantile(q)``: every bin's ``quantile(q)`` -- the inverse interpolation of that bin's cosine
+      CDF grid (de Hoog bisection in the far tail).
+    - **Plot** ``quantile.plot()``: overlays those same curves, one per bin.
     """
 
 
