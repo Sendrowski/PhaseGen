@@ -1,9 +1,12 @@
 """
-Tighten ("time") the comparison tolerances of one or more scenario configs to ~1.5x their observed diffs, by running
-the comparison against the (already regenerated) fixture and rewriting each tolerance leaf. The fixtures are fixed and
+Tighten the comparison tolerances of one or more scenario configs to ~1.5x their observed diffs, by running the
+comparison against the (already regenerated) fixture and rewriting each tolerance leaf. The fixtures are fixed and
 phasegen is deterministic, so the observed diff is reproducible -- 1.5x gives modest headroom for library drift.
 
-    python scripts/tune_dist_tols.py <config_name> [<config_name> ...]
+    python scripts/tune_dist_tols.py [--allow-loosen] <config_name> [<config_name> ...]
+
+Each leaf is clamped to ``min(current, 1.5x observed)``, so re-tuning against a regenerated fixture cannot walk a
+bound outward. ``--allow-loosen`` lifts the clamp.
 
 Leaves with no matching observed diff are left untouched. Run AFTER regenerating the fixture(s)."""
 import ast
@@ -119,10 +122,12 @@ def title_for(path: list) -> list:
     return [': '.join(path)]
 
 
-def retune(name: str, tighten_only: bool = False, only: set = None) -> int:
-    """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff). With ``tighten_only`` the
-    leaf is set to ``min(current, nudge(observed))`` so a tolerance can only ever be tightened, never loosened -- used
-    to drive down stale/degenerate (over-loose) tolerances without risking a currently-tight, barely-passing leaf.
+def retune(name: str, tighten_only: bool = True, only: set = None) -> int:
+    """Rewrite each matched tolerance leaf to ``nudge(observed)`` (1.5x the observed diff), clamped to
+    ``min(current, nudge(observed))`` unless ``tighten_only`` is off: the 1.5x rule re-derives a leaf from whatever
+    the current fixture yields, so without the clamp a re-tune after a fixture regeneration loosens every bound whose
+    fresh observation is a little worse.
+
     With ``only`` (a set of statistic kinds) only those kinds are retuned, leaving every other leaf untouched -- used
     to retune a single metric (e.g. after changing the difference metric for ``mutation_configs``)."""
     obs = observed(name)
@@ -187,13 +192,13 @@ def _restore_top_level_block(orig: str, new: str, key: str) -> str:
 
 if __name__ == '__main__':
     args = sys.argv[1:]
-    tighten_only = '--tighten-only' in args
+    tighten_only = '--allow-loosen' not in args
     only = next((set(a.split('=', 1)[1].split(',')) for a in args if a.startswith('--only=')), None)
     for name in [a for a in args if not a.startswith('--')]:
         # one config whose fixture is incomplete (e.g. an uncached pairwise surface) must not abort a whole batch
         try:
             n = retune(name, tighten_only=tighten_only, only=only)
-            print(f"{'tightened' if tighten_only else 'tuned'} {n:>3} tolerances in {name}"
+            print(f"{'tightened' if tighten_only else 'tuned (loosening allowed)'} {n:>3} tolerances in {name}"
                   + (f" (only {', '.join(sorted(only))})" if only else ""))
         except Exception as e:
             print(f"SKIPPED {name}: {type(e).__name__}: {e}")
