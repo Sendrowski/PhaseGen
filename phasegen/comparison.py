@@ -3,7 +3,6 @@ Compare statistics between PhaseGen and Msprime.
 """
 import ast
 import copy
-import itertools
 import logging
 import os
 import time
@@ -1076,8 +1075,8 @@ class Comparison(Serializable):
         cached = {(i, j, on): rest for i, j, on, *rest in getattr(ms, '_atom_conditional', [])}
 
         # a fixture predating this cache has no entry at all; that must fail loudly rather than pass by checking
-        # nothing. An axis with no atom is cached with a zero mass, so it is present either way
-        if not any((pair[0], pair[1], on) in cached for on in ('a', 'b')):
+        # nothing. Both axes are always cached (an axis with no atom carries a zero mass), so both must be there
+        if not all((pair[0], pair[1], on) in cached for on in ('a', 'b')):
             raise ValueError(
                 f"No cached atom-conditional ground truth for pair {pair}. Regenerate the fixture "
                 f"(create_comparison) after adding an 'atom' block, so the msprime side is cached with it."
@@ -1680,6 +1679,11 @@ class Comparison(Serializable):
             args = spec.get('args', []) if isinstance(spec, dict) else []
             tol = spec['tol'] if isinstance(spec, dict) else spec
             label = f"{title}: {stat}" + (f"({', '.join(map(str, args))})" if args else "")
+
+            if (stat, tuple(args)) not in self._ms_statistics:
+                raise KeyError(f"The ground truth of '{stat}' is not cached in this comparison. It is computed from "
+                               f"the simulated data, which the serialized comparison drops, so a newly configured "
+                               f"statistic needs its fixture regenerated (see the 'regenerate_fixtures' rule).")
 
             self._compare_scalar(
                 ph=self._eval_statistic(self.ph, stat, args),

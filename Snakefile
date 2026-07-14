@@ -80,9 +80,10 @@ rule all:
 # `-F` is required: mtime is not a working trigger here (a config newer than its fixture still reports "Nothing to be
 # done"), and a shell `touch` on the configs does not help. Use snakemake's own `--touch` to mark outputs current.
 #
-# Exactly ONE layer of parallelism. The msprime simulation parallelises internally, so either run it serially and fan
-# out over fixtures (PG_PARALLELIZE=0 with -j8, several times faster for this mostly-small-n suite), or let it
-# parallelise internally with -j1. Never both: that is fully serial, on one core.
+# Exactly ONE layer of parallelism. The msprime simulation parallelises internally, so either turn that off and fan out
+# over fixtures (PG_PARALLELIZE=0 with -j8, several times faster for this mostly-small-n suite), or keep it and build
+# one fixture at a time (-j1). Combining -j8 with the internal parallelism thrashes; combining PG_PARALLELIZE=0 with
+# -j1 leaves no parallelism at all and runs the whole suite on a single core.
 rule regenerate_fixtures:
     input:
         expand("results/comparisons/serialized/{config}.json", config=configs)
