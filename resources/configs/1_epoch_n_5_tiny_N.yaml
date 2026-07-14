@@ -1,5 +1,6 @@
 n: 5
 num_replicates: 1000000
+n_samples: 200000
 simulate_mutations: true
 mutation_rate: 100000       # 1 / N0, which puts theta * E[total branch length] at 4.2, the band the other configs sit in
 mass_threshold: 0.9
@@ -10,6 +11,21 @@ model: standard
 seed: 42
 comparisons:
   tolerance:
+    # validate PhaseGen's own trajectory sampler here too: this scenario's rates sit far from unity, and the
+    # hazard-budget sampler must be scale-free (it draws H / lambda, which carries no absolute time scale).
+    empirical:
+      tree_height:
+        mean: 0.0055
+        var: 0.023
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
+      total_branch_length:
+        mean: 0.005
+        var: 0.02
+      sfs:
+        mean: 0.016
+        m2: 0.05
     tree_height:
       mean: 0.0026
       var: 0.011

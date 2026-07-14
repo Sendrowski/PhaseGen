@@ -1,5 +1,6 @@
 n: 5
 num_replicates: 1000000
+n_samples: 200000
 simulate_mutations: true
 # theta * E[total branch length] ~ 3, the band the other mutational configs sit in (1.2 to 4.2). The cost of a
 # mutational configuration grows with the size of its count lattice, so a larger theta is not merely a different
@@ -15,6 +16,21 @@ model: standard
 seed: 42
 comparisons:
   tolerance:
+    # validate PhaseGen's own trajectory sampler here too: this scenario's rates sit far from unity, and the
+    # hazard-budget sampler must be scale-free (it draws H / lambda, which carries no absolute time scale).
+    empirical:
+      tree_height:
+        mean: 0.009
+        var: 0.026
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
+      total_branch_length:
+        mean: 0.009
+        var: 0.024
+      sfs:
+        mean: 0.019
+        m2: 0.05
     tree_height:
       pdf: 0.004
       cdf: 0.002

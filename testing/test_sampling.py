@@ -217,3 +217,88 @@ def test_sampled_and_msprime_agree():
     assert sampled.total_branch_length.mean == pytest.approx(ms.total_branch_length.mean, rel=0.03)
     np.testing.assert_allclose(np.asarray(sampled.sfs.mean), np.asarray(ms.sfs.mean), rtol=0.05, atol=0.05)
     np.testing.assert_allclose(np.asarray(sampled.jsfs.mean), np.asarray(ms.jsfs.mean), rtol=0.1, atol=0.05)
+
+
+def _assert_same_law(sampled, ms, rel: float = 0.03, atol: float = 0.02):
+    """Assert two empirical coalescents sample the same law: the means, and the whole tree-height CDF.
+
+    The CDF is what makes this bite. Means are insensitive to *where* the mass sits, so a sampler that mishandled an
+    epoch boundary -- putting coalescences on the wrong side of it -- could still land the mean. Both CDFs are
+    empirical, so the scale is the two-sample Kolmogorov-Smirnov noise, ``~1.4 sqrt(2 / n)``; ``atol`` sits an order of
+    magnitude above it, making this a structural check rather than a precision bound.
+    """
+    assert sampled.tree_height.mean == pytest.approx(ms.tree_height.mean, rel=rel)
+    assert sampled.total_branch_length.mean == pytest.approx(ms.total_branch_length.mean, rel=rel)
+    np.testing.assert_allclose(np.asarray(sampled.sfs.mean), np.asarray(ms.sfs.mean), rtol=0.05, atol=0.05)
+
+    t = np.linspace(0, float(ms.tree_height.quantile(0.99)), 50)
+    np.testing.assert_allclose(sampled.tree_height.cdf(t), ms.tree_height.cdf(t), atol=atol)
+
+
+@pytest.mark.slow
+def test_sampled_and_msprime_agree_across_epochs():
+    """The sampler against msprime under a **time-inhomogeneous** demography -- the one place its epoch handling can
+    be wrong without anything else noticing.
+
+    Within an epoch the sampler takes ``H / lambda`` from an ``Exp(1)`` hazard budget; at a boundary it advances the
+    walker to the boundary, consumes ``lambda * duration`` of the budget, and carries the remainder into the next
+    epoch. Nothing else validates that carry-over against an *independent* implementation: the scenario suite's
+    ``tolerance.empirical`` blocks compare the sampler against PhaseGen's own analytics, which share its epoch grid, so
+    a bug in the grid would agree with itself.
+
+    The bottleneck is deep and short, so a walker that mis-crossed a boundary would coalesce in the wrong epoch.
+    """
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.3: 0.05, 0.5: 1.0}})
+    reps = 100000
+
+    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=6, demography=dem), n_samples=reps, seed=2)
+    ms = MsprimeCoalescent(n=6, demography=dem, num_replicates=reps, seed=2, parallelize=False)
+
+    _assert_same_law(sampled, ms)
+
+
+def test_sampler_is_scale_equivariant():
+    """Rescaling every population size by ``c`` rescales every sampled time by exactly ``c``.
+
+    The sampler draws ``H / lambda`` from a hazard budget, which carries no absolute time scale, so this must hold to
+    the last digit rather than merely within Monte-Carlo error -- and the same seed gives the same trajectories, so the
+    sampled means are compared as an identity, not a statistic. Worth pinning: an absolute constant slipped into a
+    scale-free computation is a recurring failure here (the atom probe once tested ``phi(1e8)`` rather than
+    ``phi(1e8 / tau)``, which invented atoms for small populations), and no scenario config samples at an extreme
+    ``N``.
+    """
+    ref = None
+    for scale in (1e-8, 1e-4, 1.0, 1e4, 1e8):
+        c = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': scale}))
+        sampled = c.to_empirical(20000, seed=11)
+
+        # the mean in units of the population size: identical across scales, and equal to the analytic value
+        normalized = float(sampled.tree_height.mean) / scale
+        assert normalized == pytest.approx(float(c.tree_height.mean) / scale, rel=0.02)
+
+        if ref is None:
+            ref = normalized
+        assert normalized == pytest.approx(ref, rel=1e-12)
+
+
+@pytest.mark.slow
+def test_sampled_and_msprime_agree_across_a_zero_rate_epoch():
+    """The sampler against msprime when an epoch has **no migration at all**, so the demes are isolated until they
+    reconnect.
+
+    This is the ``lambda = 0`` branch of the hazard budget: a walker in a state it cannot leave consumes no hazard and
+    simply waits out the epoch, accruing reward. Getting that wrong (consuming budget, or dividing by a zero rate)
+    would be invisible to a time-homogeneous test, and the isolated phase forces the two demes' lineages to survive it
+    before they can ever coalesce with one another.
+    """
+    dem = pg.Demography(
+        pop_sizes={'p0': 1.0, 'p1': 1.0},
+        migration_rates={('p0', 'p1'): {0: 0.0, 0.5: 1.0}, ('p1', 'p0'): {0: 0.0, 0.5: 1.0}}
+    )
+    n = {'p0': 2, 'p1': 2}
+    reps = 100000
+
+    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=n, demography=dem), n_samples=reps, seed=3)
+    ms = MsprimeCoalescent(n=n, demography=dem, num_replicates=reps, seed=3, parallelize=False)
+
+    _assert_same_law(sampled, ms)
