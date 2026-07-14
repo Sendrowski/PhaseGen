@@ -135,6 +135,13 @@ class _LSTFunction:
     _cos_terms_rough: int = 128
     _cos_terms: int = 384
 
+    #: Nodes the fit is sampled on to become the grid's body. The fit is analytic, so these cost only its evaluation
+    #: (~6 ms) against the hundreds of ms of transform evaluations behind it, and the interpolation error between them
+    #: falls as their spacing squared. At 2048 that error reached 9.4e-4 on a heavy-tailed bin, whose density spikes
+    #: in a window stretched long by its tail -- *larger* than the fit's own ~3e-4, so the grid, not the fit, was the
+    #: dominant error in the body. 8192 puts it at 5.9e-5, comfortably back under the fit's.
+    _cos_n_grid: int = 8192
+
     #: Support scale (``mean + scale * std``) of the coarse pass, which bounds where the fine pass may put its window.
     #: At 12 the coarse window can fall *short* of :attr:`_cos_tail_target` for a heavy-tailed bin, and the fine window
     #: is then pinned to a support end that is too small however tight the target is (an n = 10 mid-frequency bin
@@ -260,7 +267,7 @@ class _LSTFunction:
         """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of :meth:`_cdf_grid`,
         computed once per distribution."""
         fit = self._cos_coeffs
-        xs = np.linspace(0.0, fit['b'], 2048)
+        xs = np.linspace(0.0, fit['b'], self._cos_n_grid)
         return xs, np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
 
     def _cos(self, x: np.ndarray, kind: str, n_terms: int = None, scale: float = 12.0) -> np.ndarray:
