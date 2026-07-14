@@ -143,6 +143,10 @@ class Comparison(Serializable):
         #: Wall-clock runtime (seconds) of the phasegen side of each compared statistic, keyed by its title.
         self.runtimes: dict = {}
 
+        #: Ground truth of the configured coalescent-level scalar statistics, keyed by ``(name, args)``
+        #: (:meth:`cache_ground_truth`), so that it survives the drop of the simulated data it is computed from.
+        self._ms_statistics: dict = {}
+
     @staticmethod
     def from_yaml(file: str) -> 'Comparison':
         """
@@ -489,20 +493,25 @@ class Comparison(Serializable):
             y_ms = np.asarray(ms_stat(t))
 
         curve = 'cdf' if stat == 'cdf' else 'pdf'
+
+        # the cdf is read pointwise; the pdf is averaged over each cell of the grid, because that is the functional
+        # the empirical density estimates (see :meth:`_cell_average`)
+        evaluate = ((lambda f: self._cell_average(f, t)) if stat == 'pdf'
+                    else (lambda f: np.asarray(f(t), dtype=float)))
+
         if stat == 'quantile':
             y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, mode=mode)
         elif mode is not None and hasattr(ph, 'bin'):
             # a moded spectrum pdf/cdf compares each bin's *inverted* curve; the monomorphic edge bins are zero
             # placeholders, dropped below
             nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
-            y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1)
-                             else np.asarray(getattr(ph.bin(b), curve)(t), dtype=float)
+            y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1) else evaluate(getattr(ph.bin(b), curve))
                              for b in range(nb)])
         elif mode is not None and hasattr(ph, '_reward_distribution'):
             # a moded scalar reward distribution (e.g. total_branch_length) compares its inverted curve
-            y_ph = np.asarray(getattr(ph._reward_distribution, curve)(t), dtype=float)
+            y_ph = evaluate(getattr(ph._reward_distribution, curve))
         else:
-            y_ph = np.asarray(ph_stat(t))  # exact per-point (mode is None, e.g. the expm tree height)
+            y_ph = evaluate(ph_stat)  # exact (mode is None, e.g. the expm tree height)
 
         # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
         # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
@@ -517,15 +526,13 @@ class Comparison(Serializable):
         # Metric: the CDF (bounded in [0,1]) uses the worst *absolute* difference over the *whole* grid, including
         # the point at 0 -- so the atom ``P(R = 0)`` of an SFS bin is asserted rather than skipped. It is well defined
         # on both sides (analytically ``phi(inf)``, empirically the fraction of zero replicates) and the cosine
-        # inversion splits it off instead of trying to resolve the jump, so keeping it costs nothing: across the
-        # scenarios the worst CDF difference is unchanged for a scalar reward and rises at most 0.0008 -> 0.0011 for
-        # a bin. The pdf still drops the head: an empirical density *at* an atom is a delta spike, so a density
-        # comparison there is ill-posed, not merely noisy. The quantile uses the relative Wasserstein-1 distance
-        # (:meth:`_quantile_diff`, atom-robust without dropping points).
+        # inversion splits it off instead of trying to resolve the jump. The pdf spans the whole grid too, the head
+        # included: both sides are cell averages of the *continuous* sub-density (the atom excluded), so the cell at
+        # the origin is finite and well posed on both -- unlike a pointwise empirical density there, which is a delta
+        # spike and had to be dropped. The quantile uses the relative Wasserstein-1 distance (:meth:`_quantile_diff`,
+        # atom-robust without dropping points).
         if stat == 'pdf':
-            ms_p = y_ms[:, 2:] if per_bin else y_ms
-            ph_p = y_ph[:, 2:] if per_bin else y_ph
-            diff = self._pdf_diff(ms_p, ph_p, t[2:] if per_bin else t)
+            diff = self._pdf_diff(y_ms, y_ph, t)
         elif stat == 'cdf':
             diff = float(np.abs(y_ms - y_ph).max())
         else:  # quantile
@@ -546,6 +553,91 @@ class Comparison(Serializable):
                 self._plot_curves_with_diff(tp, series, xlabel, msg if self.show_title else None, name)
 
         return diff, plot
+
+    #: Gauss-Legendre nodes per cell used to integrate an exact density over a comparison cell. Enough for a smooth
+    #: density, and evaluated for every cell in a single vectorised call.
+    _CELL_QUAD_NODES = 8
+
+    #: Nodes beyond which a cell's integral is accepted as it stands. A near-atom (an epoch boundary that collapses the
+    #: population size, say) puts a spike orders of magnitude narrower than a cell inside it, and no fixed-order rule
+    #: integrates that: the estimate has to be refined until it stops moving, or the comparison reports a density error
+    #: that is the quadrature's, not phasegen's.
+    _CELL_QUAD_MAX_NODES = 512
+
+    #: Change in a cell's *mass* (its density times its width) between successive refinements below which the cell is
+    #: converged. Tied to the mass rather than the density because the mass is what the total-variation metric
+    #: integrates: a cell out in the tail may hold a wildly uncertain relative density and still be irrelevant to it.
+    _CELL_QUAD_TOL = 1e-4
+
+    @classmethod
+    def _quadrature(cls, f, lo: np.ndarray, hi: np.ndarray, n_nodes: int) -> np.ndarray:
+        """Gauss-Legendre average of ``f`` over each cell ``[lo, hi)``, all cells in one vectorised call.
+
+        :param f: The density, a vectorised callable (1-D, or per-bin returning ``(n_bins, len(x))``).
+        :param lo: Lower cell edges.
+        :param hi: Upper cell edges.
+        :param n_nodes: Nodes per cell.
+        :return: The cell averages, shaped like ``f``'s output.
+        """
+        x, w = np.polynomial.legendre.leggauss(n_nodes)
+        nodes = 0.5 * (hi - lo)[:, None] * (x[None, :] + 1.0) + lo[:, None]
+
+        y = np.asarray(f(nodes.ravel()), dtype=float)
+        y = y.reshape(*y.shape[:-1], len(lo), n_nodes)
+
+        # the 0.5 * (hi - lo) Jacobian of the quadrature cancels the 1 / (hi - lo) of the average
+        return 0.5 * (y * w).sum(axis=-1)
+
+    @classmethod
+    def _cell_average(cls, f, t: np.ndarray) -> np.ndarray:
+        """
+        The exact density ``f`` averaged over each cell of the grid ``t`` -- the same functional the empirical density
+        estimates (:class:`~phasegen.distributions.empirical._EmpiricalDensityFunction`), so that a pdf comparison
+        pits like against like.
+
+        Comparing a sample's cell average against a *pointwise* exact density instead imposes an ``O(h f')``
+        discrepancy that is no part of phasegen's error and that more replicates do not remove. It dominates wherever
+        the density turns sharply within a cell, which for an SFS bin is exactly the origin.
+
+        Cells whose integral is still moving are refined until it settles, and only those: a spike much narrower than
+        its cell defeats a fixed-order rule, and the resulting error lands in the comparison as if it were phasegen's.
+
+        :param f: The exact density, a vectorised callable (1-D, or per-bin returning ``(n_bins, len(x))``).
+        :param t: The grid whose cells to average over; the last cell is extended by the final spacing.
+        :return: The cell averages, shaped like ``f``'s output.
+        """
+        edges = np.append(t, 2 * t[-1] - t[-2])
+        lo, hi = edges[:-1], edges[1:]
+        widths = hi - lo
+
+        avg = cls._quadrature(f, lo, hi, cls._CELL_QUAD_NODES)
+
+        # half the nodes is not the answer but the error estimate: where the two rules agree the density is resolved,
+        # and where they do not the cell holds a feature the rule cannot see, which only refinement settles
+        probe = cls._quadrature(f, lo, hi, cls._CELL_QUAD_NODES // 2)
+        cells = cls._unconverged(np.abs(avg - probe) * widths > cls._CELL_QUAD_TOL, np.arange(len(lo)))
+
+        n_nodes = cls._CELL_QUAD_NODES
+        while cells.size and n_nodes < cls._CELL_QUAD_MAX_NODES:
+            n_nodes *= 4
+
+            refined = cls._quadrature(f, lo[cells], hi[cells], n_nodes)
+            moved = np.abs(refined - avg[..., cells]) * widths[cells] > cls._CELL_QUAD_TOL
+            avg[..., cells] = refined
+
+            cells = cls._unconverged(moved, cells)
+
+        return avg
+
+    @staticmethod
+    def _unconverged(moved: np.ndarray, cells: np.ndarray) -> np.ndarray:
+        """The cells still to refine: those whose integral moved, in any bin of a per-bin density.
+
+        :param moved: Whether the cell's integral moved, with the cell axis trailing.
+        :param cells: The cells ``moved`` refers to.
+        :return: The subset of ``cells`` to refine.
+        """
+        return cells[moved.any(axis=tuple(range(moved.ndim - 1))) if moved.ndim > 1 else moved]
 
     @staticmethod
     def _diff_label(stat: str) -> str:
@@ -772,11 +864,13 @@ class Comparison(Serializable):
             elif stat == 'conditional':
 
                 # nested conditional group: the self-consistency checks of the conditional path, on freely chosen bin
-                # pairs. Unlike ``pairwise`` these have no msprime operand (they are identities the analytic joint must
-                # satisfy), so a pair needs no cached empirical surface and no fixture regeneration to be added here.
+                # pairs. These are identities the analytic joint must satisfy, so they need no msprime operand and a
+                # pair can be added without regenerating the fixture. The one exception is the ``atom`` sub-block,
+                # which *is* compared against msprime (see :meth:`_compare_atom_conditional`) and does need the
+                # cached ground truth.
                 for key, subtol in sub.items():
                     pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
-                    self._compare_conditional(ph.joint_distribution(*pair), pair, subtol, title, name)
+                    self._compare_conditional(ph.joint_distribution(*pair), pair, subtol, title, name, ms=ms)
 
             elif stat == 'pairwise':
 
@@ -823,8 +917,8 @@ class Comparison(Serializable):
         Compare a single SFS bin's statistics (config ``sfs: {i}: {stat}``) against the msprime ground truth: the
         scalar ``mean`` / ``var`` of bin ``i``, and its 1D ``pdf`` / ``cdf`` / ``quantile`` (bin ``i``'s reward
         distribution vs the cached empirical per-bin curves). The per-statistic metric matches the spectrum-wide
-        comparison: the CDF uses the worst absolute difference, the pdf the mean absolute difference, and the
-        quantile / mean / var a relative difference (the pdf drops the near-zero head; the CDF keeps the atom).
+        comparison: the CDF uses the worst absolute difference, the pdf the total variation between the cell-averaged
+        densities, and the quantile / mean / var a relative difference.
         A ``de_hoog`` / ``cosine`` key under the bin routes its sub-stats through that inversion (``mode``).
         """
         for stat, tol in tols.items():
@@ -855,9 +949,12 @@ class Comparison(Serializable):
                     y_ph = np.asarray(d.quantile(t), dtype=float)
                     diff = self._quantile_diff(y_ms, y_ph, t)
                 else:
-                    y_ph = np.asarray(d.cdf(t) if stat == 'cdf' else d.pdf(t), dtype=float)
+                    # the pdf is averaged over each cell, as the spectrum-wide comparison does: the empirical density
+                    # is a cell average, and a pointwise exact density is a different functional (see _cell_average)
+                    y_ph = (np.asarray(d.cdf(t), dtype=float) if stat == 'cdf'
+                            else self._cell_average(d.pdf, t))
                     diff = (float(np.abs(y_ms - y_ph).max()) if stat == 'cdf'
-                            else self._pdf_diff(y_ms[2:], y_ph[2:], t[2:]))
+                            else self._pdf_diff(y_ms, y_ph, t))
 
             else:
                 raise ValueError(f"Unsupported per-bin SFS statistic '{stat}' for bin {i} "
@@ -951,7 +1048,137 @@ class Comparison(Serializable):
     #: choose their own nodes.
     _CONDITIONAL_OPTS = {'quantiles': ('moments', 'grid_moments'), 'curves': ('moments',)}
 
-    def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '') -> None:
+    def _compare_atom_conditional(self, jd, ms, pair: tuple, tols: dict, title: str, name: str = '') -> None:
+        """
+        Compare the exact **atom conditional** ``R_other | R_on = 0`` against the msprime ground truth, for each
+        conditioning axis of one bin pair.
+
+        The only conditional with a ground truth worth the name: ``{R_on = 0}`` has positive probability, so the
+        replicates whose conditioning bin is empty *are* the conditioning set, with no window and no bandwidth bias
+        (unlike ``R_other | R_on = v``, which a sample can only estimate over a window). It is also the only check
+        that reaches ``value = 0`` at all: every other conditional check places its conditioning values at
+        ``quantile(p0 + (1 - p0) u)``, strictly above the atom, so none of them exercise the closed-form atom
+        transform.
+
+        Asserts the atom's ``mass``, and hands every other requested statistic to :meth:`compare_stat`, so both the
+        conditional's moments (``mean`` / ``var``) and its ``cdf`` / ``pdf`` / ``quantile`` grids are validated against
+        the sample by the same machinery as any other distribution's. On an axis whose conditioning bin is never empty
+        there is no atom, and only the mass is asserted (it must be zero on both sides).
+
+        :param jd: The analytic joint distribution of the pair.
+        :param ms: The msprime operand, carrying the cached ground truth.
+        :param pair: The bin pair ``(i, j)``.
+        :param tols: ``{stat: tolerance}``, over ``mass`` and any statistic :meth:`compare_stat` accepts.
+        :param title: Title prefix for the log line.
+        :param name: Name prefix for the plot file.
+        :raises ValueError: If the ground truth was not cached for this pair (the fixture predates it).
+        """
+        cached = {(i, j, on): rest for i, j, on, *rest in getattr(ms, '_atom_conditional', [])}
+
+        # a fixture predating this cache has no entry at all; that must fail loudly rather than pass by checking
+        # nothing. An axis with no atom is cached with a zero mass, so it is present either way
+        if not any((pair[0], pair[1], on) in cached for on in ('a', 'b')):
+            raise ValueError(
+                f"No cached atom-conditional ground truth for pair {pair}. Regenerate the fixture "
+                f"(create_comparison) after adding an 'atom' block, so the msprime side is cached with it."
+            )
+
+        for on in ('a', 'b'):
+            mass, emp = cached[(pair[0], pair[1], on)]
+            sub_title = f"{title}: conditional {pair} atom on {on}"
+            sub_name = f"{name}_conditional_{pair[0]}_{pair[1]}_atom_{on}"
+
+            if 'mass' in tols:
+                t0 = time.perf_counter()
+                diff = abs(float(jd._atoms['a0' if on == 'a' else 'b0']) - mass)
+                runtime = time.perf_counter() - t0
+                self.runtimes = getattr(self, 'runtimes', {})
+                self.runtimes[f"{sub_title}: mass"] = runtime
+                self._log_result(self._result_message(f"{sub_title}: mass", diff, tols['mass'], 'max abs', runtime),
+                                 diff, tols['mass'])
+
+            if emp is None:
+                continue  # this bin is never empty, so there is no atom to condition on and nothing else to compare
+
+            cond = jd.conditional(on, 0.0)
+            for stat, tol in tols.items():
+                if stat != 'mass':
+                    self.compare_stat(ph=cond, ms=emp, stat=stat, tol=tol, title=sub_title, name=sub_name)
+
+    def _compare_windowed_conditional(self, jd, ms, pair: tuple, tols: dict, title: str) -> None:
+        """
+        Compare the **nested conditional** ``R_other | R_on = v`` against the msprime ground truth, over the
+        conditioning windows cached for this pair.
+
+        The only external check the nested conditional has (away from the atom): every other conditional check is an
+        identity the analytic joint must satisfy, so a systematic error shared by the transform and the identity would
+        pass them all. Here msprime decides.
+
+        Both sides are averaged over the *same* window -- the sample by construction, phasegen by
+        :meth:`~phasegen.distributions.reward.JointRewardDistribution.window_average` -- so the ``O(h)`` window bias
+        cancels rather than being corrected for, and the residual is the sample's standard error alone.
+
+        The ``mean`` is reported in **standard errors of the sample**, and its tolerance is a number of sigmas. Once
+        the window bias is gone, the mean has no floor other than the sampling noise of the window, so a sigma is the
+        only scale that means the same thing across demographies and replicate counts: a relative tolerance would have
+        to be loosened for a noisy scenario, and would silently stop biting as a scenario's replicate count rose. It
+        costs one conditional cumulant per quadrature node.
+
+        The ``cdf`` is reported as a plain absolute difference. A sigma is the wrong unit for it: the empirical CDF's
+        binomial error collapses in the tails, where a z-score explodes on an absolute agreement that is in fact
+        excellent. Its tolerance is bounded by *msprime's* replicate count rather than by phasegen -- against a large
+        sample the nested conditional's CDF resolves to a few 1e-4 -- so it is a tripwire with an order of magnitude
+        of headroom, not a precision bound.
+
+        The cdf is also the dear one: every quadrature node is a whole cosine grid, where the mean needs only a
+        cumulant. It therefore runs on the axes named by ``cdf_axes`` (default both), so a config can pay for it on
+        one conditioning axis while the mean, which is nearly free, still covers both.
+
+        :param jd: The analytic joint distribution of the pair.
+        :param ms: The msprime operand, carrying the cached ground truth.
+        :param pair: The bin pair ``(i, j)``.
+        :param tols: ``{'mean': sigmas}`` and/or ``{'cdf': max_abs}``, plus the ``quantiles`` / ``window`` / ``nodes``
+            / ``cdf_axes`` options.
+        :param title: Title prefix for the log line.
+        :raises ValueError: If the ground truth was not cached for this pair (the fixture predates it), or a requested
+            stat is not one of ``mean`` / ``cdf``.
+        """
+        cached = [c for c in getattr(ms, '_windowed_conditional', []) if (c[0], c[1]) == tuple(pair)]
+
+        if not cached:
+            raise ValueError(
+                f"No cached windowed-conditional ground truth for pair {pair}. Regenerate the fixture "
+                f"(create_comparison) after adding a 'windowed' block, so the msprime side is cached with it."
+            )
+
+        stats = [s for s in tols if s not in self._WINDOWED_OPTS]
+        for stat in stats:
+            if stat not in ('mean', 'cdf'):
+                raise ValueError(f"Unknown windowed-conditional stat '{stat}'; expected 'mean' or 'cdf'.")
+
+        nodes = tols.get('nodes')
+        cdf_axes = tols.get('cdf_axes', ('a', 'b'))
+        worst = {s: 0.0 for s in stats}
+        t0 = time.perf_counter()
+
+        for _, _, on, v, h, n_win, mean, mean_se, ys, cdf in cached:
+            if 'mean' in worst:
+                got = float(jd.window_average(lambda c: c.mean, on, v, h, n_nodes=nodes)[0])
+                worst['mean'] = max(worst['mean'], abs(got - mean) / max(mean_se, 1e-300))
+            if 'cdf' in worst and on in cdf_axes:
+                got = np.asarray(jd.window_average(lambda c: c.cdf(ys), on, v, h, n_nodes=nodes), dtype=float)
+                worst['cdf'] = max(worst['cdf'], float(np.abs(got - cdf).max()))
+
+        runtime = time.perf_counter() - t0
+        for stat in stats:
+            sub_title = f"{title}: conditional {pair} windowed: {stat}"
+            self.runtimes = getattr(self, 'runtimes', {})
+            self.runtimes[sub_title] = runtime
+            label = 'sigma' if stat == 'mean' else 'max abs'
+            self._log_result(self._result_message(sub_title, worst[stat], tols[stat], label, runtime),
+                             worst[stat], tols[stat])
+
+    def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '', ms=None) -> None:
         """
         Run the requested conditional self-consistency checks for one bin pair and assert each against its tolerance.
 
@@ -960,10 +1187,19 @@ class Comparison(Serializable):
         :param tols: ``{check_name: tolerance}``, keyed by :attr:`_CONDITIONAL_CHECKS`.
         :param title: Title prefix for the log line.
         :param name: Name prefix for the plot file.
+        :param ms: The msprime operand, needed only by the ``atom`` sub-block.
         :raises ValueError: If a requested check is not one of :attr:`_CONDITIONAL_CHECKS`.
         """
         for key, tol in tols.items():
             if key in self._CONDITIONAL_OPTS:
+                continue
+            if key == 'atom':
+                # the one conditional check with an msprime ground truth (see :meth:`_compare_atom_conditional`)
+                self._compare_atom_conditional(jd, ms, pair, tol, title, name)
+                continue
+            if key == 'windowed':
+                # the nested conditional against msprime, both sides averaged over the same conditioning window
+                self._compare_windowed_conditional(jd, ms, pair, tol, title)
                 continue
             if key not in self._CONDITIONAL_CHECKS:
                 raise ValueError(f"Unknown conditional check '{key}' for pair {pair}; expected one of "
@@ -1300,20 +1536,97 @@ class Comparison(Serializable):
                 out[dist] = list(dict.fromkeys(pairs))  # de-dupe, preserve order
         return out
 
+    #: Defaults of a ``conditional: {pair}: windowed:`` block. ``quantiles`` places the window centres in quantile
+    #: space of the conditioning marginal (so they mean the same across demographies); ``window`` is the half-width as
+    #: a *fraction* of the centre, which keeps it below the centre and so clear of the conditioning atom at 0. Wider
+    #: is not worse here -- both sides average over the same window, so a wide one buys replicates rather than bias.
+    _WINDOWED_DEFAULTS = {'quantiles': (0.25, 0.5, 0.75), 'window': 0.2}
+
+    #: Keys of a ``windowed:`` block that configure the check rather than declare a tolerance. ``nodes`` sets the
+    #: quadrature nodes per window (2 suffices; 1 is not a quadrature at all but the conditional at the window centre,
+    #: which reinstates the very window bias the check exists to cancel), and ``cdf_axes`` restricts the dear ``cdf``
+    #: to some conditioning axes while the cheap ``mean`` still runs on all of them.
+    _WINDOWED_OPTS = ('quantiles', 'window', 'nodes', 'cdf_axes')
+
+    def _windowed_conditional_specs(self, spec: dict) -> dict:
+        """The ``(i, j, on, value, half_width)`` conditioning windows requested by any ``conditional: {pair}:
+        windowed:`` block, per distribution. The centres come from the **exact** marginal's quantiles, so they are
+        deterministic and the msprime side can be cached against them."""
+        out = {}
+        for dist, data in self._expand_keys(spec).items():
+            conditional = data.get('conditional') if isinstance(data, dict) else None
+            if not isinstance(conditional, dict):
+                continue
+
+            specs = []
+            for key, sub in conditional.items():
+                if not isinstance(sub, dict) or 'windowed' not in sub:
+                    continue
+                pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                specs += self._windows_of(getattr(self.ph, dist).joint_distribution(*pair), pair, sub['windowed'])
+
+            if specs:
+                out[dist] = specs
+        return out
+
+    def _windows_of(self, jd, pair: tuple, tols: dict) -> list:
+        """The conditioning windows of one pair: each axis, each requested quantile of that axis's exact marginal."""
+        qs = tols.get('quantiles', self._WINDOWED_DEFAULTS['quantiles'])
+        rel = float(tols.get('window', self._WINDOWED_DEFAULTS['window']))
+
+        specs = []
+        for on in ('a', 'b'):
+            marg = jd.marginal(on)
+            p0 = float(jd._atoms['a0' if on == 'a' else 'b0'])
+            for q in qs:
+                # place the centre above the atom, in quantile space of the *continuous* part
+                v = float(marg.quantile(p0 + (1.0 - p0) * float(q)))
+                specs.append((pair[0], pair[1], on, v, rel * v))
+        return specs
+
+    def _atom_conditional_pairs(self, spec: dict) -> dict:
+        """The per-distribution bin pairs whose ``conditional:`` block requests an ``atom`` check, so their
+        (msprime) atom-conditional ground truth is cached. Unlike the other conditional checks, which are analytic
+        identities, this one needs a sample and so needs the fixture regenerated when a pair is added."""
+        out = {}
+        for dist, data in self._expand_keys(spec).items():
+            conditional = data.get('conditional') if isinstance(data, dict) else None
+            if not isinstance(conditional, dict):
+                continue
+
+            pairs = [ast.literal_eval(k) if isinstance(k, str) else tuple(k)
+                     for k, sub in conditional.items() if isinstance(sub, dict) and 'atom' in sub]
+            if pairs:
+                out[dist] = list(dict.fromkeys(pairs))
+        return out
+
     def cache_ground_truth(self) -> None:
         """Cache the ground truth needed by the configured comparisons -- the standard per-statistic caches
-        (:meth:`MsprimeCoalescent.touch` / :meth:`SampledCoalescent.touch`) plus any full-grid pairwise surface grids.
-        The msprime operand is touched for the top-level ``tolerance`` stats, the sampler for the nested ``empirical``
-        sub-spec; each only if its stats are present, so a config validates against msprime, the sampler, or both. Call
-        before :meth:`drop` so the grids are serialized with the comparison."""
+        (:meth:`MsprimeCoalescent.touch` / :meth:`SampledCoalescent.touch`), any full-grid pairwise surface grids, and
+        the atom-conditional ground truth. The msprime operand is touched for the top-level ``tolerance`` stats, the
+        sampler for the nested ``empirical`` sub-spec; each only if its stats are present, so a config validates
+        against msprime, the sampler, or both. Call before :meth:`drop` so the grids are serialized with the
+        comparison."""
         tol = self._expand_keys(self.comparisons.get('tolerance', {}))
         empirical_spec = tol.get('empirical')
         msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 
         if msprime_spec or self.comparisons.get('statistics'):
             self.ms.touch()
+
+            # the coalescent-level scalar statistics (F_ST, the Patterson f-statistics) are evaluated straight off the
+            # simulated data and the demography, both of which :meth:`MsprimeCoalescent.drop` discards, so their values
+            # have to be cached here rather than recomputed at comparison time
+            for stat, spec in self.comparisons.get('statistics', {}).items():
+                args = spec.get('args', []) if isinstance(spec, dict) else []
+                self._ms_statistics[(stat, tuple(args))] = self._eval_statistic(self.ms, stat, args)
+
             for dist, pairs in self._pairwise_surface_pairs(msprime_spec).items():
                 getattr(self.ms, dist).cache_joint_surface(pairs)
+            for dist, pairs in self._atom_conditional_pairs(msprime_spec).items():
+                getattr(self.ms, dist).cache_atom_conditional(pairs)
+            for dist, specs in self._windowed_conditional_specs(msprime_spec).items():
+                getattr(self.ms, dist).cache_windowed_conditional(specs)
 
         if empirical_spec:
             if self.n_samples is None:
@@ -1370,7 +1683,7 @@ class Comparison(Serializable):
 
             self._compare_scalar(
                 ph=self._eval_statistic(self.ph, stat, args),
-                ms=self._eval_statistic(self.ms, stat, args),
+                ms=self._ms_statistics[(stat, tuple(args))],
                 tol=tol,
                 title=label
             )

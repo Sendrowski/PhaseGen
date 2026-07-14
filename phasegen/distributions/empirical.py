@@ -10,12 +10,12 @@ from collections import defaultdict
 from ..caching import cached_property, cache
 from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from ..demography import Demography
 from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
+from ..settings import Settings
 from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
@@ -147,39 +147,51 @@ class _EmpiricalQuantileFunction(QuantileFunction):  # pragma: no cover
 
 
 class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
-    """The empirical density (histogram estimate of the continuous, positive part, the atom at 0 split off), read
-    from the distribution's samples. Handles a 1-D sample vector or a 2-D per-bin matrix."""
+    """
+    The empirical density over a grid: the **cell-average** density of each cell of ``t``, that is, the fraction of
+    replicates falling in the cell divided by the cell's width. The atom at 0 is excluded, so this estimates the
+    continuous sub-density ``f(t), t > 0``, which integrates to ``P(R > 0)`` and so matches the analytic pdf (also
+    atom-excluded) rather than spiking at the origin.
 
-    def __call__(self, t, n_bins: int = None, sigma: float = None, samples: np.ndarray = None, **kwargs) -> 'np.ndarray':
-        samples = self._distribution.samples if samples is None else samples
+    A cell average, not a point estimate, because that is the only density functional a sample determines without a
+    bandwidth. The comparison integrates the exact density over the *same* cells
+    (:meth:`~phasegen.comparison.Comparison._cell_average`), so both sides are the same functional: the estimate
+    carries no smoothing bias, and the discrepancy is Monte-Carlo noise alone, falling as ``1 / sqrt(n)``.
+
+    That property is the point of it. Any pointwise estimate -- a histogram read at ``t``, a kernel, or the derivative
+    of an interpolated ECDF -- compares a *smoothed* density against an unsmoothed one, and its bandwidth sets an
+    ``O(h f')`` bias floor that more replicates do not lower. Measured against the exact pdf of an SFS bin, such an
+    estimate is an order of magnitude further off and stops improving with the replicate count entirely.
+
+    The cells are ``[t_i, t_i+1)``, the last one extended by the final spacing. Handles a 1-D sample vector (a scalar
+    distribution) or a 2-D per-bin matrix (a spectrum).
+    """
+
+    def __call__(self, t, **kwargs) -> 'np.ndarray':
+        samples = self._distribution.samples
+        t = np.atleast_1d(np.asarray(t, dtype=float))
+
+        if t.size < 2:
+            raise ValueError("The empirical density is a cell average, so it needs a grid of at least two points.")
+
+        edges = np.append(t, 2 * t[-1] - t[-2])
+        widths = np.diff(edges)
+
+        if samples.ndim == 1:
+            return self._cell_density(samples, edges, widths)
 
         if samples.ndim == 2:
-            return np.array([self(t, n_bins=n_bins, sigma=sigma, samples=s) for s in samples.T])
+            return np.array([self._cell_density(s, edges, widths) for s in samples.T])
 
-        # exclude the atom at 0 (the point mass P(R = 0), e.g. an SFS bin with no subtending branch): histogram only
-        # the continuous (positive) part and rescale by the positive fraction, so the result estimates the continuous
-        # sub-density f(t), t > 0 -- which integrates to P(R > 0), matching the analytic pdf (also atom-excluded) --
-        # instead of spiking in the first bin and dwarfing the rest of the curve
-        t = np.atleast_1d(t)
-        positive = samples[samples > 0]
-        if positive.size == 0:
-            return np.zeros_like(t, dtype=float)
-        frac = positive.size / samples.size
-        nb = n_bins if n_bins is not None else int(np.clip(np.sqrt(positive.size), 100, 2000))
-        hist, bin_edges = np.histogram(positive, range=(0, max(positive)), bins=nb, density=True)
-        hist = hist * frac
+        raise ValueError("Samples must be 1 or 2 dimensional.")
 
-        # determine bins for u
-        bins = np.minimum(np.sum(bin_edges <= t[:, None], axis=1) - 1, np.full_like(t, nb - 1, dtype=int))
+    @staticmethod
+    def _cell_density(samples: np.ndarray, edges: np.ndarray, widths: np.ndarray) -> np.ndarray:
+        """The cell-average density of one sample vector. Normalised by the *total* replicate count, not by the
+        positive one, so the atom at 0 lowers the sub-density instead of being redistributed over the cells."""
+        counts, _ = np.histogram(samples[samples > 0], bins=edges)
 
-        # use proper bins for y values
-        y = hist[bins]
-
-        # smooth using gaussian filter
-        if sigma is not None:
-            y = gaussian_filter1d(y, sigma=sigma)
-
-        return y
+        return counts / samples.size / widths
 
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
@@ -208,6 +220,9 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
         self.n_samples: int = self.samples.shape[0]
 
+        #: Standard error of each moment statistic (:meth:`cache_standard_errors`), retained after :meth:`drop`.
+        self.standard_errors: dict = {}
+
     def touch(self, t: np.ndarray) -> None:
         """
         Touch all cached properties.
@@ -227,6 +242,44 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             q=q,
             quantile=self.quantile(q)
         )
+
+        self.cache_standard_errors()
+
+    #: Statistics :meth:`cache_standard_errors` estimates a standard error for.
+    _STANDARD_ERROR_STATISTICS = ('mean', 'var', 'm2', 'm3', 'm4', 'cov', 'corr')
+
+    def cache_standard_errors(self, n_blocks: int = 100) -> None:
+        """
+        Estimate and cache the standard error of each moment statistic, so that it survives :meth:`drop` and a
+        consumer of the (samples-free) distribution can tell how much of a discrepancy against it is the distribution's
+        own Monte-Carlo noise.
+
+        The estimator splits the samples into ``n_blocks`` disjoint blocks and evaluates the statistic on each. The
+        spread across blocks is the standard error at the *block* sample size, so the standard error at the full sample
+        size is that spread divided by ``sqrt(n_blocks)``. This holds for any statistic, however nonlinear (a
+        correlation, a fourth moment), which the closed forms do not: ``SE[var]`` needs the fourth central moment,
+        ``SE[m4]`` the eighth, and the coalescent's rewards are heavy-tailed enough that assuming normality to dodge
+        them is not an option.
+
+        :param n_blocks: Number of blocks. The spread itself is estimated from ``n_blocks`` numbers, so its own
+            relative error is about ``1 / sqrt(2 * n_blocks)``. Reduced for a sample too small to fill that many
+            blocks (a conditional sub-sample, say); below two blocks no spread is defined and none is cached.
+        """
+        n_blocks = min(n_blocks, self.samples.shape[0] // 2)
+
+        if n_blocks < 2:
+            return
+
+        blocks = self.samples[:self.samples.shape[0] // n_blocks * n_blocks]
+        blocks = blocks.reshape(n_blocks, -1, *self.samples.shape[1:])
+
+        # the base class' statistics are plain numpy; the subclasses only wrap the identical numerics in an SFS type
+        stats = [EmpiricalDistribution(block) for block in blocks]
+
+        self.standard_errors = {}
+        for name in self._STANDARD_ERROR_STATISTICS:
+            values = np.array([np.asarray(getattr(s, name), dtype=float) for s in stats])
+            self.standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
 
     def drop(self) -> None:
         """
@@ -475,11 +528,63 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
 
 
+class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
+    """
+    The replicates a windowed conditional selected (see :meth:`EmpiricalJointRewardDistribution.conditional`), with a
+    **local-linear** :attr:`mean`. Everything else -- the variance, the cdf, the quantile -- is the plain estimate over
+    the window.
+
+    Weighting the selected replicates equally would make the mean a Nadaraya-Watson estimator, which is ``O(h)``-biased
+    wherever ``E[R_other | R_on = v]`` has slope in ``v``: the conditioning values are not symmetric inside the window,
+    so the slope leaks in. A local-linear fit cancels that term.
+
+    :param samples: The other reward over the selected replicates.
+    :param offsets: The selected replicates' conditioning values, *centered* on the conditioning value.
+    :param window: Half-width of the window, the scale the weights are taken on.
+    """
+
+    def __init__(self, samples: np.ndarray, offsets: np.ndarray, window: float) -> None:
+        super().__init__(samples)
+
+        #: Conditioning offsets ``R_on - value`` of the selected replicates.
+        self._offsets = np.asarray(offsets, dtype=float)
+
+        #: Half-width of the window.
+        self._window = float(window)
+
+    @cached_property
+    def mean(self) -> float:
+        """The local-linear estimate of ``E[R_other | R_on = value]``: the intercept, at the conditioning value, of a
+        tricube-weighted least-squares line through the selected replicates. Falls back to the plain window mean for a
+        degenerate fit (a zero-width window, or one whose conditioning values do not vary)."""
+        x, y, h = self._offsets, self.samples, self._window
+
+        if h <= 0 or x.size < 3:
+            return float(np.mean(y))
+
+        w = (1.0 - np.minimum(np.abs(x / h), 1.0) ** 3) ** 3
+        sw, swx, swx2 = w.sum(), (w * x).sum(), (w * x * x).sum()
+        det = sw * swx2 - swx ** 2
+
+        if not np.isfinite(det) or abs(det) < 1e-300:
+            return float(np.mean(y))
+
+        return float((swx2 * (w * y).sum() - swx * (w * x * y).sum()) / det)
+
+
 class EmpiricalJointRewardDistribution:  # pragma: no cover
     """
     Empirical counterpart of :class:`~phasegen.distributions.reward.JointRewardDistribution`: the sampled joint
     distribution of two accumulated rewards, built from the per-replicate samples and sliced into the 1D
     :meth:`marginal` and :meth:`conditional` distributions.
+
+    .. warning::
+        :meth:`marginal` is an ordinary sample estimate, but :meth:`conditional` is not. No replicate lands exactly
+        on the conditioning value, so it keeps those in a *window* around it: an estimate of the conditional
+        *averaged over the window*, not at the value. Widening it smears the conditional wherever it varies with the
+        conditioning value, narrowing it leaves few replicates behind the estimate. A 2D sample therefore says far
+        less about a conditional than it does about the marginals, and this is a rough check on the exact
+        conditional, not a ground truth for it.
     """
 
     def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray, label: str = None) -> None:
@@ -507,7 +612,7 @@ class EmpiricalJointRewardDistribution:  # pragma: no cover
             raise ValueError("`which` must be 'a' or 'b'.")
         return EmpiricalDistribution(self._a if which == 'a' else self._b)
 
-    def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> EmpiricalDistribution:
+    def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> '_WindowedConditional':
         """
         The empirical conditional distribution of the *other* reward given ``R_{on}`` close to ``value``, estimated
         from the replicates whose conditioning reward falls in a window around ``value``. The sampled counterpart of
@@ -532,7 +637,34 @@ class EmpiricalJointRewardDistribution:  # pragma: no cover
         mask = distance <= window
         if not mask.any():
             raise ValueError(f"No samples within window {window:g} of {value:g}.")
-        return EmpiricalDistribution(other[mask])
+
+        return _WindowedConditional(other[mask], cond[mask] - value, float(window))
+
+    def conditional_on_atom(self, on: str = 'a') -> Tuple[float, EmpiricalDistribution]:
+        """
+        The empirical conditional distribution of the *other* reward given the **atom event** ``{R_{on} = 0}``, with
+        the atom's own mass.
+
+        Unlike :meth:`conditional`, this is not a window estimate and carries no bandwidth: the atom event has
+        positive probability, so the replicates in which the conditioning reward is exactly zero *are* the
+        conditioning set. It is an ordinary sample estimate of an ordinary conditional law, and so the one place a
+        sample is a genuine ground truth for a conditional -- which is what makes it worth comparing the exact
+        (``_AtomConditional``) path against.
+
+        :param on: Which reward to condition on, ``'a'`` or ``'b'``.
+        :return: The atom's mass ``P(R_{on} = 0)`` and the distribution of the other reward over those replicates.
+        :raises ValueError: If ``on`` is not ``'a'`` / ``'b'``, or no replicate has the conditioning reward at zero.
+        """
+        if on not in ('a', 'b'):
+            raise ValueError("`on` must be 'a' or 'b'.")
+
+        cond, other = (self._a, self._b) if on == 'a' else (self._b, self._a)
+        empty = cond == 0.0
+
+        if not empty.any():
+            raise ValueError(f"No replicate has R_{on} = 0, so the atom conditional cannot be estimated.")
+
+        return float(empty.mean()), EmpiricalDistribution(other[empty])
 
     def cdf(self, x: float, y: float) -> float:
         """The empirical joint CDF ``P(R_a <= x, R_b <= y)``."""
@@ -623,6 +755,13 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
 
+        #: Atom-conditional ground truth: ``[(i, j, on, mass, mean, xs, cdf), ...]``, see
+        #: :meth:`cache_atom_conditional`. Survives :meth:`drop` and is serialized with the comparison.
+        self._atom_conditional: list = []
+
+        #: Cached windowed-conditional ground truth, see :meth:`cache_windowed_conditional`.
+        self._windowed_conditional: list = []
+
     def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins) -> 'plt.Axes':
         """
         Plot the per-bin empirical pdf / cdf / quantile (one curve per polymorphic SFS bin), the empirical
@@ -643,23 +782,27 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                 ax.clear()
 
         if grid is None:
-            grid = np.linspace(0.01, 0.99, n_points) if kind == 'quantile' \
-                else np.linspace(0, max(d.quantile(0.99) for _, d in per), n_points)
+            qe = Settings.plot_endpoint_quantile
+            grid = np.linspace(1.0 - qe, qe, n_points) if kind == 'quantile' \
+                else np.linspace(0, max(d.quantile(qe) for _, d in per), n_points)
 
-        # the empirical density is a histogram; the default ``n_bins`` (10000, for 1M-replicate comparison caching)
-        # spikes for the finite samples typical of interactive use, so pick a sane, sample-size-adaptive bin count
-        n_bins_pdf = int(np.clip(np.sqrt(samples.shape[0]), 20, 100))
+        # the empirical density is a cell average, so the grid *is* the binning: a plotting grid as fine as the
+        # comparison's would leave a handful of replicates per cell and come out as noise. Coarsen it with the sample
+        # size, and plot the cell averages at the cell centres, which is where they are unbiased
+        grid_pdf = np.linspace(grid[0], grid[-1], int(np.clip(np.sqrt(samples.shape[0]), 20, 100)))
+        centres = grid_pdf + 0.5 * (grid_pdf[1] - grid_pdf[0])
 
         ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
         xlabel = 'q' if kind == 'quantile' else 't'
         for k, (i, d) in enumerate(per):
+            x = grid
             if kind == 'cdf':
                 y = d.cdf(grid)
             elif kind == 'pdf':
-                y = d.pdf(grid, n_bins=n_bins_pdf)
+                x, y = centres, d.pdf(grid_pdf)
             else:
                 y = np.array([d.quantile(float(q)) for q in grid])
-            Visualization.plot(ax=ax, x=grid, y=y, xlabel=xlabel, ylabel=ylabel, label=str(i), file=file,
+            Visualization.plot(ax=ax, x=x, y=y, xlabel=xlabel, ylabel=ylabel, label=str(i), file=file,
                                show=(k == len(per) - 1 and show), clear=clear, title=title)
         return ax
 
@@ -732,6 +875,102 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             # density via the mixed second difference of the CDF surface (no separate bandwidth needed)
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
+
+    def cache_atom_conditional(self, pairs: List[Tuple[int, int]], n_grid: int = 100) -> None:
+        """
+        Pre-compute, for each requested bin pair and each conditioning axis, the empirical **atom conditional**: the
+        mass of ``{L_on = 0}`` and the distribution of the other bin's length over exactly those replicates.
+
+        This is the one conditional a sample pins exactly -- the atom event has positive probability, so the
+        conditioning set needs no window and carries no bandwidth bias (see
+        :meth:`EmpiricalJointRewardDistribution.conditional_on_atom`). Nothing else validates the ``value = 0``
+        branch: every conditional check places its conditioning values at ``quantile(p0 + (1 - p0) u)``, strictly
+        *above* the atom.
+
+        Each conditional is cached as an ordinary :class:`EmpiricalDistribution`, touched on its own support and then
+        dropped, so its moments and its cdf / pdf / quantile grids are compared by the same machinery as every other
+        distribution rather than by a bespoke path.
+
+        Stored as ``self._atom_conditional = [(i, j, on, mass, dist), ...]`` and serialized with the comparison.
+
+        An axis whose conditioning bin is never empty has no atom to condition on, and is recorded with a zero mass
+        and no distribution rather than omitted. Omitting it would make an unwired axis indistinguishable from a
+        fixture predating this cache, and the zero mass is itself worth asserting: a bin that cannot be empty (for
+        ``n = 4`` every tree has a doubleton branch) must carry no atom in the exact joint either.
+
+        :param pairs: Bin pairs to cache.
+        :param n_grid: Points of the cdf / pdf grid each conditional is cached on.
+        """
+        s = np.asarray(self.samples)
+        self._atom_conditional = []
+
+        for i, j in pairs:
+            jd = EmpiricalJointRewardDistribution(s[:, i], s[:, j])
+            for on in ('a', 'b'):
+                try:
+                    mass, dist = jd.conditional_on_atom(on)
+                except ValueError:
+                    self._atom_conditional.append((int(i), int(j), on, 0.0, None))
+                    continue
+
+                dist.touch(np.linspace(0.0, float(np.max(dist.samples)), n_grid))
+                dist.drop()
+                self._atom_conditional.append((int(i), int(j), on, mass, dist))
+
+    def cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
+        """
+        Pre-compute, for each requested conditioning window, the empirical conditional of the other bin's length over
+        exactly the replicates whose conditioning bin falls in that window: the mean (with its standard error) and the
+        CDF over a grid.
+
+        The window is *the* thing being cached, and it is deliberately not corrected for. What a sample measures is
+        the conditional averaged over the window, and the comparison averages the exact conditional over the same
+        window (:meth:`~phasegen.distributions.reward.JointRewardDistribution.window_average`) rather than evaluating
+        it at the centre, so the two sides are the same functional. That is what makes this the only ground truth the
+        nested conditional has away from the atom, and it is why no bandwidth correction is applied here.
+
+        The mean's standard error is cached because the mean has no other floor: both sides measure the same
+        functional, so once the window bias is gone what separates them is the sampling noise of the window alone.
+        The comparison reports the mean's deviation in standard errors, which keeps that check independent of the
+        replicate count instead of silently loosening with it. The CDF is compared as a plain absolute difference
+        instead: its per-point binomial error collapses in the tails, where a sigma would explode on an agreement that
+        is in fact excellent.
+
+        The CDF grid is dense and runs to ``q_max`` of the window's own samples, because on the exact side it is free:
+        the conditional's cosine grid is built regardless, and reading it at 500 points rather than 50 costs an
+        interpolation. A coarse grid stopping at the 99th percentile would simply discard the tail, and with it any
+        chance of the check seeing a discrepancy there.
+
+        Stored as ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``.
+
+        :param specs: ``(i, j, on, value, half_width)`` windows to cache, the values fixed by the exact marginal.
+        :param n_grid: Points of the CDF grid.
+        :param q_max: Quantile of the windowed samples the grid runs to.
+        :raises ValueError: If a window holds no replicates at all.
+        """
+        s = np.asarray(self.samples)
+        self._windowed_conditional = []
+
+        for i, j, on, v, h in specs:
+            cond, other = (s[:, i], s[:, j]) if on == 'a' else (s[:, j], s[:, i])
+            sel = other[np.abs(cond - v) <= h]
+
+            if sel.size == 0:
+                raise ValueError(
+                    f"No replicate of bins ({i}, {j}) falls in the conditioning window R_{on} = {v:g} +- {h:g}, so "
+                    f"the windowed conditional cannot be estimated there."
+                )
+
+            ys = np.linspace(0.0, float(np.quantile(sel, q_max)), n_grid)
+
+            # from the sorted sample, not an (n_win x n_grid) boolean matrix, which at this resolution would be
+            # hundreds of millions of entries
+            cdf = np.searchsorted(np.sort(sel), ys, side='right') / sel.size
+
+            self._windowed_conditional.append(
+                (int(i), int(j), on, float(v), float(h), int(sel.size), float(sel.mean()),
+                 float(sel.std() / np.sqrt(sel.size)), ys, cdf)
+            )
 
     def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointRewardDistribution':
         """
@@ -1307,14 +1546,23 @@ class MsprimeCoalescent(AbstractCoalescent):
             for _ in range(int(tree.length)):
                 yield tree
 
-    def _get_cached_times(self) -> np.ndarray:
+    @staticmethod
+    def _get_cached_times(dist: 'EmpiricalPhaseTypeDistribution') -> np.ndarray:
         """
-        Get cached times.
+        The grid a distribution's curves are cached on: **its own** support, from 0 up to the largest value it
+        sampled. Taken from the distribution's reduced (per-replicate) samples, not from the raw arrays, because the
+        reduction differs per distribution -- the tree height takes the *maximum* over loci, the total branch length
+        the *sum*.
 
+        Each distribution must get its own grid rather than share the tree height's. They live on different scales
+        (the total branch length exceeds the tree height by roughly ``2 H_{n-1}``), so a shared grid runs one of them
+        off its own support, where both the sampled and the exact curve are zero and the comparison passes while
+        asserting nothing.
+
+        :param dist: The distribution whose curves are to be cached.
+        :return: The grid.
         """
-        t_max = self.heights.sum(axis=1).max()
-
-        return np.linspace(0, t_max, 100)
+        return np.linspace(0, float(np.max(dist.samples)), 100)
 
     def touch(self, **kwargs: dict) -> None:
         """
@@ -1324,11 +1572,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        t = self._get_cached_times()
+        t = self._get_cached_times(self.tree_height)
 
         self.tree_height.touch(t)
-        self.total_tree_height.touch(t)
-        self.total_branch_length.touch(t)
+        self.total_tree_height.touch(self._get_cached_times(self.total_tree_height))
+        self.total_branch_length.touch(self._get_cached_times(self.total_branch_length))
         self.sfs.touch(t)
         self.fsfs.touch(t)
 
