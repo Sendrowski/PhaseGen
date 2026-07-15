@@ -769,6 +769,97 @@ class CoalescentTestCase(TestCase):
         _ = coal.tree_height.pdf(1)
         _ = coal.tree_height.cdf(1)
 
+    def test_batched_spectrum_mean_honours_start_time(self):
+        """
+        The batched SFS / jSFS mean must honour a configured ``start_time``. Regression test: the batched
+        occupation-time contraction integrates from 0, so a non-zero start time was silently ignored and the
+        ``start_time = 0`` spectrum returned. The n=2 single-population smoke test above never caught it because
+        flattening bypasses the batched path there; this uses n >= 4 with a multi-epoch demography so the batched
+        path is actually taken.
+        """
+        dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
+
+        def sfs_serial(sfs):
+            # per-bin serial mean: same closed form, but bin-by-bin instead of the batched contraction
+            n = sfs.lineage_config.n
+            vals = [sfs._moment(1, i, (sfs.reward,), None, None, True, True) for i in sfs._get_indices()]
+            return np.array([0] + list(vals) + [0] * (n - len(vals)))
+
+        for start_time in (0.2, 0.8):  # mid-epoch and past the 0.5 boundary
+            sfs = pg.Coalescent(n=5, demography=dem, start_time=start_time).sfs
+            batched = np.asarray(sfs.mean.data, dtype=float)
+
+            # the batched result must match the per-bin serial path exactly (same numerics, different aggregation)
+            np.testing.assert_allclose(batched, sfs_serial(sfs), atol=1e-9)
+
+            # and it must actually differ from the start_time = 0 spectrum, else the assertion above is vacuous
+            full = np.asarray(pg.Coalescent(n=5, demography=dem, start_time=0).sfs.mean.data, dtype=float)
+            self.assertGreater(np.abs(batched - full).max(), 1e-3)
+
+        # additivity identity for both spectra: occupation(start, absorption) = occupation(0, absorption) -
+        # occupation(0, start), the head accumulated with a finite end time through the independent serial path
+        start_time = 0.3
+        for n in (5,):
+            full = np.asarray(pg.Coalescent(n=n, demography=dem, start_time=0).sfs.mean.data, dtype=float)
+            head = np.asarray(pg.Coalescent(n=n, demography=dem, start_time=0, end_time=start_time).sfs.mean.data,
+                              dtype=float)
+            win = np.asarray(pg.Coalescent(n=n, demography=dem, start_time=start_time).sfs.mean.data, dtype=float)
+            np.testing.assert_allclose(win, full - head, atol=1e-9)
+
+        dem2 = pg.Demography(
+            pop_sizes={'pop_0': {0: 1.0, 0.5: 0.4}, 'pop_1': {0: 1.0}},
+            migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        )
+        mk = lambda **kw: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem2, **kw)
+        full = np.asarray(mk(start_time=0).jsfs.mean.data, dtype=float)
+        head = np.asarray(mk(start_time=0, end_time=start_time).jsfs.mean.data, dtype=float)
+        win = np.asarray(mk(start_time=start_time).jsfs.mean.data, dtype=float)
+        np.testing.assert_allclose(win, full - head, atol=1e-9)
+        self.assertGreater(np.abs(win - full).max(), 1e-3)
+
+        # the batched covariance has no windowed form; it must fall back rather than silently return the start=0 value
+        _ = mk(start_time=start_time).jsfs.cov  # must not raise
+
+    def test_marginal_view_curves_honour_own_reward(self):
+        """
+        A marginal SFS view (``sfs.demes[pop]``) must build its per-bin cdf/pdf/quantile from its own reward, not the
+        bin reward alone. Regression test: the per-bin distribution dropped ``self.reward``, so a deme view's curves
+        described the whole tree while its moments were deme-restricted. Here the mean recovered from the cdf as
+        ``E[X] = int (1 - F) dx`` must match the deme-restricted moment, and must differ from the full-tree spectrum.
+        """
+        dem = pg.Demography(
+            pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.0}},
+            migration_rates={('pop_0', 'pop_1'): 1.0, ('pop_1', 'pop_0'): 1.0}
+        )
+        sfs = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=dem).sfs
+        deme = sfs.demes['pop_0']
+
+        t = np.linspace(0, float(deme.tree_height.quantile(0.9999)), 2000)
+        mean_from_cdf = np.trapezoid(1 - np.asarray(deme.cdf(t)), t, axis=0)
+        deme_mean = np.asarray(deme.mean.data, dtype=float)
+        full_mean = np.asarray(sfs.mean.data, dtype=float)
+
+        interior = slice(1, sfs.lineage_config.n)
+        # the deme cdf and the deme moments must describe the same law
+        np.testing.assert_allclose(mean_from_cdf[interior], deme_mean[interior], atol=5e-3)
+        # and the deme restriction must be real: the deme mean is not the full-tree mean
+        self.assertGreater(np.abs(deme_mean[interior] - full_mean[interior]).max(), 1e-2)
+
+    def test_absorption_time_warns_when_iterations_exhausted(self):
+        """
+        When the doubling search for the almost-sure absorption time runs out of iterations without reaching
+        ``p_absorption``, it returns the (possibly truncated) doubling ceiling and must warn. Regression test: the
+        guard was ``i - 1 == max_iter``, unreachable because the loop never lets ``i`` exceed ``max_iter``, so the
+        truncated time was returned silently.
+        """
+        tree_height = pg.Coalescent(n=4).tree_height
+        tree_height.max_iter = 1
+
+        with self.assertLogs('phasegen', level='WARNING') as cm:
+            tree_height._get_absorption_time()
+
+        self.assertTrue(any('maximum number of iterations' in m for m in cm.output))
+
     def test_plot_accumulation_center_permute(self):
         """
         Test accumulation plot for center and permute.

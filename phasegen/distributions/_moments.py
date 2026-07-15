@@ -968,7 +968,7 @@ class MomentEvaluator:
 
         return out[np.argsort(order)]
 
-    def _occupation_times(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def _occupation_times(self, cap: float = None) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
         Expected total time spent in each transient state until absorption. This is the bin-independent quantity
         shared by every bin of a *mean* spectrum: the mean of a reward ``r`` is simply ``occupation . r``, so a whole
@@ -976,6 +976,12 @@ class MomentEvaluator:
         solve per bin. Finite epochs contribute ``p_i (exp(S_i tau_i) - I) S_i^{-1}`` (entered with distribution
         ``p_i``); the final unbounded epoch contributes ``p (-T)^{-1}``.
 
+        Occupation is additive in time, so a windowed mean with a non-zero start time reuses this directly:
+        ``occupation(start, absorption) = occupation(0, absorption) - occupation(0, start)``, the second term
+        obtained by passing ``cap = start``. The capped accumulation treats the epoch containing ``cap`` (the final,
+        unbounded epoch included) as a finite Van Loan block ending at ``cap`` and stops there.
+
+        :param cap: If given, accumulate occupation only up to this absolute time instead of to absorption.
         :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
             epoch, or ``None`` if absorption is not almost sure (callers then fall back to per-bin evaluation).
         """
@@ -994,21 +1000,32 @@ class MomentEvaluator:
         m = np.zeros(nt)
 
         self._logger.debug(
-            "occupation times (batched mean): %s factorization, n_t=%d, %d finite epoch(s)",
+            "occupation times (batched mean%s): %s factorization, n_t=%d, %d finite epoch(s)",
+            f", capped at {cap:.3g}" if cap is not None else "",
             "sparse" if use_action else "dense", nt, len(epochs) - 1
         )
 
-        # finite epochs: accumulate the within-epoch occupation and propagate the entry distribution. The occupation
-        # integral ``A = int_0^tau exp(S t) dt`` is read off the augmented (Van Loan) generator ``[[S, I], [0, 0]]``,
-        # which is robust even when the finite-epoch block ``S`` is singular (e.g. a migration barrier), unlike
-        # ``(exp(S tau) - I) S^-1``. Only the row-action ``[p, 0] exp(aug tau) = [p exp(S tau), p A]`` is needed (the
-        # propagated entry distribution and the occupation increment ``p A`` at once), so for large state spaces apply
-        # the sparse matrix-exponential action instead of forming the dense ``2 nt x 2 nt`` exponential.
-        for epoch in epochs[:-1]:
+        # Each epoch contributes its occupation over ``[epoch.start_time, upper]``. Uncapped, the final (unbounded)
+        # epoch's ``upper`` is infinite and its contribution is the closed form ``p (-T)^{-1}``; every other epoch is a
+        # finite Van Loan block. The within-epoch occupation integral ``A = int_0^tau exp(S t) dt`` is read off the
+        # augmented generator ``[[S, I], [0, 0]]``, robust even when ``S`` is singular (e.g. a migration barrier),
+        # unlike ``(exp(S tau) - I) S^-1``. Only the row-action ``[p, 0] exp(aug tau) = [p exp(S tau), p A]`` is needed
+        # (the propagated entry distribution and the occupation increment ``p A`` at once), so for large state spaces
+        # apply the sparse matrix-exponential action instead of forming the dense ``2 nt x 2 nt`` exponential.
+        for i_epoch, epoch in enumerate(epochs):
             self.state_space.update_epoch(epoch)
-            self._check_numerical_stability(self.state_space.S, 0)
+            self._check_numerical_stability(self.state_space.S, i_epoch)
+
+            upper = epoch.end_time if cap is None else min(epoch.end_time, cap)
+
+            if np.isinf(upper):
+                # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
+                neg_t = -self._transient_block(idx_t, sparse=use_action)
+                m += self._lu_solver(neg_t.T, use_action)(p)
+                break
+
             S = self._transient_block(idx_t, sparse=use_action)
-            tau = epoch.end_time - epoch.start_time
+            tau = upper - epoch.start_time
             if use_action:
                 aug = sp.bmat([
                     [sp.csc_matrix(S), sp.identity(nt, format='csc')],
@@ -1026,11 +1043,8 @@ class MomentEvaluator:
                 m += p @ exp_aug[:nt, nt:]
                 p = p @ exp_aug[:nt, :nt]
 
-        # final unbounded epoch: occupation = p (-T)^{-1}, i.e. solve (-T)^T x = p
-        self.state_space.update_epoch(epochs[-1])
-        self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
-        neg_t = -self._transient_block(idx_t, sparse=use_action)
-        m += self._lu_solver(neg_t.T, use_action)(p)
+            if cap is not None and upper >= cap:
+                break
 
         return m, idx_t
 
@@ -1049,6 +1063,16 @@ class MomentEvaluator:
         :return: ``(K, idx_t)`` over the transient states, or ``None`` when not applicable (caller falls back).
         """
         if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
+            return None
+
+        if self.tree_height.start_time > 0:
+            # the two-point occupation is a double integral over ``s < u``; the windowed (start_time > 0) version is
+            # not the full one minus a box, so the batched covariance cannot subtract it the way the mean does. Fall
+            # back to the per-pair path, which accumulates each pair over ``[start_time, absorption]`` directly.
+            self._logger.debug(
+                "two-point occupation: start_time=%.3g > 0; using per-pair covariance (windowed two-point occupation "
+                "not batched)", self.tree_height.start_time
+            )
             return None
 
         epochs = self._get_epochs_until_unbounded()

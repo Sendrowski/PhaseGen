@@ -40,6 +40,47 @@ def _single_locus_cross_moment(n, model=None):
     return np.asarray(coal.sfs.cov.data) + np.outer(mean, mean)
 
 
+def _mean_per_pair(dist):
+    """Mean two-locus SFS via the per-pair cross-moment path (the batched form's fallback)."""
+    from phasegen.rewards import CombinedReward, TwoLocusSFSReward
+    from phasegen.distributions.phase_type import PhaseTypeDistribution
+
+    n = dist.lineage_config.n
+    out = np.zeros((n + 1, n + 1))
+    for i in dist._get_indices():
+        for j in dist._get_indices():
+            out[i, j] = PhaseTypeDistribution.moment(
+                dist, k=2, permute=False, center=False,
+                rewards=(CombinedReward([dist.reward, TwoLocusSFSReward(0, i)]),
+                         CombinedReward([dist.reward, TwoLocusSFSReward(1, j)]))
+            )
+    return (out + out.T) / 2
+
+
+@pytest.mark.parametrize("n,r", [(4, 1.0), (5, 0.5), (4, 10.0), (3, 0.0)])
+def test_batched_mean_matches_per_pair(n, r):
+    """
+    The batched two-locus mean (a single factored two-point contraction) must equal the per-pair cross-moment path
+    it replaces, and must actually be taken on a single-epoch demography. The factored form avoids materialising the
+    dense two-point operator ``K``, whose ``O(n_states^2)`` size makes the naive batching slower than per-pair (and
+    prohibitive at n=10) on the large two-locus state space.
+    """
+    dist = pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2
+
+    batched = dist._mean_batched()
+    assert batched is not None  # single epoch: the batched path is taken
+    np.testing.assert_allclose(np.asarray(batched.data), _mean_per_pair(dist), atol=1e-8)
+
+
+def test_batched_mean_falls_back_on_multiple_epochs():
+    """A multi-epoch demography has no single-epoch two-point closed form, so the batched mean must fall back."""
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
+    dist = pg.Coalescent(n=4, loci=2, recombination_rate=1.0, demography=dem).sfs2
+
+    assert dist._mean_batched() is None
+    np.testing.assert_allclose(np.asarray(dist.mean.data), _mean_per_pair(dist), atol=1e-9)
+
+
 def test_state_space_structure():
     """Basic structure of the two-locus block-counting state space."""
     n = 3

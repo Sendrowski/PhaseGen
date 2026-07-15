@@ -44,7 +44,7 @@ class _SFSAggregateFunction:
         t_arr = np.atleast_1d(np.asarray(t, dtype=float))
         out = np.zeros((t_arr.size, d.lineage_config.n + 1))
         for i in d._get_indices():
-            bin_dist = d.distribution(reward=d._get_sfs_reward(i))
+            bin_dist = d.distribution(reward=CombinedReward([d.reward, d._get_sfs_reward(i)]))
             out[:, i] = [getattr(bin_dist, self.kind)(float(v)) for v in t_arr]
         return SFS(out[0]) if np.ndim(t) == 0 else out
 
@@ -78,6 +78,9 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
 class SFSDistribution(PhaseTypeDistribution, ABC):
     """
     Base class for site-frequency spectrum distributions.
+
+    The spectrum-wide moment accessors (:attr:`mean`, :attr:`cov`) share a single occupation-time solve across all
+    bins rather than solving each bin separately.
     """
     # the spectrum's pdf/cdf/quantile are per-bin (one curve per frequency class) -> SFS-specific flavours
     _pdf_function = SFSDensity
@@ -173,6 +176,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         Get the kth moments of the site-frequency spectrum.
 
+        The plain mean (``k = 1``, default reward) is computed once for the whole spectrum as a single occupation-time
+        contraction shared across bins, rather than a separate solve per bin; other moments fall through to the
+        per-bin path.
+
         :param k: The order of the moment
         :param rewards: Sequence of k rewards
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
@@ -188,16 +195,18 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if rewards is None:
             rewards = (self.reward,) * k
 
+        effective_start = self.tree_height.start_time if start_time is None else start_time
+
         # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
         # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
-        # the transient solve across bins); only for the plain mean to absorption (k=1, default reward, no custom
-        # accumulation window) and when flattening does not apply (flattening reduces the state space and wins).
-        # Other cases fall through to the per-bin path.
+        # the transient solve across bins); only for the plain mean (k=1, default reward, no custom end time) and when
+        # flattening does not apply (flattening reduces the state space and wins). A non-zero start time is handled by
+        # subtracting the occupation up to it (occupation is additive in time). Other cases fall through to the
+        # per-bin path.
         if (
                 Settings.closed_form_last_epoch and
                 not self._flattening_applies(k) and
                 k == 1 and
-                start_time is None and
                 end_time is None and
                 self.tree_height.end_time is None and
                 rewards == (self.reward,)
@@ -205,6 +214,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             occupation = self._occupation_times()
             if occupation is not None:
                 m, idx_t = occupation
+                if effective_start > 0:
+                    m = m - self._occupation_times(cap=effective_start)[0]
                 base = np.asarray(self.reward._get(self.state_space), dtype=float)
                 R = np.column_stack([
                     (base * np.asarray(self._get_sfs_reward(i)._get(self.state_space), dtype=float))[idx_t]
@@ -1252,6 +1263,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
     sample size of population ``p``. The entry at index ``(k_0, ..., k_{P-1})`` is the moment for branches subtending
     exactly ``k_p`` samples from population ``p``. The monomorphic bins (the all-zero and the full
     ``(n_0,...,n_{P-1})`` configuration) are zero by convention.
+
+    The spectrum-wide moment accessors (:attr:`mean`, :attr:`var`, :attr:`cov`) share a single occupation-time solve
+    across all bins rather than solving each bin separately.
     """
     # per-bin (per descendant configuration) pdf/cdf/quantile -> joint-SFS aggregate flavours (the per-config loop
     # lives on these function objects)
@@ -1366,6 +1380,10 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         Get the kth moments of the joint site-frequency spectrum.
 
+        The plain mean (``k = 1``) is computed once for the whole spectrum as a single occupation-time contraction
+        shared across all joint bins, rather than a separate solve per bin; other moments fall through to the per-bin
+        path.
+
         :param k: The order of the moment.
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when
             initializing the distribution.
@@ -1375,19 +1393,23 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param permute: For cross-moments, whether to average over all permutations of rewards.
         :return: An array of shape :attr:`shape` holding the kth moment of each joint SFS bin.
         """
+        effective_start = self.tree_height.start_time if start_time is None else start_time
+
         # batched mean: all joint bins share one occupation-time vector, so the whole joint SFS mean is a single
-        # contraction over the stacked bin rewards (closed form's spectrum path). Only for the plain mean to
-        # absorption; other cases fall through to the per-bin accumulation.
+        # contraction over the stacked bin rewards (closed form's spectrum path). Only for the plain mean (k=1, no
+        # custom end time); a non-zero start time subtracts the occupation up to it. Other cases fall through to the
+        # per-bin accumulation.
         if (
                 Settings.closed_form_last_epoch and
                 int(k) == 1 and
-                start_time is None and
                 end_time is None and
                 self.tree_height.end_time is None
         ):
             occupation = self._occupation_times()
             if occupation is not None:
                 m, idx_t = occupation
+                if effective_start > 0:
+                    m = m - self._occupation_times(cap=effective_start)[0]
                 base = np.asarray(self.reward._get(self.state_space), dtype=float)
                 configs = self._get_configs()
                 R = np.column_stack([
@@ -1662,7 +1684,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
     def mean(self) -> JointSFS:
         """
         Mean of the joint site-frequency spectrum, i.e. the expected branch length subtending each descendant
-        configuration.
+        configuration. Computed as a single occupation-time contraction shared across all joint bins.
         """
         return self.moment(k=1)
 
@@ -1768,6 +1790,9 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
     samples at locus 1 — computed as a second cross-moment of two per-locus SFS rewards on the two-locus
     block-counting state space. It reduces to ``Coalescent.sfs.cov`` (plus the outer product of the marginal means)
     as ``r → 0`` and to the outer product of the marginal SFS as ``r → ∞``.
+
+    The :attr:`mean` is computed for the whole spectrum at once as a single two-point occupation contraction shared
+    across all bin pairs rather than a cross-moment per pair.
     """
 
     def __init__(
@@ -1833,8 +1858,15 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
     @cached_property
     def mean(self) -> TwoLocusSFS:
         """
-        Mean two-locus SFS, ``E[L^0_i · L^1_j]`` for all polymorphic bins, symmetrized over the two loci.
+        Mean two-locus SFS, ``E[L^0_i · L^1_j]`` for all polymorphic bins, symmetrized over the two loci. Computed for
+        the whole spectrum at once as a single two-point occupation contraction shared across all bin pairs, falling
+        back to a per-pair cross-moment when that closed form does not apply (a multi-epoch demography, an explicit end
+        time, or absorption not almost sure).
         """
+        batched = self._mean_batched()
+        if batched is not None:
+            return batched
+
         n = self.lineage_config.n
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
@@ -1854,6 +1886,57 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             out[i, j] = result
 
         # symmetrize over the two (exchangeable) loci, as for the single-locus SFS covariance
+        return TwoLocusSFS((out + out.T) / 2)
+
+    def _mean_batched(self) -> Optional[TwoLocusSFS]:
+        """
+        Batched mean two-locus SFS. Each bin pair ``(i, j)`` is the uncentered cross-moment
+        ``E[L^0_i · L^1_j] = r^0_i (K + K^T) r^1_j`` with two-point occupation ``K = diag(m) (-T)^{-1}`` and occupation
+        times ``m = alpha (-T)^{-1}``. The dense ``K`` is never formed (the two-locus state space is large, so an
+        ``O(n_states^2)`` operator would cost more than every per-pair solve combined). Instead it is factored: with
+        ``A = (-T)^{-1} R1`` and ``B = (-T)^{-1} R0`` over the stacked per-locus bin rewards,
+        ``E[L^0 (L^1)^T] = (m ⊙ R0)^T A + B^T (m ⊙ R1)`` needs only ``2 (n - 1) + 1`` back-substitutions against one
+        factorization of the transient generator.
+
+        Restricted, like :meth:`_two_point_occupation`, to a single (unbounded) epoch with almost-sure absorption and
+        no accumulation window; other cases return ``None`` and the caller falls back to the per-pair cross-moment.
+
+        :return: The mean two-locus SFS, or ``None`` when the closed form does not apply.
+        """
+        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None
+                and self.tree_height.start_time == 0):
+            return None
+
+        epochs = self._get_epochs_until_unbounded()
+        if len(epochs) > 1 or not self._absorption_certain_in_last_epoch():
+            return None
+
+        ss = self.state_space
+        ss.update_epoch(epochs[-1])
+        idx_t = np.where(~ss.absorbing)[0]
+        use_action = len(idx_t) >= Settings.closed_form_sparse_min_states
+
+        base = np.asarray(self.reward._get(ss), dtype=float)
+        indices = self._get_indices()
+        R0 = np.column_stack([
+            (base * np.asarray(TwoLocusSFSReward(0, i)._get(ss), dtype=float))[idx_t] for i in indices
+        ])
+        R1 = np.column_stack([
+            (base * np.asarray(TwoLocusSFSReward(1, j)._get(ss), dtype=float))[idx_t] for j in indices
+        ])
+
+        neg_t = -self._transient_block(idx_t, sparse=use_action)
+        alpha = np.asarray(ss.alpha)[idx_t].astype(float)
+        m = self._lu_solver(neg_t.T, use_action)(alpha)  # m = alpha (-T)^{-1}
+        solve = self._lu_solver(neg_t, use_action)
+        uncentered = (m[:, None] * R0).T @ solve(R1) + solve(R0).T @ (m[:, None] * R1)
+
+        n = self.lineage_config.n
+        out = np.zeros((n + 1, n + 1))
+        for a, ia in enumerate(indices):
+            out[ia, indices] = uncentered[a]
+
+        # symmetrize over the two (exchangeable) loci, as the per-pair path does
         return TwoLocusSFS((out + out.T) / 2)
 
     def sample_per_locus(self, n_samples: int) -> Tuple[np.ndarray, np.ndarray]:

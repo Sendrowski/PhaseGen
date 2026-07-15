@@ -1037,7 +1037,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         if p < self.p_absorption and not np.isnan(p):
             self._assert_absorbs(w)
 
-        if i - 1 == self.max_iter:
+        if i == self.max_iter and p < self.p_absorption:
             self._logger.warning(
                 "Could not reliably find time of almost sure absorption after maximum number of iterations. "
                 f"Using time {t:.1f} with probability of absorption 1 - {1 - p:.1e}. "
