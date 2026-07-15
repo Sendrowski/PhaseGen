@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 import phasegen as pg
-from phasegen.state_space_old import Transition, State
+from testing import state_space_old
+from testing.state_space_old import Transition, State
 
 
 class TransitionTestCase(TestCase):
@@ -20,7 +21,7 @@ class TransitionTestCase(TestCase):
         """
         Test simple coalescence for n = 2.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2)
         )
 
@@ -49,7 +50,7 @@ class TransitionTestCase(TestCase):
         """
         Test block coalescence for n = 5.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=5)
         )
 
@@ -74,7 +75,7 @@ class TransitionTestCase(TestCase):
         """
         Test linked coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -97,7 +98,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect insufficient linked lineages for linked coalescence.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -116,7 +117,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid lineage reduction for linked coalescence.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -135,7 +136,7 @@ class TransitionTestCase(TestCase):
         """
         Test migration for two demes, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 2},
@@ -157,7 +158,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid migration for more than one lineage.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 2},
@@ -179,7 +180,7 @@ class TransitionTestCase(TestCase):
         """
         Test recombination for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -202,7 +203,7 @@ class TransitionTestCase(TestCase):
         """
         Test locus coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -225,7 +226,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -244,7 +245,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect non-linked coalescence.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2)
         )
 
@@ -287,7 +288,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -309,7 +310,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -331,7 +332,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -354,7 +355,7 @@ class TransitionTestCase(TestCase):
         """
         Test mixed coalescence for block-counting state space.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -373,7 +374,7 @@ class TransitionTestCase(TestCase):
         """
         Test mixed coalescence for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -397,7 +398,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for block-counting state space.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -421,7 +422,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for block-counting state space.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -444,7 +445,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -468,7 +469,7 @@ class TransitionTestCase(TestCase):
         """
         Test linked coalescence for equal lineage blocks when the coalescence rate is the same across loci.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -492,7 +493,7 @@ class TransitionTestCase(TestCase):
         Test linked coalescence for unequal lineage blocks when the coalescence rate is different across loci.
         What to do when rates are different across loci? Select the minimum?
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -516,7 +517,7 @@ class TransitionTestCase(TestCase):
         Test whether we detect mixed coalescence when only one locus changes.
         """
         # lineage-counting state space
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -535,7 +536,7 @@ class TransitionTestCase(TestCase):
         """
         Test mixed coalescence for block-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -557,7 +558,7 @@ class TransitionTestCase(TestCase):
         """
         Test mixed coalescence for block-counting state space.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -579,7 +580,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid mixed coalescence.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -600,7 +601,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid mixed coalescence.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -625,7 +626,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect valid mixed coalescence.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -645,7 +646,7 @@ class TransitionTestCase(TestCase):
         """
         Test multiple merger.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             model=pg.BetaCoalescent(alpha=1.5)
         )
@@ -664,7 +665,7 @@ class TransitionTestCase(TestCase):
         """
         Get lineage-counting state space for two demes, two loci.
         """
-        return pg.state_space_old.LineageCountingStateSpace(
+        return state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             epoch=pg.Epoch(

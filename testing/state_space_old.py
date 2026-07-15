@@ -13,10 +13,10 @@ from typing import List, Tuple, cast, Dict, Callable
 import numpy as np
 from scipy.special import comb
 
-from .coalescent_models import CoalescentModel, StandardCoalescent
-from .demography import Epoch
-from .lineage import LineageConfig
-from .locus import LocusConfig
+from phasegen.coalescent_models import CoalescentModel, StandardCoalescent
+from phasegen.demography import Epoch
+from phasegen.lineage import LineageConfig
+from phasegen.locus import LocusConfig
 
 logger = logging.getLogger('phasegen')
 

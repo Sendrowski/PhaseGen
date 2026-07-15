@@ -6,6 +6,8 @@ import shutil
 import sys
 from collections import defaultdict
 from testing import TestCase
+from testing import state_space_old
+from testing.state_space_parity import build_old
 
 import numpy as np
 import pytest
@@ -75,7 +77,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test n = 2, 2 demes.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(
@@ -94,7 +96,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 2.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -118,7 +120,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 3.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -408,8 +410,8 @@ class StateSpaceTestCase(TestCase):
                 size['lineage_counting.observed'][(n, d)] = coal.lineage_counting_state_space.k
                 size['block_counting.observed'][(n, d)] = coal.block_counting_state_space.k
 
-                size['lineage_counting.theoretical'][(n, d)] = coal.lineage_counting_state_space._get_old().get_k()
-                size['block_counting.theoretical'][(n, d)] = coal.block_counting_state_space._get_old().get_k()
+                size['lineage_counting.theoretical'][(n, d)] = build_old(coal.lineage_counting_state_space).get_k()
+                size['block_counting.theoretical'][(n, d)] = build_old(coal.block_counting_state_space).get_k()
 
                 self.assertEqual(size['lineage_counting.observed'][(n, d)], size['lineage_counting.theoretical'][(n, d)])
                 self.assertEqual(size['block_counting.observed'][(n, d)], size['block_counting.theoretical'][(n, d)])
@@ -424,7 +426,7 @@ class StateSpaceTestCase(TestCase):
             for d in np.arange(1, 4):
                 x = np.array(list(itertools.product(np.arange(n + 1), repeat=d)))
                 y = x[x.sum(axis=1) <= n]
-                p = [1] + [pg.state_space_old.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
+                p = [1] + [state_space_old.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
 
                 n1 = len(y)
                 n2 = sum(p)
@@ -441,8 +443,8 @@ class StateSpaceTestCase(TestCase):
         k = np.zeros((len(n), 2))
 
         for i in n:
-            n1 = np.array(pg.state_space_old.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
-            n2 = pg.state_space_old.StateSpace.P(i)
+            n1 = np.array(state_space_old.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
+            n2 = state_space_old.StateSpace.P(i)
 
             k[i - 1, 0] = len(n1)
             k[i - 1, 1] = n2
@@ -453,7 +455,7 @@ class StateSpaceTestCase(TestCase):
 
     def compare_state_spaces(
             self,
-            state_space_old: pg.state_space_old.StateSpace,
+            state_space_old: state_space_old.StateSpace,
             state_space: pg.state_space.StateSpace,
             plot: bool = False
     ):
@@ -493,7 +495,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -508,7 +510,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -523,7 +525,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -538,7 +540,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -553,7 +555,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -568,7 +570,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -585,7 +587,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -610,7 +612,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -626,7 +628,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs),
         )
 
@@ -645,7 +647,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 

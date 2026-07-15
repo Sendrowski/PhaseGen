@@ -22,8 +22,6 @@ from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .state_space_numba import HAS_NUMBA, build_rate_matrix
-from .state_space_old import StateSpace as OldStateSpace, LineageCountingStateSpace as OldLineageCountingStateSpace, \
-    BlockCountingStateSpace as OldBlockCountingStateSpace
 
 logger = logging.getLogger('phasegen')
 
@@ -154,27 +152,6 @@ class StateSpace(ABC):
         Unlinked lineages.
         """
         return self.lineages - self.linked
-
-    @abstractmethod
-    def _get_old(self) -> OldStateSpace:
-        """
-        Get the old state space.
-        """
-        pass
-
-    def _get_old_ordering(self) -> List[int]:
-        """
-        Get the ordering of the states in the old state space relative to the new state space.
-
-        :return: Ordering of the states in the old state space.
-        """
-        old = self._get_old()
-
-        # reorder the states of s2 to match s1
-        return cast(List[int], [
-            np.where(((old.states == self.lineages[i]) & (old.linked == self.linked[i])).all(axis=(1, 2, 3)))[0][0]
-            for i in range(self.k)
-        ])
 
     @staticmethod
     def _get_partitions(n: int, k: int) -> List[List[int]]:
@@ -742,17 +719,6 @@ class LineageCountingStateSpace(StateSpace):
             linked[1, d, 0] = n_linked
         return State((lineages, linked))
 
-    def _get_old(self) -> OldLineageCountingStateSpace:
-        """
-        Get the old state space.
-        """
-        return OldLineageCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
-            model=self.model,
-            epoch=self.epoch
-        )
-
 
 class BlockCountingStateSpace(StateSpace):
     r"""
@@ -870,17 +836,6 @@ class BlockCountingStateSpace(StateSpace):
 
         return probs
 
-    def _get_old(self) -> OldBlockCountingStateSpace:
-        """
-        Get the old state space.
-        """
-        return OldBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
-            model=self.model,
-            epoch=self.epoch
-        )
-
 
 class JointBlockCountingStateSpace(StateSpace):
     r"""
@@ -995,12 +950,6 @@ class JointBlockCountingStateSpace(StateSpace):
         initial = self._get_initial()
 
         return np.array([s == initial for s in self.states], dtype=float)
-
-    def _get_old(self) -> OldStateSpace:
-        """
-        The joint block-counting state space has no legacy equivalent.
-        """
-        raise NotImplementedError('The joint block-counting state space has no legacy equivalent.')
 
 
 class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
