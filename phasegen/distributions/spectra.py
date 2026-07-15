@@ -662,6 +662,19 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return SFS2(cov)
 
+    @cached_property
+    def var(self) -> SFS:
+        """
+        Variance across site-frequency counts. When the closed form applies this is the diagonal of the batched
+        :attr:`cov` (one shared two-point occupation solve for the whole spectrum); otherwise it falls back to the
+        per-bin central moment, which is cheaper than the per-pair covariance the fallback would otherwise build.
+        """
+        batched = self._cov_batched()
+        if batched is not None:
+            return SFS(np.diag(np.asarray(batched.data)))
+
+        return self.moment(k=2, center=True)
+
     def get_cov(self, i: int, j: int) -> float:
         """
         Get the covariance between the ith and jth site-frequency.

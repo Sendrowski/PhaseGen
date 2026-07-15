@@ -935,6 +935,16 @@ class CoalescentTestCase(TestCase):
         out = pdf._interp_pdf(np.array([0.0, 1.0, 2.0]), np.array([0.0]), np.array([0.5]))
         np.testing.assert_array_equal(out, np.zeros(3))
 
+    def test_sfs_var_equals_cov_diagonal(self):
+        """``sfs.var`` reuses the batched covariance's diagonal (one shared solve) and must equal both the per-bin
+        central moment and the diagonal of ``sfs.cov``, batched and in the multi-epoch fallback."""
+        for coal in (pg.Coalescent(n=6),
+                     pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}}))):
+            sfs = coal.sfs
+            var = np.asarray(sfs.var.data, dtype=float)
+            np.testing.assert_allclose(var, np.asarray(sfs.moment(k=2, center=True).data, dtype=float), atol=1e-9)
+            np.testing.assert_allclose(var, np.diag(np.asarray(sfs.cov.data, dtype=float)), atol=1e-12)
+
     def test_joint_density_plot_guards_diagonal(self):
         """Plotting a joint density that is singular on the diagonal (``R_a = R_b`` almost surely) must raise, like
         calling it does. Regression: the guard sat only in ``__call__``; ``plot`` / ``plot_surface`` reached
