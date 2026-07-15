@@ -414,22 +414,22 @@ class StateSpace(ABC):
     @staticmethod
     def p(n: int, k: int) -> int:
         """
-        Partition function. Get number of ways to partition `n` into `k` positive integers.
+        Number of compositions (ordered sums) of `n` into `k` positive integers.
 
-        :param n: Number to partition.
+        :param n: Number to compose.
         :param k: Number of parts.
-        :return: Number of ways to partition `n` into `k` positive integers.
+        :return: Number of such compositions.
         """
         return comb(n - 1, k - 1, exact=True)
 
     @classmethod
     def p0(cls, n: int, k: int) -> int:
         """
-        Partition function. Get number of ways to partition `n` into `k` non-negative integers.
+        Number of compositions (ordered sums) of `n` into `k` non-negative integers.
 
-        :param n: Number to partition.
+        :param n: Number to compose.
         :param k: Number of parts.
-        :return: Number of ways to partition `n` into `k` non-negative integers.
+        :return: Number of such compositions.
         """
         return cls.p(n + k, k)
 

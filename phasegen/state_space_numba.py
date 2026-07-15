@@ -1,9 +1,11 @@
 """
-Numba-accelerated kernels for single-locus state-space construction.
+Numba-accelerated kernels for state-space construction.
 
 This module is imported behind a guard (:data:`HAS_NUMBA`); when numba is unavailable the public classes fall back
 to the pure-Python construction in :mod:`phasegen.state_space`. The kernels operate on integer state rows (the
-flattened ``lineages`` array of shape ``(n_demes, n_blocks)`` for a single locus) and build the rate matrix directly.
+flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
+build the single-locus lineage- and block-/joint-counting spaces; kinds 2 and 3 the two-locus block- and
+lineage-counting spaces under recombination.
 
 Coalescent rates are reproduced from the model formulae (exact ``comb`` via an integer loop, the Euler beta via
 ``math.lgamma``, and the binomial pmf via ``comb`` and powers), parameterised by a ``model_id`` (0 standard,

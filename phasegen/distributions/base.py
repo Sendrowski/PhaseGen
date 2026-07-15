@@ -674,7 +674,7 @@ class MarginalQuantileFunction(QuantileFunction):
     """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin).
 
     - **Callable** ``quantile(q)``: every bin's ``quantile(q)`` -- the inverse interpolation of that bin's cosine
-      CDF grid (de Hoog bisection in the far tail).
+      CDF grid.
     - **Plot** ``quantile.plot()``: overlays those same curves, one per bin.
     """
 
@@ -930,7 +930,7 @@ class CallableDistributionFunctions:
 
 class ProbabilityDistribution(ABC):
     """
-    Abstract base class for probability distributions for which moments can be calculated.
+    Abstract base class for probability distributions.
     """
 
     def __init__(self) -> None:
@@ -1065,9 +1065,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         return len(self.loci)
 
     @cached_property
-    def loci(self) -> 'MarginalLocusDistributions':
+    def loci(self) -> dict:
         """
-        Distributions marginalized over loci.
+        Distributions marginalized over loci, keyed by locus index.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -1203,9 +1203,9 @@ class MarginalDemeDistributions(MarginalDistributions):
         return len(self.demes)
 
     @cached_property
-    def demes(self) -> 'MarginalDemeDistributions':
+    def demes(self) -> dict:
         """
-        Distributions marginalized over demes.
+        Distributions marginalized over demes, keyed by population name.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -1297,7 +1297,9 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         Plot the quantile function (value versus probability ``q``).
 
         :param ax: Axes to plot on.
-        :param q: Probabilities to evaluate the quantile at. By default, 99 evenly spaced values in ``(0, 1)``.
+        :param q: Probabilities to evaluate the quantile at. Defaults to
+            :attr:`~phasegen.settings.Settings.plot_n_grid` evenly spaced values from
+            ``1 - Settings.plot_endpoint_quantile`` to ``Settings.plot_endpoint_quantile``.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
@@ -1376,7 +1378,6 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
             clear: bool = True,
             label: str = None,
             title: str = 'Tree height PDF',
-            dx: float = None
     ) -> 'plt.Axes':
         """
         Plot density function.
@@ -1390,13 +1391,9 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         :param clear: Whether to clear the plot before plotting.
         :param label: Label for the plot.
         :param title: Title of the plot.
-        :param dx: Step size for numerical differentiation. Defaults to the plot endpoint divided by 1e10.
         :return: Axes.
         """
         from ..visualization import Visualization
-
-        if dx is None:
-            dx = self.quantile(Settings.plot_endpoint_quantile) / 1e10
 
         if t is None:
             t = np.linspace(0, self.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
@@ -1404,7 +1401,7 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
         return Visualization.plot(
             ax=ax,
             x=t,
-            y=self.pdf(t, dx=dx),
+            y=self.pdf(t),
             xlabel='t',
             ylabel='f(t)',
             label=label,

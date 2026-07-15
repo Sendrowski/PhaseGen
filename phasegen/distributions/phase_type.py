@@ -272,10 +272,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         for k, (label, d) in enumerate(dists):
             xk = x
-            # each curve is the distribution's own function, evaluated over the grid. The quantile in particular is
-            # NOT re-derived here: it used to invert a private 512-point CDF curve over the cumulant window, which is
-            # neither the grid the cosine fit uses nor the de Hoog far tail, so the plotted quantile was a different
-            # function from the one ``quantile(q)`` returns
+            # each curve is the distribution's own function evaluated over the grid, so the plotted quantile is the
+            # same function ``quantile(q)`` returns rather than a separately re-derived inversion
             y = getattr(d, kind)(x)
 
             Visualization.plot(
@@ -590,7 +588,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         y = self.accumulate(k, end_times, rewards, center, permute)
 
-        Visualization.plot(
+        return Visualization.plot(
             ax=ax,
             x=end_times,
             y=y,
@@ -773,8 +771,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     _cdf_function = _ExpmCumulativeDistributionFunction
     _pdf_function = _ExpmDensityFunction
     _quantile_function = _ExpmQuantileFunction
-    #: Maximum number of epochs to consider when determining time to almost sure absorption.
-    max_epochs: int = 10000
 
     @staticmethod
     def _empirical_locus_agg(x: np.ndarray) -> np.ndarray:
@@ -1069,7 +1065,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             t = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
                             Settings.plot_n_grid)
 
-        samples = self._sample(n_samples, reward).reshape(n_samples)
+        samples = self._sample(n_samples, [reward] if reward is not None else None).reshape(n_samples)
 
         x = np.sort(samples)
         y = np.arange(1, n_samples + 1) / n_samples

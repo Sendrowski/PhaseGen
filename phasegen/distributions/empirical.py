@@ -449,10 +449,10 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             #: Correlation matrix for the demes
             self.pops_corr: np.ndarray = np.corrcoef(over_loci)
 
-            #: Covariance matrix for the loci
+            #: Correlation matrix for the loci
             self.loci_corr: np.ndarray = np.corrcoef(over_demes)
 
-            #: Correlation matrix for the loci
+            #: Covariance matrix for the loci
             self.loci_cov: np.ndarray = np.cov(over_demes)
 
     def touch(self, t: np.ndarray) -> None:
@@ -784,7 +784,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Mutation counts by deme and locus
         self._mutations = mutations
 
-        #: Correlation matrix for the loci
+        #: Correlation matrix for the demes
         self.pops_corr = self._get_stat_pops(over_loci, np.corrcoef)
 
         #: Covariance matrix for the demes
@@ -799,7 +799,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
         self.generated_mass = 0
 
-        #: Atom-conditional ground truth: ``[(i, j, on, mass, mean, xs, cdf), ...]``, see
+        #: Atom-conditional ground truth: ``[(i, j, on, mass, dist), ...]``, see
         #: :meth:`cache_atom_conditional`. Survives :meth:`drop` and is serialized with the comparison.
         self._atom_conditional: list = []
 

@@ -1717,6 +1717,24 @@ class CoalescentTestCase(TestCase):
             demography=self.get_complex_demography()
         ).tree_height._plot_empirical_cdf()
 
+    def test_empirical_cdf_accepts_non_default_reward(self):
+        """A single non-default reward must be wrapped before reaching ``_sample`` (which expects a sequence);
+        forwarding a bare ``Reward`` positionally previously raised. The result is still a valid CDF."""
+        coal = pg.Coalescent(n=4)
+        t = np.linspace(0, coal.total_branch_length.quantile(0.99), 50)
+        y = coal.tree_height._empirical_cdf(n_samples=500, reward=pg.TotalBranchLengthReward(), t=t)
+
+        self.assertEqual(np.shape(y), t.shape)
+        self.assertTrue(np.all(np.isfinite(y)))
+        self.assertTrue(np.all((y >= 0) & (y <= 1)))
+        self.assertTrue(np.all(np.diff(y) >= 0))  # a CDF is non-decreasing
+
+    def test_plot_accumulation_returns_axes(self):
+        """``plot_accumulation`` is annotated ``-> plt.Axes`` and must return the axes rather than ``None``."""
+        coal = pg.Coalescent(n=4)
+        ax = coal.tree_height.plot_accumulation(1, np.linspace(0, 2, 10), show=False)
+        self.assertIsInstance(ax, plt.Axes)
+
     def test_compare_state_reward_flattened(self):
         """
         Test that flattened state rewards match the original state rewards.

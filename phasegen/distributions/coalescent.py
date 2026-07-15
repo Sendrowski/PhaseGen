@@ -644,9 +644,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         Accumulate moments at different times.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param end_times: Times when to evaluate the moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
