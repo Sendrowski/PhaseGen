@@ -694,7 +694,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param title: Title of the plot.
         :return: Axes.
         """
-        self._get_dist(k, rewards).plot_accumulation(
+        return self._get_dist(k, rewards).plot_accumulation(
             k=k,
             end_times=end_times,
             rewards=rewards,

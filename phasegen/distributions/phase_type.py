@@ -729,8 +729,8 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
 class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
     """The tree-height density by direct matrix exponentiation: ``f(t) = -alpha @ prod_e exp(Q_e tau_e) @ Q @ e``,
     the exit-rate reading of the same propagated vector the CDF is read off. Exact, and in particular not a finite
-    difference of the CDF (which it used to be, at a step of ``quantile(0.99) / 1e10``, where the subtraction throws
-    away most of the CDF's significant digits)."""
+    difference of the CDF: subtracting CDF values a step ``quantile(0.99) / 1e10`` apart would throw away most of
+    their significant digits."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         """

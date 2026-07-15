@@ -439,9 +439,7 @@ class StateSpace(ABC):
         Calculate the number of partitions of a non-negative integer.
 
         :param n: The non-negative integer to partition.
-        :type n: int
         :return: The number of partitions of n.
-        :rtype: int
         """
         partitions: List[int] = [0] * (n + 1)
         partitions[0] = 1
@@ -627,41 +625,12 @@ class BlockCountingStateSpace(StateSpace):
             # add extra dimension for locus configuration
             states = states[:, np.newaxis]
 
-            # all lineages are linked
+            # single locus: no lineages are linked
             self.linked = np.zeros_like(states, dtype=int)
 
-            # add extra dimension for locus configuration
             return states
 
         raise NotImplementedError("Only 1 locus is currently supported.")
-
-        if self.locus_config.n == 2:
-
-            locus = []
-
-            for state in states.reshape(states.shape[0], -1):
-
-                linked = []
-                for block in state:
-                    linked += [range(block + 1)]
-
-                locus += itertools.product([state], itertools.product(*linked))
-
-            # combine loci
-            expanded = np.array(list(itertools.product(locus, repeat=2)))
-
-            # reshape two last dimensions to get the correct shape
-            expanded = expanded.reshape(*expanded.shape[:3], *states.shape[1:])
-
-            # states for which the number of linked lineages is the same across loci
-            same_linked = expanded[:, 0, 1].sum(axis=(1, 2)) == expanded[:, 1, 1].sum(axis=(1, 2))
-
-            # remove states where the number of linked lineages is not the same across loci
-            expanded = expanded[same_linked]
-
-            self.linked = expanded[:, :, 1]
-
-            return expanded[:, :, 0]
 
     @cached_property
     def states(self) -> np.ndarray:
@@ -957,7 +926,7 @@ class Transition:
         """
         Whether the transition is eligible for a recombination or locus coalescence event.
         """
-        # there have to be affected lineages
+        # differing marginals indicate a coalescence, not recombination or locus coalescence
         if self.has_diff_marginal:
             return False
 
