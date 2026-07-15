@@ -470,6 +470,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         H = np.random.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
         mass = np.zeros((n_samples, n_rewards))
         states_visited = np.zeros(k) if record_visits else None
+        if record_visits:
+            np.add.at(states_visited, state, 1)  # each walker visits its initial state (drawn from alpha)
         active = ~absorbing[state]
 
         with np.errstate(over='ignore', invalid='ignore'):
@@ -501,8 +503,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 # absorbs (e.g. permanently isolated demes), giving an infinite reward
                 stuck = lam == 0
                 if stuck.any():
-                    mass[a[stuck]] = np.inf
-                    active[a[stuck]] = False
+                    sa = a[stuck]
+                    # only reward components with a positive rate in the stuck state diverge; a component whose rate
+                    # is zero there keeps its finite accumulated value rather than becoming inf
+                    mass[sa] = np.where(R[:, state[sa]].T > 0, np.inf, mass[sa])
+                    active[sa] = False
                     keep = ~stuck
                     a, lam = a[keep], lam[keep]
                     if a.size == 0:

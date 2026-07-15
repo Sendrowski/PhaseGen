@@ -453,7 +453,9 @@ def test_joint_distribution_2d_density_and_cdf():
     cross = (np.outer(x2, y2) * f2).sum() * (x2[1] - x2[0]) * (y2[1] - y2[0])
     assert abs(cross - jd2.moment(1, 1)) < 2e-2  # E[L_2 L_3] (FD-density grid integration, ~3% error)
 
-    jd.pdf.plot(show=False)
+    # the density plot needs a non-diagonal pair: bins (1, 1) are the same reward, so the law is singular on the
+    # diagonal and has no 2D density (jd.pdf raises). The CDF is well-defined there and still plots.
+    jd2.pdf.plot(show=False)
     jd.cdf.plot(show=False, n_points=15)
 
 

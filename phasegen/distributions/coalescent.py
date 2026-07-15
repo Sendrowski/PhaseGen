@@ -710,12 +710,23 @@ class Coalescent(AbstractCoalescent, Serializable):
             title=title
         )
 
+    #: The state-space caches to drop, one per lazily built (cached-property) state space
+    _STATE_SPACE_CACHES = (
+        'lineage_counting_state_space',
+        'block_counting_state_space',
+        'joint_block_counting_state_space',
+        'two_locus_block_counting_state_space',
+    )
+
     def drop_cache(self) -> None:
         """
-        Drop state space cache.
+        Drop the cache of every state space that has been built. Only already-built spaces are touched: accessing a
+        space's property would otherwise construct it, which for a multi-locus coalescent raises (the single-locus
+        block-counting space does not exist there) and broke :meth:`to_json` / :meth:`to_file`.
         """
-        self.lineage_counting_state_space.drop_cache()
-        self.block_counting_state_space.drop_cache()
+        for name in self._STATE_SPACE_CACHES:
+            if name in self.__dict__:
+                self.__dict__[name].drop_cache()
 
     def __setstate__(self, state: dict) -> None:
         """
@@ -734,11 +745,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         # create deep copy of object without causing infinite recursion
         other = copy.deepcopy(self.__dict__)
 
-        if 'lineage_counting_state_space' in other:
-            other['lineage_counting_state_space'].drop_cache()
-
-        if 'block_counting_state_space' in other:
-            other['block_counting_state_space'].drop_cache()
+        for name in self._STATE_SPACE_CACHES:
+            if name in other:
+                other[name].drop_cache()
 
         return other
 

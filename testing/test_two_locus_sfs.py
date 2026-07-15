@@ -81,6 +81,19 @@ def test_batched_mean_falls_back_on_multiple_epochs():
     np.testing.assert_allclose(np.asarray(dist.mean.data), _mean_per_pair(dist), atol=1e-9)
 
 
+def test_two_locus_to_json_round_trip():
+    """
+    ``to_json`` must work for a multi-locus coalescent. Regression: ``drop_cache`` force-built the single-locus
+    block-counting state space, which raises ``NotImplementedError`` for two loci, so serialization crashed.
+    """
+    coal = pg.Coalescent(n=2, loci=2, recombination_rate=1.0)
+    mean = np.asarray(coal.sfs2.mean.data)  # build the two-locus state space
+
+    restored = pg.Coalescent.from_json(coal.to_json())
+
+    np.testing.assert_allclose(np.asarray(restored.sfs2.mean.data), mean)
+
+
 def test_state_space_structure():
     """Basic structure of the two-locus block-counting state space."""
     n = 3

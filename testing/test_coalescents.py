@@ -935,6 +935,25 @@ class CoalescentTestCase(TestCase):
         out = pdf._interp_pdf(np.array([0.0, 1.0, 2.0]), np.array([0.0]), np.array([0.5]))
         np.testing.assert_array_equal(out, np.zeros(3))
 
+    def test_joint_density_plot_guards_diagonal(self):
+        """Plotting a joint density that is singular on the diagonal (``R_a = R_b`` almost surely) must raise, like
+        calling it does. Regression: the guard sat only in ``__call__``; ``plot`` / ``plot_surface`` reached
+        ``_grid_values`` directly and drew a surface for a law with no 2D density. A non-diagonal pair still plots."""
+        c = pg.Coalescent(n=5)
+
+        diagonal = c.total_branch_length.joint_distribution(
+            pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward()
+        )
+        self.assertTrue(diagonal._is_diagonal)
+        with self.assertRaises(NotImplementedError):
+            diagonal.pdf.plot(show=False)
+        with self.assertRaises(NotImplementedError):
+            diagonal.pdf(1.0, 2.0)
+
+        off_diagonal = c.sfs.joint_distribution(1, 2)
+        self.assertFalse(off_diagonal._is_diagonal)
+        off_diagonal.pdf.plot(show=False)  # must not raise
+
     def test_plot_accumulation_center_permute(self):
         """
         Test accumulation plot for center and permute.
@@ -1762,3 +1781,37 @@ class CoalescentTestCase(TestCase):
         probs = coal.block_counting_state_space._state_probs
 
         self.assertLess((np.abs(probs_empirical - probs) / probs).mean(), 0.08)
+
+    def test_recorded_visits_include_initial_state(self):
+        """
+        ``record_visits`` must count each walker's initial state (drawn from alpha), not only the states entered by a
+        jump. Regression: the initial state's visit frequency was reported as 0. The single-population coalescent
+        starts deterministically in the all-singletons state, so its recorded frequency must be ~1.
+        """
+        coal = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': 1}))
+        ss = coal.block_counting_state_space
+
+        _, probs = coal.sfs._sample(5000, record_visits=True)
+
+        initial = np.asarray(ss.alpha) > 0
+        self.assertEqual(initial.sum(), 1)  # a single deterministic starting state
+        self.assertAlmostEqual(float(probs[initial][0]), 1.0, delta=0.02)
+
+    def test_stuck_walker_finite_for_zero_rate_rewards(self):
+        """
+        A walker stuck in a zero-exit-rate state (isolated demes never reach the grand MRCA) accumulates an infinite
+        reward only for components with a positive rate there. Regression: every reward component was set to inf. With
+        3+3 samples in two isolated demes the stuck state is one lineage per deme, each subtending 3 samples, so only
+        the 3-ton bin has a positive rate; the others stay finite.
+        """
+        from phasegen.rewards import CombinedReward
+
+        dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.0}})  # no migration -> isolated
+        sfs = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=dem).sfs
+        rewards = [CombinedReward([sfs.reward, sfs._get_sfs_reward(i)]) for i in sfs._get_indices()]
+
+        samp = np.asarray(sfs._sample(2000, rewards=rewards))
+        finite_frac = np.mean(np.isfinite(samp), axis=0)
+
+        self.assertTrue((finite_frac > 0.5).any())  # some components stay finite (the fix)
+        self.assertTrue((finite_frac < 0.5).any())  # the 3-ton component diverges

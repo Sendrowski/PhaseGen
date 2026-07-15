@@ -744,17 +744,18 @@ class JointDensity(_JointFunction, DensityFunction):
     def __call__(self, x, y) -> 'np.ndarray | float':
         """Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
         atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none there)."""
-        d = self._distribution
-        if d._is_diagonal:
-            raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
-                                      "almost surely): the law lives on the diagonal and has no 2D density. Use "
-                                      "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         f = self._grid_values(xs, ys)
         return float(f.ravel()[0]) if f.size == 1 else f
 
     def _grid_values(self, xs, ys) -> 'np.ndarray':
         d = self._distribution
+        # the guard lives here, not in __call__, so plot() / plot_surface() (which reach _grid_values directly) also
+        # refuse a diagonal-singular law rather than drawing a 2D surface for a distribution that has no 2D density
+        if d._is_diagonal:
+            raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
+                                      "almost surely): the law lives on the diagonal and has no 2D density. Use "
+                                      "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
         raw = d._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
         d._warn_if_negative(raw, 'joint density (cosine)')
         return np.clip(raw, 0.0, None)
