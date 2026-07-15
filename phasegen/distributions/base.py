@@ -165,7 +165,8 @@ class _HazardGrid:
         :param hazard: The cumulative hazard on them.
         :return: The CDF at ``t``.
         """
-        return -np.expm1(-np.interp(t, nodes, hazard))
+        # below the support (t < nodes[0] = 0) the CDF is 0, not the clamped first-node value np.interp would return
+        return -np.expm1(-np.interp(t, nodes, hazard, left=0.0))
 
     def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
         """The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
@@ -187,9 +188,16 @@ class _HazardGrid:
         :param hazard: The cumulative hazard on them.
         :return: The density at ``t``.
         """
-        h = np.interp(t, nodes, hazard)
+        if len(nodes) < 2:
+            # a degenerate grid (a near-total atom at 0, whose mass sits above the tail cut) leaves no interval to
+            # differentiate the hazard over: np.gradient needs at least two nodes. The continuous density is
+            # negligible there (the mass is in the atom), so it is zero.
+            return np.zeros_like(np.asarray(t, dtype=float))
 
-        return np.exp(-h) * np.interp(t, nodes, np.gradient(hazard, nodes))
+        # below the support (t < nodes[0] = 0) the density is 0; np.interp would otherwise clamp to the first node
+        h = np.interp(t, nodes, hazard, left=0.0)
+
+        return np.exp(-h) * np.interp(t, nodes, np.gradient(hazard, nodes), left=0.0)
 
 
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------

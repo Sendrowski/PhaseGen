@@ -860,6 +860,81 @@ class CoalescentTestCase(TestCase):
 
         self.assertTrue(any('maximum number of iterations' in m for m in cm.output))
 
+    def test_sfs_accumulate_forwards_center(self):
+        """
+        ``SFSDistribution.accumulate`` must forward ``center`` to the per-bin fallback. Regression test: it dropped
+        ``center`` / ``permute``, so ``center=False`` silently returned centered moments. With ``center=True`` the
+        order-2 accumulation to absorption is the variance; with ``center=False`` it is ``E[X^2] = var + mean^2``.
+        """
+        sfs = pg.Coalescent(n=4).sfs
+        t_max = pg.Coalescent(n=4).tree_height.t_max
+
+        centered = sfs.accumulate(2, [t_max], center=True)[:, 0]
+        uncentered = sfs.accumulate(2, [t_max], center=False)[:, 0]
+        var = np.asarray(sfs.var.data)
+        mean = np.asarray(sfs.mean.data)
+
+        interior = slice(1, 4)
+        self.assertGreater(np.abs(centered[interior] - uncentered[interior]).max(), 1e-6)
+        np.testing.assert_allclose(centered[interior], var[interior], atol=1e-9)
+        np.testing.assert_allclose(uncentered[interior], (var + mean ** 2)[interior], atol=1e-9)
+
+    def test_jsfs_moment_explicit_zero_start_time(self):
+        """``jsfs.moment(k=1, start_time=0)`` must equal the mean, not raise. Regression: an explicit ``start_time=0``
+        missed the batched path and fell through to ``accumulate([inf])``, which exponentiated an infinite time."""
+        dem = pg.Demography(
+            pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.0}},
+            migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        )
+        jsfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).jsfs
+        np.testing.assert_allclose(
+            np.asarray(jsfs.moment(k=1, start_time=0).data), np.asarray(jsfs.mean.data), atol=1e-12
+        )
+
+    def test_mutation_configs_sparse_rate_matrix(self):
+        """
+        The multi-epoch mutation-configuration path must handle a sparsely stored rate matrix. Regression:
+        ``np.asarray(state_space.S)`` returned a 0-d object array for a sparse ``S``, crashing above
+        ``dense_rate_matrix_max_states``. The result must match the dense path exactly.
+        """
+        from phasegen.settings import Settings
+
+        dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
+        config, theta = (2, 1, 0), 1.5
+        original = Settings.dense_rate_matrix_max_states
+        try:
+            Settings.dense_rate_matrix_max_states = 10 ** 6
+            dense = pg.Coalescent(n=4, demography=dem).sfs._get_mutation_config_inhomogeneous(config, 3, theta)
+            Settings.dense_rate_matrix_max_states = 0
+            sparse = pg.Coalescent(n=4, demography=dem).sfs._get_mutation_config_inhomogeneous(config, 3, theta)
+        finally:
+            Settings.dense_rate_matrix_max_states = original
+
+        self.assertAlmostEqual(dense, sparse, places=12)
+
+    def test_lst_cdf_pdf_below_support(self):
+        """CDF and density of an accumulated-reward (LST) distribution are 0 below the support. Regression:
+        ``np.interp`` clamped a negative argument to the first grid node, returning the atom for the CDF and ``f(0+)``
+        for the pdf. The 5-ton branch length at n=6 carries a large atom P(R=0), so the clamped CDF would be that
+        atom rather than 0."""
+        from phasegen.rewards import CombinedReward
+
+        sfs = pg.Coalescent(n=6).sfs
+        d = sfs.distribution(reward=CombinedReward([sfs.reward, sfs._get_sfs_reward(5)]))
+
+        self.assertGreater(float(d.cdf(0.0)), 0.1)  # a real atom at 0, so the clamp bug would surface
+        self.assertEqual(float(d.cdf(-1.0)), 0.0)
+        self.assertEqual(float(d.pdf(-1.0)), 0.0)
+        np.testing.assert_array_equal(np.asarray(d.cdf(np.array([-2.0, -1.0]))), [0.0, 0.0])
+
+    def test_lst_density_degenerate_single_node_grid(self):
+        """The density must not raise on a degenerate single-node grid (a near-total atom whose mass sits above the
+        tail cut leaves one node); ``np.gradient`` needs two. Regression: it raised ``IndexError``."""
+        pdf = pg.Coalescent(n=4).total_branch_length.distribution(reward=pg.TotalBranchLengthReward()).pdf
+
+        out = pdf._interp_pdf(np.array([0.0, 1.0, 2.0]), np.array([0.0]), np.array([0.5]))
+        np.testing.assert_array_equal(out, np.zeros(3))
+
     def test_plot_accumulation_center_permute(self):
         """
         Test accumulation plot for center and permute.

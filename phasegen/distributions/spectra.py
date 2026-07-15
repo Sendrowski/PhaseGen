@@ -347,7 +347,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         accumulation = self._accumulate_batched(k, indices, end_times, rewards)
         if accumulation is None:
-            accumulation = np.array([self.get_accumulation(k, i, end_times, rewards) for i in indices])
+            accumulation = np.array([
+                self.get_accumulation(k, i, end_times, rewards, center, permute) for i in indices
+            ])
 
         # pad with zeros
         return np.concatenate([
@@ -835,7 +837,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         epochs = []
         for epoch in self.demography.epochs:
             self.state_space.update_epoch(epoch)
-            S = np.asarray(self.state_space.S)[np.ix_(non_absorbing, non_absorbing)]
+            S = self.state_space.S[non_absorbing, :][:, non_absorbing]  # sparse-safe slice
+            S = S.toarray() if sp.issparse(S) else np.asarray(S)
             e = -S @ np.ones(S.shape[0])  # coalescent absorption-rate vector (state_space.e is the all-ones vector)
             tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
             epochs.append((S, e, tau))
