@@ -37,6 +37,25 @@ class StateSpaceTestCase(TestCase):
                                                   [0., 0., -1., 1.],
                                                   [0., 0., 0., -0.]]))
 
+    def test_rate_matrix_first_still_records_time_and_primes_states(self):
+        """Materialising ``S`` before ``states`` must still record the construction time and prime ``states`` -- the
+        bookkeeping the ``states`` cached_property otherwise owns, so the large-space warning is not skipped and
+        ``time`` is recorded. Regression for the numba ``_get_rate_matrix`` bypassing the cached_property."""
+        s = pg.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=6),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        if not s._use_numba():
+            self.skipTest("the bookkeeping bypass only affects the numba construction path")
+
+        assert s.time is None
+        _ = s.S  # materialise the rate matrix before ever touching .states
+
+        assert s.time is not None and s.time >= 0
+        assert 'states' in s.__dict__  # states primed, so its cached_property will not rebuild
+
     def test_numba_python_equivalence_two_locus_lineage_counting(self):
         """The numba kernel (kind 3) builds the same two-locus lineage-counting state space -- states and rate matrix
         -- as the pure-Python construction, across the standard / Beta / Dirac models and single- and multi-population

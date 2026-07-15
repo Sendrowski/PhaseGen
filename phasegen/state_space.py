@@ -489,8 +489,14 @@ class StateSpace(ABC):
         :return: The rate matrix.
         """
         if self._use_numba():
+            start = time.time()
             states, S = self._construct_numba()
-            self.__dict__.setdefault('states', states)
+            # materialising S before .states makes this the first construction: record the time and warn about a large
+            # space here too, since the states cached_property (which otherwise owns that bookkeeping) will not run.
+            if 'states' not in self.__dict__:
+                self.__dict__['states'] = states
+                self.time = time.time() - start
+                self._warn_if_large(len(states))
             return S
 
         warnings.warn(
