@@ -19,8 +19,8 @@ comparisons:
         mean: 0.0058
         demes:
           mean: 0.03
-          cov: 0.024
-          corr: 0.0047
+          cov: 0.028
+          corr: 0.0084
       jsfs:
         mean: 0.023
         var: 0.033

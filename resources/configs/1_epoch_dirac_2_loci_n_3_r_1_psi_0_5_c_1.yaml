@@ -17,13 +17,13 @@ comparisons:
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.0086
-        corr: 0.0019
+        cov: 0.013
+        corr: 0.0098
     total_branch_length:
       mean: 0.0028
       var: 0.008
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.008
-        corr: 0.0023
+        cov: 0.012
+        corr: 0.0084

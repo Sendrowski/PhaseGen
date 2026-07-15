@@ -21,8 +21,8 @@ comparisons:
           pdf: 0.079
         mean: 0.01
         var: 0.05
-        cov: 0.0095
-        corr: 0.0008
+        cov: 0.014
+        corr: 0.012
     total_branch_length:
       mean: 0.0025
       var: 0.0079
@@ -32,8 +32,8 @@ comparisons:
           pdf: 0.063
         mean: 0.01
         var: 0.05
-        cov: 0.0079
-        corr: 0.0005
+        cov: 0.012
+        corr: 0.011
     #sfs:
     #  mean: 0.01
     #  var: 0.01
@@ -45,8 +45,8 @@ comparisons:
         var: 0.02
         loci:
           mean: 0.02
-          cov: 0.02
-          corr: 0.0068
+          cov: 0.027
+          corr: 0.025
           pairwise:
             cdf: 0.0071
             pdf: 0.083

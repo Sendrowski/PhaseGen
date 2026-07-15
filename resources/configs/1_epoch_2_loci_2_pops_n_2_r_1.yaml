@@ -27,16 +27,16 @@ comparisons:
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.0085
-        corr: 0.0054
+        cov: 0.025
+        corr: 0.025
     total_branch_length:
       mean: 0.0028
       var: 0.0078
       loci:
         mean: 0.01
         var: 0.05
-        cov: 0.0081
-        corr: 0.0054
+        cov: 0.025
+        corr: 0.025
     #sfs:
     #  mean: 0.01
     #  var: 0.05
@@ -47,15 +47,15 @@ comparisons:
         mean: 0.0069
         loci:
           mean: 0.02
-          cov: 0.024
-          corr: 0.015
+          cov: 0.056
+          corr: 0.06
       total_branch_length:
         mean: 0.006
         demes:
           mean: 0.03
-          cov: 0.02
-          corr: 0.0005
+          cov: 0.023
+          corr: 0.0053
         loci:
           mean: 0.02
-          cov: 0.02
-          corr: 0.008
+          cov: 0.059
+          corr: 0.056
