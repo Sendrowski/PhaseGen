@@ -1961,24 +1961,25 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         """Sampled two-locus site-frequency spectrum distribution."""
         return self._to_empirical('sfs2')
 
-    def _get_cached_times(self) -> np.ndarray:
-        """Grid for caching the empirical curve (cdf/pdf/quantile) ground truth, as in :class:`MsprimeCoalescent`."""
-        t_max = float(np.max(self.tree_height.samples))
-
-        return np.linspace(0, t_max, 100)
+    @staticmethod
+    def _get_cached_times(dist: 'EmpiricalPhaseTypeDistribution') -> np.ndarray:
+        """The grid a distribution's curves are cached on: **its own** support, from 0 up to the largest value it
+        sampled. Each distribution must get its own grid rather than share the tree height's -- they live on different
+        scales (the total branch length exceeds the tree height by roughly ``2 H_{n-1}``), so a shared grid runs one of
+        them off its own support, where both the sampled and the exact curve are zero and the comparison passes while
+        asserting nothing. Mirrors :meth:`MsprimeCoalescent._get_cached_times`."""
+        return np.linspace(0, float(np.max(dist.samples)), 100)
 
     def touch(self, **kwargs: dict) -> None:
         """Build and cache the empirical distributions (so the cached stats/surfaces survive :meth:`drop` and are
         serialized with the comparison)."""
-        t = self._get_cached_times()
-
-        self.tree_height.touch(t)
-        self.total_branch_length.touch(t)
+        self.tree_height.touch(self._get_cached_times(self.tree_height))
+        self.total_branch_length.touch(self._get_cached_times(self.total_branch_length))
 
         # the single-locus site-frequency spectra (undefined for multiple loci, where ``sfs2`` is used instead)
         if self.locus_config.n == 1:
-            self.sfs.touch(t)
-            self.fsfs.touch(t)
+            self.sfs.touch(self._get_cached_times(self.sfs))
+            self.fsfs.touch(self._get_cached_times(self.fsfs))
 
             # multi-population: the joint SFS
             if len(self.lineage_config.pop_names) > 1:

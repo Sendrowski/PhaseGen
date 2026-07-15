@@ -945,9 +945,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         is what grades the nodes (see :meth:`~._ExpmFunction._build_cdf_grid`, which chooses segments of equal
         cumulative hazard).
 
-        Uniform within a segment is what makes this affordable at large ``n``: the propagator ``exp(S dt)`` is then
-        the same for every step of the segment, so the dense path forms one exponential per segment and applies it
-        repeatedly, rather than one per node.
+        Uniform within a segment is what makes this affordable at large ``n``: when the segment lies within a single
+        epoch the propagator ``exp(S dt)`` is the same for every step, so the dense path forms one exponential per
+        segment and applies it repeatedly rather than one per node. A segment that straddles an epoch boundary cannot
+        share one propagator (the rate matrix changes at the boundary), so each of its steps is taken piecewise via
+        :meth:`_sweep_to`. The segment boundaries (equal cumulative hazard) do not align with the epoch boundaries, so
+        this case does arise; it is rare, so the per-segment fast path is kept for the common one.
 
         :param bounds: Ascending segment boundaries, the first of which the propagation starts from.
         :param n: Approximate total number of nodes.
@@ -960,21 +963,33 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         n_seg = max(1, int(round(n / (len(bounds) - 1))))
 
         for i_seg, (start, end) in enumerate(zip(bounds[:-1], bounds[1:])):
-            self.state_space.update_epoch(self.demography.get_epoch((start + end) / 2))
-            self._check_numerical_stability(self.state_space.S, i_seg)
-
             dt = (end - start) / n_seg
+            start_epoch = self.demography.get_epoch(start)
 
-            # the same step throughout the segment, so the dense path exponentiates once and reuses the propagator
-            dense = self.state_space.k < Settings.expm_action_min_dim
-            P = expm(self._dense_rate_matrix() * dt) if dense else None
-            s = self._exit_rates()
+            if start_epoch.end_time >= end:
+                # the whole segment lies within one epoch: exponentiate once and reuse the propagator for every step
+                self.state_space.update_epoch(start_epoch)
+                self._check_numerical_stability(self.state_space.S, i_seg)
 
-            for j in range(n_seg):
-                w = w @ P if dense else self._propagate(w, dt)
-                nodes.append(start + (j + 1) * dt)
-                cdf.append(self._cum(w))
-                pdf.append(float(w @ s))
+                dense = self.state_space.k < Settings.expm_action_min_dim
+                P = expm(self._dense_rate_matrix() * dt) if dense else None
+                s = self._exit_rates()
+
+                for j in range(n_seg):
+                    w = w @ P if dense else self._propagate(w, dt)
+                    nodes.append(start + (j + 1) * dt)
+                    cdf.append(self._cum(w))
+                    pdf.append(float(w @ s))
+
+            else:
+                # an epoch boundary crosses this segment: propagate each step piecewise, switching the rate matrix at
+                # the boundary, and read the density off the epoch active at the node ``_sweep_to`` leaves us in
+                for j in range(n_seg):
+                    u_prev, u = start + j * dt, start + (j + 1) * dt
+                    w = self._sweep_to(w, u_prev, u, self.demography.get_epoch(u_prev))
+                    nodes.append(u)
+                    cdf.append(self._cum(w))
+                    pdf.append(float(w @ self._exit_rates()))
 
         return np.array(nodes), np.array(cdf), np.array(pdf)
 

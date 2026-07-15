@@ -1219,17 +1219,17 @@ class Transition:
                     target.linked[0, deme, 0] -= n_linked
                     target.linked[1, deme, 0] -= n_linked
                     # add the single merged lineage back, in its resulting category
-                    if anc0 and anc1:        # ancestral at both loci -> linked
+                    if anc0 and anc1:  # ancestral at both loci -> linked
                         target.lineages[0, deme, 0] += 1
                         target.lineages[1, deme, 0] += 1
                         target.linked[0, deme, 0] += 1
                         target.linked[1, deme, 0] += 1
                         kind = 'locus_coalescence' if n_linked == 0 else \
                             ('mixed_coalescence' if n_unlinked1 or n_unlinked2 else 'linked_coalescence')
-                    elif anc0:               # ancestral at locus 0 only -> unlinked-1
+                    elif anc0:  # ancestral at locus 0 only -> unlinked-1
                         target.lineages[0, deme, 0] += 1
                         kind = 'unlinked_coalescence'
-                    else:                    # ancestral at locus 1 only -> unlinked-2
+                    else:  # ancestral at locus 1 only -> unlinked-2
                         target.lineages[1, deme, 0] += 1
                         kind = 'unlinked_coalescence'
 

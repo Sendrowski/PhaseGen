@@ -1735,6 +1735,18 @@ class CoalescentTestCase(TestCase):
         ax = coal.tree_height.plot_accumulation(1, np.linspace(0, 2, 10), show=False)
         self.assertIsInstance(ax, plt.Axes)
 
+    def test_uniform_sweep_is_exact_across_epoch_boundary(self):
+        """The uniform CDF-grid sweep must match the exact per-node sweep even when a grid segment straddles an epoch
+        boundary, where the rate matrix changes mid-segment. Regression for the midpoint-epoch approximation that was
+        inexact across such segments."""
+        dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.2}})
+        d = pg.Coalescent(n=6, demography=dem).tree_height.cdf._distribution
+
+        nodes, grid_cdf, _ = d._sweep_uniform(list(np.linspace(0, d.t_max, 6)), 400)
+        exact_cdf, _ = d._sweep(np.asarray(nodes))
+
+        np.testing.assert_allclose(grid_cdf, exact_cdf, atol=1e-12)
+
     def test_sfs_cdf_caches_bin_distributions_and_matches_scalar(self):
         """``sfs.cdf`` caches the per-bin distribution (so the cosine fit is built once, not rebuilt on every call)
         and the vectorized array evaluation matches the scalar path. Regression for the per-call fit rebuild."""
