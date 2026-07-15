@@ -131,6 +131,12 @@ class _HazardGrid:
         """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
         (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`Settings.cache`."""
         cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
+        # the grid is built for one de Hoog tail cut; if that setting was changed on this live distribution the cached
+        # nodes no longer join the fit at the same place, so discard them and rebuild for the new cut.
+        tail = Settings.dehoog_tail_quantile
+        if cache.get('_tail_quantile', tail) != tail:
+            cache.clear()
+        cache['_tail_quantile'] = tail
         if key in cache:
             return cache[key]
         val = build()

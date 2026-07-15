@@ -44,8 +44,7 @@ class _SFSAggregateFunction:
         t_arr = np.atleast_1d(np.asarray(t, dtype=float))
         out = np.zeros((t_arr.size, d.lineage_config.n + 1))
         for i in d._get_indices():
-            bin_dist = d.distribution(reward=CombinedReward([d.reward, d._get_sfs_reward(i)]))
-            out[:, i] = [getattr(bin_dist, self.kind)(float(v)) for v in t_arr]
+            out[:, i] = getattr(d._bin_distribution(i), self.kind)(t_arr)
         return SFS(out[0]) if np.ndim(t) == 0 else out
 
 
@@ -161,6 +160,20 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :return: An iterator over all possible mutational configurations.
         """
         pass
+
+    def _bin_distribution(self, i: int) -> 'RewardDistribution':
+        """The reward distribution of SFS bin ``i`` under this spectrum's reward, cached so the expensive cosine / LST
+        fit behind its cdf / pdf / quantile is built once and reused across repeated calls and across the three
+        curves, rather than rebuilt on every ``sfs.cdf(t)``. Honors :attr:`Settings.cache`."""
+        i = int(i)
+
+        if not Settings.cache:
+            return self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
+
+        cache = self.__dict__.setdefault('_bin_distributions', {})
+        if i not in cache:
+            cache[i] = self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
+        return cache[i]
 
     @_make_hashable
     @cache

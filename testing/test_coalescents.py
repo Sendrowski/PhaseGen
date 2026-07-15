@@ -1735,6 +1735,35 @@ class CoalescentTestCase(TestCase):
         ax = coal.tree_height.plot_accumulation(1, np.linspace(0, 2, 10), show=False)
         self.assertIsInstance(ax, plt.Axes)
 
+    def test_sfs_cdf_caches_bin_distributions_and_matches_scalar(self):
+        """``sfs.cdf`` caches the per-bin distribution (so the cosine fit is built once, not rebuilt on every call)
+        and the vectorized array evaluation matches the scalar path. Regression for the per-call fit rebuild."""
+        coal = pg.Coalescent(n=5)
+        t = np.linspace(0.1, 2.5, 10)
+
+        arr = np.asarray(coal.sfs.cdf(t))
+        self.assertTrue(coal.sfs.__dict__.get('_bin_distributions'))  # per-bin fits cached on the spectrum
+
+        # the array path equals the scalar path bin for bin
+        for k, tv in enumerate(t):
+            np.testing.assert_allclose(np.asarray(coal.sfs.cdf(float(tv)).data), arr[k], rtol=1e-9, atol=1e-9)
+
+    def test_cdf_grid_cache_rebuilds_when_tail_cut_changes(self):
+        """The shared CDF-grid cache is tied to the de Hoog tail cut; changing ``Settings.dehoog_tail_quantile`` on a
+        live distribution must discard the stale grid and rebuild for the new cut, not silently reuse it."""
+        coal = pg.Coalescent(n=5)
+        bd = coal.sfs._bin_distribution(2)
+        orig = pg.Settings.dehoog_tail_quantile
+        try:
+            _ = bd.quantile(0.9)
+            self.assertEqual(bd.__dict__['_lst_curve_cache']['_tail_quantile'], orig)
+
+            pg.Settings.dehoog_tail_quantile = 0.9 if orig != 0.9 else 0.95
+            _ = bd.quantile(0.9)
+            self.assertEqual(bd.__dict__['_lst_curve_cache']['_tail_quantile'], pg.Settings.dehoog_tail_quantile)
+        finally:
+            pg.Settings.dehoog_tail_quantile = orig
+
     def test_compare_state_reward_flattened(self):
         """
         Test that flattened state rewards match the original state rewards.
