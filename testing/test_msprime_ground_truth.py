@@ -164,6 +164,35 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         # the per-bin standard errors of a spectrum line up with its bins
         self.assertEqual(np.shape(ms.sfs.standard_errors['mean']), np.shape(np.asarray(ms.sfs.mean)))
 
+    def test_standard_errors_cover_deme_and_locus_matrices(self):
+        """The block estimator covers the deme-deme and locus-locus covariance / correlation matrices that
+        ``demes.cov`` / ``loci.corr`` expose (keyed ``"demes.cov"`` etc.), so the tuner has a real noise floor for
+        those leaves. The bogus scalar ``cov`` / ``corr`` of the 1-D total is not cached (corrcoef of a 1-D sample is
+        the constant 1). Single-deme / single-locus cases have no matrix and cache none."""
+        from phasegen.distributions.empirical import EmpiricalPhaseTypeDistribution
+
+        rng = np.random.default_rng(3)
+        base = rng.exponential(1.0, 40_000)
+        # 2 loci x 3 demes, correlated through a shared component
+        samples = np.array([[base + rng.normal(0, 0.2, base.size) for _ in range(3)],
+                            [0.7 * base + rng.normal(0, 0.2, base.size) for _ in range(3)]])
+        dist = EmpiricalPhaseTypeDistribution(pops=['p0', 'p1', 'p2'], samples=samples)
+        dist.cache_standard_errors()
+
+        self.assertEqual(dist.standard_errors['demes.cov'].shape, (3, 3))
+        self.assertEqual(dist.standard_errors['loci.cov'].shape, (2, 2))
+        self.assertIn('demes.corr', dist.standard_errors)
+        self.assertIn('loci.corr', dist.standard_errors)
+        self.assertTrue(np.all(dist.standard_errors['demes.cov'] >= 0))
+        # the 1-D total's scalar cov/corr are skipped
+        self.assertNotIn('cov', dist.standard_errors)
+        self.assertNotIn('corr', dist.standard_errors)
+
+        # a single deme has no deme-deme matrix; a single locus no locus-locus matrix
+        single = EmpiricalPhaseTypeDistribution(pops=['p0'], samples=samples[:, :1, :])
+        single.cache_standard_errors()
+        self.assertNotIn('demes.cov', single.standard_errors)
+
     def test_surface_survives_serialization(self):
         """The cached surface (numpy grids) round-trips through the jsonpickle serialization used for the fixtures
         (numpy handlers are registered on importing phasegen)."""

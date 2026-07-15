@@ -107,6 +107,21 @@ def noise_floor(comp, path: list) -> float:
         kind, factor = 'var', 0.5  # SE[std] / std is half the relative error of the variance
 
     errors = getattr(ref, 'standard_errors', None) or {}
+
+    # a deme/locus cov/corr leaf (e.g. tree_height/loci/cov) compares a *matrix*, so its noise floor is the block SE
+    # of that matrix (keyed "demes.cov" etc.) over the matrix itself, not the scalar total's variance error
+    container = path[-2] if len(path) >= 3 and path[-2] in ('demes', 'loci') else None
+    if container and kind in ('cov', 'corr'):
+        se_key = f"{container}.{kind}"
+        attr = {'demes.cov': 'pops_cov', 'demes.corr': 'pops_corr',
+                'loci.cov': 'loci_cov', 'loci.corr': 'loci_corr'}[se_key]
+        matrix = getattr(ref, attr, None)
+        if se_key in errors and matrix is not None:
+            value = np.abs(np.asarray(matrix, dtype=float))
+            rel = np.divide(np.asarray(errors[se_key], dtype=float), value, out=np.zeros_like(value), where=value > 0)
+            return factor * float(np.max(rel[np.isfinite(rel)], initial=0.0))
+        return 1.0 / root
+
     if kind in errors:
         value = np.abs(np.asarray(getattr(ref, kind), dtype=float))
         # the same denominator the metric uses; a vanishing entry (an off-diagonal covariance) is left out rather than

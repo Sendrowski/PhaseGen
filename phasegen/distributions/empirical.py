@@ -278,6 +278,8 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         self.standard_errors = {}
         for name in self._STANDARD_ERROR_STATISTICS:
+            if name in ('cov', 'corr') and self.samples.ndim == 1:
+                continue  # a 1-D sample has no covariance/correlation: corrcoef is the constant 1, SE a bogus 0
             values = np.array([np.asarray(getattr(s, name), dtype=float) for s in stats])
             self.standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
 
@@ -474,6 +476,48 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         [d.drop() for d in self.demes.values()]
         [l.drop() for l in self.loci.values()]
+
+    def cache_standard_errors(self, n_blocks: int = 100) -> None:
+        """
+        In addition to the scalar-total standard errors, block-estimate the standard error of the deme-deme and
+        locus-locus covariance / correlation matrices that :attr:`demes` and :attr:`loci` expose (``demes.cov`` etc.),
+        so the tolerance tuner has a real noise floor for those leaves rather than the scalar total's variance error.
+        The matrices are keyed ``"demes.cov"`` / ``"demes.corr"`` / ``"loci.cov"`` / ``"loci.corr"``.
+        """
+        super().cache_standard_errors(n_blocks)
+
+        if self._samples is None:
+            return
+
+        for key, data, fn in (
+            ('demes.cov', self._samples.sum(axis=0), np.cov),    # (n_demes, n_rep), summed over loci
+            ('demes.corr', self._samples.sum(axis=0), np.corrcoef),
+            ('loci.cov', self._samples.sum(axis=1), np.cov),     # (n_loci, n_rep), summed over demes
+            ('loci.corr', self._samples.sum(axis=1), np.corrcoef),
+        ):
+            se = self._matrix_block_standard_error(data, fn, n_blocks)
+            if se is not None:
+                self.standard_errors[key] = se
+
+    @staticmethod
+    def _matrix_block_standard_error(data: np.ndarray, fn, n_blocks: int) -> Optional[np.ndarray]:
+        """Standard error of a matrix statistic (``np.cov`` / ``np.corrcoef``) of ``data`` (shape ``(series, reps)``),
+        by the same block subsampling :meth:`EmpiricalDistribution.cache_standard_errors` uses: the spread of the
+        per-block matrix divided by ``sqrt(n_blocks)``. Returns ``None`` when there is nothing to correlate (fewer
+        than two series, e.g. a single deme or single locus) or too few replicates to block."""
+        if data.ndim != 2 or data.shape[0] < 2:
+            return None
+
+        n_reps = data.shape[1]
+        n_blocks = min(n_blocks, n_reps // 2)
+        if n_blocks < 2:
+            return None
+
+        blocks = data[:, :n_reps // n_blocks * n_blocks].reshape(data.shape[0], n_blocks, -1)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            mats = np.array([fn(blocks[:, b, :]) for b in range(n_blocks)])
+
+        return np.std(mats, axis=0) / np.sqrt(n_blocks)
 
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
