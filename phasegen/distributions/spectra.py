@@ -1383,7 +1383,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         cap = MsprimeCoalescent._jsfs_sample_cap
 
-        return EmpiricalJointSFSDistribution(moments=moments, samples=samples[:cap])
+        return EmpiricalJointSFSDistribution(moments=moments, samples=samples[:cap], n_samples=samples.shape[0])
 
     def moment(
             self,

@@ -61,6 +61,32 @@ class MsprimeGroundTruthTestCase(TestCase):
 
         assert np.asarray(ms.sfs2.mean.data).ndim == 2
 
+    def test_joint_sfs_n_samples_is_the_replicate_count_not_the_cap(self):
+        """``EmpiricalJointSFSDistribution.n_samples`` must record the replicate count the moments were averaged over,
+        not the (capped) number of retained per-replicate samples -- otherwise the tuner's jSFS noise floor is
+        inflated by ``sqrt(num_replicates / cap)``. It defaults to ``len(samples)`` only when not passed."""
+        from phasegen.distributions.empirical import EmpiricalJointSFSDistribution
+
+        moments = np.ones((3, 2, 2))
+        capped = np.ones((10, 2, 2))  # a capped subset of a larger simulation
+
+        d = EmpiricalJointSFSDistribution(moments=moments, samples=capped, n_samples=1000)
+        self.assertEqual(d.n_samples, 1000)
+        d.drop()
+        self.assertIsNone(d.samples)
+        self.assertEqual(d.n_samples, 1000)  # survives the drop, so a serialized comparison keeps the true count
+
+        # backwards-compatible default: the sample length when no explicit count is given
+        self.assertEqual(EmpiricalJointSFSDistribution(moments=moments, samples=capped).n_samples, 10)
+
+    def test_sfs_empirical_does_not_compute_unused_deme_matrices(self):
+        """The SFS empirical overrides ``demes`` to a plain per-deme dict, so its deme-deme cov/corr are never read;
+        they must not be computed (an expensive ``2*(n-1)**2`` pass per construction) but left ``None``."""
+        ms = self._ms(pg.Coalescent(n=4))
+
+        self.assertIsNone(ms.sfs.pops_cov)
+        self.assertIsNone(ms.sfs.pops_corr)
+
 
 class MsprimeSurfaceCachingTestCase(TestCase):
     """

@@ -4,7 +4,6 @@ PhaseGen's own trajectory sampler (:class:`SampledCoalescent`) -- together with 
 statistics from the sampled realisations.
 """
 
-import itertools
 import logging
 from collections import defaultdict
 from ..caching import cached_property, cache
@@ -39,7 +38,7 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
     as cached ground truth).
     """
 
-    def __init__(self, moments: np.ndarray, samples: np.ndarray = None) -> None:
+    def __init__(self, moments: np.ndarray, samples: np.ndarray = None, n_samples: int = None) -> None:
         """
         Initialize the distribution.
 
@@ -47,7 +46,10 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
             axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
         :param samples: Optional per-replicate joint SFS branch lengths, shape ``(n_replicates, n_0 + 1, ...)``, used
             to pre-compute the within-tree joint surface ground truth (:meth:`cache_joint_surface`); dropped before
-            serialization.
+            serialization. May be a capped subset of the replicates the moments were averaged over.
+        :param n_samples: The number of replicates the moments were averaged over. Defaults to the length of
+            ``samples``; pass explicitly when ``samples`` is a capped subset so the tuner's noise floor reflects the
+            true replicate count rather than the cap.
         """
         #: Non-central moments per descendant configuration, indexed by order minus one.
         self._moments: np.ndarray = np.asarray(moments)
@@ -55,8 +57,10 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint_surface`).
         self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
 
-        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
-        self.n_samples: Optional[int] = None if samples is None else np.asarray(samples).shape[0]
+        #: Number of replicates the moments were averaged over (retained after :meth:`drop`, so it is recorded in a
+        #: serialized comparison). Not ``len(samples)`` when the samples are a capped subset.
+        self.n_samples: Optional[int] = (
+            n_samples if n_samples is not None else (None if samples is None else np.asarray(samples).shape[0]))
 
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface: list = []
@@ -784,11 +788,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Mutation counts by deme and locus
         self._mutations = mutations
 
-        #: Correlation matrix for the demes
-        self.pops_corr = self._get_stat_pops(over_loci, np.corrcoef)
-
-        #: Covariance matrix for the demes
-        self.pops_cov: np.ndarray = self._get_stat_pops(over_loci, np.cov)
+        #: Deme-deme covariance/correlation are unused for the SFS (``demes`` is overridden to a plain per-deme
+        #: dict), so they are not computed here.
+        self.pops_corr: np.ndarray = None
+        self.pops_cov: np.ndarray = None
 
         #: Correlation matrix for the loci
         self.loci_corr: np.ndarray = None
@@ -1033,24 +1036,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             raise ValueError("The per-replicate samples have been dropped; joint_distribution needs them.")
         s = np.asarray(self.samples)
         return EmpiricalJointRewardDistribution(s[:, i], s[:, j], label=f"SFS bins ({i}, {j})")
-
-    @staticmethod
-    def _get_stat_pops(samples: np.ndarray, callback: Callable) -> np.ndarray:
-        """
-        Get the covariance matrix for the demes.
-
-        :param callback: Callback function to apply to the samples.
-        :return: Covariance matrix.
-        """
-        stats = np.zeros((samples.shape[0], samples.shape[0], samples.shape[2], samples.shape[2]))
-
-        # bins with no variance (e.g. always-zero monomorphic counts) make np.corrcoef divide by a zero standard
-        # deviation; the resulting NaNs are expected here, so silence the benign warning rather than emit it.
-        with np.errstate(divide='ignore', invalid='ignore'):
-            for i, j in itertools.product(range(1, samples.shape[2] - 1), range(1, samples.shape[2] - 1)):
-                stats[:, :, i, j] = callback(samples[:, :, i])
-
-        return stats
 
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
@@ -1750,7 +1735,8 @@ class MsprimeCoalescent(AbstractCoalescent):
                 "The joint SFS is only available for multi-population, single-locus scenarios."
             )
 
-        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples)
+        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples,
+                                             n_samples=self.num_replicates)
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
