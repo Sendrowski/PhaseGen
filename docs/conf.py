@@ -24,12 +24,23 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
+    'sphinx.ext.intersphinx',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
     'autodocsumm',  # per-class method-summary table at the top of each class
     'myst_nb',
     'sphinx_book_theme'
 ]
+
+# Resolve cross-references to the standalone sfsutils package (the site-frequency-spectrum containers, which PhaseGen
+# re-exports) and to standard-library / scientific-stack types in autodoc'd signatures against their published
+# documentation, rather than repeating those objects in PhaseGen's own reference.
+intersphinx_mapping = {
+    'sfsutils': ('https://sfsutils.readthedocs.io/en/latest/', None),
+    'python': ('https://docs.python.org/3', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'pandas': ('https://pandas.pydata.org/docs/', None),
+}
 
 # the autosummary class tables on the module pages are written inline (no generated stub pages)
 autosummary_generate = False
@@ -84,3 +95,21 @@ html_static_path = ['_static']
 html_css_files = ["custom.css"]
 html_logo = "logo.png"
 html_favicon = "favicon.ico"
+
+
+def _resolve_sfs_to_sfsutils(app, env, node, contnode):
+    """Redirect references to PhaseGen's ``SFS`` (a thin, undocumented subclass of :class:`sfsutils.spectrum.Spectrum`)
+    to sfsutils' ``Spectrum`` documentation, so its return-type annotations resolve to a link rather than rendering as
+    bare text. The reference keeps its ``SFS`` label (the original ``contnode``) and points at the sfsutils page."""
+    from sphinx.ext.intersphinx import missing_reference
+
+    if node.get('reftype') in ('class', 'obj') and node.get('reftarget') in ('SFS', 'phasegen.spectrum.SFS'):
+        redirected = node.copy()
+        redirected['reftarget'] = 'sfsutils.spectrum.Spectrum'
+        return missing_reference(app, env, redirected, contnode)
+
+    return None
+
+
+def setup(app):
+    app.connect('missing-reference', _resolve_sfs_to_sfsutils)
