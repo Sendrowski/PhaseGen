@@ -202,7 +202,7 @@ from .rewards import (
 from .spectrum import (
     SFS,
     Spectra,
-    SFS2,
+    TwoSFS,
     JointSFS,
     TwoLocusSFS
 )
@@ -259,7 +259,7 @@ __all__ = [
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',
-    'SFS2',
+    'TwoSFS',
     'SFS',
     'JointSFS',
     'TwoLocusSFS',

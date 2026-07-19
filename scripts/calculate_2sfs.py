@@ -52,10 +52,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from phasegen import SFS2
+from phasegen import TwoSFS
 
 
-def compute(data: pd.DataFrame, n: int = 20, d: int = 100, d_offset: int = 0) -> SFS2:
+def compute(data: pd.DataFrame, n: int = 20, d: int = 100, d_offset: int = 0) -> TwoSFS:
     """
     Create 2-SFS from allele counts.
 
@@ -101,13 +101,13 @@ def compute(data: pd.DataFrame, n: int = 20, d: int = 100, d_offset: int = 0) ->
     pbar.close()
 
     # normalize counts
-    sfs2 = SFS2(sfs2).symmetrize().data / sfs2.sum()
+    sfs2 = TwoSFS(sfs2).symmetrize().data / sfs2.sum()
     sfs = sfs / sfs.sum()
     sfs2_neutral = np.outer(sfs, sfs)
 
     if folded:
-        sfs2 = SFS2(sfs2).fold().data
-        sfs2_neutral = SFS2(sfs2_neutral).fold().data
+        sfs2 = TwoSFS(sfs2).fold().data
+        sfs2_neutral = TwoSFS(sfs2_neutral).fold().data
 
     # cov(X, Y) = E[XY] - E[X]E[Y]
     cov = sfs2 - sfs2_neutral
@@ -119,7 +119,7 @@ def compute(data: pd.DataFrame, n: int = 20, d: int = 100, d_offset: int = 0) ->
     # corr(X, Y) = cov(X, Y) / sqrt(var(X))sqrt(var(Y))
     corr = cov / var
 
-    return SFS2(corr)
+    return TwoSFS(corr)
 
 
 sites = pd.read_csv(file_counts, sep=sep, header=None, names=['n', 'k'])

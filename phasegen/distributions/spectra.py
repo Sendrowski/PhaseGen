@@ -12,7 +12,7 @@ from ..demography import Demography
 from ..expm import Backend
 from ..rewards import Reward, TreeHeightReward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward
 from ..settings import Settings
-from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
+from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 from ..utils import multiset_permutations
 
@@ -604,7 +604,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute=permute
         )
 
-    def _cov_batched(self) -> Optional[SFS2]:
+    def _cov_batched(self) -> Optional[TwoSFS]:
         """
         Batched 2-SFS: all ``O(n^2)`` bin pairs share one two-point occupation operator ``K`` (see
         :meth:`_two_point_occupation`), so the whole covariance is ``cov = R^T (K + K^T) R - outer(mean)`` via a
@@ -636,10 +636,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         out = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
         for a, ia in enumerate(indices):
             out[ia, indices] = cov[a]
-        return SFS2(out)
+        return TwoSFS(out)
 
     @cached_property
-    def cov(self) -> SFS2:
+    def cov(self) -> TwoSFS:
         """
         Covariance matrix across site-frequency counts.
         """
@@ -673,7 +673,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # calculate covariances
         cov = (sfs + sfs.T) / 2 - m2
 
-        return SFS2(cov)
+        return TwoSFS(cov)
 
     @cached_property
     def var(self) -> SFS:
@@ -709,7 +709,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         )
 
     @cached_property
-    def corr(self) -> SFS2:
+    def corr(self) -> TwoSFS:
         """
         Correlation matrix across site-frequency counts.
         """
@@ -719,7 +719,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # monomorphic bins have zero variance; the resulting NaNs from dividing by a zero std are expected and
         # replaced with zeros below, so silence the benign divide warning at the source.
         with np.errstate(divide='ignore', invalid='ignore'):
-            sfs = SFS2(self.cov.data / np.outer(std, std))
+            sfs = TwoSFS(self.cov.data / np.outer(std, std))
 
         # replace NaNs with zeros
         sfs.data[np.isnan(sfs.data)] = 0

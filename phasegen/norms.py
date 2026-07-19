@@ -7,7 +7,7 @@ from abc import ABC
 from typing import Any, Iterable
 
 import numpy as np
-from fastdfe.likelihood import Likelihood as PoissonLikelihoodFastDFE
+from ._likelihood import Likelihood as _Likelihood
 
 
 class Norm(ABC):
@@ -113,7 +113,7 @@ class PoissonLikelihood(Likelihood):
         if not isinstance(observed, Iterable) or not isinstance(modelled, Iterable):
             return self.compute(observed=[observed], modelled=[modelled])
 
-        return - PoissonLikelihoodFastDFE.log_poisson(
+        return - _Likelihood.log_poisson(
             mu=np.array(list(modelled)),
             k=np.array(list(observed))
         ).sum()

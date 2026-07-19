@@ -15,7 +15,7 @@ from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..settings import Settings
-from ..spectrum import SFS, SFS2, JointSFS, TwoLocusSFS
+from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
 from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, QuantileFunction
@@ -389,20 +389,20 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         return SFS(super().m2)
 
     @cached_property
-    def cov(self) -> SFS2:
+    def cov(self) -> TwoSFS:
         """
         Covariance matrix.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
-            return SFS2(np.nan_to_num(np.cov(self.samples, rowvar=False)))
+            return TwoSFS(np.nan_to_num(np.cov(self.samples, rowvar=False)))
 
     @cached_property
-    def corr(self) -> SFS2:
+    def corr(self) -> TwoSFS:
         """
         Correlation matrix.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
-            return SFS2(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
+            return TwoSFS(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
 
 
 class DictContainer(dict):  # pragma: no cover

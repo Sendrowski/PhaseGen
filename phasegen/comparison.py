@@ -11,7 +11,7 @@ from typing import Iterable, Dict, Literal, List
 
 import numpy as np
 import yaml
-from fastdfe import Spectra
+from sfsutils import Spectra
 from matplotlib import pyplot as plt
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent

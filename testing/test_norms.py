@@ -70,8 +70,8 @@ class NormTestCase(unittest.TestCase):
         """
         Test the Poisson likelihood.
         """
-        observed = pg.SFS2([[2, 3], [4, 5]])
-        modelled = pg.SFS2([[2.5, 3.5], [4.5, 5.5]])
+        observed = pg.TwoSFS([[2, 3], [4, 5]])
+        modelled = pg.TwoSFS([[2.5, 3.5], [4.5, 5.5]])
 
         expected_result = stats.poisson.logpmf(observed.data, modelled.data).sum()
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
