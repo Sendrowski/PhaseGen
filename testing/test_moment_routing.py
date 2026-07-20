@@ -279,3 +279,14 @@ def test_facade_accumulate_uses_tree_height_default_reward():
     np.testing.assert_allclose(
         acc, [0.48096196, 0.85433007, 1.25722254, 1.49991828], rtol=1e-5
     )
+
+
+def test_windowed_moment_infinite_end_time_matches_to_absorption():
+    """Regression for the scan-2 finding: a windowed moment (start_time>0) with an explicit ``end_time=np.inf`` must
+    return the finite to-absorption windowed moment, as ``end_time=None`` does, not crash with a NaN 'ill-conditioned
+    rate matrix' error."""
+    c = pg.Coalescent(n=3)
+
+    # pre-fix: end_time=np.inf exponentiated over an infinite step in the windowed Van Loan loop and raised
+    # ValueError('NaN value encountered when computing moment. This is likely due to an ill-conditioned rate matrix.')
+    assert np.isclose(c.moment(k=2, start_time=0.5, end_time=np.inf), c.moment(k=2, start_time=0.5), rtol=1e-5)

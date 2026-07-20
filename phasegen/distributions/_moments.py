@@ -217,6 +217,12 @@ class MomentEvaluator:
             else:
                 end_time = self.tree_height.t_max
 
+        if start_time > 0 and np.isinf(end_time):
+            # the windowed accumulation has no closed-form to-absorption branch (that exists only for start_time == 0),
+            # so resolve an infinite end time to the finite absorption estimate, matching the end_time=None windowed
+            # path rather than exponentiating over an infinite step (which yields NaN)
+            end_time = self.tree_height.t_max
+
         if start_time > 0 and int(k) == 1:
             # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
             m_start, m_end = MomentEvaluator.accumulate(

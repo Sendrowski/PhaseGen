@@ -195,9 +195,16 @@ class Inference(Serializable):
         if self._x0 is None:
             return self._sample()
 
+        # x0 must cover every bounds parameter: `_sample()`-generated runs always span all bounds keys, so a partial
+        # x0 would make the first run optimize a lower-dimensional subspace than the rest (a ragged run set that
+        # crashes or mislabels params). Fail early rather than silently drop the missing dimensions.
+        missing = [key for key in self.bounds.keys() if key not in self._x0]
+        if missing:
+            raise ValueError(f"x0 must specify every parameter in bounds; missing: {missing}.")
+
         # canonicalize to `bounds` key order so that every run's `result.x` (ordered by the passed x0's keys) lines
         # up with `self.x0.keys()` and the DataFrame columns; `_sample()`-generated runs are already in bounds order
-        return {key: self._x0[key] for key in self.bounds.keys() if key in self._x0}
+        return {key: self._x0[key] for key in self.bounds.keys()}
 
     def __getstate__(self) -> dict:
         """

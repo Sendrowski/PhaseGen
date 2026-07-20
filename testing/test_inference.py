@@ -198,6 +198,22 @@ class InferenceTestCase(TestCase):
         with self.assertRaises(RuntimeError):
             inf.bootstrap()
 
+    def test_partial_x0_raises_value_error(self):
+        """
+        Regression for the scan-2 finding: an x0 that does not cover every bounds parameter must raise, rather than
+        silently optimize a lower-dimensional subspace on the first run (a ragged run set that crashes or mislabels).
+        """
+        inf = pg.Inference(
+            bounds=dict(a=(0, 1), b=(0, 1)),
+            x0=dict(a=0.5),  # missing 'b'
+            coal=lambda a, b: pg.Coalescent(n=2),
+            loss=lambda coal: 0.0,
+        )
+
+        # pre-fix: x0 dropped the missing key silently, so run 0 was 1-D while sampled runs were 2-D
+        with self.assertRaises(ValueError):
+            _ = inf.x0
+
     @pytest.mark.slow
     def test_basic_inference(self):
         """
