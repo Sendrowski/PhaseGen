@@ -764,6 +764,21 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return P, p_total
 
+    def _assert_no_window(self) -> None:
+        """Guard the mutational-configuration path against a bounded accumulation window. The configuration
+        probabilities are computed over the full to-absorption state-space rate matrix and take no ``start_time`` /
+        ``end_time``, so on a windowed host they would silently return the to-absorption result regardless of the
+        window. Fail loudly rather than return a value that ignores the configured window."""
+        start = getattr(self.tree_height, 'start_time', 0) or 0
+        end = getattr(self.tree_height, 'end_time', None)
+        if start > 0 or end is not None:
+            raise NotImplementedError(
+                "get_mutation_config / get_mutation_configs are not implemented for a bounded accumulation window "
+                f"(start_time={start}, end_time={end}): the mutational-configuration probabilities are computed over "
+                "the full to-absorption state space and ignore start_time / end_time, so a windowed result would be "
+                "the to-absorption one regardless. Use start_time=0 and no end_time."
+            )
+
     def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
         """
         Get the probabilities of observing the given mutational configurations according to the infinite sites model.
@@ -785,6 +800,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # make sure theta is non-negative
         if theta < 0:
             raise ValueError("Theta must be greater than or equal to 0.")
+
+        # the probabilities are to-absorption and ignore a configured window
+        self._assert_no_window()
 
         # number of frequency bins
         n = len(self._get_configs(self.lineage_config.n, 0)[0])

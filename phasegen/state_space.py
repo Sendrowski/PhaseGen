@@ -893,14 +893,15 @@ class JointBlockCountingStateSpace(StateSpace):
         )
 
     @cached_property
-    def block_configs(self) -> List[Tuple[int, ...]]:
+    def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
-        Ordered list of all descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has
-        ``0 <= v_p <= n_p`` and at least one non-zero entry.
+        Ordered descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has ``0 <= v_p <= n_p``
+        and at least one non-zero entry. Returned as an immutable tuple so a consumer cannot mutate the cached
+        configurations in place.
         """
         sizes = [int(n_p) for n_p in self.lineage_config.lineages]
 
-        return [c for c in product(*[range(s + 1) for s in sizes]) if sum(c) >= 1]
+        return tuple(c for c in product(*[range(s + 1) for s in sizes]) if sum(c) >= 1)
 
     @cached_property
     def block_index(self) -> Dict[Tuple[int, ...], int]:
@@ -1004,14 +1005,14 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
         StateSpace.__init__(self, lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
     @cached_property
-    def block_configs(self) -> List[Tuple[int, ...]]:
+    def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
-        Ordered list of all two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n`` and at least one
-        non-zero entry.
+        Ordered two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n`` and at least one non-zero entry.
+        Returned as an immutable tuple so a consumer cannot mutate the cached configurations in place.
         """
         n = int(self.lineage_config.n)
 
-        return [c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1]
+        return tuple(c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1)
 
     def _get_initial(self) -> 'State':
         """

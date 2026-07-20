@@ -421,6 +421,24 @@ class DistributionTestCase(TestCase):
         with self.assertRaises(ValueError) as context:
             pg.Coalescent(n=5).sfs.get_mutation_config(config=[1, 1], theta=-1)
 
+    def test_get_mutation_config_windowed_host_raises(self):
+        """
+        The mutational-configuration probabilities are computed over the full to-absorption state space and ignore
+        start_time / end_time, so on a windowed host they must raise rather than silently return the to-absorption
+        result. The default (no window) works.
+        """
+        # default: no window, works
+        pg.Coalescent(n=4).sfs.get_mutation_config(config=[1, 0, 0], theta=1)
+
+        for kwargs in (dict(start_time=0.5), dict(end_time=1.0)):
+            sfs = pg.Coalescent(n=4, **kwargs).sfs
+            with self.assertRaises(NotImplementedError):
+                sfs.get_mutation_config(config=[1, 0, 0], theta=1)
+            with self.assertRaises(NotImplementedError):
+                next(sfs.get_mutation_configs(theta=1))
+            with self.assertRaises(NotImplementedError):
+                next(sfs.get_mutation_configs_by_count(theta=1))
+
     def test_get_mutation_config_zero_theta(self):
         """
         Test that sampling with zero theta returns probability of 1 for no mutations and 0 otherwise.

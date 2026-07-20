@@ -1339,3 +1339,27 @@ def test_far_tail_is_exact_not_saturated():
         assert x == pytest.approx(exact, rel=1e-4), f"quantile({q}) = {x:.6g}, exact {exact:.6g}"
         assert float(d.cdf(x)) == pytest.approx(cdf_point(x), abs=1e-6), f"cdf past the window at q = {q}"
         assert float(d.pdf(x)) == pytest.approx(pdf_point(x), rel=1e-2), f"density past the window at q = {q}"
+
+
+def test_windowed_reward_distribution_functions_raise():
+    """A reward accumulated over a bounded window (start_time > 0 or a finite end_time) has windowed moments but a
+    to-absorption LST inversion, so its cdf / pdf / quantile would silently disagree with its own mean. The guard
+    raises on the distribution-function path while the moments stay windowed; the default (no window) is unaffected."""
+    # default: no window, distribution functions work
+    d0 = pg.Coalescent(n=4).tree_height.distribution()
+    assert 0.0 <= float(d0.cdf(1.0)) <= 1.0
+
+    for kw in (dict(start_time=0.5), dict(end_time=1.0)):
+        d = pg.Coalescent(n=4, **kw).tree_height.distribution()
+
+        # the windowed moments are still computed (they honour the window)
+        assert d.mean > 0 and d.var > 0
+
+        # the distribution functions raise (not implemented for a window) rather than return a to-absorption law
+        # inconsistent with the mean
+        with pytest.raises(NotImplementedError):
+            d.cdf(1.0)
+        with pytest.raises(NotImplementedError):
+            d.pdf(1.0)
+        with pytest.raises(NotImplementedError):
+            d.quantile(0.5)

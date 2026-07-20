@@ -156,8 +156,25 @@ class RewardDistribution(CallableDistributionFunctions):
         """Standard deviation of the accumulated reward."""
         return self.var ** 0.5
 
+    def _assert_no_window(self) -> None:
+        """Guard the distribution-function path against a bounded accumulation window. ``start_time`` / ``end_time``
+        bound the accumulation of the *moments* (which honour the window), but the LST inversion behind the cdf / pdf /
+        quantile is to-absorption only, so on a windowed host the two describe different random variables. Fail loudly
+        rather than return a distribution that silently disagrees with its own mean/variance."""
+        start = getattr(self._host, 'start_time', 0) or 0
+        end = getattr(self._host, 'end_time', None)
+        if start > 0 or end is not None:
+            raise NotImplementedError(
+                "cdf / pdf / quantile are not implemented for a reward accumulated over a bounded window "
+                f"(start_time={start}, end_time={end}). start_time and end_time bound the accumulation of the moments, "
+                "but the distribution-function inversion is implemented for the to-absorption law only, so a windowed "
+                "distribution would silently disagree with its own (windowed) moments. The moments (mean, var, ...) "
+                "honour the window; the distribution does not."
+            )
+
     def lst(self, s: complex) -> complex:
         """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
+        self._assert_no_window()
         st = self._setup
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
         # exactly but stays well-conditioned for large N (see ``time_scale``)

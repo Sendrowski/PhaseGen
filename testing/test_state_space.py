@@ -816,4 +816,18 @@ class StateSpaceTestCase(TestCase):
             pg.state_space.Epoch(pop_sizes={'pop_0': 2, 'pop_1': 2}, migration_rates={('pop_0', 'pop_1'): 0.1})
         )
 
+    def test_block_configs_are_immutable_tuples(self):
+        """``block_configs`` is a cached property, so it is returned as an immutable tuple: a consumer cannot mutate
+        the cached configurations in place (which would corrupt every later access)."""
+        joint = pg.Coalescent(
+            n={'a': 2, 'b': 2},
+            demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+        ).joint_block_counting_state_space
+        two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1).two_locus_block_counting_state_space
+
+        for ss in (joint, two_locus):
+            self.assertIsInstance(ss.block_configs, tuple)
+            with self.assertRaises(AttributeError):
+                ss.block_configs.append((9, 9))
+
 
