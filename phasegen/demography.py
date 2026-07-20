@@ -961,15 +961,16 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         :param epoch: Epoch.
         """
         # return if there is no overlap
-        if epoch.end_time < self.start_time or epoch.start_time > self.end_time:
+        if epoch.end_time < self.start_time or epoch.start_time >= self.end_time:
             return
 
         # if this event starts after the epoch, we take the start time
         if self.start_time > epoch.start_time:
             epoch.end_time = self.start_time
         else:
+            # only lower the end time, and never overshoot the last (possibly partial) step or the event's end time
             n_steps = np.ceil((epoch.start_time - self.start_time + 1e-10) / self.step_size)
-            epoch.end_time = self.start_time + n_steps * self.step_size
+            epoch.end_time = min(epoch.end_time, self.start_time + n_steps * self.step_size, self.end_time)
 
     def _apply(self, epoch: Epoch) -> None:
         """
@@ -977,8 +978,8 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
         :param epoch: Epoch.
         """
-        # if epoch is contained in the event
-        if self.start_time <= epoch.start_time and epoch.end_time < self.end_time:
+        # if epoch is contained in the event, up to and including a trailing partial interval ending at self.end_time
+        if self.start_time <= epoch.start_time and epoch.end_time <= self.end_time:
 
             rate_start = self.trajectory(epoch.start_time)
             rate_end = self.trajectory(epoch.end_time)

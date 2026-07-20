@@ -217,7 +217,8 @@ class MomentEvaluator:
             else:
                 end_time = self.tree_height.t_max
 
-        if start_time > 0:
+        if start_time > 0 and int(k) == 1:
+            # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
             m_start, m_end = MomentEvaluator.accumulate(
                 self,
                 k=k,
@@ -228,6 +229,19 @@ class MomentEvaluator:
             )
 
             m = float(m_end - m_start)
+        elif start_time > 0:
+            # for k >= 2 the windowed moment ``E[(Y_b - Y_a)^k]`` is NOT the difference of the cumulative-from-0
+            # moments ``m_b - m_a`` (that omits the cross terms); accumulate it directly over the window by
+            # propagating the entry distribution to ``start_time`` and running the Van Loan accumulation from there
+            m = float(MomentEvaluator.accumulate(
+                self,
+                k=k,
+                end_times=[end_time],
+                rewards=rewards,
+                center=center,
+                permute=permute,
+                start_time=start_time
+            )[0])
         else:
             m = float(MomentEvaluator.accumulate(
                 self,
@@ -314,7 +328,8 @@ class MomentEvaluator:
             end_times: Iterable[float],
             rewards: Sequence[Reward] = None,
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = 0.0
     ) -> np.ndarray:
         """
         Evaluate the kth moment at different end times.
@@ -326,6 +341,9 @@ class MomentEvaluator:
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
             the order of rewards.
+        :param start_time: Time from which to start accumulation. When positive, the reward is accumulated over the
+            window ``[start_time, t]`` for each end time ``t`` (the correct windowed moment for ``k >= 2``, which is
+            not the difference of two cumulative-from-0 moments). By default, ``0`` (accumulation from the origin).
         :return: The moment accumulated at the specified times or time.
         """
         k = int(k)
@@ -351,7 +369,8 @@ class MomentEvaluator:
                     self,
                     k=1,
                     rewards=(rewards[i],),
-                    end_times=end_times
+                    end_times=end_times,
+                    start_time=start_time
                 ) for i in range(k)
             ]
 
@@ -365,7 +384,8 @@ class MomentEvaluator:
                         rewards=tuple(rewards[j] for j in indices),
                         end_times=end_times,
                         center=False,
-                        permute=permute
+                        permute=permute,
+                        start_time=start_time
                     )
 
                     # product of means of remaining rewards
@@ -380,9 +400,11 @@ class MomentEvaluator:
             permutations = list(itertools.permutations(rewards))
 
             # compute average over all permutations
-            return np.sum([self._accumulate(k, tuple(end_times), r) for r in permutations], axis=0) / len(permutations)
+            return np.sum(
+                [self._accumulate(k, tuple(end_times), r, start_time=start_time) for r in permutations], axis=0
+            ) / len(permutations)
 
-        return self._accumulate(k, tuple(end_times), rewards)
+        return self._accumulate(k, tuple(end_times), rewards, start_time=start_time)
 
     @_make_hashable
     @cache
@@ -502,7 +524,8 @@ class MomentEvaluator:
             self,
             k: int,
             end_times: Sequence[float],
-            rewards: Sequence[Reward] = None
+            rewards: Sequence[Reward] = None,
+            start_time: float = 0.0
     ) -> np.ndarray:
         """
         Evaluate the kth (non-central) moment at different end times.
@@ -510,6 +533,9 @@ class MomentEvaluator:
         :param k: The order of the moment.
         :param end_times: Sequence of ends times or end time when to evaluate the moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :param start_time: Time from which to start accumulation. When positive, delegates to
+            :meth:`_accumulate_windowed`, which accumulates the reward over the window ``[start_time, t]`` directly.
+            By default, ``0`` (accumulation from the origin).
         :return: The moment accumulated at the specified times or time.
         """
         # use default reward if not specified
@@ -519,6 +545,11 @@ class MomentEvaluator:
             raise ValueError(f"Number of rewards must be {k}.")
 
         end_times = np.array(end_times)
+
+        # windowed accumulation: propagate the entry distribution to the window start, then run the Van Loan
+        # accumulation over ``[start_time, t]`` (the correct k >= 2 windowed moment, not m_end - m_start)
+        if start_time > 0:
+            return self._accumulate_windowed(k, float(start_time), end_times, rewards)
 
         # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost)
         if self._flattening_applies(k):
@@ -691,6 +722,151 @@ class MomentEvaluator:
         if np.isnan(moments).any():
             self._logger.warning(
                 "NaN values encountered when computing moments via the matrix-exponential action. "
+                f"Epoch: {i_epoch} at time: {epoch.start_time}. "
+                "This is likely due to an ill-conditioned rate matrix."
+            )
+
+        return moments
+
+    def _propagate_plain(self, p: np.ndarray, tau: float, use_action: bool) -> np.ndarray:
+        """
+        Propagate a state distribution ``p`` forward by ``tau`` under the *current* epoch's plain generator ``S``:
+        ``p -> p exp(S tau)``. Used to carry the entry distribution to the start of a moment window before the
+        windowed Van Loan accumulation. Returns ``p`` unchanged for a non-positive ``tau``.
+
+        :param p: State distribution (row vector).
+        :param tau: Elapsed time within the current epoch.
+        :param use_action: Whether to apply the sparse matrix-exponential action instead of forming the dense
+            exponential.
+        :return: The propagated distribution.
+        """
+        if tau <= 0:
+            return p
+
+        S = self.state_space.S
+        if use_action:
+            # p exp(S tau) = (exp((S tau)^T) p^T)^T, so apply the action to the transposed generator
+            St = (S * tau).T.tocsc() if sp.issparse(S) else sp.csc_matrix(np.asarray(S) * tau).T.tocsc()
+            return Backend.expm_multiply(St, p)
+
+        return p @ expm(self._dense_rate_matrix() * tau)
+
+    def _accumulate_windowed(
+            self,
+            k: int,
+            start_time: float,
+            end_times: np.ndarray,
+            rewards: Sequence[Reward]
+    ) -> np.ndarray:
+        """
+        Windowed non-central moment for a single reward ordering: ``E[(int_{start_time}^{t} r(X_u) du)^k]`` for each
+        ``t`` in ``end_times``. The entry distribution is first propagated to ``start_time`` through the plain
+        generator (yielding the sub-distribution over states at the window start), and the Van Loan k-th-moment
+        accumulation is then run over the window ``[start_time, t]`` from that distribution. For ``k >= 2`` this is
+        the correct windowed moment ``E[(Y_b - Y_a)^k]``: the naive difference of two cumulative-from-0 moments
+        ``m_b - m_a`` omits the cross terms and is valid only for the (additive) mean.
+
+        :param k: The order of the moment.
+        :param start_time: The (positive) window start time.
+        :param end_times: The window end times.
+        :param rewards: Sequence of k rewards (a single ordering).
+        :return: The windowed moment accumulated over ``[start_time, t]`` for each ``t`` in ``end_times``.
+        """
+        end_times = np.asarray(end_times, dtype=float)
+        if np.any(end_times < 0):
+            raise ValueError("Negative end times are not allowed.")
+
+        t_sorted: np.ndarray = np.sort(end_times)
+
+        epochs = enumerate(self.demography.epochs)
+        i_epoch, epoch = next(epochs)
+        self.state_space.update_epoch(epoch)
+        n = self.state_space.k
+
+        use_action = (k + 1) * n >= Settings.expm_action_min_dim
+
+        # --- propagate the entry distribution to the window start via the plain generator ---
+        alpha_start = np.asarray(self.state_space.alpha, dtype=float)
+        u_prev = 0.0
+        while start_time > epoch.end_time:
+            alpha_start = self._propagate_plain(alpha_start, epoch.end_time - u_prev, use_action)
+            u_prev = epoch.end_time
+            i_epoch, epoch = next(epochs)
+            self.state_space.update_epoch(epoch)
+        alpha_start = self._propagate_plain(alpha_start, start_time - u_prev, use_action)
+        u_prev = start_time
+
+        self._logger.debug(
+            "accumulate (k=%d): windowed from t=%.3g via the propagated entry distribution (%s Van Loan)",
+            k, start_time, "sparse action" if use_action else "dense"
+        )
+
+        # rewards are epoch-invariant (they depend on the states, not the rates), matching the cumulative paths;
+        # only the intensity matrix (and hence the Van Loan matrix) is refreshed per epoch
+        lamb = self._get_regularization_factor(self.state_space.S)
+        moments = np.zeros_like(t_sorted, dtype=float)
+
+        with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
+            if use_action:
+                def transposed_van_loan() -> 'sp.spmatrix':
+                    """Transposed sparse Van Loan matrix for the current epoch (for the left vector action)."""
+                    S = self.state_space.S * lamb
+                    self._check_numerical_stability(S, i_epoch)
+                    r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
+                    return self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
+
+                Vt = transposed_van_loan()
+                # w = alpha_start in the first block; e_ext = e in the last block, so w @ Q @ e_ext = alpha_start @ Q[:n,-n:] @ e
+                w = np.zeros((k + 1) * n)
+                w[:n] = alpha_start
+                e_ext = np.zeros((k + 1) * n)
+                e_ext[-n:] = self.state_space.e
+
+                for i, u in enumerate(t_sorted):
+                    if u <= start_time:
+                        # an empty (or reversed) window accumulates no reward
+                        moments[i] = 0.0
+                        continue
+                    while u > epoch.end_time:
+                        w = Backend.expm_multiply(Vt * ((epoch.end_time - u_prev) / lamb), w)
+                        u_prev = epoch.end_time
+                        i_epoch, epoch = next(epochs)
+                        self.state_space.update_epoch(epoch)
+                        Vt = transposed_van_loan()
+                    w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
+                    moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
+                    u_prev = u
+            else:
+                S = self._dense_rate_matrix() * lamb
+                self._check_numerical_stability(S, i_epoch)
+                R = [r._get(state_space=self.state_space) for r in rewards]
+                V = self._van_loan_matrix(R, S, k)
+                Q = np.eye(n * (k + 1))
+                e = np.asarray(self.state_space.e)
+
+                for i, u in enumerate(t_sorted):
+                    if u <= start_time:
+                        # an empty (or reversed) window accumulates no reward
+                        moments[i] = 0.0
+                        continue
+                    while u > epoch.end_time:
+                        Q @= expm(V * (epoch.end_time - u_prev) / lamb)
+                        u_prev = epoch.end_time
+                        i_epoch, epoch = next(epochs)
+                        self.state_space.update_epoch(epoch)
+                        S = self._dense_rate_matrix() * lamb
+                        self._check_numerical_stability(S, i_epoch)
+                        V = self._van_loan_matrix(R, S, k)
+                    Q @= expm(V * (u - u_prev) / lamb)
+                    moments[i] = factorial(k) * lamb ** k * alpha_start @ Q[:n, -n:] @ e
+                    u_prev = u
+
+        # restore the original (unsorted) order
+        moments = moments[np.argsort(np.argsort(end_times))]
+
+        if not np.isfinite(moments).all():
+            self._logger.warning(
+                "Non-finite values encountered when computing windowed moments. "
                 f"Epoch: {i_epoch} at time: {epoch.start_time}. "
                 "This is likely due to an ill-conditioned rate matrix."
             )

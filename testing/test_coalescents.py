@@ -199,6 +199,38 @@ class CoalescentTestCase(TestCase):
         coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0})
         self.assertTrue(np.isfinite(coal.tree_height.mean))
 
+    def test_constructor_does_not_mutate_caller_demography(self):
+        """
+        The constructor must fill in missing populations on a *copy* of the caller-supplied Demography, never on the
+        object itself. Regression: ``__init__`` called ``demography.add_event(PopSizeChanges(...))`` in place, so a
+        Demography reused across Coalescents silently accumulated the extra demes; a later single-population
+        coalescent then saw those demes as unspecified lineages and enlarged its lineage config (spurious deme with
+        0 lineages, e.g. ``n_pops`` = 2 for what the user built as one population).
+        """
+        demo = pg.Demography(pop_sizes={'A': {0: 1}})
+
+        # constructing with an extra population 'B' must not touch the original demography
+        _ = pg.Coalescent(n={'A': 2, 'B': 3}, demography=demo)
+        self.assertEqual(demo.pop_names, ['A'])  # pre-fix: ['A', 'B'] (add_event mutated demo in place)
+
+        # reusing the same, still-pristine demo for a single-population coalescent must not inherit a spurious 'B'
+        coal = pg.Coalescent(n={'A': 2}, demography=demo)
+        self.assertEqual(coal.lineage_config.pop_names, ['A'])  # pre-fix: ['A', 'B'] (B accumulated on demo)
+        self.assertEqual(coal.lineage_config.n_pops, 1)  # pre-fix: 2
+
+    def test_constructor_does_not_mutate_caller_locus_config(self):
+        """
+        The same deepcopy contract holds for the ``LocusConfig``: overriding ``recombination_rate`` must not mutate
+        the caller-supplied object. Regression: the constructor set ``self.locus_config.recombination_rate`` on the
+        passed-in config in place.
+        """
+        loci = pg.LocusConfig(n=2, recombination_rate=0.0)
+
+        coal = pg.Coalescent(n=2, loci=loci, recombination_rate=5.0)
+
+        self.assertEqual(loci.recombination_rate, 0.0)  # pre-fix: 5.0 (mutated in place)
+        self.assertEqual(coal.locus_config.recombination_rate, 5.0)
+
     def test_sfs2_mean_is_cached(self):
         """
         The two-locus SFS distribution and its mean are memoized on the Coalescent when caching is enabled

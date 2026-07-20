@@ -45,6 +45,36 @@ class RewardsTestCase(TestCase):
 
         testing.assert_array_equal(r[old_ordering(s)], [1, 1, 1, 1, 0])
 
+    def test_total_tree_height_reward_block_counting_state_space(self):
+        """
+        Regression test for bug #12: TotalTreeHeightReward crashed on a BlockCountingStateSpace.
+
+        Before the fix, TotalTreeHeightReward._get delegated to LocusReward, which only handles
+        LineageCountingStateSpace, so evaluating it on a BlockCountingStateSpace raised
+        NotImplementedError('Unsupported state space type for reward LocusReward: BlockCountingStateSpace').
+        The fix implements the block-counting case directly. Also assert the lineage-counting path
+        is unchanged so the fix did not alter it.
+        """
+        s_block = pg.BlockCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=4),
+            epoch=pg.Epoch(),
+            model=pg.StandardCoalescent()
+        )
+
+        r_block = pg.TotalTreeHeightReward()._get(s_block)
+
+        testing.assert_array_equal(r_block[old_ordering(s_block)], [1, 1, 1, 1, 0])
+
+        s_lineage = pg.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=4),
+            epoch=pg.Epoch(),
+            model=pg.StandardCoalescent()
+        )
+
+        r_lineage = pg.TotalTreeHeightReward()._get(s_lineage)
+
+        testing.assert_array_equal(r_lineage, [1, 1, 1, 0])
+
     @staticmethod
     def test_total_branch_length_reward_lineage_counting_state_space():
         """

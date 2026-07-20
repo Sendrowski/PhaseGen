@@ -2,10 +2,12 @@
 Test Inference class.
 """
 import os
+from unittest import mock
 from testing import TestCase
 
 import numpy as np
 import pytest
+from scipy.optimize import OptimizeResult
 
 import phasegen as pg
 
@@ -118,6 +120,83 @@ class InferenceTestCase(TestCase):
         bootstrap.run()
         inf.add_bootstrap(bootstrap)
         assert len(inf.bootstraps) == 1
+
+    def test_inferred_params_labeled_by_bounds_order(self):
+        """
+        Regression for bug #3: with ``bounds`` and ``x0`` in different key order and ``n_runs > 1``, the inferred
+        parameters and the ``runs`` DataFrame columns must follow the canonical (bounds) key order, so each optimum
+        is labeled with the correct parameter name.
+        """
+        t_true, Ne_true = 1.5, 0.3
+        obs = pg.Coalescent(
+            n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t_true: Ne_true}})
+        ).sfs.mean
+
+        inf = self.get_fast_inference(dict(
+            x0=dict(Ne=0.5, t=0.5),  # deliberately different key order from bounds
+            bounds=dict(t=(0, 2), Ne=(0.1, 1)),
+            observation=obs,
+            n_runs=2,
+            loss=lambda coal, observation: float(np.sum((coal.sfs.mean - observation) ** 2))
+        ))
+
+        inf.run()
+
+        # pre-fix: params_inferred zipped result.x (bounds order) against x0's own order -> keys ['Ne', 't'] and, for
+        # a sampled best run, a's optimum silently stored under 'b'
+        self.assertEqual(['t', 'Ne'], list(inf.params_inferred.keys()))
+        self.assertEqual(['t', 'Ne', 'loss', 'result'], list(inf.runs.columns))
+
+        # label mapping is correct: t's optimum is under 't', Ne's under 'Ne' (not swapped)
+        self.assertAlmostEqual(1.498763, inf.params_inferred['t'], places=4)
+        self.assertAlmostEqual(0.300876, inf.params_inferred['Ne'], places=4)
+
+    def test_nan_loss_run_not_selected_as_best(self):
+        """
+        Regression for bug #9: a run whose loss is NaN must not be selected as the best result.
+        """
+        inf = self.get_fast_inference(dict(n_runs=3))
+
+        # one run reports a NaN loss; the two others are finite
+        results = [
+            OptimizeResult(x=np.array([0.5, 0.5]), fun=np.nan, success=True),
+            OptimizeResult(x=np.array([0.4, 0.6]), fun=2.0, success=True),
+            OptimizeResult(x=np.array([0.3, 0.7]), fun=1.0, success=True)
+        ]
+
+        # pre-fix: min(results, key=lambda r: r.fun) returned the NaN run (x < NaN and NaN < x are both False), so
+        # loss_inferred was NaN
+        with mock.patch.object(pg.Inference, '_optimize', side_effect=results):
+            inf._run()
+
+        self.assertTrue(np.isfinite(inf.loss_inferred))
+        self.assertAlmostEqual(1.0, inf.loss_inferred)
+        np.testing.assert_array_equal([0.3, 0.7], inf.result.x)
+
+    def test_create_run_x0_overrides_cached(self):
+        """
+        Regression for bug #10: after the ``x0`` cached_property has been materialized, ``create_run(x0=NEW)`` must
+        honor NEW rather than the stale cached value.
+        """
+        inf = self.get_fast_inference()
+
+        _ = inf.x0  # materialize the cached_property
+
+        # pre-fix: the deepcopied __dict__['x0'] shadowed the new _x0, so run.x0 stayed {'t': 0.5, 'Ne': 0.5}
+        run = inf.create_run(x0=dict(t=1.7, Ne=0.9))
+
+        self.assertEqual({'t': 1.7, 'Ne': 0.9}, run.x0)
+
+    def test_bootstrap_before_run_raises_runtime_error(self):
+        """
+        Regression for bug #17: calling ``bootstrap()`` before ``run()`` must raise a clear RuntimeError.
+        """
+        inf = self.get_fast_inference()
+
+        # pre-fix: the `params_inferred is None` guard never fired (it is {}), so scipy raised a confusing
+        # "not enough values to unpack (expected 2, got 0)" ValueError instead
+        with self.assertRaises(RuntimeError):
+            inf.bootstrap()
 
     @pytest.mark.slow
     def test_basic_inference(self):

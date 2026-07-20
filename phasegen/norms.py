@@ -48,7 +48,9 @@ class LNorm(Norm):
         :param b: Another value.
         :return: A numerical value representing the difference between the two values.
         """
-        return np.linalg.norm(a - b, ord=self.p)
+        # flatten so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise vector distance
+        # rather than a matrix norm
+        return np.linalg.norm(np.ravel(a - b), ord=self.p)
 
 
 class L2Norm(LNorm):

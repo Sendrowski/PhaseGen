@@ -192,7 +192,12 @@ class Inference(Serializable):
         """
         Initial parameters.
         """
-        return self._x0 if self._x0 is not None else self._sample()
+        if self._x0 is None:
+            return self._sample()
+
+        # canonicalize to `bounds` key order so that every run's `result.x` (ordered by the passed x0's keys) lines
+        # up with `self.x0.keys()` and the DataFrame columns; `_sample()`-generated runs are already in bounds order
+        return {key: self._x0[key] for key in self.bounds.keys() if key in self._x0}
 
     def __getstate__(self) -> dict:
         """
@@ -425,8 +430,14 @@ class Inference(Serializable):
                 f'Only {n_success} out of {self.n_runs} optimization runs converged.'
             )
 
-        # get the best result
-        self.result = min(results, key=lambda result: result.fun)
+        # get the best result, ignoring runs whose loss is non-finite (a NaN loss would otherwise never be
+        # displaced by `min`, since both `x < NaN` and `NaN < x` are False)
+        finite = [result for result in results if np.isfinite(result.fun)]
+
+        if not finite:
+            raise RuntimeError('None of the optimization runs returned a finite loss.')
+
+        self.result = min(finite, key=lambda result: result.fun)
 
         # fetch optimized params
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
@@ -472,7 +483,7 @@ class Inference(Serializable):
 
         :return: Bootstrap replicates.
         """
-        if self.params_inferred is None:
+        if not self.params_inferred:
             raise RuntimeError('The main optimization must be run first (call the `run` method).')
 
         x0 = self.params_inferred
@@ -765,6 +776,12 @@ class Inference(Serializable):
         other = copy.deepcopy(self)
 
         other._x0 = x0
+
+        # drop any materialized cache copied over by the deepcopy so the new `_x0` is honored (a non-data
+        # `cached_property` in the instance `__dict__` would otherwise shadow it)
+        other.__dict__.pop('x0', None)
+        other.__dict__.pop('_state_spaces', None)
+
         other._check_x0_within_bounds()
 
         # generate a new random seed if seeded

@@ -1267,7 +1267,9 @@ class _JointSFSAggregateFunction:
         t_arr = np.atleast_1d(np.asarray(t, dtype=float))
         out = np.zeros((t_arr.size,) + d.shape)
         for config in d._get_configs():
-            bin_dist = d.distribution(reward=JointSFSReward(config))
+            # combine the spectrum-level reward with the per-bin joint SFS reward, mirroring the moment/mean/cov
+            # paths (CombinedReward([self.reward, JointSFSReward(config)])) so a non-unit reward is honoured here too
+            bin_dist = d.distribution(reward=CombinedReward([d.reward, JointSFSReward(config)]))
             out[(slice(None),) + config] = [getattr(bin_dist, self.kind)(float(v)) for v in t_arr]
         return JointSFS(out[0], pop_names=d.lineage_config.pop_names) if np.ndim(t) == 0 else out
 
@@ -1471,9 +1473,26 @@ class JointSFSDistribution(PhaseTypeDistribution):
             else:
                 end_time = self.tree_height.t_max
 
-        if start_time > 0:
+        if start_time > 0 and int(k) == 1:
+            # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
             acc = self.accumulate(k, [start_time, end_time], center=center, permute=permute)
             out = acc[..., 1] - acc[..., 0]
+        elif start_time > 0:
+            # for k >= 2 the windowed moment ``E[(Y_b - Y_a)^k]`` is NOT the difference of the cumulative-from-0
+            # moments (that omits the cross terms); accumulate each bin directly over the [start_time, end_time]
+            # window (see MomentEvaluator._accumulate_windowed)
+            out = np.zeros(self.shape)
+            for config in self._get_configs():
+                rewards = tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k))
+                out[config] = float(PhaseTypeDistribution.accumulate(
+                    self,
+                    k=k,
+                    end_times=[end_time],
+                    rewards=rewards,
+                    center=center,
+                    permute=permute,
+                    start_time=start_time
+                )[0])
         else:
             out = self.accumulate(k, [end_time], center=center, permute=permute)[..., 0]
 

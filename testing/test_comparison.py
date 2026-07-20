@@ -13,7 +13,9 @@ import numpy as np
 
 from testing import TestCase
 
+import phasegen as pg
 from phasegen.comparison import Comparison
+from phasegen.distributions.empirical import EmpiricalDistribution
 
 
 class ComparisonHelpersTestCase(TestCase):
@@ -89,6 +91,58 @@ class ComparisonHelpersTestCase(TestCase):
             'sfs': {'pairwise': {'[(1, 2), (2, 3)]': {'cdf': 0.1, 'pdf': 0.1}}},
         }}
         self.assertEqual(c._pairwise_surface_pairs()['sfs'], [(1, 2), (2, 3)])
+
+
+class CurveStatRegressionTestCase(TestCase):
+    """Regressions for two comparison-machinery bugs on the un-moded (``mode=None``) statistic paths: the spectrum-wide
+    SFS pdf cell average and the ``std`` statistic on an empirical operand that exposes ``var`` but not ``std``."""
+
+    def test_spectrum_wide_sfs_pdf_cell_average_does_not_crash(self):
+        """A spectrum-wide, ``mode=None`` SFS pdf comparison averages an :class:`SFSDensity` over the grid cells.
+        The density returns ``(len(grid), n_bins)`` (grid on axis 0), but the quadrature reshape assumed the grid on
+        the trailing axis, so pre-fix this raised ``ValueError: cannot reshape array of size 800 into shape
+        (160, 20, 8)``. Post-fix the grid axis is moved to the back before the reshape, so the cell average returns
+        the per-bin densities without error."""
+        coal = pg.Coalescent(n=4)
+        dens = coal.sfs.pdf  # SFSDensity: returns (len(grid), n + 1), grid on axis 0
+        t = np.linspace(0, float(np.max(coal.sfs.quantile(0.99))), 20)
+
+        # the density's own orientation is grid-first -- the exact shape the pre-fix reshape mis-handled
+        self.assertEqual(np.asarray(dens(t)).shape, (len(t), 5))
+
+        avg = Comparison._cell_average(dens, t)  # pre-fix: ValueError from the grid-last reshape assumption
+
+        # oriented to the (n_bins, len(grid)) cell-average contract, finite and non-negative
+        self.assertEqual(avg.shape, (5, len(t)))
+        self.assertTrue(np.all(np.isfinite(avg)))
+        self.assertTrue(np.all(avg >= 0))
+
+        # the polymorphic bins carry continuous mass in [0, 1]; the monomorphic edge bins are the zero atom
+        widths = np.diff(np.append(t, 2 * t[-1] - t[-2]))
+        masses = (avg * widths).sum(axis=1)
+        self.assertTrue(np.all(masses <= 1.0 + 1e-9))
+        self.assertTrue(np.all(masses[1:-1] > 0))
+        self.assertEqual(masses[0], 0.0)
+        self.assertEqual(masses[-1], 0.0)
+
+    def test_std_stat_on_empirical_operand_is_sqrt_var(self):
+        """The ``std`` statistic must work when an operand exposes ``var`` but not ``std`` (the empirical msprime /
+        sampler distributions). Pre-fix ``_get_stat`` did a bare ``getattr(dist, 'std')`` and aborted with
+        ``AttributeError``; post-fix it derives ``std = var ** 0.5`` for such an operand while returning ``std``
+        unchanged for operands (the analytic phasegen side) that define it."""
+        emp = EmpiricalDistribution(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
+        self.assertFalse(hasattr(emp, 'std'))  # the empirical operand has no std, only var
+        with self.assertRaises(AttributeError):
+            getattr(emp, 'std')  # pre-fix _get_stat did exactly this and crashed
+
+        std = Comparison._get_stat(emp, 'std')
+        self.assertEqual(std, emp.var ** 0.5)
+        self.assertAlmostEqual(std, np.sqrt(2.0))  # var of [1..5] is 2.0
+
+        # an operand that defines std (the analytic phasegen side) is returned unchanged
+        th = pg.Coalescent(n=4).tree_height
+        self.assertTrue(hasattr(th, 'std'))
+        self.assertEqual(float(Comparison._get_stat(th, 'std')), float(th.std))
 
 
 class _ExplodingJD:

@@ -443,6 +443,75 @@ class DemographyTestCase(TestCase):
         # make sure migration rates are not included in the string when only one population is present
         self.assertEqual("Epoch(start_time=0.1667, end_time=2, pop_sizes=(pop_0=1.11)", str(epoch))
 
+    def test_overlapping_discretized_events_keep_finer_grid_boundaries(self):
+        """
+        Two overlapping ExponentialPopSizeChanges with different step sizes (0.1 on pop_0, 0.25 on pop_1)
+        over [0, 1] must retain the fine (0.1) grid boundaries, not just the coarse (0.25) grid
+        (regression for DiscretizedRateChange._broadcast overwriting end_time unconditionally instead of
+        taking the minimum).
+        """
+        d = pg.Demography(events=[
+            pg.ExponentialPopSizeChanges(
+                initial_size={'pop_0': 1}, growth_rate={'pop_0': 1}, start_time=0, end_time=1, step_size=0.1
+            ),
+            pg.ExponentialPopSizeChanges(
+                initial_size={'pop_1': 1}, growth_rate={'pop_1': 1}, start_time=0, end_time=1, step_size=0.25
+            ),
+        ])
+
+        boundaries = sorted({e.start_time for e in islice(d.epochs, 20)})
+
+        # the fine 0.1 grid boundaries must be present, not erased by the coarse 0.25 grid
+        for t in (0.1, 0.2, 0.3):
+            self.assertTrue(
+                any(abs(b - t) < 1e-9 for b in boundaries),
+                msg=f"missing fine-grid boundary at {t}: {boundaries}"
+            )
+
+        # pop_0 at t=0.15 must match the value when the step-0.1 event runs alone (midpoint over [0.1, 0.2]),
+        # not the coarse midpoint over [0, 0.25] (pre-fix value 0.8894)
+        d_alone = pg.Demography(events=[
+            pg.ExponentialPopSizeChanges(
+                initial_size={'pop_0': 1}, growth_rate={'pop_0': 1}, start_time=0, end_time=1, step_size=0.1
+            ),
+        ])
+
+        self.assertAlmostEqual(d.get_epoch(0.15).pop_sizes['pop_0'], 0.8617840855569707, places=12)
+        self.assertAlmostEqual(
+            d.get_epoch(0.15).pop_sizes['pop_0'],
+            d_alone.get_epoch(0.15).pop_sizes['pop_0'],
+            places=12
+        )
+
+    def test_discretized_event_end_time_not_multiple_of_step_size(self):
+        """
+        A single discretized event whose end_time (0.35) is not a multiple of its step_size (0.1) must place a
+        boundary at 0.35 and carry the correct discretized trajectory value over the partial final epoch
+        [0.3, 0.35), rather than reusing the previous epoch's rate (regression for _broadcast overshooting the
+        clamped end_time).
+        """
+        d = pg.Demography(events=[
+            pg.ExponentialPopSizeChanges(
+                initial_size={'pop_0': 1}, growth_rate={'pop_0': 1}, start_time=0, end_time=0.35, step_size=0.1
+            ),
+        ])
+
+        epochs = list(islice(d.epochs, 10))
+
+        # a boundary must be placed at the clamped end_time 0.35
+        boundaries = sorted({e.start_time for e in epochs} | {e.end_time for e in epochs})
+        self.assertTrue(
+            any(abs(b - 0.35) < 1e-9 for b in boundaries),
+            msg=f"missing boundary at 0.35: {boundaries}"
+        )
+
+        # the partial final epoch [0.3, 0.35) must exist with the correct discretized trajectory value
+        partial = next(e for e in epochs if abs(e.start_time - 0.3) < 1e-9)
+        self.assertAlmostEqual(partial.end_time, 0.35, places=12)
+
+        # discretized midpoint over [0.3, 0.35), not the previous epoch's reused rate (pre-fix value 0.7798)
+        self.assertAlmostEqual(d.get_epoch(0.32).pop_sizes['pop_0'], 0.7227531552002157, places=12)
+
     def test_demography_pop_size_input_format(self):
         """
         Test Demography pop_sizes input formats.

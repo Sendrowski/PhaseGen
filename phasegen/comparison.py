@@ -376,7 +376,17 @@ class Comparison(Serializable):
             ms_stat = [(config, ms.get_mutation_config(config)) for config, _ in ph_stat]
             return ph_stat, ms_stat
 
-        return getattr(ph, stat), getattr(ms, stat)
+        return self._get_stat(ph, stat), self._get_stat(ms, stat)
+
+    @staticmethod
+    def _get_stat(dist, stat: str):
+        """Fetch a named scalar / spectrum statistic. ``std`` is derived from ``var`` (as ``var ** 0.5``, the same
+        definition the analytic side uses) for operands that expose ``var`` but not ``std`` -- the empirical msprime /
+        sampler distributions -- so a ``std`` tolerance compares standard deviations instead of aborting with an
+        ``AttributeError`` deep in ``getattr``. Operands that do define ``std`` are returned unchanged."""
+        if stat == 'std' and not hasattr(dist, 'std'):
+            return dist.var ** 0.5
+        return getattr(dist, stat)
 
     def _diff_and_plot_mutation_configs(self, ph_stat, ms_stat, name: str) -> tuple:
         """Total-variation distance between the mutation-configuration probability distributions, with a deferred line
@@ -582,6 +592,11 @@ class Comparison(Serializable):
         nodes = 0.5 * (hi - lo)[:, None] * (x[None, :] + 1.0) + lo[:, None]
 
         y = np.asarray(f(nodes.ravel()), dtype=float)
+        # a per-bin density may return the grid on the leading axis (e.g. SFSDensity: ``(len(grid), n_bins)``),
+        # whereas the reshape below and the (n_bins, len(x)) cell-average contract expect it trailing -- move it there
+        n_pts = nodes.size
+        if y.ndim >= 2 and y.shape[-1] != n_pts and y.shape[0] == n_pts:
+            y = np.moveaxis(y, 0, -1)
         y = y.reshape(*y.shape[:-1], len(lo), n_nodes)
 
         # the 0.5 * (hi - lo) Jacobian of the quadrature cancels the 1 / (hi - lo) of the average
@@ -930,9 +945,9 @@ class Comparison(Serializable):
             sub_title = f"{title}: {i}: {stat}"
 
             if stat in ('mean', 'var', 'std'):
-                ph_arr = getattr(ph, stat)
+                ph_arr = self._get_stat(ph, stat)
                 ph_val = float(np.asarray(ph_arr.data if hasattr(ph_arr, 'data') else list(ph_arr)).ravel()[i])
-                ms_val = float(np.asarray(list(getattr(ms, stat))).ravel()[i])
+                ms_val = float(np.asarray(list(self._get_stat(ms, stat))).ravel()[i])
                 diff = float(self.rel_diff(np.array([ms_val]), np.array([ph_val])).max())
 
             elif stat in ('pdf', 'cdf', 'quantile'):

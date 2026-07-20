@@ -207,3 +207,75 @@ def test_flattened_path_taken_for_sfs_mean():
     with _spy('_accumulate_flattened') as flat:
         _ = coal.sfs.mean
     assert flat.call_count >= 1
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# windowed (start_time > 0) higher moments  --  bug-scan-2026-07-19 #2
+# ----------------------------------------------------------------------------------------------------------------
+
+def test_windowed_second_moment_is_true_windowed_moment():
+    """A windowed (``start_time > 0``) k>=2 moment is E[(H - a)_+^k], NOT the naive m_end - m_start subtraction
+    of two cumulative-from-0 moments (which is only additive for the mean).
+
+    Regression for #2: ``pg.Coalescent(n=3).tree_height.moment(k=2, center=False, start_time=0.4)`` returned the
+    naive subtraction 2.742 (= E[H^2] - E[min(H,0.4)^2]) instead of the true windowed second moment 1.9775."""
+    th = pg.Coalescent(n=3).tree_height
+
+    # true windowed E[(H - 0.4)_+^2]; pre-fix returned the naive subtraction 2.742
+    assert np.isclose(th.moment(k=2, center=False, start_time=0.4), 1.9774941145611176, rtol=1e-5)
+
+    # the start_time = 0 case is the ordinary second moment and must be UNCHANGED by the fix
+    assert np.isclose(th.moment(k=2, center=False, start_time=0), 2.888888888888889, rtol=1e-5)
+
+
+def test_windowed_variance_and_std_use_cross_terms():
+    """Centered variance / std with ``start_time > 0`` must be the true windowed centered moment, not the
+    difference of the two cumulative variances (which omits the -2 E[Y_a Y_b] + 2 E[Y_a^2] cross terms).
+
+    Regression for #2: centered variance at ``start_time=0.4`` returned 1.107 instead of the correct 1.065."""
+    th = pg.Coalescent(n=3).tree_height
+
+    var = th.moment(k=2, center=True, start_time=0.4)
+    # true windowed centered second moment; pre-fix returned 1.107
+    assert np.isclose(var, 1.0649322611477698, rtol=1e-5)
+    # std is its square root
+    assert np.isclose(np.sqrt(var), 1.0319555519244856, rtol=1e-5)
+
+    # the start_time = 0 centered second moment (ordinary variance) is UNCHANGED by the fix
+    assert np.isclose(th.moment(k=2, center=True, start_time=0), 1.1111111111111112, rtol=1e-5)
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# facade default reward for windowed / finite-end moments  --  bug-scan-2026-07-19 #4
+# ----------------------------------------------------------------------------------------------------------------
+
+def test_facade_moment_uses_tree_height_default_reward():
+    """The ``Coalescent`` facade default moment must reward the transient tree-height states ([1,1,1,0]), not the
+    absorbing state (the wrong UnitReward [1,1,1,1]), so a windowed / finite-end default moment integrates the
+    branch length, not the absorbing indicator.
+
+    Regression for #4: with a nonzero start_time the facade default returned the absorbing-state integral instead
+    of the tree-height moment."""
+    # windowed default moment must equal the explicit tree_height windowed moment; pre-fix returned 62.999
+    facade = pg.Coalescent(n=4, start_time=1.0).moment(1)
+    explicit = pg.Coalescent(n=4).tree_height.moment(1, start_time=1.0)
+    assert np.isclose(facade, explicit, rtol=1e-5)
+    assert np.isclose(facade, 0.6456699297251958, rtol=1e-5)
+
+    # finite end_time default moment; pre-fix returned 1.0 (the end time itself, absorbing reward)
+    assert np.isclose(pg.Coalescent(n=4).moment(1, end_time=1.0), 0.8543300702748016, rtol=1e-5)
+
+    # the unbounded mean (start_time=0, end_time=None) takes the flattened path and is UNCHANGED
+    assert np.isclose(pg.Coalescent(n=4).moment(1), 1.5, rtol=1e-5)
+
+
+def test_facade_accumulate_uses_tree_height_default_reward():
+    """``Coalescent.accumulate`` with the default reward accumulates the tree height and saturates near the mean
+    1.5, rather than returning the end times themselves (the absorbing-reward artifact).
+
+    Regression for #4: pre-fix returned exactly the end times [0.5, 1, 2, 10]."""
+    acc = pg.Coalescent(n=4).accumulate(1, [0.5, 1, 2, 10])
+    # tree-height accumulation saturating near the mean 1.5; pre-fix returned [0.5, 1, 2, 10]
+    np.testing.assert_allclose(
+        acc, [0.48096196, 0.85433007, 1.25722254, 1.49991828], rtol=1e-5
+    )

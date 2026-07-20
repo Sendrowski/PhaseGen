@@ -294,7 +294,11 @@ class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
-            return np.sum([LocusReward(i)._get(state_space) for i in range(state_space.locus_config.n)], axis=0)
+            # sum over demes and blocks to obtain the number of ancestral lineages per locus
+            loci = state_space.lineages.sum(axis=(2, 3))
+
+            # a reward of 1 per locus that is still non-absorbing (more than one lineage), summed over loci
+            return np.sum([(loci[:, i] > 1).astype(int) for i in range(state_space.locus_config.n)], axis=0)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'

@@ -1404,6 +1404,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Per-replicate joint SFS branch lengths (capped subset) for the within-tree joint ground truth.
         self.jsfs_samples: np.ndarray | None = None
 
+        #: Actual number of replicates simulated and averaged over (``num_replicates`` rounded down to a multiple of
+        #: ``n_threads``), set by :meth:`simulate`.
+        self.n_total: int | None = None
+
         #: Number of replicates.
         self.num_replicates: int = num_replicates
 
@@ -1462,7 +1466,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         jsfs_max_order = self._jsfs_max_order
         jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
         name_to_index = {name: i for i, name in enumerate(self.demography.pop_names)}
-        n_total = num_replicates * self.n_threads
+        n_total = self.n_total = num_replicates * self.n_threads
         # retain a capped subset of per-replicate joint SFS branch lengths (the moments use all replicates; the
         # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
         jsfs_sample_cap = self._jsfs_sample_cap // self.n_threads
@@ -1606,8 +1610,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.tree_height.touch(t)
         self.total_tree_height.touch(self._get_cached_times(self.total_tree_height))
         self.total_branch_length.touch(self._get_cached_times(self.total_branch_length))
-        self.sfs.touch(t)
-        self.fsfs.touch(t)
+        self.sfs.touch(self._get_cached_times(self.sfs))
+        self.fsfs.touch(self._get_cached_times(self.fsfs))
 
         # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
         # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
@@ -1736,7 +1740,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             )
 
         return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples,
-                                             n_samples=self.num_replicates)
+                                             n_samples=self.n_total)
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':

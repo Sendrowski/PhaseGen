@@ -202,6 +202,53 @@ def test_sampled_and_msprime_share_facade():
 
 
 @pytest.mark.slow
+def test_msprime_touch_grids_sfs_on_its_own_support():
+    """``MsprimeCoalescent.touch`` must cache each spectrum on its **own** support, not the tree-height grid.
+
+    Regression for the bug where ``touch`` passed the tree-height grid ``t = _get_cached_times(self.tree_height)`` to
+    ``self.sfs.touch`` / ``self.fsfs.touch``. Individual SFS bin branch lengths are not bounded by the tree height (the
+    summed singleton branches routinely exceed the TMRCA), so caching the SFS cdf/pdf on the tree-height grid truncated
+    the SFS tail: the serialized cdf never reached 1 and the comparison asserted nothing above the tree height. The fix
+    passes ``_get_cached_times(self.sfs)`` / ``_get_cached_times(self.fsfs)`` instead.
+    """
+    ms = MsprimeCoalescent(n=6, num_replicates=2000, n_threads=1, parallelize=False, seed=42)
+    ms.touch()
+
+    # the SFS's own support genuinely extends beyond the tree height (else this test would assert nothing)
+    assert np.max(ms.sfs.samples) > np.max(ms.tree_height.samples)
+    assert np.max(ms.fsfs.samples) > np.max(ms.tree_height.samples)
+
+    tree_grid = ms.tree_height._cache['t']
+
+    # the grid the SFS/fSFS were cached on equals their own support grid, and differs from (extends beyond) the
+    # tree-height grid -- pre-fix both were touched with ``tree_grid`` and the tail above it was truncated
+    for dist in (ms.sfs, ms.fsfs):
+        np.testing.assert_array_equal(dist._cache['t'], MsprimeCoalescent._get_cached_times(dist))
+        assert dist._cache['t'][-1] > tree_grid[-1]
+        assert dist._cache['t'][-1] == pytest.approx(float(np.max(dist.samples)))
+
+
+@pytest.mark.slow
+def test_msprime_jsfs_n_samples_is_actual_replicate_count():
+    """The empirical joint SFS ``n_samples`` must be the actual averaged replicate count ``n_total``, not the requested
+    ``num_replicates``.
+
+    Regression for the bug where ``jsfs`` recorded ``n_samples=self.num_replicates`` while the moments are normalised
+    over ``n_total = (num_replicates // n_threads) * n_threads``. When ``num_replicates`` is not a multiple of
+    ``n_threads`` the two differ (here 103 requested, 100 simulated), overstating the replicate count and biasing the
+    tolerance tuner's noise floor tighter than the true sampling error. The fix passes ``n_samples=n_total``.
+    """
+    dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1},
+                        migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
+    # 103 is not divisible by 4 threads -> 25 per thread -> 100 replicates actually simulated and averaged
+    ms = MsprimeCoalescent(n={'p0': 2, 'p1': 2}, demography=dem,
+                           num_replicates=103, n_threads=4, parallelize=False, seed=1)
+
+    assert ms.jsfs.n_samples == ms.n_total == 100
+    assert ms.n_total != ms.num_replicates  # pre-fix n_samples was num_replicates (103)
+
+
+@pytest.mark.slow
 def test_sampled_and_msprime_agree():
     """The two empirical backends sample the *same* coalescent process, so their shared statistics agree within
     Monte-Carlo error (a cross-check independent of the analytic reference)."""

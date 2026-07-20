@@ -267,6 +267,71 @@ def test_jsfs_incompatible_reward_stacking_raises(two_pop_coalescent):
             two_pop_coalescent.moment(k=1, rewards=[CombinedReward([other, pg.JointSFSReward((1, 0))])])
 
 
+def test_joint_cdf_plot_grid_honours_diagonal_reduction():
+    """
+    Regression for the ``JointCDF`` plot/surface path (``_grid_values``) skipping the ``R_a = R_b`` diagonal
+    reduction that the callable ``__call__`` applies. For a diagonal joint (identical rewards) the law is singular
+    on the diagonal and the CDF must equal ``P(R <= min(x, y))``; the plot grid must reproduce the pointwise callable
+    exactly. Pre-fix, ``_grid_values`` built the 2D cosine box expansion of the diagonal-singular measure instead, so
+    the grid disagreed with ``__call__`` (max abs error ~0.009) and was not constant along ``min(x, y)``.
+    """
+    d = pg.Coalescent(n=3).joint_distribution(pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())
+    assert d._is_diagonal
+
+    xs = np.array([1.0, 2.0, 3.0])
+    ys = np.array([1.0, 2.0, 3.0])
+
+    grid = d.cdf._grid_values(xs, ys)
+    pointwise = np.array([[float(d.cdf(x, y)) for y in ys] for x in xs])
+
+    # the plot grid must match the callable evaluated pointwise on the same grid (pre-fix they differed)
+    np.testing.assert_allclose(grid, pointwise, atol=1e-12)
+
+    # and it must be constant along each min(x, y) contour, e.g. the x = 1 row is P(R <= 1) throughout
+    np.testing.assert_allclose(grid[0], grid[0, 0], atol=1e-12)
+
+
+def test_jsfs_per_bin_curves_honour_non_unit_reward(symmetric_demography):
+    """
+    Regression for the ``JointSFS`` per-bin cdf/pdf/quantile aggregate dropping ``self.reward``. Under a non-unit
+    spectrum reward (here a deme-restricted view) the per-bin distribution must combine it with the bin's
+    ``JointSFSReward`` exactly as the moment/mean/cov paths do; its ``mean`` must equal ``jsfs.moment(1)[config]`` and
+    its cdf must differ from the default (unit-reward) per-bin cdf. Pre-fix, the per-bin distribution was built from
+    ``JointSFSReward(config)`` alone, ignoring ``self.reward``, giving the wrong (unit-reward) curve.
+    """
+    from phasegen.distributions.spectra import JointSFSDistribution
+    from phasegen.rewards import CombinedReward, JointSFSReward
+
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=symmetric_demography({'pop_0': 1.0, 'pop_1': 1.5}, migration_rate=0.75)
+    )
+
+    reward = pg.DemeReward('pop_0')
+    jsfs = JointSFSDistribution(
+        state_space=coal.joint_block_counting_state_space,
+        tree_height=coal.tree_height,
+        demography=coal.demography,
+        reward=reward
+    )
+
+    means = jsfs.moment(1)
+    config = (0, 1)  # a bin with non-zero deme-restricted mean
+    assert means[config] > 1e-6
+
+    # the per-bin distribution built with the combined reward (the fixed path) reproduces the spectrum mean exactly
+    bin_dist = jsfs.distribution(reward=CombinedReward([jsfs.reward, JointSFSReward(config)]))
+    assert bin_dist.mean == pytest.approx(float(means[config]), abs=1e-9)
+
+    # the public per-bin cdf aggregate honours self.reward, so it matches the combined-reward bin distribution ...
+    t = 0.5
+    assert float(jsfs.cdf(t)[config]) == pytest.approx(float(bin_dist.cdf(t)), abs=1e-9)
+
+    # ... and differs from the pre-fix behaviour, which used JointSFSReward(config) alone (the unit-reward curve)
+    unit_cdf = jsfs.distribution(reward=JointSFSReward(config)).cdf(t)
+    assert abs(float(jsfs.cdf(t)[config]) - float(unit_cdf)) > 1e-3
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("n, pop_sizes, migration_rate, model, seed", MSPRIME_CASES)
 def test_jsfs_mean_matches_msprime(symmetric_demography, n, pop_sizes, migration_rate, model, seed):

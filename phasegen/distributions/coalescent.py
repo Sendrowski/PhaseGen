@@ -11,7 +11,7 @@ from ..demography import Demography, PopSizeChanges
 from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnitReward
+from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
@@ -72,6 +72,9 @@ class AbstractCoalescent(ABC):
         # set up demography
         if demography is None:
             demography = Demography(pop_sizes={p: 1 for p in self.lineage_config.pop_names})
+        else:
+            # copy so filling in missing populations never mutates the caller-supplied demography
+            demography = copy.deepcopy(demography)
 
         # set up locus configuration (accept a numeric number of loci, including the float that reticulate passes
         # from R, or a LocusConfig)
@@ -82,8 +85,9 @@ class AbstractCoalescent(ABC):
                 recombination_rate=recombination_rate if recombination_rate is not None else 0
             )
         else:
+            # copy so setting the recombination rate never mutates the caller-supplied locus configuration
             #: Locus configuration
-            self.locus_config: LocusConfig = loci
+            self.locus_config: LocusConfig = copy.deepcopy(loci)
 
             if recombination_rate is not None:
                 self.locus_config.recombination_rate = recombination_rate
@@ -478,7 +482,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """
         Get the kth-order phase-type distribution with state space inferred from the rewards.
-        The returned phase-type distribution is configured with the unit reward.
+        The returned phase-type distribution is configured with the first (default: tree-height) reward.
 
         :param k: Order of the moment.
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.
@@ -488,7 +492,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             rewards = [TreeHeightReward()] * k
 
         return PhaseTypeDistribution(
-            reward=UnitReward(),
+            reward=rewards[0],
             tree_height=self.tree_height,
             state_space=self._select_state_space(rewards),
             demography=self.demography

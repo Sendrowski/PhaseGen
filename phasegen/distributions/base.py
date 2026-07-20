@@ -781,19 +781,21 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     def __call__(self, x, y) -> 'np.ndarray | float':
         """Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms plus the continuous box integral. When both rewards are
         identical the law is singular on the diagonal and the CDF reduces to ``P(R <= min(x, y))``."""
-        d = self._distribution
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
-        if d._is_diagonal:
-            m = d.marginal('a')
-            # at t = 0 the marginal CDF is the atom P(R = 0) (the de Hoog inversion misses the jump there)
-            G = np.array([[float(d._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
-                           for yy in ys] for xx in xs])
-        else:
-            G = d._cdf_grid(xs, ys)
+        G = self._grid_values(xs, ys)
         return float(G.ravel()[0]) if G.size == 1 else G
 
     def _grid_values(self, xs, ys) -> 'np.ndarray':
-        return self._distribution._cdf_grid(xs, ys)
+        # the diagonal reduction lives here, not in __call__, so plot() / plot_surface() (which reach _grid_values
+        # directly) draw the same singular-on-the-diagonal CDF the callable returns rather than the 2D cosine box
+        # expansion of a measure that has no 2D density
+        d = self._distribution
+        if d._is_diagonal:
+            m = d.marginal('a')
+            # at t = 0 the marginal CDF is the atom P(R = 0) (the de Hoog inversion misses the jump there)
+            return np.array([[float(d._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
+                              for yy in ys] for xx in xs])
+        return d._cdf_grid(xs, ys)
 
     def _default_n_points(self, surface) -> int:
         return 60
