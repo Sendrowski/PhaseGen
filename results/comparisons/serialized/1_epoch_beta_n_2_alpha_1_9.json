@@ -71,6 +71,7 @@
     },
     "n_assertions": 0,
     "runtimes": {},
+    "_ms_statistics": {},
     "ms": {
         "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
@@ -141,6 +142,7 @@
         "mutations": null,
         "jsfs_moments": null,
         "jsfs_samples": null,
+        "n_total": 1000000,
         "num_replicates": 1000000,
         "mutation_rate": null,
         "n_threads": 100,
@@ -616,16 +618,6 @@
                     "py/object": "numpy.float64",
                     "dtype": "float64",
                     "value": 7.9802560355074e-05
-                },
-                "cov": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 5.448567925668004e-05
-                },
-                "corr": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 0.0
                 }
             },
             "pops": [
@@ -635,7 +627,7 @@
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.019501103105084804
+                "data": 0.019501103105084783
             },
             "pops_corr": {
                 "py/object": "numpy.float64",
@@ -649,7 +641,7 @@
             },
             "loci_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.019501103105084804
+                "data": 0.019501103105084783
             },
             "demes": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
@@ -669,7 +661,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 26
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1019,16 +1011,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 7.9802560355074e-05
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 5.448567925668004e-05
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -1059,7 +1041,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.019501103105084804
+                        "value": 0.019501103105084783
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -1070,29 +1052,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 45
+                                "py/id": 44
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 45
+                                "py/id": 44
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 45
+                                "py/id": 44
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 40
+                        "py/id": 39
                     },
                     "corr": {
-                        "py/id": 41
+                        "py/id": 40
                     }
                 }
             },
@@ -1101,11 +1083,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 26
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -1455,16 +1437,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 7.9802560355074e-05
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 5.448567925668004e-05
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -1495,7 +1467,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.019501103105084804
+                        "value": 0.019501103105084783
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -1506,29 +1478,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 73
+                                "py/id": 70
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 73
+                                "py/id": 70
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 73
+                                "py/id": 70
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 43
+                        "py/id": 42
                     },
                     "corr": {
-                        "py/id": 42
+                        "py/id": 41
                     }
                 }
             },
@@ -1560,7 +1532,7 @@
             "cov": {
                 "py/object": "numpy.float64",
                 "dtype": "float64",
-                "value": 0.019501103105084804
+                "value": 0.019501103105084783
             },
             "corr": {
                 "py/object": "numpy.float64",
@@ -1571,19 +1543,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 22
+                        "py/id": 23
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 22
+                        "py/id": 23
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 22
+                        "py/id": 23
                     }
                 }
             }
@@ -1591,7 +1563,7 @@
         "total_tree_height": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 23
+                "py/id": 24
             },
             "_cache": {
                 "t": {
@@ -2047,26 +2019,16 @@
                     "py/object": "numpy.float64",
                     "dtype": "float64",
                     "value": 7.9802560355074e-05
-                },
-                "cov": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 5.448567925668004e-05
-                },
-                "corr": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 0.0
                 }
             },
             "pops": {
-                "py/id": 38
+                "py/id": 37
             },
             "_samples": null,
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.019501103105084804
+                "data": 0.019501103105084783
             },
             "pops_corr": {
                 "py/object": "numpy.float64",
@@ -2080,18 +2042,18 @@
             },
             "loci_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.019501103105084804
+                "data": 0.019501103105084783
             },
             "demes": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 112
+                            "py/id": 107
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2441,16 +2403,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 7.9802560355074e-05
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 5.448567925668004e-05
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -2481,7 +2433,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.019501103105084804
+                        "value": 0.019501103105084783
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -2492,29 +2444,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 131
+                                "py/id": 124
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 131
+                                "py/id": 124
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 131
+                                "py/id": 124
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 126
+                        "py/id": 119
                     },
                     "corr": {
-                        "py/id": 127
+                        "py/id": 120
                     }
                 }
             },
@@ -2523,11 +2475,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 112
+                            "py/id": 107
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -2877,16 +2829,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 7.9802560355074e-05
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 5.448567925668004e-05
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -2917,7 +2859,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.019501103105084804
+                        "value": 0.019501103105084783
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -2928,29 +2870,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 158
+                                "py/id": 149
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 158
+                                "py/id": 149
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 158
+                                "py/id": 149
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 129
+                        "py/id": 122
                     },
                     "corr": {
-                        "py/id": 128
+                        "py/id": 121
                     }
                 }
             },
@@ -2982,7 +2924,7 @@
             "cov": {
                 "py/object": "numpy.float64",
                 "dtype": "float64",
-                "value": 0.019501103105084804
+                "value": 0.019501103105084783
             },
             "corr": {
                 "py/object": "numpy.float64",
@@ -2993,19 +2935,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 110
+                        "py/id": 105
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 110
+                        "py/id": 105
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 110
+                        "py/id": 105
                     }
                 }
             }
@@ -3013,7 +2955,7 @@
         "total_branch_length": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution",
             "_logger": {
-                "py/id": 23
+                "py/id": 24
             },
             "_cache": {
                 "t": {
@@ -3469,26 +3411,16 @@
                     "py/object": "numpy.float64",
                     "dtype": "float64",
                     "value": 0.001276840965681184
-                },
-                "cov": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 0.00021794271702672017
-                },
-                "corr": {
-                    "py/object": "numpy.float64",
-                    "dtype": "float64",
-                    "value": 0.0
                 }
             },
             "pops": {
-                "py/id": 38
+                "py/id": 37
             },
             "_samples": null,
             "_loci_joint_surface": [],
             "pops_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.07800441242033922
+                "data": 0.07800441242033913
             },
             "pops_corr": {
                 "py/object": "numpy.float64",
@@ -3502,18 +3434,18 @@
             },
             "loci_cov": {
                 "py/object": "numpy.ndarray",
-                "data": 0.07800441242033922
+                "data": 0.07800441242033913
             },
             "demes": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 197
+                            "py/id": 186
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -3863,16 +3795,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 0.001276840965681184
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.00021794271702672017
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -3903,7 +3825,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.07800441242033922
+                        "value": 0.07800441242033913
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -3914,29 +3836,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 216
+                                "py/id": 203
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 216
+                                "py/id": 203
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 216
+                                "py/id": 203
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 211
+                        "py/id": 198
                     },
                     "corr": {
-                        "py/id": 212
+                        "py/id": 199
                     }
                 }
             },
@@ -3945,11 +3867,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 197
+                            "py/id": 186
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -4299,16 +4221,6 @@
                             "py/object": "numpy.float64",
                             "dtype": "float64",
                             "value": 0.001276840965681184
-                        },
-                        "cov": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.00021794271702672017
-                        },
-                        "corr": {
-                            "py/object": "numpy.float64",
-                            "dtype": "float64",
-                            "value": 0.0
                         }
                     },
                     "mean": {
@@ -4339,7 +4251,7 @@
                     "cov": {
                         "py/object": "numpy.float64",
                         "dtype": "float64",
-                        "value": 0.07800441242033922
+                        "value": 0.07800441242033913
                     },
                     "corr": {
                         "py/object": "numpy.float64",
@@ -4350,29 +4262,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 243
+                                "py/id": 228
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 243
+                                "py/id": 228
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 243
+                                "py/id": 228
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 214
+                        "py/id": 201
                     },
                     "corr": {
-                        "py/id": 213
+                        "py/id": 200
                     }
                 }
             },
@@ -4404,7 +4316,7 @@
             "cov": {
                 "py/object": "numpy.float64",
                 "dtype": "float64",
-                "value": 0.07800441242033922
+                "value": 0.07800441242033913
             },
             "corr": {
                 "py/object": "numpy.float64",
@@ -4415,19 +4327,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 195
+                        "py/id": 184
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 195
+                        "py/id": 184
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 195
+                        "py/id": 184
                     }
                 }
             }
@@ -4448,7 +4360,109 @@
             },
             "_cache": {
                 "t": {
-                    "py/id": 25
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        0.0,
+                        0.04175947533541521,
+                        0.08351895067083041,
+                        0.1252784260062456,
+                        0.16703790134166083,
+                        0.20879737667707604,
+                        0.2505568520124912,
+                        0.29231632734790647,
+                        0.33407580268332165,
+                        0.37583527801873684,
+                        0.4175947533541521,
+                        0.45935422868956727,
+                        0.5011137040249825,
+                        0.5428731793603977,
+                        0.5846326546958129,
+                        0.6263921300312281,
+                        0.6681516053666433,
+                        0.7099110807020586,
+                        0.7516705560374737,
+                        0.7934300313728889,
+                        0.8351895067083042,
+                        0.8769489820437193,
+                        0.9187084573791345,
+                        0.9604679327145498,
+                        1.002227408049965,
+                        1.0439868833853803,
+                        1.0857463587207954,
+                        1.1275058340562105,
+                        1.1692653093916259,
+                        1.211024784727041,
+                        1.2527842600624561,
+                        1.2945437353978715,
+                        1.3363032107332866,
+                        1.3780626860687017,
+                        1.419822161404117,
+                        1.4615816367395322,
+                        1.5033411120749474,
+                        1.5451005874103627,
+                        1.5868600627457778,
+                        1.628619538081193,
+                        1.6703790134166083,
+                        1.7121384887520235,
+                        1.7538979640874386,
+                        1.795657439422854,
+                        1.837416914758269,
+                        1.8791763900936842,
+                        1.9209358654290996,
+                        1.9626953407645147,
+                        2.00445481609993,
+                        2.046214291435345,
+                        2.0879737667707605,
+                        2.1297332421061754,
+                        2.171492717441591,
+                        2.213252192777006,
+                        2.255011668112421,
+                        2.2967711434478364,
+                        2.3385306187832517,
+                        2.3802900941186667,
+                        2.422049569454082,
+                        2.4638090447894974,
+                        2.5055685201249123,
+                        2.5473279954603276,
+                        2.589087470795743,
+                        2.630846946131158,
+                        2.6726064214665732,
+                        2.7143658968019886,
+                        2.7561253721374035,
+                        2.797884847472819,
+                        2.839644322808234,
+                        2.881403798143649,
+                        2.9231632734790645,
+                        2.96492274881448,
+                        3.0066822241498947,
+                        3.04844169948531,
+                        3.0902011748207254,
+                        3.1319606501561403,
+                        3.1737201254915557,
+                        3.215479600826971,
+                        3.257239076162386,
+                        3.2989985514978013,
+                        3.3407580268332167,
+                        3.3825175021686316,
+                        3.424276977504047,
+                        3.4660364528394623,
+                        3.507795928174877,
+                        3.5495554035102925,
+                        3.591314878845708,
+                        3.633074354181123,
+                        3.674833829516538,
+                        3.7165933048519535,
+                        3.7583527801873684,
+                        3.8001122555227838,
+                        3.841871730858199,
+                        3.883631206193614,
+                        3.9253906815290294,
+                        3.9671501568644447,
+                        4.00890963219986,
+                        4.050669107535275,
+                        4.09242858287069,
+                        4.134188058206106
+                    ]
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -4557,105 +4571,105 @@
                         ],
                         [
                             1e-06,
-                            0.07206795025695192,
                             0.1389693082228239,
-                            0.20121687952286424,
                             0.2590463692899977,
-                            0.3122414134255382,
                             0.3618577095877705,
-                            0.4082228748730774,
                             0.45081454543823063,
-                            0.48992223834716075,
                             0.5265909711144354,
-                            0.56051532105632,
                             0.5922158949713563,
-                            0.6216604074943036,
                             0.6488445124687339,
-                            0.6742533621798046,
                             0.6979167492535318,
-                            0.7196568742548576,
                             0.7396845020194118,
-                            0.7581847723274138,
                             0.7756571449887993,
-                            0.7918974825809095,
                             0.806776269168727,
-                            0.8205869296520846,
                             0.8335854010979646,
-                            0.8456367752147843,
                             0.8567266633739684,
-                            0.8671243186914173,
                             0.8768163230808559,
-                            0.8855499328633918,
                             0.8938437039936502,
-                            0.9015476889603099,
                             0.9085581994328351,
-                            0.9151017152692263,
                             0.9212170264803067,
-                            0.9268656256651735,
                             0.9321801885490513,
-                            0.9370283415527759,
                             0.9416546191590747,
-                            0.9458583139840073,
                             0.949736763196366,
-                            0.9533708508184485,
                             0.9567378544212387,
-                            0.9598800316050861,
                             0.9627411434144835,
-                            0.965403676732524,
                             0.9678730780851305,
-                            0.9701117032862356,
                             0.9722565909849966,
-                            0.9742488733419739,
                             0.9761574843345833,
-                            0.9779501990624029,
                             0.9795776707991481,
-                            0.9810711342636929,
                             0.9824591038294486,
-                            0.9837113166478331,
                             0.9848517464203207,
-                            0.9859518965441321,
                             0.9869831311114713,
-                            0.9879076544440727,
                             0.9888259276659366,
-                            0.9896622311739055,
                             0.9904121556866846,
-                            0.9910761314061105,
                             0.9917209423326199,
-                            0.9923211569580603,
                             0.9928440753490569,
-                            0.9933638624083737,
                             0.9938548820043928,
-                            0.9942908718126896,
                             0.9947047984844365,
-                            0.9950905030714181,
                             0.9954116511075684,
-                            0.9957691009114512,
                             0.9960711346139073,
-                            0.9963522505289111,
                             0.9966216261930098,
-                            0.996870636580211,
                             0.9971039681138467,
-                            0.9973263866357834,
                             0.9975164326213763,
-                            0.9976832055409225,
                             0.9978430207504971,
-                            0.9980167110186134,
                             0.9981592401222913,
-                            0.9982849018650347,
                             0.9984004829565168,
-                            0.998505302597905,
                             0.9986145777645964,
-                            0.9987203062181336,
                             0.9988171554087739,
-                            0.9989029834598702,
                             0.998967138965612,
-                            0.9990380394500703,
                             0.9991122560741221,
-                            0.9991787499146795,
                             0.9992371519766117,
-                            0.9992946476833005,
                             0.9993379366842481,
-                            0.9993821385632797
+                            0.9994076832639031,
+                            0.9994935308991737,
+                            0.9995675272881964,
+                            0.999618244027427,
+                            0.9996776939234783,
+                            0.999721204657353,
+                            0.9997645766226582,
+                            0.9997970074057906,
+                            0.9998217559183356,
+                            0.9998453734636533,
+                            0.9998712792463156,
+                            0.9998950610416387,
+                            0.9999036387116164,
+                            0.99991348742364,
+                            0.9999247199774741,
+                            0.9999343186375291,
+                            0.9999451944759981,
+                            0.9999543835599882,
+                            0.9999579897812502,
+                            0.9999661136120116,
+                            0.9999696301142554,
+                            0.9999730280343416,
+                            0.9999765505261888,
+                            0.999977912482286,
+                            0.999980588429639,
+                            0.9999833549390916,
+                            0.9999849552362311,
+                            0.9999871305390289,
+                            0.9999881093728489,
+                            0.9999893057721938,
+                            0.9999898250080532,
+                            0.999991148098112,
+                            0.9999914616480251,
+                            0.9999917751979382,
+                            0.9999921604138438,
+                            0.9999927271627392,
+                            0.9999933523457931,
+                            0.9999940801799773,
+                            0.9999954618191094,
+                            0.9999970319941917,
+                            0.9999976261928251,
+                            0.9999981389265626,
+                            0.9999985134872384,
+                            0.9999988880479143,
+                            0.9999991229779517,
+                            0.9999992983823613,
+                            0.999999473786771,
+                            0.9999996491911807,
+                            0.9999998245955903,
+                            1.0
                         ],
                         [
                             1.0,
@@ -4867,106 +4881,106 @@
                             0.0
                         ],
                         [
-                            3.451528038662005,
-                            3.2041590303823586,
-                            2.9812156163374888,
-                            2.769670812935514,
-                            2.5476852653312236,
-                            2.3762750657895304,
-                            2.220573875873336,
-                            2.0398723718580234,
-                            1.8730120379090809,
-                            1.756152332158384,
-                            1.624780949832913,
-                            1.518218308318448,
-                            1.4102188671431117,
-                            1.3019320660356037,
-                            1.2169214194341798,
-                            1.1332996791715895,
-                            1.0412008209098742,
-                            0.959207453596275,
-                            0.8860264575360016,
-                            0.8368400158122462,
-                            0.7777875497505247,
-                            0.7126047384690902,
-                            0.661406777220118,
-                            0.6225652930546225,
-                            0.5771624237711528,
-                            0.5311369413013126,
-                            0.49799476245726315,
-                            0.46418207710480563,
-                            0.4182523812790228,
-                            0.3972272129083036,
-                            0.3689701529112075,
-                            0.335780080745131,
-                            0.3133660060355716,
-                            0.29291555752919846,
-                            0.2705014828196406,
-                            0.2545530065839925,
-                            0.23218682519646078,
-                            0.22155450770602997,
-                            0.2013435258098033,
-                            0.18573030282835704,
-                            0.17404433225328858,
-                            0.16125681527155272,
-                            0.15052871113706193,
-                            0.13702279432489228,
-                            0.12749202324112663,
-                            0.11829650541156314,
-                            0.10718525470084199,
-                            0.1027311757521475,
-                            0.09540349748171408,
-                            0.09142835175330934,
-                            0.08587272639794939,
-                            0.07792243494113896,
-                            0.07155262311128557,
-                            0.06647593097621514,
-                            0.059962439180274114,
-                            0.05459838711302914,
-                            0.05268265423187079,
-                            0.049425908333900065,
-                            0.04425342955477099,
-                            0.04396606962259762,
-                            0.040086710538250345,
-                            0.0359199915217297,
-                            0.03180116582723837,
-                            0.03084329938665857,
-                            0.02878388653941273,
-                            0.025048207421153112,
-                            0.024856634133036955,
-                            0.02351562111622571,
-                            0.02088148840463242,
-                            0.019827835319994793,
-                            0.01848682230318355,
-                            0.015373756371300475,
-                            0.01714580928637231,
-                            0.014463783252749827,
-                            0.013458023490141538,
-                            0.012883303625793718,
-                            0.01192543718521426,
-                            0.011159144032750812,
-                            0.010680210812460964,
-                            0.009099731185504858,
-                            0.007998184778838565,
-                            0.00766293152463567,
-                            0.008285544711012317,
-                            0.006848745050143203,
-                            0.005986665253621617,
-                            0.00555562535536086,
-                            0.005028798813042212,
-                            0.00522037210115805,
-                            0.005076692135071131,
-                            0.004645652236810424,
-                            0.0040709323724627,
-                            0.0031130659318832406,
-                            0.003400425864057115,
-                            0.003544105830143997,
-                            0.003160959253912214,
-                            0.002825705999709433,
-                            0.0027299193556514574,
-                            0.002059412847245836,
-                            0.002155199491303782,
-                            0.0011973330507243235
+                            3.3278435345221817,
+                            2.8754432146365017,
+                            2.461980165560377,
+                            2.1302231238656795,
+                            1.8145821850337325,
+                            1.5714996290756806,
+                            1.3560754665893577,
+                            1.1751105493028846,
+                            1.0002041372530748,
+                            0.861433236674124,
+                            0.7451961441098074,
+                            0.6419860351373703,
+                            0.5541496825362328,
+                            0.4810884197810344,
+                            0.40773979709366326,
+                            0.3523751168281693,
+                            0.303140781782385,
+                            0.26252724470181654,
+                            0.22687066645124537,
+                            0.19353691431908016,
+                            0.16765057376242065,
+                            0.14377575273097712,
+                            0.12289426432634488,
+                            0.10495821522649473,
+                            0.0934159246175117,
+                            0.08189758066954415,
+                            0.06901427704375036,
+                            0.05728041314665163,
+                            0.05105428128288542,
+                            0.044109749588684306,
+                            0.03800335102999002,
+                            0.03132223260694846,
+                            0.02691604698028293,
+                            0.024186127624631334,
+                            0.020354661862313606,
+                            0.01693028933724202,
+                            0.015804796269561067,
+                            0.013170663557967628,
+                            0.011542290608982538,
+                            0.009889970998982912,
+                            0.007830558151737116,
+                            0.007567144880577763,
+                            0.005771145304491239,
+                            0.005124585457100131,
+                            0.004861172185940779,
+                            0.0035919991521729698,
+                            0.0034722658471005564,
+                            0.002993332626810824,
+                            0.002394666101448647,
+                            0.0016762662710140526,
+                            0.002059412847245858,
+                            0.0017720529150719985,
+                            0.0012212797117388098,
+                            0.0014128529998547164,
+                            0.0010536530846374046,
+                            0.001029706423622918,
+                            0.0007902398134780619,
+                            0.0005747198643476753,
+                            0.0005747198643476753,
+                            0.0006226131863766547,
+                            0.0005747198643476753,
+                            0.00019157328811589172,
+                            0.00023946661014486725,
+                            0.00026341327115935115,
+                            0.0002394666101448647,
+                            0.0002634132711593539,
+                            0.0002155199491303782,
+                            7.183998304345941e-05,
+                            0.0002155199491303805,
+                            7.183998304345941e-05,
+                            9.578664405794586e-05,
+                            7.183998304346017e-05,
+                            2.3946661014486465e-05,
+                            7.183998304345941e-05,
+                            7.183998304346017e-05,
+                            2.3946661014486465e-05,
+                            7.183998304345941e-05,
+                            2.3946661014486722e-05,
+                            2.3946661014486465e-05,
+                            0.0,
+                            4.7893322028973444e-05,
+                            0.0,
+                            0.0,
+                            2.3946661014486722e-05,
+                            0.0,
+                            2.3946661014486465e-05,
+                            2.3946661014486722e-05,
+                            2.3946661014486465e-05,
+                            4.789332202897293e-05,
+                            0.0,
+                            2.3946661014486465e-05,
+                            0.0,
+                            0.0,
+                            2.3946661014486465e-05,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2.3946661014486465e-05
                         ],
                         [
                             0.0,
@@ -5436,7 +5450,7 @@
                         ],
                         [
                             0.0,
-                            0.0002179427170267198,
+                            0.00021794271702672152,
                             0.0
                         ],
                         [
@@ -5456,7 +5470,7 @@
                         ],
                         [
                             0.0,
-                            1.1322097734007353e-17,
+                            1.064888515880984e-17,
                             0.0
                         ],
                         [
@@ -5468,7 +5482,7 @@
                 }
             },
             "pops": {
-                "py/id": 38
+                "py/id": 37
             },
             "n": 2,
             "_sfs_dist": {
@@ -5476,54 +5490,8 @@
             },
             "_samples": null,
             "_mutations": null,
-            "pops_corr": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        [
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                1.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ]
-                        ]
-                    ]
-                ]
-            },
-            "pops_cov": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        [
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.07800441242033922,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ]
-                        ]
-                    ]
-                ]
-            },
+            "pops_corr": null,
+            "pops_cov": null,
             "loci_corr": null,
             "loci_cov": null,
             "generated_mass": 0,
@@ -5546,7 +5514,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 266
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -5655,105 +5623,105 @@
                                 ],
                                 [
                                     1e-06,
-                                    0.07206795025695192,
                                     0.1389693082228239,
-                                    0.20121687952286424,
                                     0.2590463692899977,
-                                    0.3122414134255382,
                                     0.3618577095877705,
-                                    0.4082228748730774,
                                     0.45081454543823063,
-                                    0.48992223834716075,
                                     0.5265909711144354,
-                                    0.56051532105632,
                                     0.5922158949713563,
-                                    0.6216604074943036,
                                     0.6488445124687339,
-                                    0.6742533621798046,
                                     0.6979167492535318,
-                                    0.7196568742548576,
                                     0.7396845020194118,
-                                    0.7581847723274138,
                                     0.7756571449887993,
-                                    0.7918974825809095,
                                     0.806776269168727,
-                                    0.8205869296520846,
                                     0.8335854010979646,
-                                    0.8456367752147843,
                                     0.8567266633739684,
-                                    0.8671243186914173,
                                     0.8768163230808559,
-                                    0.8855499328633918,
                                     0.8938437039936502,
-                                    0.9015476889603099,
                                     0.9085581994328351,
-                                    0.9151017152692263,
                                     0.9212170264803067,
-                                    0.9268656256651735,
                                     0.9321801885490513,
-                                    0.9370283415527759,
                                     0.9416546191590747,
-                                    0.9458583139840073,
                                     0.949736763196366,
-                                    0.9533708508184485,
                                     0.9567378544212387,
-                                    0.9598800316050861,
                                     0.9627411434144835,
-                                    0.965403676732524,
                                     0.9678730780851305,
-                                    0.9701117032862356,
                                     0.9722565909849966,
-                                    0.9742488733419739,
                                     0.9761574843345833,
-                                    0.9779501990624029,
                                     0.9795776707991481,
-                                    0.9810711342636929,
                                     0.9824591038294486,
-                                    0.9837113166478331,
                                     0.9848517464203207,
-                                    0.9859518965441321,
                                     0.9869831311114713,
-                                    0.9879076544440727,
                                     0.9888259276659366,
-                                    0.9896622311739055,
                                     0.9904121556866846,
-                                    0.9910761314061105,
                                     0.9917209423326199,
-                                    0.9923211569580603,
                                     0.9928440753490569,
-                                    0.9933638624083737,
                                     0.9938548820043928,
-                                    0.9942908718126896,
                                     0.9947047984844365,
-                                    0.9950905030714181,
                                     0.9954116511075684,
-                                    0.9957691009114512,
                                     0.9960711346139073,
-                                    0.9963522505289111,
                                     0.9966216261930098,
-                                    0.996870636580211,
                                     0.9971039681138467,
-                                    0.9973263866357834,
                                     0.9975164326213763,
-                                    0.9976832055409225,
                                     0.9978430207504971,
-                                    0.9980167110186134,
                                     0.9981592401222913,
-                                    0.9982849018650347,
                                     0.9984004829565168,
-                                    0.998505302597905,
                                     0.9986145777645964,
-                                    0.9987203062181336,
                                     0.9988171554087739,
-                                    0.9989029834598702,
                                     0.998967138965612,
-                                    0.9990380394500703,
                                     0.9991122560741221,
-                                    0.9991787499146795,
                                     0.9992371519766117,
-                                    0.9992946476833005,
                                     0.9993379366842481,
-                                    0.9993821385632797
+                                    0.9994076832639031,
+                                    0.9994935308991737,
+                                    0.9995675272881964,
+                                    0.999618244027427,
+                                    0.9996776939234783,
+                                    0.999721204657353,
+                                    0.9997645766226582,
+                                    0.9997970074057906,
+                                    0.9998217559183356,
+                                    0.9998453734636533,
+                                    0.9998712792463156,
+                                    0.9998950610416387,
+                                    0.9999036387116164,
+                                    0.99991348742364,
+                                    0.9999247199774741,
+                                    0.9999343186375291,
+                                    0.9999451944759981,
+                                    0.9999543835599882,
+                                    0.9999579897812502,
+                                    0.9999661136120116,
+                                    0.9999696301142554,
+                                    0.9999730280343416,
+                                    0.9999765505261888,
+                                    0.999977912482286,
+                                    0.999980588429639,
+                                    0.9999833549390916,
+                                    0.9999849552362311,
+                                    0.9999871305390289,
+                                    0.9999881093728489,
+                                    0.9999893057721938,
+                                    0.9999898250080532,
+                                    0.999991148098112,
+                                    0.9999914616480251,
+                                    0.9999917751979382,
+                                    0.9999921604138438,
+                                    0.9999927271627392,
+                                    0.9999933523457931,
+                                    0.9999940801799773,
+                                    0.9999954618191094,
+                                    0.9999970319941917,
+                                    0.9999976261928251,
+                                    0.9999981389265626,
+                                    0.9999985134872384,
+                                    0.9999988880479143,
+                                    0.9999991229779517,
+                                    0.9999992983823613,
+                                    0.999999473786771,
+                                    0.9999996491911807,
+                                    0.9999998245955903,
+                                    1.0
                                 ],
                                 [
                                     1.0,
@@ -5965,106 +5933,106 @@
                                     0.0
                                 ],
                                 [
-                                    3.451528038662005,
-                                    3.2041590303823586,
-                                    2.9812156163374888,
-                                    2.769670812935514,
-                                    2.5476852653312236,
-                                    2.3762750657895304,
-                                    2.220573875873336,
-                                    2.0398723718580234,
-                                    1.8730120379090809,
-                                    1.756152332158384,
-                                    1.624780949832913,
-                                    1.518218308318448,
-                                    1.4102188671431117,
-                                    1.3019320660356037,
-                                    1.2169214194341798,
-                                    1.1332996791715895,
-                                    1.0412008209098742,
-                                    0.959207453596275,
-                                    0.8860264575360016,
-                                    0.8368400158122462,
-                                    0.7777875497505247,
-                                    0.7126047384690902,
-                                    0.661406777220118,
-                                    0.6225652930546225,
-                                    0.5771624237711528,
-                                    0.5311369413013126,
-                                    0.49799476245726315,
-                                    0.46418207710480563,
-                                    0.4182523812790228,
-                                    0.3972272129083036,
-                                    0.3689701529112075,
-                                    0.335780080745131,
-                                    0.3133660060355716,
-                                    0.29291555752919846,
-                                    0.2705014828196406,
-                                    0.2545530065839925,
-                                    0.23218682519646078,
-                                    0.22155450770602997,
-                                    0.2013435258098033,
-                                    0.18573030282835704,
-                                    0.17404433225328858,
-                                    0.16125681527155272,
-                                    0.15052871113706193,
-                                    0.13702279432489228,
-                                    0.12749202324112663,
-                                    0.11829650541156314,
-                                    0.10718525470084199,
-                                    0.1027311757521475,
-                                    0.09540349748171408,
-                                    0.09142835175330934,
-                                    0.08587272639794939,
-                                    0.07792243494113896,
-                                    0.07155262311128557,
-                                    0.06647593097621514,
-                                    0.059962439180274114,
-                                    0.05459838711302914,
-                                    0.05268265423187079,
-                                    0.049425908333900065,
-                                    0.04425342955477099,
-                                    0.04396606962259762,
-                                    0.040086710538250345,
-                                    0.0359199915217297,
-                                    0.03180116582723837,
-                                    0.03084329938665857,
-                                    0.02878388653941273,
-                                    0.025048207421153112,
-                                    0.024856634133036955,
-                                    0.02351562111622571,
-                                    0.02088148840463242,
-                                    0.019827835319994793,
-                                    0.01848682230318355,
-                                    0.015373756371300475,
-                                    0.01714580928637231,
-                                    0.014463783252749827,
-                                    0.013458023490141538,
-                                    0.012883303625793718,
-                                    0.01192543718521426,
-                                    0.011159144032750812,
-                                    0.010680210812460964,
-                                    0.009099731185504858,
-                                    0.007998184778838565,
-                                    0.00766293152463567,
-                                    0.008285544711012317,
-                                    0.006848745050143203,
-                                    0.005986665253621617,
-                                    0.00555562535536086,
-                                    0.005028798813042212,
-                                    0.00522037210115805,
-                                    0.005076692135071131,
-                                    0.004645652236810424,
-                                    0.0040709323724627,
-                                    0.0031130659318832406,
-                                    0.003400425864057115,
-                                    0.003544105830143997,
-                                    0.003160959253912214,
-                                    0.002825705999709433,
-                                    0.0027299193556514574,
-                                    0.002059412847245836,
-                                    0.002155199491303782,
-                                    0.0011973330507243235
+                                    3.3278435345221817,
+                                    2.8754432146365017,
+                                    2.461980165560377,
+                                    2.1302231238656795,
+                                    1.8145821850337325,
+                                    1.5714996290756806,
+                                    1.3560754665893577,
+                                    1.1751105493028846,
+                                    1.0002041372530748,
+                                    0.861433236674124,
+                                    0.7451961441098074,
+                                    0.6419860351373703,
+                                    0.5541496825362328,
+                                    0.4810884197810344,
+                                    0.40773979709366326,
+                                    0.3523751168281693,
+                                    0.303140781782385,
+                                    0.26252724470181654,
+                                    0.22687066645124537,
+                                    0.19353691431908016,
+                                    0.16765057376242065,
+                                    0.14377575273097712,
+                                    0.12289426432634488,
+                                    0.10495821522649473,
+                                    0.0934159246175117,
+                                    0.08189758066954415,
+                                    0.06901427704375036,
+                                    0.05728041314665163,
+                                    0.05105428128288542,
+                                    0.044109749588684306,
+                                    0.03800335102999002,
+                                    0.03132223260694846,
+                                    0.02691604698028293,
+                                    0.024186127624631334,
+                                    0.020354661862313606,
+                                    0.01693028933724202,
+                                    0.015804796269561067,
+                                    0.013170663557967628,
+                                    0.011542290608982538,
+                                    0.009889970998982912,
+                                    0.007830558151737116,
+                                    0.007567144880577763,
+                                    0.005771145304491239,
+                                    0.005124585457100131,
+                                    0.004861172185940779,
+                                    0.0035919991521729698,
+                                    0.0034722658471005564,
+                                    0.002993332626810824,
+                                    0.002394666101448647,
+                                    0.0016762662710140526,
+                                    0.002059412847245858,
+                                    0.0017720529150719985,
+                                    0.0012212797117388098,
+                                    0.0014128529998547164,
+                                    0.0010536530846374046,
+                                    0.001029706423622918,
+                                    0.0007902398134780619,
+                                    0.0005747198643476753,
+                                    0.0005747198643476753,
+                                    0.0006226131863766547,
+                                    0.0005747198643476753,
+                                    0.00019157328811589172,
+                                    0.00023946661014486725,
+                                    0.00026341327115935115,
+                                    0.0002394666101448647,
+                                    0.0002634132711593539,
+                                    0.0002155199491303782,
+                                    7.183998304345941e-05,
+                                    0.0002155199491303805,
+                                    7.183998304345941e-05,
+                                    9.578664405794586e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    4.7893322028973444e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486722e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    4.789332202897293e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05
                                 ],
                                 [
                                     0.0,
@@ -6534,7 +6502,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.0002179427170267198,
+                                    0.00021794271702672152,
                                     0.0
                                 ],
                                 [
@@ -6554,7 +6522,7 @@
                                 ],
                                 [
                                     0.0,
-                                    1.1322097734007353e-17,
+                                    1.064888515880984e-17,
                                     0.0
                                 ],
                                 [
@@ -6599,7 +6567,7 @@
                         }
                     },
                     "cov": {
-                        "py/object": "phasegen.spectrum.SFS2",
+                        "py/object": "sfsutils.spectrum.TwoSFS",
                         "n": 3,
                         "w": 2,
                         "data": {
@@ -6612,7 +6580,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.07800441242033902,
+                                    0.07800441242033511,
                                     0.0
                                 ],
                                 [
@@ -6624,7 +6592,7 @@
                         }
                     },
                     "corr": {
-                        "py/object": "phasegen.spectrum.SFS2",
+                        "py/object": "sfsutils.spectrum.TwoSFS",
                         "n": 3,
                         "w": 2,
                         "data": {
@@ -6668,19 +6636,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 300
+                                "py/id": 282
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 300
+                                "py/id": 282
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 300
+                                "py/id": 282
                             }
                         }
                     }
@@ -6699,11 +6667,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 266
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -6812,105 +6780,105 @@
                                 ],
                                 [
                                     1e-06,
-                                    0.07206795025695192,
                                     0.1389693082228239,
-                                    0.20121687952286424,
                                     0.2590463692899977,
-                                    0.3122414134255382,
                                     0.3618577095877705,
-                                    0.4082228748730774,
                                     0.45081454543823063,
-                                    0.48992223834716075,
                                     0.5265909711144354,
-                                    0.56051532105632,
                                     0.5922158949713563,
-                                    0.6216604074943036,
                                     0.6488445124687339,
-                                    0.6742533621798046,
                                     0.6979167492535318,
-                                    0.7196568742548576,
                                     0.7396845020194118,
-                                    0.7581847723274138,
                                     0.7756571449887993,
-                                    0.7918974825809095,
                                     0.806776269168727,
-                                    0.8205869296520846,
                                     0.8335854010979646,
-                                    0.8456367752147843,
                                     0.8567266633739684,
-                                    0.8671243186914173,
                                     0.8768163230808559,
-                                    0.8855499328633918,
                                     0.8938437039936502,
-                                    0.9015476889603099,
                                     0.9085581994328351,
-                                    0.9151017152692263,
                                     0.9212170264803067,
-                                    0.9268656256651735,
                                     0.9321801885490513,
-                                    0.9370283415527759,
                                     0.9416546191590747,
-                                    0.9458583139840073,
                                     0.949736763196366,
-                                    0.9533708508184485,
                                     0.9567378544212387,
-                                    0.9598800316050861,
                                     0.9627411434144835,
-                                    0.965403676732524,
                                     0.9678730780851305,
-                                    0.9701117032862356,
                                     0.9722565909849966,
-                                    0.9742488733419739,
                                     0.9761574843345833,
-                                    0.9779501990624029,
                                     0.9795776707991481,
-                                    0.9810711342636929,
                                     0.9824591038294486,
-                                    0.9837113166478331,
                                     0.9848517464203207,
-                                    0.9859518965441321,
                                     0.9869831311114713,
-                                    0.9879076544440727,
                                     0.9888259276659366,
-                                    0.9896622311739055,
                                     0.9904121556866846,
-                                    0.9910761314061105,
                                     0.9917209423326199,
-                                    0.9923211569580603,
                                     0.9928440753490569,
-                                    0.9933638624083737,
                                     0.9938548820043928,
-                                    0.9942908718126896,
                                     0.9947047984844365,
-                                    0.9950905030714181,
                                     0.9954116511075684,
-                                    0.9957691009114512,
                                     0.9960711346139073,
-                                    0.9963522505289111,
                                     0.9966216261930098,
-                                    0.996870636580211,
                                     0.9971039681138467,
-                                    0.9973263866357834,
                                     0.9975164326213763,
-                                    0.9976832055409225,
                                     0.9978430207504971,
-                                    0.9980167110186134,
                                     0.9981592401222913,
-                                    0.9982849018650347,
                                     0.9984004829565168,
-                                    0.998505302597905,
                                     0.9986145777645964,
-                                    0.9987203062181336,
                                     0.9988171554087739,
-                                    0.9989029834598702,
                                     0.998967138965612,
-                                    0.9990380394500703,
                                     0.9991122560741221,
-                                    0.9991787499146795,
                                     0.9992371519766117,
-                                    0.9992946476833005,
                                     0.9993379366842481,
-                                    0.9993821385632797
+                                    0.9994076832639031,
+                                    0.9994935308991737,
+                                    0.9995675272881964,
+                                    0.999618244027427,
+                                    0.9996776939234783,
+                                    0.999721204657353,
+                                    0.9997645766226582,
+                                    0.9997970074057906,
+                                    0.9998217559183356,
+                                    0.9998453734636533,
+                                    0.9998712792463156,
+                                    0.9998950610416387,
+                                    0.9999036387116164,
+                                    0.99991348742364,
+                                    0.9999247199774741,
+                                    0.9999343186375291,
+                                    0.9999451944759981,
+                                    0.9999543835599882,
+                                    0.9999579897812502,
+                                    0.9999661136120116,
+                                    0.9999696301142554,
+                                    0.9999730280343416,
+                                    0.9999765505261888,
+                                    0.999977912482286,
+                                    0.999980588429639,
+                                    0.9999833549390916,
+                                    0.9999849552362311,
+                                    0.9999871305390289,
+                                    0.9999881093728489,
+                                    0.9999893057721938,
+                                    0.9999898250080532,
+                                    0.999991148098112,
+                                    0.9999914616480251,
+                                    0.9999917751979382,
+                                    0.9999921604138438,
+                                    0.9999927271627392,
+                                    0.9999933523457931,
+                                    0.9999940801799773,
+                                    0.9999954618191094,
+                                    0.9999970319941917,
+                                    0.9999976261928251,
+                                    0.9999981389265626,
+                                    0.9999985134872384,
+                                    0.9999988880479143,
+                                    0.9999991229779517,
+                                    0.9999992983823613,
+                                    0.999999473786771,
+                                    0.9999996491911807,
+                                    0.9999998245955903,
+                                    1.0
                                 ],
                                 [
                                     1.0,
@@ -7122,106 +7090,106 @@
                                     0.0
                                 ],
                                 [
-                                    3.451528038662005,
-                                    3.2041590303823586,
-                                    2.9812156163374888,
-                                    2.769670812935514,
-                                    2.5476852653312236,
-                                    2.3762750657895304,
-                                    2.220573875873336,
-                                    2.0398723718580234,
-                                    1.8730120379090809,
-                                    1.756152332158384,
-                                    1.624780949832913,
-                                    1.518218308318448,
-                                    1.4102188671431117,
-                                    1.3019320660356037,
-                                    1.2169214194341798,
-                                    1.1332996791715895,
-                                    1.0412008209098742,
-                                    0.959207453596275,
-                                    0.8860264575360016,
-                                    0.8368400158122462,
-                                    0.7777875497505247,
-                                    0.7126047384690902,
-                                    0.661406777220118,
-                                    0.6225652930546225,
-                                    0.5771624237711528,
-                                    0.5311369413013126,
-                                    0.49799476245726315,
-                                    0.46418207710480563,
-                                    0.4182523812790228,
-                                    0.3972272129083036,
-                                    0.3689701529112075,
-                                    0.335780080745131,
-                                    0.3133660060355716,
-                                    0.29291555752919846,
-                                    0.2705014828196406,
-                                    0.2545530065839925,
-                                    0.23218682519646078,
-                                    0.22155450770602997,
-                                    0.2013435258098033,
-                                    0.18573030282835704,
-                                    0.17404433225328858,
-                                    0.16125681527155272,
-                                    0.15052871113706193,
-                                    0.13702279432489228,
-                                    0.12749202324112663,
-                                    0.11829650541156314,
-                                    0.10718525470084199,
-                                    0.1027311757521475,
-                                    0.09540349748171408,
-                                    0.09142835175330934,
-                                    0.08587272639794939,
-                                    0.07792243494113896,
-                                    0.07155262311128557,
-                                    0.06647593097621514,
-                                    0.059962439180274114,
-                                    0.05459838711302914,
-                                    0.05268265423187079,
-                                    0.049425908333900065,
-                                    0.04425342955477099,
-                                    0.04396606962259762,
-                                    0.040086710538250345,
-                                    0.0359199915217297,
-                                    0.03180116582723837,
-                                    0.03084329938665857,
-                                    0.02878388653941273,
-                                    0.025048207421153112,
-                                    0.024856634133036955,
-                                    0.02351562111622571,
-                                    0.02088148840463242,
-                                    0.019827835319994793,
-                                    0.01848682230318355,
-                                    0.015373756371300475,
-                                    0.01714580928637231,
-                                    0.014463783252749827,
-                                    0.013458023490141538,
-                                    0.012883303625793718,
-                                    0.01192543718521426,
-                                    0.011159144032750812,
-                                    0.010680210812460964,
-                                    0.009099731185504858,
-                                    0.007998184778838565,
-                                    0.00766293152463567,
-                                    0.008285544711012317,
-                                    0.006848745050143203,
-                                    0.005986665253621617,
-                                    0.00555562535536086,
-                                    0.005028798813042212,
-                                    0.00522037210115805,
-                                    0.005076692135071131,
-                                    0.004645652236810424,
-                                    0.0040709323724627,
-                                    0.0031130659318832406,
-                                    0.003400425864057115,
-                                    0.003544105830143997,
-                                    0.003160959253912214,
-                                    0.002825705999709433,
-                                    0.0027299193556514574,
-                                    0.002059412847245836,
-                                    0.002155199491303782,
-                                    0.0011973330507243235
+                                    3.3278435345221817,
+                                    2.8754432146365017,
+                                    2.461980165560377,
+                                    2.1302231238656795,
+                                    1.8145821850337325,
+                                    1.5714996290756806,
+                                    1.3560754665893577,
+                                    1.1751105493028846,
+                                    1.0002041372530748,
+                                    0.861433236674124,
+                                    0.7451961441098074,
+                                    0.6419860351373703,
+                                    0.5541496825362328,
+                                    0.4810884197810344,
+                                    0.40773979709366326,
+                                    0.3523751168281693,
+                                    0.303140781782385,
+                                    0.26252724470181654,
+                                    0.22687066645124537,
+                                    0.19353691431908016,
+                                    0.16765057376242065,
+                                    0.14377575273097712,
+                                    0.12289426432634488,
+                                    0.10495821522649473,
+                                    0.0934159246175117,
+                                    0.08189758066954415,
+                                    0.06901427704375036,
+                                    0.05728041314665163,
+                                    0.05105428128288542,
+                                    0.044109749588684306,
+                                    0.03800335102999002,
+                                    0.03132223260694846,
+                                    0.02691604698028293,
+                                    0.024186127624631334,
+                                    0.020354661862313606,
+                                    0.01693028933724202,
+                                    0.015804796269561067,
+                                    0.013170663557967628,
+                                    0.011542290608982538,
+                                    0.009889970998982912,
+                                    0.007830558151737116,
+                                    0.007567144880577763,
+                                    0.005771145304491239,
+                                    0.005124585457100131,
+                                    0.004861172185940779,
+                                    0.0035919991521729698,
+                                    0.0034722658471005564,
+                                    0.002993332626810824,
+                                    0.002394666101448647,
+                                    0.0016762662710140526,
+                                    0.002059412847245858,
+                                    0.0017720529150719985,
+                                    0.0012212797117388098,
+                                    0.0014128529998547164,
+                                    0.0010536530846374046,
+                                    0.001029706423622918,
+                                    0.0007902398134780619,
+                                    0.0005747198643476753,
+                                    0.0005747198643476753,
+                                    0.0006226131863766547,
+                                    0.0005747198643476753,
+                                    0.00019157328811589172,
+                                    0.00023946661014486725,
+                                    0.00026341327115935115,
+                                    0.0002394666101448647,
+                                    0.0002634132711593539,
+                                    0.0002155199491303782,
+                                    7.183998304345941e-05,
+                                    0.0002155199491303805,
+                                    7.183998304345941e-05,
+                                    9.578664405794586e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    4.7893322028973444e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486722e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    4.789332202897293e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05
                                 ],
                                 [
                                     0.0,
@@ -7691,7 +7659,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.0002179427170267198,
+                                    0.00021794271702672152,
                                     0.0
                                 ],
                                 [
@@ -7711,7 +7679,7 @@
                                 ],
                                 [
                                     0.0,
-                                    1.1322097734007353e-17,
+                                    1.064888515880984e-17,
                                     0.0
                                 ],
                                 [
@@ -7772,7 +7740,7 @@
                             ],
                             [
                                 0.0,
-                                0.07800441242033902,
+                                0.07800441242033511,
                                 0.0
                             ],
                             [
@@ -7806,19 +7774,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 335
+                                "py/id": 317
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 335
+                                "py/id": 317
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 335
+                                "py/id": 317
                             }
                         }
                     }
@@ -7878,7 +7846,7 @@
                     ],
                     [
                         0.0,
-                        0.07800441242033902,
+                        0.07800441242033511,
                         0.0
                     ],
                     [
@@ -7931,19 +7899,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 280
+                        "py/id": 263
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 280
+                        "py/id": 263
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 280
+                        "py/id": 263
                     }
                 }
             }
@@ -7951,11 +7919,113 @@
         "fsfs": {
             "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
             "_logger": {
-                "py/id": 281
+                "py/id": 264
             },
             "_cache": {
                 "t": {
-                    "py/id": 25
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        0.0,
+                        0.04175947533541521,
+                        0.08351895067083041,
+                        0.1252784260062456,
+                        0.16703790134166083,
+                        0.20879737667707604,
+                        0.2505568520124912,
+                        0.29231632734790647,
+                        0.33407580268332165,
+                        0.37583527801873684,
+                        0.4175947533541521,
+                        0.45935422868956727,
+                        0.5011137040249825,
+                        0.5428731793603977,
+                        0.5846326546958129,
+                        0.6263921300312281,
+                        0.6681516053666433,
+                        0.7099110807020586,
+                        0.7516705560374737,
+                        0.7934300313728889,
+                        0.8351895067083042,
+                        0.8769489820437193,
+                        0.9187084573791345,
+                        0.9604679327145498,
+                        1.002227408049965,
+                        1.0439868833853803,
+                        1.0857463587207954,
+                        1.1275058340562105,
+                        1.1692653093916259,
+                        1.211024784727041,
+                        1.2527842600624561,
+                        1.2945437353978715,
+                        1.3363032107332866,
+                        1.3780626860687017,
+                        1.419822161404117,
+                        1.4615816367395322,
+                        1.5033411120749474,
+                        1.5451005874103627,
+                        1.5868600627457778,
+                        1.628619538081193,
+                        1.6703790134166083,
+                        1.7121384887520235,
+                        1.7538979640874386,
+                        1.795657439422854,
+                        1.837416914758269,
+                        1.8791763900936842,
+                        1.9209358654290996,
+                        1.9626953407645147,
+                        2.00445481609993,
+                        2.046214291435345,
+                        2.0879737667707605,
+                        2.1297332421061754,
+                        2.171492717441591,
+                        2.213252192777006,
+                        2.255011668112421,
+                        2.2967711434478364,
+                        2.3385306187832517,
+                        2.3802900941186667,
+                        2.422049569454082,
+                        2.4638090447894974,
+                        2.5055685201249123,
+                        2.5473279954603276,
+                        2.589087470795743,
+                        2.630846946131158,
+                        2.6726064214665732,
+                        2.7143658968019886,
+                        2.7561253721374035,
+                        2.797884847472819,
+                        2.839644322808234,
+                        2.881403798143649,
+                        2.9231632734790645,
+                        2.96492274881448,
+                        3.0066822241498947,
+                        3.04844169948531,
+                        3.0902011748207254,
+                        3.1319606501561403,
+                        3.1737201254915557,
+                        3.215479600826971,
+                        3.257239076162386,
+                        3.2989985514978013,
+                        3.3407580268332167,
+                        3.3825175021686316,
+                        3.424276977504047,
+                        3.4660364528394623,
+                        3.507795928174877,
+                        3.5495554035102925,
+                        3.591314878845708,
+                        3.633074354181123,
+                        3.674833829516538,
+                        3.7165933048519535,
+                        3.7583527801873684,
+                        3.8001122555227838,
+                        3.841871730858199,
+                        3.883631206193614,
+                        3.9253906815290294,
+                        3.9671501568644447,
+                        4.00890963219986,
+                        4.050669107535275,
+                        4.09242858287069,
+                        4.134188058206106
+                    ]
                 },
                 "cdf": {
                     "py/object": "numpy.ndarray",
@@ -8064,105 +8134,105 @@
                         ],
                         [
                             1e-06,
-                            0.07206795025695192,
                             0.1389693082228239,
-                            0.20121687952286424,
                             0.2590463692899977,
-                            0.3122414134255382,
                             0.3618577095877705,
-                            0.4082228748730774,
                             0.45081454543823063,
-                            0.48992223834716075,
                             0.5265909711144354,
-                            0.56051532105632,
                             0.5922158949713563,
-                            0.6216604074943036,
                             0.6488445124687339,
-                            0.6742533621798046,
                             0.6979167492535318,
-                            0.7196568742548576,
                             0.7396845020194118,
-                            0.7581847723274138,
                             0.7756571449887993,
-                            0.7918974825809095,
                             0.806776269168727,
-                            0.8205869296520846,
                             0.8335854010979646,
-                            0.8456367752147843,
                             0.8567266633739684,
-                            0.8671243186914173,
                             0.8768163230808559,
-                            0.8855499328633918,
                             0.8938437039936502,
-                            0.9015476889603099,
                             0.9085581994328351,
-                            0.9151017152692263,
                             0.9212170264803067,
-                            0.9268656256651735,
                             0.9321801885490513,
-                            0.9370283415527759,
                             0.9416546191590747,
-                            0.9458583139840073,
                             0.949736763196366,
-                            0.9533708508184485,
                             0.9567378544212387,
-                            0.9598800316050861,
                             0.9627411434144835,
-                            0.965403676732524,
                             0.9678730780851305,
-                            0.9701117032862356,
                             0.9722565909849966,
-                            0.9742488733419739,
                             0.9761574843345833,
-                            0.9779501990624029,
                             0.9795776707991481,
-                            0.9810711342636929,
                             0.9824591038294486,
-                            0.9837113166478331,
                             0.9848517464203207,
-                            0.9859518965441321,
                             0.9869831311114713,
-                            0.9879076544440727,
                             0.9888259276659366,
-                            0.9896622311739055,
                             0.9904121556866846,
-                            0.9910761314061105,
                             0.9917209423326199,
-                            0.9923211569580603,
                             0.9928440753490569,
-                            0.9933638624083737,
                             0.9938548820043928,
-                            0.9942908718126896,
                             0.9947047984844365,
-                            0.9950905030714181,
                             0.9954116511075684,
-                            0.9957691009114512,
                             0.9960711346139073,
-                            0.9963522505289111,
                             0.9966216261930098,
-                            0.996870636580211,
                             0.9971039681138467,
-                            0.9973263866357834,
                             0.9975164326213763,
-                            0.9976832055409225,
                             0.9978430207504971,
-                            0.9980167110186134,
                             0.9981592401222913,
-                            0.9982849018650347,
                             0.9984004829565168,
-                            0.998505302597905,
                             0.9986145777645964,
-                            0.9987203062181336,
                             0.9988171554087739,
-                            0.9989029834598702,
                             0.998967138965612,
-                            0.9990380394500703,
                             0.9991122560741221,
-                            0.9991787499146795,
                             0.9992371519766117,
-                            0.9992946476833005,
                             0.9993379366842481,
-                            0.9993821385632797
+                            0.9994076832639031,
+                            0.9994935308991737,
+                            0.9995675272881964,
+                            0.999618244027427,
+                            0.9996776939234783,
+                            0.999721204657353,
+                            0.9997645766226582,
+                            0.9997970074057906,
+                            0.9998217559183356,
+                            0.9998453734636533,
+                            0.9998712792463156,
+                            0.9998950610416387,
+                            0.9999036387116164,
+                            0.99991348742364,
+                            0.9999247199774741,
+                            0.9999343186375291,
+                            0.9999451944759981,
+                            0.9999543835599882,
+                            0.9999579897812502,
+                            0.9999661136120116,
+                            0.9999696301142554,
+                            0.9999730280343416,
+                            0.9999765505261888,
+                            0.999977912482286,
+                            0.999980588429639,
+                            0.9999833549390916,
+                            0.9999849552362311,
+                            0.9999871305390289,
+                            0.9999881093728489,
+                            0.9999893057721938,
+                            0.9999898250080532,
+                            0.999991148098112,
+                            0.9999914616480251,
+                            0.9999917751979382,
+                            0.9999921604138438,
+                            0.9999927271627392,
+                            0.9999933523457931,
+                            0.9999940801799773,
+                            0.9999954618191094,
+                            0.9999970319941917,
+                            0.9999976261928251,
+                            0.9999981389265626,
+                            0.9999985134872384,
+                            0.9999988880479143,
+                            0.9999991229779517,
+                            0.9999992983823613,
+                            0.999999473786771,
+                            0.9999996491911807,
+                            0.9999998245955903,
+                            1.0
                         ],
                         [
                             1.0,
@@ -8374,106 +8444,106 @@
                             0.0
                         ],
                         [
-                            3.451528038662005,
-                            3.2041590303823586,
-                            2.9812156163374888,
-                            2.769670812935514,
-                            2.5476852653312236,
-                            2.3762750657895304,
-                            2.220573875873336,
-                            2.0398723718580234,
-                            1.8730120379090809,
-                            1.756152332158384,
-                            1.624780949832913,
-                            1.518218308318448,
-                            1.4102188671431117,
-                            1.3019320660356037,
-                            1.2169214194341798,
-                            1.1332996791715895,
-                            1.0412008209098742,
-                            0.959207453596275,
-                            0.8860264575360016,
-                            0.8368400158122462,
-                            0.7777875497505247,
-                            0.7126047384690902,
-                            0.661406777220118,
-                            0.6225652930546225,
-                            0.5771624237711528,
-                            0.5311369413013126,
-                            0.49799476245726315,
-                            0.46418207710480563,
-                            0.4182523812790228,
-                            0.3972272129083036,
-                            0.3689701529112075,
-                            0.335780080745131,
-                            0.3133660060355716,
-                            0.29291555752919846,
-                            0.2705014828196406,
-                            0.2545530065839925,
-                            0.23218682519646078,
-                            0.22155450770602997,
-                            0.2013435258098033,
-                            0.18573030282835704,
-                            0.17404433225328858,
-                            0.16125681527155272,
-                            0.15052871113706193,
-                            0.13702279432489228,
-                            0.12749202324112663,
-                            0.11829650541156314,
-                            0.10718525470084199,
-                            0.1027311757521475,
-                            0.09540349748171408,
-                            0.09142835175330934,
-                            0.08587272639794939,
-                            0.07792243494113896,
-                            0.07155262311128557,
-                            0.06647593097621514,
-                            0.059962439180274114,
-                            0.05459838711302914,
-                            0.05268265423187079,
-                            0.049425908333900065,
-                            0.04425342955477099,
-                            0.04396606962259762,
-                            0.040086710538250345,
-                            0.0359199915217297,
-                            0.03180116582723837,
-                            0.03084329938665857,
-                            0.02878388653941273,
-                            0.025048207421153112,
-                            0.024856634133036955,
-                            0.02351562111622571,
-                            0.02088148840463242,
-                            0.019827835319994793,
-                            0.01848682230318355,
-                            0.015373756371300475,
-                            0.01714580928637231,
-                            0.014463783252749827,
-                            0.013458023490141538,
-                            0.012883303625793718,
-                            0.01192543718521426,
-                            0.011159144032750812,
-                            0.010680210812460964,
-                            0.009099731185504858,
-                            0.007998184778838565,
-                            0.00766293152463567,
-                            0.008285544711012317,
-                            0.006848745050143203,
-                            0.005986665253621617,
-                            0.00555562535536086,
-                            0.005028798813042212,
-                            0.00522037210115805,
-                            0.005076692135071131,
-                            0.004645652236810424,
-                            0.0040709323724627,
-                            0.0031130659318832406,
-                            0.003400425864057115,
-                            0.003544105830143997,
-                            0.003160959253912214,
-                            0.002825705999709433,
-                            0.0027299193556514574,
-                            0.002059412847245836,
-                            0.002155199491303782,
-                            0.0011973330507243235
+                            3.3278435345221817,
+                            2.8754432146365017,
+                            2.461980165560377,
+                            2.1302231238656795,
+                            1.8145821850337325,
+                            1.5714996290756806,
+                            1.3560754665893577,
+                            1.1751105493028846,
+                            1.0002041372530748,
+                            0.861433236674124,
+                            0.7451961441098074,
+                            0.6419860351373703,
+                            0.5541496825362328,
+                            0.4810884197810344,
+                            0.40773979709366326,
+                            0.3523751168281693,
+                            0.303140781782385,
+                            0.26252724470181654,
+                            0.22687066645124537,
+                            0.19353691431908016,
+                            0.16765057376242065,
+                            0.14377575273097712,
+                            0.12289426432634488,
+                            0.10495821522649473,
+                            0.0934159246175117,
+                            0.08189758066954415,
+                            0.06901427704375036,
+                            0.05728041314665163,
+                            0.05105428128288542,
+                            0.044109749588684306,
+                            0.03800335102999002,
+                            0.03132223260694846,
+                            0.02691604698028293,
+                            0.024186127624631334,
+                            0.020354661862313606,
+                            0.01693028933724202,
+                            0.015804796269561067,
+                            0.013170663557967628,
+                            0.011542290608982538,
+                            0.009889970998982912,
+                            0.007830558151737116,
+                            0.007567144880577763,
+                            0.005771145304491239,
+                            0.005124585457100131,
+                            0.004861172185940779,
+                            0.0035919991521729698,
+                            0.0034722658471005564,
+                            0.002993332626810824,
+                            0.002394666101448647,
+                            0.0016762662710140526,
+                            0.002059412847245858,
+                            0.0017720529150719985,
+                            0.0012212797117388098,
+                            0.0014128529998547164,
+                            0.0010536530846374046,
+                            0.001029706423622918,
+                            0.0007902398134780619,
+                            0.0005747198643476753,
+                            0.0005747198643476753,
+                            0.0006226131863766547,
+                            0.0005747198643476753,
+                            0.00019157328811589172,
+                            0.00023946661014486725,
+                            0.00026341327115935115,
+                            0.0002394666101448647,
+                            0.0002634132711593539,
+                            0.0002155199491303782,
+                            7.183998304345941e-05,
+                            0.0002155199491303805,
+                            7.183998304345941e-05,
+                            9.578664405794586e-05,
+                            7.183998304346017e-05,
+                            2.3946661014486465e-05,
+                            7.183998304345941e-05,
+                            7.183998304346017e-05,
+                            2.3946661014486465e-05,
+                            7.183998304345941e-05,
+                            2.3946661014486722e-05,
+                            2.3946661014486465e-05,
+                            0.0,
+                            4.7893322028973444e-05,
+                            0.0,
+                            0.0,
+                            2.3946661014486722e-05,
+                            0.0,
+                            2.3946661014486465e-05,
+                            2.3946661014486722e-05,
+                            2.3946661014486465e-05,
+                            4.789332202897293e-05,
+                            0.0,
+                            2.3946661014486465e-05,
+                            0.0,
+                            0.0,
+                            2.3946661014486465e-05,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            2.3946661014486465e-05
                         ],
                         [
                             0.0,
@@ -8943,7 +9013,7 @@
                         ],
                         [
                             0.0,
-                            0.0002179427170267198,
+                            0.00021794271702672152,
                             0.0
                         ],
                         [
@@ -8963,7 +9033,7 @@
                         ],
                         [
                             0.0,
-                            1.1322097734007353e-17,
+                            1.064888515880984e-17,
                             0.0
                         ],
                         [
@@ -8975,7 +9045,7 @@
                 }
             },
             "pops": {
-                "py/id": 38
+                "py/id": 37
             },
             "n": 2,
             "_sfs_dist": {
@@ -8983,54 +9053,8 @@
             },
             "_samples": null,
             "_mutations": null,
-            "pops_corr": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        [
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                1.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ]
-                        ]
-                    ]
-                ]
-            },
-            "pops_cov": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        [
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.07800441242033922,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                0.0
-                            ]
-                        ]
-                    ]
-                ]
-            },
+            "pops_corr": null,
+            "pops_cov": null,
             "loci_corr": null,
             "loci_cov": null,
             "generated_mass": 0,
@@ -9040,11 +9064,11 @@
                 "pop_0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalSFSDistribution",
                     "_logger": {
-                        "py/id": 301
+                        "py/id": 283
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 358
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -9153,105 +9177,105 @@
                                 ],
                                 [
                                     1e-06,
-                                    0.07206795025695192,
                                     0.1389693082228239,
-                                    0.20121687952286424,
                                     0.2590463692899977,
-                                    0.3122414134255382,
                                     0.3618577095877705,
-                                    0.4082228748730774,
                                     0.45081454543823063,
-                                    0.48992223834716075,
                                     0.5265909711144354,
-                                    0.56051532105632,
                                     0.5922158949713563,
-                                    0.6216604074943036,
                                     0.6488445124687339,
-                                    0.6742533621798046,
                                     0.6979167492535318,
-                                    0.7196568742548576,
                                     0.7396845020194118,
-                                    0.7581847723274138,
                                     0.7756571449887993,
-                                    0.7918974825809095,
                                     0.806776269168727,
-                                    0.8205869296520846,
                                     0.8335854010979646,
-                                    0.8456367752147843,
                                     0.8567266633739684,
-                                    0.8671243186914173,
                                     0.8768163230808559,
-                                    0.8855499328633918,
                                     0.8938437039936502,
-                                    0.9015476889603099,
                                     0.9085581994328351,
-                                    0.9151017152692263,
                                     0.9212170264803067,
-                                    0.9268656256651735,
                                     0.9321801885490513,
-                                    0.9370283415527759,
                                     0.9416546191590747,
-                                    0.9458583139840073,
                                     0.949736763196366,
-                                    0.9533708508184485,
                                     0.9567378544212387,
-                                    0.9598800316050861,
                                     0.9627411434144835,
-                                    0.965403676732524,
                                     0.9678730780851305,
-                                    0.9701117032862356,
                                     0.9722565909849966,
-                                    0.9742488733419739,
                                     0.9761574843345833,
-                                    0.9779501990624029,
                                     0.9795776707991481,
-                                    0.9810711342636929,
                                     0.9824591038294486,
-                                    0.9837113166478331,
                                     0.9848517464203207,
-                                    0.9859518965441321,
                                     0.9869831311114713,
-                                    0.9879076544440727,
                                     0.9888259276659366,
-                                    0.9896622311739055,
                                     0.9904121556866846,
-                                    0.9910761314061105,
                                     0.9917209423326199,
-                                    0.9923211569580603,
                                     0.9928440753490569,
-                                    0.9933638624083737,
                                     0.9938548820043928,
-                                    0.9942908718126896,
                                     0.9947047984844365,
-                                    0.9950905030714181,
                                     0.9954116511075684,
-                                    0.9957691009114512,
                                     0.9960711346139073,
-                                    0.9963522505289111,
                                     0.9966216261930098,
-                                    0.996870636580211,
                                     0.9971039681138467,
-                                    0.9973263866357834,
                                     0.9975164326213763,
-                                    0.9976832055409225,
                                     0.9978430207504971,
-                                    0.9980167110186134,
                                     0.9981592401222913,
-                                    0.9982849018650347,
                                     0.9984004829565168,
-                                    0.998505302597905,
                                     0.9986145777645964,
-                                    0.9987203062181336,
                                     0.9988171554087739,
-                                    0.9989029834598702,
                                     0.998967138965612,
-                                    0.9990380394500703,
                                     0.9991122560741221,
-                                    0.9991787499146795,
                                     0.9992371519766117,
-                                    0.9992946476833005,
                                     0.9993379366842481,
-                                    0.9993821385632797
+                                    0.9994076832639031,
+                                    0.9994935308991737,
+                                    0.9995675272881964,
+                                    0.999618244027427,
+                                    0.9996776939234783,
+                                    0.999721204657353,
+                                    0.9997645766226582,
+                                    0.9997970074057906,
+                                    0.9998217559183356,
+                                    0.9998453734636533,
+                                    0.9998712792463156,
+                                    0.9998950610416387,
+                                    0.9999036387116164,
+                                    0.99991348742364,
+                                    0.9999247199774741,
+                                    0.9999343186375291,
+                                    0.9999451944759981,
+                                    0.9999543835599882,
+                                    0.9999579897812502,
+                                    0.9999661136120116,
+                                    0.9999696301142554,
+                                    0.9999730280343416,
+                                    0.9999765505261888,
+                                    0.999977912482286,
+                                    0.999980588429639,
+                                    0.9999833549390916,
+                                    0.9999849552362311,
+                                    0.9999871305390289,
+                                    0.9999881093728489,
+                                    0.9999893057721938,
+                                    0.9999898250080532,
+                                    0.999991148098112,
+                                    0.9999914616480251,
+                                    0.9999917751979382,
+                                    0.9999921604138438,
+                                    0.9999927271627392,
+                                    0.9999933523457931,
+                                    0.9999940801799773,
+                                    0.9999954618191094,
+                                    0.9999970319941917,
+                                    0.9999976261928251,
+                                    0.9999981389265626,
+                                    0.9999985134872384,
+                                    0.9999988880479143,
+                                    0.9999991229779517,
+                                    0.9999992983823613,
+                                    0.999999473786771,
+                                    0.9999996491911807,
+                                    0.9999998245955903,
+                                    1.0
                                 ],
                                 [
                                     1.0,
@@ -9463,106 +9487,106 @@
                                     0.0
                                 ],
                                 [
-                                    3.451528038662005,
-                                    3.2041590303823586,
-                                    2.9812156163374888,
-                                    2.769670812935514,
-                                    2.5476852653312236,
-                                    2.3762750657895304,
-                                    2.220573875873336,
-                                    2.0398723718580234,
-                                    1.8730120379090809,
-                                    1.756152332158384,
-                                    1.624780949832913,
-                                    1.518218308318448,
-                                    1.4102188671431117,
-                                    1.3019320660356037,
-                                    1.2169214194341798,
-                                    1.1332996791715895,
-                                    1.0412008209098742,
-                                    0.959207453596275,
-                                    0.8860264575360016,
-                                    0.8368400158122462,
-                                    0.7777875497505247,
-                                    0.7126047384690902,
-                                    0.661406777220118,
-                                    0.6225652930546225,
-                                    0.5771624237711528,
-                                    0.5311369413013126,
-                                    0.49799476245726315,
-                                    0.46418207710480563,
-                                    0.4182523812790228,
-                                    0.3972272129083036,
-                                    0.3689701529112075,
-                                    0.335780080745131,
-                                    0.3133660060355716,
-                                    0.29291555752919846,
-                                    0.2705014828196406,
-                                    0.2545530065839925,
-                                    0.23218682519646078,
-                                    0.22155450770602997,
-                                    0.2013435258098033,
-                                    0.18573030282835704,
-                                    0.17404433225328858,
-                                    0.16125681527155272,
-                                    0.15052871113706193,
-                                    0.13702279432489228,
-                                    0.12749202324112663,
-                                    0.11829650541156314,
-                                    0.10718525470084199,
-                                    0.1027311757521475,
-                                    0.09540349748171408,
-                                    0.09142835175330934,
-                                    0.08587272639794939,
-                                    0.07792243494113896,
-                                    0.07155262311128557,
-                                    0.06647593097621514,
-                                    0.059962439180274114,
-                                    0.05459838711302914,
-                                    0.05268265423187079,
-                                    0.049425908333900065,
-                                    0.04425342955477099,
-                                    0.04396606962259762,
-                                    0.040086710538250345,
-                                    0.0359199915217297,
-                                    0.03180116582723837,
-                                    0.03084329938665857,
-                                    0.02878388653941273,
-                                    0.025048207421153112,
-                                    0.024856634133036955,
-                                    0.02351562111622571,
-                                    0.02088148840463242,
-                                    0.019827835319994793,
-                                    0.01848682230318355,
-                                    0.015373756371300475,
-                                    0.01714580928637231,
-                                    0.014463783252749827,
-                                    0.013458023490141538,
-                                    0.012883303625793718,
-                                    0.01192543718521426,
-                                    0.011159144032750812,
-                                    0.010680210812460964,
-                                    0.009099731185504858,
-                                    0.007998184778838565,
-                                    0.00766293152463567,
-                                    0.008285544711012317,
-                                    0.006848745050143203,
-                                    0.005986665253621617,
-                                    0.00555562535536086,
-                                    0.005028798813042212,
-                                    0.00522037210115805,
-                                    0.005076692135071131,
-                                    0.004645652236810424,
-                                    0.0040709323724627,
-                                    0.0031130659318832406,
-                                    0.003400425864057115,
-                                    0.003544105830143997,
-                                    0.003160959253912214,
-                                    0.002825705999709433,
-                                    0.0027299193556514574,
-                                    0.002059412847245836,
-                                    0.002155199491303782,
-                                    0.0011973330507243235
+                                    3.3278435345221817,
+                                    2.8754432146365017,
+                                    2.461980165560377,
+                                    2.1302231238656795,
+                                    1.8145821850337325,
+                                    1.5714996290756806,
+                                    1.3560754665893577,
+                                    1.1751105493028846,
+                                    1.0002041372530748,
+                                    0.861433236674124,
+                                    0.7451961441098074,
+                                    0.6419860351373703,
+                                    0.5541496825362328,
+                                    0.4810884197810344,
+                                    0.40773979709366326,
+                                    0.3523751168281693,
+                                    0.303140781782385,
+                                    0.26252724470181654,
+                                    0.22687066645124537,
+                                    0.19353691431908016,
+                                    0.16765057376242065,
+                                    0.14377575273097712,
+                                    0.12289426432634488,
+                                    0.10495821522649473,
+                                    0.0934159246175117,
+                                    0.08189758066954415,
+                                    0.06901427704375036,
+                                    0.05728041314665163,
+                                    0.05105428128288542,
+                                    0.044109749588684306,
+                                    0.03800335102999002,
+                                    0.03132223260694846,
+                                    0.02691604698028293,
+                                    0.024186127624631334,
+                                    0.020354661862313606,
+                                    0.01693028933724202,
+                                    0.015804796269561067,
+                                    0.013170663557967628,
+                                    0.011542290608982538,
+                                    0.009889970998982912,
+                                    0.007830558151737116,
+                                    0.007567144880577763,
+                                    0.005771145304491239,
+                                    0.005124585457100131,
+                                    0.004861172185940779,
+                                    0.0035919991521729698,
+                                    0.0034722658471005564,
+                                    0.002993332626810824,
+                                    0.002394666101448647,
+                                    0.0016762662710140526,
+                                    0.002059412847245858,
+                                    0.0017720529150719985,
+                                    0.0012212797117388098,
+                                    0.0014128529998547164,
+                                    0.0010536530846374046,
+                                    0.001029706423622918,
+                                    0.0007902398134780619,
+                                    0.0005747198643476753,
+                                    0.0005747198643476753,
+                                    0.0006226131863766547,
+                                    0.0005747198643476753,
+                                    0.00019157328811589172,
+                                    0.00023946661014486725,
+                                    0.00026341327115935115,
+                                    0.0002394666101448647,
+                                    0.0002634132711593539,
+                                    0.0002155199491303782,
+                                    7.183998304345941e-05,
+                                    0.0002155199491303805,
+                                    7.183998304345941e-05,
+                                    9.578664405794586e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    4.7893322028973444e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486722e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    4.789332202897293e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05
                                 ],
                                 [
                                     0.0,
@@ -10032,7 +10056,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.0002179427170267198,
+                                    0.00021794271702672152,
                                     0.0
                                 ],
                                 [
@@ -10052,7 +10076,7 @@
                                 ],
                                 [
                                     0.0,
-                                    1.1322097734007353e-17,
+                                    1.064888515880984e-17,
                                     0.0
                                 ],
                                 [
@@ -10097,7 +10121,7 @@
                         }
                     },
                     "cov": {
-                        "py/object": "phasegen.spectrum.SFS2",
+                        "py/object": "sfsutils.spectrum.TwoSFS",
                         "n": 3,
                         "w": 2,
                         "data": {
@@ -10110,7 +10134,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.07800441242033902,
+                                    0.07800441242033511,
                                     0.0
                                 ],
                                 [
@@ -10122,7 +10146,7 @@
                         }
                     },
                     "corr": {
-                        "py/object": "phasegen.spectrum.SFS2",
+                        "py/object": "sfsutils.spectrum.TwoSFS",
                         "n": 3,
                         "w": 2,
                         "data": {
@@ -10166,19 +10190,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 393
+                                "py/id": 374
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 393
+                                "py/id": 374
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 393
+                                "py/id": 374
                             }
                         }
                     }
@@ -10197,11 +10221,11 @@
                 "json://0": {
                     "py/object": "phasegen.distributions.empirical.EmpiricalDistribution",
                     "_logger": {
-                        "py/id": 46
+                        "py/id": 45
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 25
+                            "py/id": 358
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -10310,105 +10334,105 @@
                                 ],
                                 [
                                     1e-06,
-                                    0.07206795025695192,
                                     0.1389693082228239,
-                                    0.20121687952286424,
                                     0.2590463692899977,
-                                    0.3122414134255382,
                                     0.3618577095877705,
-                                    0.4082228748730774,
                                     0.45081454543823063,
-                                    0.48992223834716075,
                                     0.5265909711144354,
-                                    0.56051532105632,
                                     0.5922158949713563,
-                                    0.6216604074943036,
                                     0.6488445124687339,
-                                    0.6742533621798046,
                                     0.6979167492535318,
-                                    0.7196568742548576,
                                     0.7396845020194118,
-                                    0.7581847723274138,
                                     0.7756571449887993,
-                                    0.7918974825809095,
                                     0.806776269168727,
-                                    0.8205869296520846,
                                     0.8335854010979646,
-                                    0.8456367752147843,
                                     0.8567266633739684,
-                                    0.8671243186914173,
                                     0.8768163230808559,
-                                    0.8855499328633918,
                                     0.8938437039936502,
-                                    0.9015476889603099,
                                     0.9085581994328351,
-                                    0.9151017152692263,
                                     0.9212170264803067,
-                                    0.9268656256651735,
                                     0.9321801885490513,
-                                    0.9370283415527759,
                                     0.9416546191590747,
-                                    0.9458583139840073,
                                     0.949736763196366,
-                                    0.9533708508184485,
                                     0.9567378544212387,
-                                    0.9598800316050861,
                                     0.9627411434144835,
-                                    0.965403676732524,
                                     0.9678730780851305,
-                                    0.9701117032862356,
                                     0.9722565909849966,
-                                    0.9742488733419739,
                                     0.9761574843345833,
-                                    0.9779501990624029,
                                     0.9795776707991481,
-                                    0.9810711342636929,
                                     0.9824591038294486,
-                                    0.9837113166478331,
                                     0.9848517464203207,
-                                    0.9859518965441321,
                                     0.9869831311114713,
-                                    0.9879076544440727,
                                     0.9888259276659366,
-                                    0.9896622311739055,
                                     0.9904121556866846,
-                                    0.9910761314061105,
                                     0.9917209423326199,
-                                    0.9923211569580603,
                                     0.9928440753490569,
-                                    0.9933638624083737,
                                     0.9938548820043928,
-                                    0.9942908718126896,
                                     0.9947047984844365,
-                                    0.9950905030714181,
                                     0.9954116511075684,
-                                    0.9957691009114512,
                                     0.9960711346139073,
-                                    0.9963522505289111,
                                     0.9966216261930098,
-                                    0.996870636580211,
                                     0.9971039681138467,
-                                    0.9973263866357834,
                                     0.9975164326213763,
-                                    0.9976832055409225,
                                     0.9978430207504971,
-                                    0.9980167110186134,
                                     0.9981592401222913,
-                                    0.9982849018650347,
                                     0.9984004829565168,
-                                    0.998505302597905,
                                     0.9986145777645964,
-                                    0.9987203062181336,
                                     0.9988171554087739,
-                                    0.9989029834598702,
                                     0.998967138965612,
-                                    0.9990380394500703,
                                     0.9991122560741221,
-                                    0.9991787499146795,
                                     0.9992371519766117,
-                                    0.9992946476833005,
                                     0.9993379366842481,
-                                    0.9993821385632797
+                                    0.9994076832639031,
+                                    0.9994935308991737,
+                                    0.9995675272881964,
+                                    0.999618244027427,
+                                    0.9996776939234783,
+                                    0.999721204657353,
+                                    0.9997645766226582,
+                                    0.9997970074057906,
+                                    0.9998217559183356,
+                                    0.9998453734636533,
+                                    0.9998712792463156,
+                                    0.9998950610416387,
+                                    0.9999036387116164,
+                                    0.99991348742364,
+                                    0.9999247199774741,
+                                    0.9999343186375291,
+                                    0.9999451944759981,
+                                    0.9999543835599882,
+                                    0.9999579897812502,
+                                    0.9999661136120116,
+                                    0.9999696301142554,
+                                    0.9999730280343416,
+                                    0.9999765505261888,
+                                    0.999977912482286,
+                                    0.999980588429639,
+                                    0.9999833549390916,
+                                    0.9999849552362311,
+                                    0.9999871305390289,
+                                    0.9999881093728489,
+                                    0.9999893057721938,
+                                    0.9999898250080532,
+                                    0.999991148098112,
+                                    0.9999914616480251,
+                                    0.9999917751979382,
+                                    0.9999921604138438,
+                                    0.9999927271627392,
+                                    0.9999933523457931,
+                                    0.9999940801799773,
+                                    0.9999954618191094,
+                                    0.9999970319941917,
+                                    0.9999976261928251,
+                                    0.9999981389265626,
+                                    0.9999985134872384,
+                                    0.9999988880479143,
+                                    0.9999991229779517,
+                                    0.9999992983823613,
+                                    0.999999473786771,
+                                    0.9999996491911807,
+                                    0.9999998245955903,
+                                    1.0
                                 ],
                                 [
                                     1.0,
@@ -10620,106 +10644,106 @@
                                     0.0
                                 ],
                                 [
-                                    3.451528038662005,
-                                    3.2041590303823586,
-                                    2.9812156163374888,
-                                    2.769670812935514,
-                                    2.5476852653312236,
-                                    2.3762750657895304,
-                                    2.220573875873336,
-                                    2.0398723718580234,
-                                    1.8730120379090809,
-                                    1.756152332158384,
-                                    1.624780949832913,
-                                    1.518218308318448,
-                                    1.4102188671431117,
-                                    1.3019320660356037,
-                                    1.2169214194341798,
-                                    1.1332996791715895,
-                                    1.0412008209098742,
-                                    0.959207453596275,
-                                    0.8860264575360016,
-                                    0.8368400158122462,
-                                    0.7777875497505247,
-                                    0.7126047384690902,
-                                    0.661406777220118,
-                                    0.6225652930546225,
-                                    0.5771624237711528,
-                                    0.5311369413013126,
-                                    0.49799476245726315,
-                                    0.46418207710480563,
-                                    0.4182523812790228,
-                                    0.3972272129083036,
-                                    0.3689701529112075,
-                                    0.335780080745131,
-                                    0.3133660060355716,
-                                    0.29291555752919846,
-                                    0.2705014828196406,
-                                    0.2545530065839925,
-                                    0.23218682519646078,
-                                    0.22155450770602997,
-                                    0.2013435258098033,
-                                    0.18573030282835704,
-                                    0.17404433225328858,
-                                    0.16125681527155272,
-                                    0.15052871113706193,
-                                    0.13702279432489228,
-                                    0.12749202324112663,
-                                    0.11829650541156314,
-                                    0.10718525470084199,
-                                    0.1027311757521475,
-                                    0.09540349748171408,
-                                    0.09142835175330934,
-                                    0.08587272639794939,
-                                    0.07792243494113896,
-                                    0.07155262311128557,
-                                    0.06647593097621514,
-                                    0.059962439180274114,
-                                    0.05459838711302914,
-                                    0.05268265423187079,
-                                    0.049425908333900065,
-                                    0.04425342955477099,
-                                    0.04396606962259762,
-                                    0.040086710538250345,
-                                    0.0359199915217297,
-                                    0.03180116582723837,
-                                    0.03084329938665857,
-                                    0.02878388653941273,
-                                    0.025048207421153112,
-                                    0.024856634133036955,
-                                    0.02351562111622571,
-                                    0.02088148840463242,
-                                    0.019827835319994793,
-                                    0.01848682230318355,
-                                    0.015373756371300475,
-                                    0.01714580928637231,
-                                    0.014463783252749827,
-                                    0.013458023490141538,
-                                    0.012883303625793718,
-                                    0.01192543718521426,
-                                    0.011159144032750812,
-                                    0.010680210812460964,
-                                    0.009099731185504858,
-                                    0.007998184778838565,
-                                    0.00766293152463567,
-                                    0.008285544711012317,
-                                    0.006848745050143203,
-                                    0.005986665253621617,
-                                    0.00555562535536086,
-                                    0.005028798813042212,
-                                    0.00522037210115805,
-                                    0.005076692135071131,
-                                    0.004645652236810424,
-                                    0.0040709323724627,
-                                    0.0031130659318832406,
-                                    0.003400425864057115,
-                                    0.003544105830143997,
-                                    0.003160959253912214,
-                                    0.002825705999709433,
-                                    0.0027299193556514574,
-                                    0.002059412847245836,
-                                    0.002155199491303782,
-                                    0.0011973330507243235
+                                    3.3278435345221817,
+                                    2.8754432146365017,
+                                    2.461980165560377,
+                                    2.1302231238656795,
+                                    1.8145821850337325,
+                                    1.5714996290756806,
+                                    1.3560754665893577,
+                                    1.1751105493028846,
+                                    1.0002041372530748,
+                                    0.861433236674124,
+                                    0.7451961441098074,
+                                    0.6419860351373703,
+                                    0.5541496825362328,
+                                    0.4810884197810344,
+                                    0.40773979709366326,
+                                    0.3523751168281693,
+                                    0.303140781782385,
+                                    0.26252724470181654,
+                                    0.22687066645124537,
+                                    0.19353691431908016,
+                                    0.16765057376242065,
+                                    0.14377575273097712,
+                                    0.12289426432634488,
+                                    0.10495821522649473,
+                                    0.0934159246175117,
+                                    0.08189758066954415,
+                                    0.06901427704375036,
+                                    0.05728041314665163,
+                                    0.05105428128288542,
+                                    0.044109749588684306,
+                                    0.03800335102999002,
+                                    0.03132223260694846,
+                                    0.02691604698028293,
+                                    0.024186127624631334,
+                                    0.020354661862313606,
+                                    0.01693028933724202,
+                                    0.015804796269561067,
+                                    0.013170663557967628,
+                                    0.011542290608982538,
+                                    0.009889970998982912,
+                                    0.007830558151737116,
+                                    0.007567144880577763,
+                                    0.005771145304491239,
+                                    0.005124585457100131,
+                                    0.004861172185940779,
+                                    0.0035919991521729698,
+                                    0.0034722658471005564,
+                                    0.002993332626810824,
+                                    0.002394666101448647,
+                                    0.0016762662710140526,
+                                    0.002059412847245858,
+                                    0.0017720529150719985,
+                                    0.0012212797117388098,
+                                    0.0014128529998547164,
+                                    0.0010536530846374046,
+                                    0.001029706423622918,
+                                    0.0007902398134780619,
+                                    0.0005747198643476753,
+                                    0.0005747198643476753,
+                                    0.0006226131863766547,
+                                    0.0005747198643476753,
+                                    0.00019157328811589172,
+                                    0.00023946661014486725,
+                                    0.00026341327115935115,
+                                    0.0002394666101448647,
+                                    0.0002634132711593539,
+                                    0.0002155199491303782,
+                                    7.183998304345941e-05,
+                                    0.0002155199491303805,
+                                    7.183998304345941e-05,
+                                    9.578664405794586e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    7.183998304346017e-05,
+                                    2.3946661014486465e-05,
+                                    7.183998304345941e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    4.7893322028973444e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486722e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    2.3946661014486722e-05,
+                                    2.3946661014486465e-05,
+                                    4.789332202897293e-05,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    2.3946661014486465e-05
                                 ],
                                 [
                                     0.0,
@@ -11189,7 +11213,7 @@
                                 ],
                                 [
                                     0.0,
-                                    0.0002179427170267198,
+                                    0.00021794271702672152,
                                     0.0
                                 ],
                                 [
@@ -11209,7 +11233,7 @@
                                 ],
                                 [
                                     0.0,
-                                    1.1322097734007353e-17,
+                                    1.064888515880984e-17,
                                     0.0
                                 ],
                                 [
@@ -11270,7 +11294,7 @@
                             ],
                             [
                                 0.0,
-                                0.07800441242033902,
+                                0.07800441242033511,
                                 0.0
                             ],
                             [
@@ -11304,19 +11328,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 427
+                                "py/id": 408
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 427
+                                "py/id": 408
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 427
+                                "py/id": 408
                             }
                         }
                     }
@@ -11376,7 +11400,7 @@
                     ],
                     [
                         0.0,
-                        0.07800441242033902,
+                        0.07800441242033511,
                         0.0
                     ],
                     [
@@ -11429,19 +11453,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 374
+                        "py/id": 356
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 374
+                        "py/id": 356
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 374
+                        "py/id": 356
                     }
                 }
             }

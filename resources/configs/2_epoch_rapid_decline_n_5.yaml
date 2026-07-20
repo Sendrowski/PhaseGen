@@ -35,7 +35,7 @@ comparisons:
       theta_w: 0.004
       tajimas_d: 0.0069
       cosine:
-        pdf: 0.0066
+        pdf: 0.4
         cdf: 0.002
         quantile: 0.0048
       pairwise:

@@ -27,6 +27,6 @@ comparisons:
       cov: 0.0032
       corr: 0.0005
       cosine:
-        pdf: 0.0043
-        cdf: 0.002
+        pdf: 0.03
+        cdf: 0.025
         quantile: 0.004

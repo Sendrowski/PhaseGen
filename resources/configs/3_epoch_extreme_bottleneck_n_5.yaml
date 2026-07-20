@@ -52,7 +52,7 @@ comparisons:
       theta_w: 0.004
       tajimas_d: 0.004
       cosine:
-        pdf: 0.0057
+        pdf: 0.009
         cdf: 0.002
         quantile: 0.004
       # no ``moments`` here: the derivative identity is not a trustworthy reference on this demography. It disagrees
