@@ -25,7 +25,6 @@ Contents
    reference/Python/mutation_configs
    reference/Python/empirical_distributions
    reference/Python/inference
-   reference/performance
    reference/Python/miscellaneous
 
 .. toctree::
@@ -39,8 +38,13 @@ Contents
    reference/R/rewards
    reference/R/demography
    reference/R/mutation_configs
-   reference/performance
    reference/R/miscellaneous
+
+.. toctree::
+   :caption: Runtime Performance
+   :maxdepth: 2
+
+   reference/performance
 
 .. toctree::
    :caption: API Reference

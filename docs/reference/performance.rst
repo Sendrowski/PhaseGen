@@ -1,7 +1,7 @@
 .. _reference.performance:
 
-Performance
-===========
+Runtime Performance
+===================
 
 State Space Size
 ----------------
