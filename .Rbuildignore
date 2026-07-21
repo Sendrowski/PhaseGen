@@ -1,0 +1,42 @@
+# The R package is only the reticulate shim (R/, NAMESPACE, DESCRIPTION, LICENSE);
+# the Python package is fetched at load time via reticulate, so everything below is
+# excluded from the built/installed package. This does not shrink the GitHub source
+# archive that install_github downloads, only what R CMD build copies into the package.
+
+# Large research/test artifacts and Python source
+^results$
+^resources$
+^testing$
+^tests$
+^scripts$
+^phasegen$
+^docs$
+^example_workflows$
+^presentations$
+^reports$
+^scratch$
+^profiles$
+^envs$
+
+# Tooling / build / CI / editor config
+^\.snakemake$
+^Snakefile$
+^Makefile$
+^conftest\.py$
+^pyproject\.toml$
+^poetry\.lock$
+^environment\.yml$
+^codecov\.yml$
+^\.coveragerc$
+^\.coverage$
+^\.readthedocs\.yaml$
+^\.github$
+^\.idea$
+^\.claude$
+^\.pytest_cache$
+^\.ipynb_checkpoints$
+^__pycache__$
+^CITATION\.md$
+
+# Cruft
+\.DS_Store$
