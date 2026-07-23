@@ -101,7 +101,7 @@ class Reward(ABC):
     def requires_joint_state_space(rewards: Iterable['Reward']) -> bool:
         """
         Check whether any (possibly nested) reward can only be evaluated on the joint block-counting state space,
-        i.e. supports it but neither the lineage- nor the block-counting state space (e.g. ``JointSFSReward``).
+        i.e. supports it but neither the lineage- nor the block-counting state space (e.g. :class:`JointSFSReward`).
 
         :param rewards: rewards
         :return: True if some reward requires the joint state space
@@ -157,10 +157,11 @@ class TwoLocusBlockCountingReward(Reward, ABC):
 
 
 class JointSFSReward(JointBlockCountingReward):
-    """
+    r"""
     Reward for a single bin of the joint (multi-population) site-frequency spectrum. The bin is identified by a
-    descendant vector ``config = (k_0,...,k_{P-1})``, and the reward of a state is the number of lineages (across
-    all demes of residence and loci) whose descendant vector equals ``config``.
+    descendant vector :math:`\mathbf{c} = (k_0, \dots, k_{P-1})`, and the reward of a state :math:`i` is the number
+    of lineages (across all demes of residence and loci) whose descendant vector equals :math:`\mathbf{c}`,
+    :math:`r(i) = \#\{\text{lineages in } i \text{ with descendant vector } \mathbf{c}\}`.
     """
 
     def __init__(self, config: Tuple[int, ...]) -> None:
@@ -201,12 +202,12 @@ class JointSFSReward(JointBlockCountingReward):
 
 
 class TwoLocusSFSReward(TwoLocusBlockCountingReward):
-    """
+    r"""
     Reward for one bin of the marginal site-frequency spectrum at a single locus in the two-locus block-counting
-    state space. The reward of a state is the number of lineages that subtend exactly ``count`` samples at the given
-    ``locus`` (i.e. whose two-locus descendant vector has component ``locus`` equal to ``count``), regardless of how
-    many they subtend at the other locus. The two-locus SFS is obtained as the cross-moment of two such rewards, one
-    per locus.
+    state space. The reward of a state :math:`i` is the number of lineages that subtend exactly ``count`` samples at
+    the given ``locus`` (i.e. whose two-locus descendant vector has component ``locus`` equal to ``count``),
+    regardless of how many they subtend at the other locus. The two-locus SFS is obtained as the cross-moment
+    :math:`\mathbb{E}[R_a R_b]` of two such rewards, one per locus.
     """
 
     def __init__(self, locus: int, count: int) -> None:
@@ -246,9 +247,10 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
 
 
 class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
-    """
-    Reward for tree height. Note that when using multiple loci, this will provide the
-    height of the locus with the highest tree.
+    r"""
+    Reward for tree height: unit reward on transient states and zero on the absorbing set :math:`B`,
+    :math:`r_\text{height}(i) = \mathbb{1}\{i \notin B\}`, so the accumulated reward is the time to absorption. Note
+    that when using multiple loci, this will provide the height of the locus with the highest tree.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -280,9 +282,10 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCou
 
 
 class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
-    """
-    Reward based on tree height. When using multiple loci, this will provide the sum of the tree
-    heights over all loci, regardless of whether they are linked or not.
+    r"""
+    Reward based on tree height, unit reward per non-absorbing locus,
+    :math:`r(i) = \sum_l \mathbb{1}\{\text{locus } l \text{ has } > 1 \text{ lineage in } i\}`. When using multiple
+    loci, this provides the sum of the tree heights over all loci, regardless of whether they are linked or not.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -306,11 +309,13 @@ class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
 
 
 class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
-    """
-    Reward for total branch length. When using multiple loci, this will provide the sum of the
-    total branch lengths over all loci, regardless of whether they are linked or not. Note that due to
-    inherent limitation to rewards, we cannot determine the total branch length of the tree with
-    the largest total branch length as done in :class:`TreeHeightReward`.
+    r"""
+    Reward for total branch length: the lineage count of a state,
+    :math:`r_\text{length}(i) = (\#\text{ lineages in } i)` on transient states (zero on the absorbing set), so the
+    accumulated reward sums each lineage's duration. When using multiple loci, this provides the sum of the total
+    branch lengths over all loci, regardless of whether they are linked or not. Note that due to inherent limitation
+    to rewards, we cannot determine the total branch length of the tree with the largest total branch length as done
+    in :class:`TreeHeightReward`.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -363,8 +368,10 @@ class SFSReward(BlockCountingReward, ABC):
 
 
 class UnfoldedSFSReward(SFSReward, BlockCountingReward):
-    """
-    Reward for unfolded site frequency spectrum (SFS).
+    r"""
+    Reward for one bin of the unfolded site-frequency spectrum: the count of branches subtending exactly ``index``
+    samples, :math:`r_{\text{SFS},k}(i) = a_k(i)` with :math:`k = \text{index}` and :math:`a_k(i)` the number of
+    :math:`k`-subtending blocks in state :math:`i`.
     """
 
     def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
@@ -385,8 +392,10 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
 
 
 class FoldedSFSReward(SFSReward, BlockCountingReward):
-    """
-    Reward for folded site frequency spectrum (SFS).
+    r"""
+    Reward for one bin of the folded site-frequency spectrum: the count of branches subtending ``index`` or
+    :math:`n - \text{index}` samples, :math:`r(i) = a_\text{index}(i) + a_{n-\text{index}}(i)` (the two mirror
+    classes summed, and a single class when they coincide).
     """
 
     def _get_indices(self, state_space: BlockCountingStateSpace) -> np.ndarray:
@@ -493,10 +502,11 @@ class LineageReward(LineageCountingReward, JointBlockCountingReward):
 
 
 class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
-    """
-    Reward fraction of lineages in a specific deme. Taking the product of this reward with another reward
-    will result in a reward that only considers the specified deme. Use :class:`SumReward` to marginalize over
-    several demes.
+    r"""
+    Reward the fraction of lineages residing in a specific deme,
+    :math:`r(i) = (\#\text{ lineages of } i \text{ in the deme}) / (\#\text{ lineages in } i)`. Taking the product
+    of this reward with another reward will result in a reward that only considers the specified deme. Use
+    :class:`SumReward` to marginalize over several demes.
     """
 
     def __init__(self, pop: str) -> None:
@@ -576,8 +586,8 @@ class LocusReward(LineageCountingReward):
 
 
 class UnitReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
-    """
-    Reward all states with 1 (including absorbing states).
+    r"""
+    Reward all states with 1 (including absorbing states), :math:`r(i) = 1` for every state :math:`i`.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -669,8 +679,8 @@ class CompositeReward(Reward, ABC):
 
 
 class ProductReward(CompositeReward):
-    """
-    The product of multiple rewards.
+    r"""
+    The elementwise product of multiple rewards, :math:`r(i) = \prod_j r_j(i)`.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -684,8 +694,8 @@ class ProductReward(CompositeReward):
 
 
 class SumReward(CompositeReward):
-    """
-    The sum of multiple rewards.
+    r"""
+    The elementwise sum of multiple rewards, :math:`r(i) = \sum_j r_j(i)`.
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:

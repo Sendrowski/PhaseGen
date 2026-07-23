@@ -29,7 +29,15 @@ class Inference(Serializable):
     """
     Gradient-based parameter inference with respect to a specified loss function,
     summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
-    The optimization is performed via the BFGS algorithm from scipy.
+    The optimization minimises the loss over the parameters :math:`\\theta` (the entries of ``x0``,
+    constrained to ``bounds``),
+
+    .. math::
+        \\hat{\\theta} = \\arg\\min_{\\theta} L\\big(\\mathrm{coal}(\\theta),\\, y\\big),
+
+    where :math:`\\mathrm{coal}(\\theta)` is the coalescent distribution returned by the ``coal`` callback and
+    :math:`y` the observation. The minimisation is performed with a gradient-based scipy optimizer
+    (L-BFGS-B by default), restarted from several initial points.
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -61,10 +69,12 @@ class Inference(Serializable):
         :param coal: Callback returning the configured coalescent distribution on which
             the inference is based on. The parameters specified in ``x0`` and ``bounds``
             are passed as keyword arguments.
-        :param loss: The loss function. This function must return a single numerical
+        :param loss: The loss function, evaluating :math:`L(\\theta)`. This function must return a single numerical
             value that is to be minimized. It receives as first argument the coalescent
             distribution returned by the ``coal`` callback, and as second argument the
-            observation passed to the ``observation`` argument (if any).
+            observation passed to the ``observation`` argument (if any). A typical choice aggregates a
+            :class:`~phasegen.norms.Norm` or :class:`~phasegen.norms.Likelihood` over observed and modelled
+            summary statistics (e.g. the :class:`~phasegen.norms.PoissonLikelihood` for site-frequency-spectrum counts).
         :param x0: Dictionary of initial numeric guesses for parameters to optimize.
         :param observation: The observed summary statistic the inference is based on.
             This is passed as second argument to the ``loss`` function, and is only required
@@ -81,7 +91,7 @@ class Inference(Serializable):
             .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
                 It can also lead to hanging processes due to pickling issues, depending on how the
                 provided callback function is defined. For more scalable parallelization, consider using the
-                :meth:`create_run` and :meth:`create_bootstrap` methods to create new `Inference` objects that can be
+                :meth:`create_run` and :meth:`create_bootstrap` methods to create new :class:`Inference` objects that can be
                 run independently, and whose results can be merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
@@ -486,12 +496,15 @@ class Inference(Serializable):
 
     def bootstrap(self) -> None:
         """
-        Perform bootstrapping.
+        Perform bootstrapping to estimate parameter uncertainty. For each of :attr:`n_bootstraps` replicates the
+        observation :math:`y` is resampled to :math:`y^{*}` via the ``resample`` callback and the inference is rerun,
+        yielding :math:`\\hat{\\theta}^{*} = \\arg\\min_{\\theta} L(\\mathrm{coal}(\\theta),\\, y^{*})`. The spread of the
+        replicate estimates :math:`\\{\\hat{\\theta}^{*}_b\\}` estimates the sampling distribution of :math:`\\hat{\\theta}`.
 
         :return: Bootstrap replicates.
         """
         if not self.params_inferred:
-            raise RuntimeError('The main optimization must be run first (call the `run` method).')
+            raise RuntimeError('The main optimization must be run first (call :meth:`run`).')
 
         x0 = self.params_inferred
         bounds = self.bounds
@@ -728,7 +741,7 @@ class Inference(Serializable):
             kwargs = {}
 
         if self.dist_inferred is None:
-            raise RuntimeError('The main optimization must be run first (call the `run` method).')
+            raise RuntimeError('The main optimization must be run first (call :meth:`run`).')
 
         if t is None:
             t = np.linspace(0, self.dist_inferred.tree_height.quantile(0.99), 100)
@@ -775,7 +788,7 @@ class Inference(Serializable):
     def create_run(self, x0: Dict[str, float] = None) -> 'Inference':
         """
         Create a new Inference object which can be run independently. This is useful when parallelizing runs on a
-        cluster. You can add performed runs by using the `add_run` method.
+        cluster. You can add performed runs by using the :meth:`add_run` method.
 
         :param x0: Initial parameters.
         :return: Inference object.
@@ -808,7 +821,7 @@ class Inference(Serializable):
         :raises RuntimeError: If the main optimization has not been run yet.
         """
         if inference.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+            raise RuntimeError('The provided Inference object must be run first (call :meth:`run`).')
 
         # add the loss of the new run to the list of losses
         self.runs.loc[len(self.runs)] = (
@@ -836,7 +849,7 @@ class Inference(Serializable):
         """
         Resample the observation and return a new Inference object with the resampled observation.
         This is useful when parallelizing bootstraps on a cluster. You can add performed bootstraps
-        by using the `add_bootstrap` method.
+        by using the :meth:`add_bootstrap` method.
 
         :return: Resampled observation.
         """
@@ -855,7 +868,7 @@ class Inference(Serializable):
         :raises RuntimeError: If the main optimization has not been run yet.
         """
         if bootstrap.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+            raise RuntimeError('The provided Inference object must be run first (call :meth:`run`).')
 
         # add bootstrap parameters
         self.bootstraps.loc[len(self.bootstraps)] = (

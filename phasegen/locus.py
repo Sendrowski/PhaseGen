@@ -56,8 +56,11 @@ class LocusConfig:
         self._allow_coalescence: float = True
 
     def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
-        """
-        Get (not normalized) initial state vector for the locus configuration.
+        r"""
+        Get the (unnormalized) initial-state indicator for the locus configuration, i.e. the states of
+        :class:`~phasegen.state_space.StateSpace` consistent with the requested number of loci and initially linked
+        lineages. Combined with the population indicator and normalized, this yields the initial distribution
+        :math:`\boldsymbol{\alpha}`.
 
         :param s: State space
         :return: Initial state vector

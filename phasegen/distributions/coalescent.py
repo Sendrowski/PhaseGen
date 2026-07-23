@@ -247,11 +247,13 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @cached_property
     def tree_height(self) -> TreeHeightDistribution:
-        """
-        Tree height distribution, i.e. the time to the most recent common ancestor. With multiple loci this is the
-        time until *all* loci have reached their MRCA (absorption of the two-locus ancestral process), so it equals
-        the single-locus height when fully linked (``r = 0``) and grows towards the maximum of the per-locus heights
-        as the loci decouple (``r -> inf``).
+        r"""
+        Tree height distribution, i.e. the time to the most recent common ancestor. This is the phase-type absorption
+        time :math:`\tau = \inf\{t \ge 0 : X_t \in B\}` of the underlying Markov jump process, equivalently the
+        accumulated reward under the unit tree-height reward :math:`r_{\text{height}}(i) = \mathbb{1}\{i \notin B\}`.
+        With multiple loci this is the time until *all* loci have reached their MRCA (absorption of the two-locus
+        ancestral process), so it equals the single-locus height when fully linked (:math:`r = 0`) and grows towards
+        the maximum of the per-locus heights as the loci decouple (:math:`r \to \infty`).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,
@@ -262,8 +264,10 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @cached_property
     def total_branch_length(self) -> TotalBranchLengthDistribution:
-        """
-        Total branch length distribution.
+        r"""
+        Total branch length distribution: the sum of all branch lengths of the coalescent tree, i.e. the accumulated
+        reward :math:`\int_0^{\tau} r_{\text{length}}(X_s)\,\mathrm{d}s` under the reward
+        :math:`r_{\text{length}}(i) = (\text{number of lineages in } i)`.
         """
         return TotalBranchLengthDistribution(
             tree_height=self.tree_height,
@@ -287,9 +291,11 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @cached_property
     def sfs(self) -> UnfoldedSFSDistribution:
-        """
-        Unfolded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
-        use :meth:`sfs2`.
+        r"""
+        Unfolded site-frequency spectrum distribution. Bin :math:`k` is the accumulated length of all branches
+        subtending exactly :math:`k` samples, the reward :math:`r_{\text{SFS},k}(i) = a_k(i)` counting the
+        :math:`k`-subtending lineage blocks in state :math:`i`. Defined for a single locus; for two loci under
+        recombination use :attr:`sfs2`.
         """
         self._require_single_locus('sfs')
 
@@ -303,7 +309,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     def fsfs(self) -> FoldedSFSDistribution:
         """
         Folded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
-        use :meth:`sfs2`.
+        use :attr:`sfs2`.
         """
         self._require_single_locus('fsfs')
 
@@ -527,9 +533,9 @@ class Coalescent(AbstractCoalescent, Serializable):
     @_make_hashable
     @cache
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
-        """
-        The full 1D distribution of an accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption -- a
-        callable-and-plottable object housing the ``mean`` / ``var`` / ``std``, the ``cdf`` / ``pdf`` and the
+        r"""
+        The full 1D distribution of an accumulated reward :math:`R = \int_0^{\tau} r(X_s)\,\mathrm{d}s` to absorption
+        -- a callable-and-plottable object housing the ``mean`` / ``var`` / ``std``, the ``cdf`` / ``pdf`` and the
         ``quantile`` function (via the Laplace-transform inversion). The state space is inferred from the reward
         (as for :meth:`moment`); cached per reward.
 
@@ -564,8 +570,10 @@ class Coalescent(AbstractCoalescent, Serializable):
             center: bool = True,
             permute: bool = True
     ) -> float:
-        """
-        Get the kth (non-central) moment using the specified rewards and state space.
+        r"""
+        Get the :math:`k`-th (non-central) moment :math:`\mathbb{E}[R^k]` using the specified rewards and state space.
+        For a cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`, averaged over
+        the ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
 
         :param k: The order of the moment
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.

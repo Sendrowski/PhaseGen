@@ -103,11 +103,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return self.moment(k=2, center=False)
 
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
-        """
-        Full distribution (CDF / PDF / quantiles) of the accumulated reward to absorption, for an arbitrary
-        reward and demography, via the Laplace-Stieltjes transform and its numerical inversion. Where
-        :attr:`mean` / :meth:`moment` give only the moments of the accumulated reward, this gives its
-        distribution. The reward must be scalar (one value per state); for a spectrum, pass a single bin's reward.
+        r"""
+        Full distribution (CDF / PDF / quantiles) of the accumulated reward :math:`Y = \int_0^\tau r(X_s)\,
+        \mathrm{d}s` to absorption, for an arbitrary reward and demography, via the Laplace-Stieltjes transform
+        :math:`\varphi(s) = \mathbb{E}[e^{-sY}]` and its numerical inversion. Where :attr:`mean` / :meth:`moment`
+        give only the moments of the accumulated reward, this gives its distribution. The reward must be scalar (one
+        value per state); for a spectrum, pass a single bin's reward.
 
         :param reward: The reward whose accumulation is distributed. Defaults to this distribution's own reward.
         :return: The accumulated-reward distribution.
@@ -117,10 +118,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return RewardDistribution(self, reward)
 
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
-        """
-        Joint distribution of two accumulated rewards — the distributional object behind a cross-moment
-        ``E[R_a R_b]`` (e.g. a pair of SFS bins within a tree, or a two-locus SFS entry across loci). Provides the
-        joint LST, the marginals, and the cross-moments/covariance/correlation; the joint CDF/PDF builds on it.
+        r"""
+        Joint distribution of two accumulated rewards, the distributional object behind a cross-moment
+        :math:`\mathbb{E}[Y_a Y_b]` (e.g. a pair of SFS bins within a tree, or a two-locus SFS entry across loci).
+        Provides the joint LST :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a Y_a - s_b Y_b}]`, the marginals, and the
+        cross-moments/covariance/correlation; the joint CDF/PDF builds on it.
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.
@@ -154,14 +156,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     @property
     def _s_inf(self) -> float:
-        """
-        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
+        r"""
+        The :math:`s \to \infty` probe used for the atom :math:`\mathbb{P}(Y = 0) = \varphi(\infty)` (and the axis
+        atoms of a joint).
 
         Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
-        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
-        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
-        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
+        which go like :math:`1 / \tau`, so a hard-coded :math:`s` is only large in the :math:`\tau \sim 1` regime.
+        On a small-N demography (:math:`\tau = 10^{-6}`) :math:`\varphi(10^8)` has not decayed at all and reports a
+        1.9% atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry); it needs
+        :math:`s \sim 10^{12}` to converge. Probing at :math:`10^8 / \tau` keeps :math:`s` the same large multiple
+        of the rate scale in every regime.
         """
         return 1e8 / self._time_scale
 
@@ -174,9 +178,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return _scale_epoch_data(self._reward_epoch_data, self._time_scale)
 
     def _cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
-        """
-        Cumulative distribution function of the accumulated reward, ``P(R <= t)``, via the Laplace-Stieltjes
-        transform and its numerical inversion (see :class:`RewardDistribution`).
+        r"""
+        Cumulative distribution function of the accumulated reward, :math:`\mathbb{P}(Y \le t)`, via the
+        Laplace-Stieltjes transform and its numerical inversion (see
+        :class:`~phasegen.distributions.reward.RewardDistribution`).
 
         :param t: Value or values to evaluate the CDF at.
         :return: Cumulative probability.
@@ -401,15 +406,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             rewards: Sequence[Reward],
             record_visits: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        """
+        r"""
         Vectorized trajectory sampler: advance all ``n_samples`` walkers through the CTMC in lockstep, one wave per
         jump, instead of looping in Python.
 
-        Each walker carries a remaining hazard budget ``H ~ Exp(1)``, resampled after every jump. The time to its
-        next event in the current epoch is ``H / lambda`` (``lambda`` the exit rate); a walker whose budget outlasts
-        the epoch is advanced to the boundary (accruing reward and consuming ``lambda * duration`` of hazard) and
-        steps into the next epoch. This hazard-budget form handles zero-rate epochs (temporarily isolated demes)
-        uniformly: ``lambda = 0`` consumes no hazard, so the walker simply waits out the epoch accruing reward.
+        Each walker carries a remaining hazard budget :math:`H \sim \mathrm{Exp}(1)`, resampled after every jump. The
+        time to its next event in the current epoch is :math:`H / \lambda` (:math:`\lambda` the exit rate); a walker
+        whose budget outlasts the epoch is advanced to the boundary (accruing reward and consuming
+        :math:`\lambda \cdot \mathrm{duration}` of hazard) and steps into the next epoch. This hazard-budget form
+        handles zero-rate epochs (temporarily isolated demes) uniformly: :math:`\lambda = 0` consumes no hazard, so
+        the walker simply waits out the epoch accruing reward.
 
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from.
@@ -603,11 +609,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
 
 class _ExpmFunction(_HazardGrid):
-    """
+    r"""
     Mixin owning the tree-height's matrix-exponential machinery for its function objects. The point evaluator is
-    ``d._sweep`` (see :meth:`TreeHeightDistribution._sweep`), which propagates ``w = alpha @ prod_e exp(Q_e tau_e)``
-    through the epochs and reads off both ``F(t) = 1 - w @ e`` and ``f(t) = -w @ Q @ e`` -- the CDF *and* its exact
-    derivative, so nothing here differences the CDF numerically.
+    ``d._sweep`` (see :meth:`~phasegen.distributions.phase_type.TreeHeightDistribution._sweep`), which propagates
+    :math:`\mathbf{w} = \boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)` through the epochs and reads off both
+    :math:`F(t) = 1 - \mathbf{w}\,\mathbf{e}` and :math:`f(t) = -\mathbf{w}\,\mathbf{S}\,\mathbf{e}`, the CDF *and*
+    its exact derivative, so nothing here differences the CDF numerically.
 
     An expm point is orders of magnitude cheaper than the de Hoog inversion of an LST distribution
     (:class:`~.base._LSTFunction`), so the cdf and pdf simply evaluate it and are exact at every point asked for. The
@@ -669,8 +676,9 @@ class _ExpmFunction(_HazardGrid):
 
 
 class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistributionFunction):
-    """The tree-height CDF by direct matrix exponentiation: ``P(R <= t) = 1 - alpha @ prod_e exp(Q_e tau_e) @ e``,
-    exact at every point asked for."""
+    r"""The tree-height CDF by direct matrix exponentiation,
+    :math:`\mathbb{P}(\tau \le t) = 1 - \boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)\,\mathbf{e}`, exact at
+    every point asked for."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         """
@@ -727,10 +735,11 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
 
 
 class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
-    """The tree-height density by direct matrix exponentiation: ``f(t) = -alpha @ prod_e exp(Q_e tau_e) @ Q @ e``,
-    the exit-rate reading of the same propagated vector the CDF is read off. Exact, and in particular not a finite
-    difference of the CDF: subtracting CDF values a step ``quantile(0.99) / 1e10`` apart would throw away most of
-    their significant digits."""
+    r"""The tree-height density by direct matrix exponentiation,
+    :math:`f(t) = -\boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)\,\mathbf{S}\,\mathbf{e}`, the exit-rate
+    reading of the same propagated vector the CDF is read off. Exact, and in particular not a finite difference of
+    the CDF: subtracting CDF values a step ``quantile(0.99) / 1e10`` apart would throw away most of their
+    significant digits."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         """
@@ -841,11 +850,13 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.end_time: float | None = end_time
 
     def _propagate(self, w: np.ndarray, tau: float) -> np.ndarray:
-        """
-        Advance the row vector ``w = alpha @ prod exp(Q tau)`` by ``tau`` in the *current* epoch: ``w @ exp(S tau)``.
+        r"""
+        Advance the row vector :math:`\mathbf{w} = \boldsymbol{\alpha} \prod \exp(\mathbf{S}\tau)` by ``tau`` in the
+        *current* epoch: :math:`\mathbf{w} \mapsto \mathbf{w}\,\exp(\mathbf{S}\tau)`.
 
-        Only ``alpha @ T @ e`` is ever read off the propagator, so the row vector is carried rather than the ``k x k``
-        matrix, and the choice of how to apply the exponential follows the same configuration as the moment engine
+        Only :math:`\boldsymbol{\alpha}\,\mathbf{T}\,\mathbf{e}` is ever read off the propagator, so the row vector
+        is carried rather than the :math:`k \times k` matrix, and the choice of how to apply the exponential follows
+        the same configuration as the moment engine
         (:meth:`~._moments.MomentEvaluator._accumulate`): above :attr:`~phasegen.settings.Settings.expm_action_min_dim`
         the (sparse) matrix-exponential *action* is applied to the vector, below it the dense exponential is formed.
         A dense ``k x k`` exponential of a state space this machinery is asked for at large ``n`` is precisely what
@@ -874,10 +885,10 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return self.reward._get(self.state_space)
 
     def _cum(self, w: np.ndarray) -> float:
-        """
-        The cumulative probability carried by a propagated row vector: ``F(t) = 1 - w @ e``.
+        r"""
+        The cumulative probability carried by a propagated row vector: :math:`F(t) = 1 - \mathbf{w}\,\mathbf{e}`.
 
-        :param w: The propagated row vector ``alpha @ T``.
+        :param w: The propagated row vector :math:`\boldsymbol{\alpha}\,\mathbf{T}`.
         :return: Cumulative probability.
         """
         return float(1 - w @ self._e)
@@ -909,15 +920,19 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return self._propagate(w, u - u_prev)
 
     def _exit_rates(self) -> np.ndarray:
-        """The exit-rate vector ``-S @ e`` of the *current* epoch: the density is ``f(t) = w @ (-S @ e)`` for the
-        propagated ``w``, since ``F = 1 - w e`` and ``d/dt (w e) = w S e``."""
+        r"""The exit-rate vector :math:`-\mathbf{S}\,\mathbf{e}` of the *current* epoch: the density is
+        :math:`f(t) = \mathbf{w}\,(-\mathbf{S}\,\mathbf{e})` for the propagated :math:`\mathbf{w}`, since
+        :math:`F = 1 - \mathbf{w}\,\mathbf{e}` and
+        :math:`\frac{\mathrm{d}}{\mathrm{d}t}(\mathbf{w}\,\mathbf{e}) = \mathbf{w}\,\mathbf{S}\,\mathbf{e}`."""
         return -(self.state_space.S @ self._e)
 
     def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        The exact CDF *and* density at the ascending times ``t``, in one pass: propagate ``w = alpha @ T(u)`` through
-        the epochs, reading off ``F = 1 - w @ e`` and ``f = w @ (-S @ e)`` at each. The density is the exit-rate
-        reading of the very same vector, so it costs one matrix-vector product and needs no finite difference.
+        r"""
+        The exact CDF *and* density at the ascending times ``t``, in one pass: propagate
+        :math:`\mathbf{w} = \boldsymbol{\alpha}\,\mathbf{T}(u)` through the epochs, reading off
+        :math:`F = 1 - \mathbf{w}\,\mathbf{e}` and :math:`f = \mathbf{w}\,(-\mathbf{S}\,\mathbf{e})` at each. The
+        density is the exit-rate reading of the very same vector, so it costs one matrix-vector product and needs no
+        finite difference.
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.

@@ -1,8 +1,16 @@
 .. _modules.config:
 
-Configuration
--------------
+Lineage & Locus config
+----------------------
 
-.. automodule:: phasegen.lineage
+.. rubric:: Classes
 
-.. automodule:: phasegen.locus
+.. autosummary::
+   :nosignatures:
+
+   ~phasegen.lineage.LineageConfig
+   ~phasegen.locus.LocusConfig
+
+.. autoclass:: phasegen.lineage.LineageConfig
+
+.. autoclass:: phasegen.locus.LocusConfig

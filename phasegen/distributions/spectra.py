@@ -35,9 +35,10 @@ logger = logging.getLogger('phasegen')
 
 class _SFSAggregateFunction:
     """Mixin: a per-bin SFS function object evaluates by looping the spectrum's frequency classes -- each a single-
-    reward :class:`RewardDistribution` -- and stacking their cdf / pdf / quantile (selected by :attr:`kind`) into an
-    :class:`SFS` (one value per class; the monomorphic edges stay 0). A scalar argument returns an :class:`SFS`; an
-    array returns a ``(len(t), n + 1)`` stack. The spectrum it hangs off supplies the per-bin distributions."""
+    reward :class:`~phasegen.distributions.reward.RewardDistribution` -- and stacking their cdf / pdf / quantile
+    (selected by :attr:`kind`) into an :class:`~sfsutils.spectrum.Spectrum` (one value per class; the monomorphic edges
+    stay 0). A scalar argument returns a spectrum; an array returns a ``(len(t), n + 1)`` stack. The spectrum it hangs
+    off supplies the per-bin distributions."""
 
     def __call__(self, t) -> 'SFS | np.ndarray':
         d = self._distribution
@@ -75,8 +76,10 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
 
 
 class SFSDistribution(PhaseTypeDistribution, ABC):
-    """
-    Base class for site-frequency spectrum distributions.
+    r"""
+    Base class for site-frequency spectrum distributions. Bin :math:`i` accumulates the total branch length
+    :math:`L_i` subtending :math:`i` of the :math:`n` samples; the spectrum mean is the vector of expected bin branch
+    lengths :math:`\mathbb{E}[L_i]`, and :attr:`cov` its within-tree covariance :math:`\operatorname{Cov}[L_i, L_j]`.
 
     The spectrum-wide moment accessors (:attr:`mean`, :attr:`cov`) share a single occupation-time solve across all
     bins rather than solving each bin separately.
@@ -468,23 +471,25 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return [(i, self._get_sfs_reward(i)) for i in indices]
 
     def bin(self, i: int) -> 'RewardDistribution':
-        """The 1D distribution of bin ``i``'s branch length ``L_i`` — a callable-and-plottable
-        :class:`RewardDistribution` (e.g. ``sfs.bin(2).pdf.plot()``, ``sfs.bin(2).quantile(0.9)``).
+        r"""The 1D distribution of bin ``i``'s branch length :math:`L_i`, a callable-and-plottable
+        :class:`~phasegen.distributions.reward.RewardDistribution` (e.g. ``sfs.bin(2).pdf.plot()``,
+        ``sfs.bin(2).quantile(0.9)``).
 
         :param i: The frequency class.
-        :return: The accumulated-reward distribution of ``L_i``.
+        :return: The accumulated-reward distribution of :math:`L_i`.
         """
         d = self.distribution(reward=self._get_sfs_reward(i))
         d.label = f"SFS bin {i}"
         return d
 
     def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
-        """The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
-        2-SFS / ``cov`` cross-moment as a bivariate distribution). See :class:`RewardDistribution`'s joint variant.
+        r"""The joint distribution of the branch lengths of bins ``i`` and ``j`` *within a tree* (the within-tree
+        2-SFS / :attr:`cov` cross-moment :math:`\mathbb{E}[L_i\, L_j]` as a bivariate distribution). See
+        :class:`~phasegen.distributions.reward.JointRewardDistribution`.
 
         :param i: The first frequency class.
         :param j: The second frequency class.
-        :return: The joint accumulated-reward distribution of ``(L_i, L_j)``.
+        :return: The joint accumulated-reward distribution of :math:`(L_i, L_j)`.
         """
         jd = super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
         jd.label = f"SFS bins ({i}, {j})"
@@ -605,10 +610,16 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         )
 
     def _cov_batched(self) -> Optional[TwoSFS]:
-        """
-        Batched 2-SFS: all ``O(n^2)`` bin pairs share one two-point occupation operator ``K`` (see
-        :meth:`_two_point_occupation`), so the whole covariance is ``cov = R^T (K + K^T) R - outer(mean)`` via a
-        single contraction over the stacked bin rewards instead of a cross-moment per pair.
+        r"""
+        Batched 2-SFS: all :math:`O(n^2)` bin pairs share one two-point occupation operator :math:`\mathbf{K}` (see
+        :meth:`_two_point_occupation`), so the whole covariance is
+
+        .. math::
+            \operatorname{Cov} = \mathbf{R}^\top (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{R}
+            - \boldsymbol{\mu}\, \boldsymbol{\mu}^\top
+
+        via a single contraction over the stacked bin rewards :math:`\mathbf{R}` (columns the per-bin SFS reward
+        vectors) and the outer product of the bin means :math:`\boldsymbol{\mu}`, instead of a cross-moment per pair.
 
         :return: The covariance, or ``None`` when not applicable (closed form disabled, explicit end time, or
             absorption not almost sure) so the caller falls back to the per-pair path.
@@ -741,12 +752,24 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
     @cache
     def _get_P(self, n: int, theta: float) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Get transition matrix for mutational configuration probabilities.
+        r"""
+        Per-mutation resolvent and per-class jump matrices for the mutational-configuration probabilities of a single
+        time-homogeneous epoch. With the SFS reward vectors :math:`\mathbf{R}_i` restricted to the transient states,
+        their total :math:`\mathbf{r}_{\mathrm{tot}} = \sum_i \mathbf{R}_i`, and the transient sub-intensity matrix
+        :math:`\mathbf{T}`, the resolvent and its per-class factors are
+
+        .. math::
+            \mathbf{P}_{\mathrm{tot}} = \Big( \mathbf{I} - \tfrac{1}{\theta}\,
+            \triangle(1 / \mathbf{r}_{\mathrm{tot}})\, \mathbf{T} \Big)^{-1},
+            \qquad
+            \mathbf{P}_i = \mathbf{P}_{\mathrm{tot}}\, \triangle(\mathbf{R}_i / \mathbf{r}_{\mathrm{tot}}),
+
+        with exit vector :math:`(\mathbf{I} - \mathbf{P}_{\mathrm{tot}})\, \mathbf{e}`. The resolvent integrates the
+        inter-mutation waiting times in closed form, which requires a constant rate matrix.
 
         :param n: The number of frequency bins.
-        :param theta: The mutation rate.
-        :return: Transition matrix and exit vector.
+        :param theta: The scaled mutation rate :math:`\theta`.
+        :return: The per-class jump matrices :math:`\mathbf{P}_i` (stacked) and the exit vector.
         """
         # get non-absorbing states
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
@@ -780,8 +803,19 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             )
 
     def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
-        """
-        Get the probabilities of observing the given mutational configurations according to the infinite sites model.
+        r"""
+        Probability of observing the given mutational configuration under the infinite-sites model. Conditional on the
+        coalescent tree the class-:math:`i` mutation count is Poisson with mean :math:`\theta\, \ell_i`, where
+        :math:`\ell_i` is the total :math:`i`-subtending branch length and :math:`\theta` the scaled mutation rate, so
+        the configuration :math:`\mathbf{k}` has probability
+
+        .. math::
+            P(\mathbf{K} = \mathbf{k}) = \mathbb{E}_{\mathrm{tree}}\!\left[ \prod_i
+            \operatorname{Poisson}(k_i;\, \theta\, \ell_i) \right].
+
+        This expectation is evaluated in closed form on the block-counting state space, via the single-epoch resolvent
+        (:meth:`_get_mutation_config_homogeneous`) for one epoch and the multi-epoch killed lattice process
+        (:meth:`_get_mutation_config_inhomogeneous`) for several.
 
         .. note::
             This supports piecewise time-homogeneous demography (any number of epochs). Recombination is not
@@ -794,7 +828,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             singleton, one doubleton and zero tripleton mutations for a sample size of 4 lineages. Similarly, the
             folded configuration [2, 1] represents two singleton or tripleton and one doubleton mutation for the same
             number of lineages.
-        :param theta: The mutation rate.
+        :param theta: The scaled mutation rate :math:`\theta`.
         :return: The probability of observing the given mutational configuration.
         """
         # make sure theta is non-negative
@@ -831,13 +865,21 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return self._get_mutation_config_homogeneous(config, n, theta)
 
     def _get_mutation_config_homogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
-        """
-        Mutational-configuration probability for a single (time-homogeneous) epoch, summing the embedded
-        jump-chain transition matrices :meth:`_get_P` over all orderings of the mutation events.
+        r"""
+        Mutational-configuration probability for a single (time-homogeneous) epoch. The probability sums the ordered
+        products of the per-class jump matrices :math:`\mathbf{P}_i` (:meth:`_get_P`) over all multiset orderings of
+        the :math:`\sum_i k_i` mutation events, contracted with the initial vector :math:`\boldsymbol{\alpha}` and the
+        exit vector :math:`(\mathbf{I} - \mathbf{P}_{\mathrm{tot}})\, \mathbf{e}`:
+
+        .. math::
+            P(\mathbf{K} = \mathbf{k}) = \boldsymbol{\alpha} \left( \sum_{\sigma} \prod_j \mathbf{P}_{\sigma_j}
+            \right) (\mathbf{I} - \mathbf{P}_{\mathrm{tot}})\, \mathbf{e},
+
+        the sum running over the distinct orderings :math:`\sigma` of the multiset of mutation events.
 
         :param config: The mutational configuration as a tuple of integers, one per frequency bin.
         :param n: The number of frequency bins.
-        :param theta: The mutation rate.
+        :param theta: The scaled mutation rate :math:`\theta`.
         :return: The probability of observing the given mutational configuration.
         """
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
@@ -895,26 +937,30 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return non_absorbing, R, r_total, alpha, epochs
 
     def _get_mutation_config_inhomogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
-        """
+        r"""
         Mutational-configuration probability for piecewise time-homogeneous demography.
 
-        Conditional on the coalescent tree the class-``i`` mutation count is Poisson with mean ``theta * ell_i``,
-        where ``ell_i`` is the ``i``-ton branch length, so the probability of the configuration ``k`` is the
-        expectation over the tree of the product of these Poisson masses. This is evaluated with an augmented killed
-        process on (phase, mutation-count lattice), the lattice node ``c`` ranging over ``0 <= c_i <= k_i``:
+        Conditional on the coalescent tree the class-:math:`i` mutation count is Poisson with mean
+        :math:`\theta\, \ell_i`, where :math:`\ell_i` is the :math:`i`-subtending branch length, so the configuration
+        :math:`\mathbf{k}` has probability :math:`\mathbb{E}_{\mathrm{tree}}[\prod_i \operatorname{Poisson}(k_i;\,
+        \theta\, \ell_i)]`. This is evaluated with an augmented killed process on (phase, mutation-count lattice), the
+        lattice node :math:`c` ranging over :math:`0 \le c_i \le k_i`:
 
-        - diagonal block ``(c, c)``: the epoch sub-generator ``S_j`` minus ``theta * diag(sum_i R_i)``;
-        - super-diagonal block ``c -> c + e_i`` (only while ``c_i < k_i``): ``theta * diag(R_i)``.
+        - diagonal block :math:`(c, c)`: the epoch sub-intensity matrix
+          :math:`\mathbf{T}_j - \theta\, \triangle(\sum_i \mathbf{R}_i)`;
+        - super-diagonal block :math:`c \mapsto c + \mathbf{e}_i` (only while :math:`c_i < k_i`):
+          :math:`\theta\, \triangle(\mathbf{R}_i)`.
 
-        A class-``i`` mutation at the cap ``c_i = k_i`` leaks out (killed), which realises the ``exp(-theta ell_i)``
-        factor and pins the count to exactly ``k_i``. The process is propagated through each epoch with its matrix
-        exponential, accumulating the mass absorbed at the top lattice node ``k`` in every epoch (the most recent
-        common ancestor can be reached in any epoch, not only the last); the final unbounded epoch is integrated to
-        absorption with the resolvent. For a single epoch this reduces to :meth:`_get_mutation_config_homogeneous`.
+        A class-:math:`i` mutation at the cap :math:`c_i = k_i` leaks out (killed), which realises the
+        :math:`e^{-\theta \ell_i}` factor and pins the count to exactly :math:`k_i`. The process is propagated through
+        each epoch with its matrix exponential, accumulating the mass absorbed at the top lattice node
+        :math:`\mathbf{k}` in every epoch (the most recent common ancestor can be reached in any epoch, not only the
+        last); the final unbounded epoch is integrated to absorption with the resolvent. For a single epoch this
+        reduces to :meth:`_get_mutation_config_homogeneous`.
 
         :param config: The mutational configuration as a tuple of integers, one per frequency bin.
         :param n: The number of frequency bins.
-        :param theta: The mutation rate.
+        :param theta: The scaled mutation rate :math:`\theta`.
         :return: The probability of observing the given mutational configuration.
         """
         non_absorbing, R, r_total, alpha, epochs = self._mutation_epoch_data
@@ -1276,9 +1322,10 @@ class FoldedSFSDistribution(SFSDistribution):
 
 class _JointSFSAggregateFunction:
     """Mixin: a per-bin joint-SFS function object evaluates by looping the spectrum's descendant configurations --
-    each a single-reward :class:`RewardDistribution` -- and stacking their cdf / pdf / quantile (selected by
-    :attr:`kind`) into a :class:`JointSFS` (one value per configuration; monomorphic bins 0). A scalar argument
-    returns a :class:`JointSFS`; an array returns a ``(len(t),) + shape`` stack."""
+    each a single-reward :class:`~phasegen.distributions.reward.RewardDistribution` -- and stacking their cdf / pdf /
+    quantile (selected by :attr:`kind`) into a :class:`~sfsutils.spectrum.JointSFS` (one value per configuration;
+    monomorphic bins 0). A scalar argument returns a :class:`~sfsutils.spectrum.JointSFS`; an array returns a
+    ``(len(t),) + shape`` stack."""
 
     def __call__(self, t) -> 'JointSFS | np.ndarray':
         d = self._distribution
@@ -1305,13 +1352,14 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunct
 
 
 class JointSFSDistribution(PhaseTypeDistribution):
-    """
+    r"""
     Joint (multi-population) site-frequency spectrum distribution.
 
     Moments are returned as a multi-dimensional array of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, where ``n_p`` is the
-    sample size of population ``p``. The entry at index ``(k_0, ..., k_{P-1})`` is the moment for branches subtending
-    exactly ``k_p`` samples from population ``p``. The monomorphic bins (the all-zero and the full
-    ``(n_0,...,n_{P-1})`` configuration) are zero by convention.
+    sample size of population ``p``. The entry at index :math:`(k_0, \dots, k_{P-1})` is the moment of the branch
+    length :math:`L_{(k_0, \dots, k_{P-1})}` subtending exactly :math:`k_p` samples from population :math:`p`; the
+    mean is :math:`\mathbb{E}[L_{(k_0, \dots, k_{P-1})}]`. The monomorphic bins (the all-zero and the full
+    :math:`(n_0, \dots, n_{P-1})` configuration) are zero by convention.
 
     The spectrum-wide moment accessors (:attr:`mean`, :attr:`var`, :attr:`cov`) share a single occupation-time solve
     across all bins rather than solving each bin separately.
@@ -1786,11 +1834,13 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
     @cached_property
     def _cov_batched(self) -> Optional[Tuple[List[Tuple[int, ...]], np.ndarray]]:
-        """
-        Batched joint-SFS covariance: all ``O(n^{2P})`` bin pairs share one two-point occupation operator ``K``
-        (see :meth:`_two_point_occupation`), so the whole covariance is ``cov = R^T (K + K^T) R - outer(mean)`` via a
-        single contraction over the stacked bin rewards instead of a cross-moment per pair. Cached so that
-        :attr:`cov` and :attr:`var` share the single (potentially expensive) ``K`` solve.
+        r"""
+        Batched joint-SFS covariance: all :math:`O(n^{2P})` bin pairs share one two-point occupation operator
+        :math:`\mathbf{K}` (see :meth:`_two_point_occupation`), so the whole covariance is
+        :math:`\operatorname{Cov} = \mathbf{R}^\top (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{R} - \boldsymbol{\mu}\,
+        \boldsymbol{\mu}^\top` via a single contraction over the stacked bin rewards :math:`\mathbf{R}` and the outer
+        product of the bin means :math:`\boldsymbol{\mu}`, instead of a cross-moment per pair. Cached so that
+        :attr:`cov` and :attr:`var` share the single (potentially expensive) :math:`\mathbf{K}` solve.
 
         :return: ``(configs, cov)`` with ``cov`` the bins-by-bins covariance over the polymorphic ``configs``, or
             ``None`` when not applicable (closed form disabled, explicit end time, or absorption not almost sure) so
@@ -1850,12 +1900,13 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
 
 class TwoLocusSFSDistribution(PhaseTypeDistribution):
-    """
-    Two-locus site-frequency spectrum under recombination. Entry ``(i, j)`` of the (symmetrized) mean is
-    ``E[L^0_i · L^1_j]`` — the expected product of the branch length subtending ``i`` samples at locus 0 and ``j``
-    samples at locus 1 — computed as a second cross-moment of two per-locus SFS rewards on the two-locus
-    block-counting state space. It reduces to ``Coalescent.sfs.cov`` (plus the outer product of the marginal means)
-    as ``r → 0`` and to the outer product of the marginal SFS as ``r → ∞``.
+    r"""
+    Two-locus site-frequency spectrum under recombination. Entry :math:`(i, j)` of the (symmetrized) mean is the
+    second cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the expected product of the branch length subtending
+    :math:`i` samples at locus 0 and :math:`j` samples at locus 1, computed from two per-locus SFS rewards on the
+    two-locus block-counting state space. It reduces to
+    :attr:`~phasegen.distributions.spectra.SFSDistribution.cov` (plus the outer product of the marginal means) as
+    :math:`r \to 0` and to the outer product of the marginal SFS as :math:`r \to \infty`.
 
     The :attr:`mean` is computed for the whole spectrum at once as a single two-point occupation contraction shared
     across all bin pairs rather than a cross-moment per pair.
@@ -1909,13 +1960,13 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
     cdf = pdf = quantile = plot_cdf = plot_pdf = bin = _no_univariate_distribution
 
     def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
-        """The joint distribution of the locus-0 bin-``i`` and locus-1 bin-``j`` branch lengths — the bivariate
-        object behind the two-locus SFS entry ``E[L^0_i L^1_j]``. Its ``(1, 1)`` cross-moment is that entry, and
-        its ``corr`` is the cross-locus correlation.
+        r"""The joint distribution of the locus-0 bin-``i`` and locus-1 bin-``j`` branch lengths, the bivariate
+        object behind the two-locus SFS entry :math:`\mathbb{E}[L^0_i\, L^1_j]`. Its ``(1, 1)`` cross-moment is that
+        entry, and its :attr:`corr` is the cross-locus correlation.
 
         :param i: The locus-0 frequency class.
         :param j: The locus-1 frequency class.
-        :return: The joint accumulated-reward distribution of ``(L^0_i, L^1_j)``.
+        :return: The joint accumulated-reward distribution of :math:`(L^0_i, L^1_j)`.
         """
         jd = PhaseTypeDistribution.joint_distribution(self, TwoLocusSFSReward(0, i), TwoLocusSFSReward(1, j))
         jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
@@ -1923,11 +1974,11 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
     @cached_property
     def mean(self) -> TwoLocusSFS:
-        """
-        Mean two-locus SFS, ``E[L^0_i · L^1_j]`` for all polymorphic bins, symmetrized over the two loci. Computed for
-        the whole spectrum at once as a single two-point occupation contraction shared across all bin pairs, falling
-        back to a per-pair cross-moment when that closed form does not apply (a multi-epoch demography, an explicit end
-        time, or absorption not almost sure).
+        r"""
+        Mean two-locus SFS, :math:`\mathbb{E}[L^0_i\, L^1_j]` for all polymorphic bins, symmetrized over the two loci.
+        Computed for the whole spectrum at once as a single two-point occupation contraction shared across all bin
+        pairs (:meth:`_mean_batched`), falling back to a per-pair cross-moment when that closed form does not apply (a
+        multi-epoch demography, an explicit end time, or absorption not almost sure).
         """
         batched = self._mean_batched()
         if batched is not None:
@@ -1955,14 +2006,27 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         return TwoLocusSFS((out + out.T) / 2)
 
     def _mean_batched(self) -> Optional[TwoLocusSFS]:
-        """
-        Batched mean two-locus SFS. Each bin pair ``(i, j)`` is the uncentered cross-moment
-        ``E[L^0_i · L^1_j] = r^0_i (K + K^T) r^1_j`` with two-point occupation ``K = diag(m) (-T)^{-1}`` and occupation
-        times ``m = alpha (-T)^{-1}``. The dense ``K`` is never formed (the two-locus state space is large, so an
-        ``O(n_states^2)`` operator would cost more than every per-pair solve combined). Instead it is factored: with
-        ``A = (-T)^{-1} R1`` and ``B = (-T)^{-1} R0`` over the stacked per-locus bin rewards,
-        ``E[L^0 (L^1)^T] = (m ⊙ R0)^T A + B^T (m ⊙ R1)`` needs only ``2 (n - 1) + 1`` back-substitutions against one
-        factorization of the transient generator.
+        r"""
+        Batched mean two-locus SFS. Each bin pair :math:`(i, j)` is the uncentered cross-moment
+
+        .. math::
+            \mathbb{E}[L^0_i\, L^1_j] = \mathbf{r}^0_i (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{r}^1_j,
+            \qquad
+            \mathbf{K} = \triangle(\mathbf{m})\, (-\mathbf{T})^{-1},
+            \qquad
+            \mathbf{m} = \boldsymbol{\alpha}\, (-\mathbf{T})^{-1},
+
+        with :math:`\mathbf{T}` the transient sub-intensity matrix and :math:`\mathbf{m}` the occupation times. The
+        dense :math:`\mathbf{K}` is never formed (the two-locus state space is large, so an
+        :math:`O(n_{\mathrm{states}}^2)` operator would cost more than every per-pair solve combined). Instead it is
+        factored: with :math:`\mathbf{A} = (-\mathbf{T})^{-1} \mathbf{R}_1` and
+        :math:`\mathbf{B} = (-\mathbf{T})^{-1} \mathbf{R}_0` over the stacked per-locus bin rewards,
+
+        .. math::
+            \mathbb{E}[L^0 (L^1)^\top] = (\mathbf{m} \odot \mathbf{R}_0)^\top \mathbf{A}
+            + \mathbf{B}^\top (\mathbf{m} \odot \mathbf{R}_1)
+
+        needs only :math:`2(n - 1) + 1` back-substitutions against one factorization of the transient generator.
 
         Restricted, like :meth:`_two_point_occupation`, to a single (unbounded) epoch with almost-sure absorption and
         no accumulation window; other cases return ``None`` and the caller falls back to the per-pair cross-moment.
@@ -2006,9 +2070,10 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         return TwoLocusSFS((out + out.T) / 2)
 
     def sample_per_locus(self, n_samples: int) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Draw the per-locus branch-length vectors ``(L^0, L^1)`` from the *same* trajectories. The two-locus SFS
-        entry ``(i, j)`` is the cross-moment ``E[L^0_i · L^1_j]``, so both loci must come from one trajectory.
+        r"""
+        Draw the per-locus branch-length vectors ``(L^0, L^1)`` from the *same* trajectories. The two-locus SFS entry
+        :math:`(i, j)` is the cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, so both loci must come from one
+        trajectory.
 
         :param n_samples: Number of trajectories to sample.
         :return: A pair of arrays, each of shape ``(n_samples, n + 1)`` (locus-0 and locus-1 branch lengths).
@@ -2058,14 +2123,18 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
     @cached_property
     def corr(self) -> TwoLocusSFS:
-        """
+        r"""
         Pearson correlation between the locus-0 and locus-1 branch lengths,
-        ``Corr(L^0_i, L^1_j) = (E[L^0_i L^1_j] - E[L^0_i] E[L^1_j]) / (sd(L^0_i) sd(L^1_j))``, for all polymorphic
-        bins ``(i, j)``. This is the centered, scale-free companion to :attr:`mean` (which is the *uncentered*
-        cross-moment ``E[L^0_i L^1_j]`` and therefore tends to the outer product of the marginal SFS means as the
-        loci decouple). It is ``0`` as ``r → ∞`` (independent loci) and reduces to the single-locus SFS correlation
-        as ``r → 0`` (fully linked). The per-locus means and variances are the marginals of the two-locus space and
-        coincide for the two exchangeable loci.
+
+        .. math::
+            \operatorname{Corr}(L^0_i, L^1_j) = \frac{\mathbb{E}[L^0_i L^1_j] - \mathbb{E}[L^0_i]\, \mathbb{E}[L^1_j]}
+            {\operatorname{sd}(L^0_i)\, \operatorname{sd}(L^1_j)},
+
+        for all polymorphic bins :math:`(i, j)`. This is the centered, scale-free companion to :attr:`mean` (which is
+        the *uncentered* cross-moment :math:`\mathbb{E}[L^0_i L^1_j]` and therefore tends to the outer product of the
+        marginal SFS means as the loci decouple). It is :math:`0` as :math:`r \to \infty` (independent loci) and
+        reduces to the single-locus SFS correlation as :math:`r \to 0` (fully linked). The per-locus means and
+        variances are the marginals of the two-locus space and coincide for the two exchangeable loci.
         """
         indices = self._get_indices()
         n = self.lineage_config.n

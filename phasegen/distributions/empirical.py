@@ -33,8 +33,8 @@ logger = logging.getLogger('phasegen')
 class EmpiricalJointSFSDistribution:  # pragma: no cover
     """
     Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
-    interface as :class:`JointSFSDistribution` so that the two can be compared by
-    :class:`~phasegen.comparison.Comparison`. The moments are pre-computed arrays (so the object can be serialized
+    interface as :class:`~phasegen.distributions.spectra.JointSFSDistribution` so that the two can be compared by
+    ``Comparison``. The moments are pre-computed arrays (so the object can be serialized
     as cached ground truth).
     """
 
@@ -159,7 +159,7 @@ class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
 
     A cell average, not a point estimate, because that is the only density functional a sample determines without a
     bandwidth. The comparison integrates the exact density over the *same* cells
-    (:meth:`~phasegen.comparison.Comparison._cell_average`), so both sides are the same functional: the estimate
+    (``Comparison._cell_average``), so both sides are the same functional: the estimate
     carries no smoothing bias, and the discrepancy is Monte-Carlo noise alone, falling as ``1 / sqrt(n)``.
 
     That property is the point of it. Any pointwise estimate -- a histogram read at ``t``, a kernel, or the derivative
@@ -200,7 +200,9 @@ class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
-    Probability distribution based on realisations.
+    Probability distribution estimated from sampled realisations. Its moments and spectra are unbiased Monte Carlo
+    estimates formed directly from the raw samples (see :meth:`moment`), so the estimation cost scales with the number
+    of samples :math:`N` rather than the state-space size.
     """
     # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
     # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
@@ -295,8 +297,9 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     @cached_property
     def mean(self) -> float | np.ndarray:
-        """
-        First moment / mean.
+        r"""
+        First moment / mean: the Monte Carlo estimator :math:`\hat{\mu}_N = \tfrac{1}{N} \sum_{m=1}^{N} Y_m` over the
+        :math:`N` sampled realisations.
         """
         return np.mean(self.samples, axis=0)
 
@@ -345,8 +348,10 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
 
     def moment(self, k: int) -> float | np.ndarray:
-        """
-        Get the kth moment.
+        r"""
+        The :math:`k`-th (non-central) moment estimated from the realisations,
+        :math:`\hat{\mathbb{E}}[Y^k] = \tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`, an unbiased Monte Carlo estimate over the
+        :math:`N` sampled trajectories.
 
         :param k: The order of the moment
         :return: The kth moment
@@ -578,7 +583,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
     """
-    The replicates a windowed conditional selected (see :meth:`EmpiricalJointRewardDistribution.conditional`), with a
+    The replicates a windowed conditional selected (see :meth:`EmpiricalJointDistribution.conditional`), with a
     **local-linear** :attr:`mean`. Everything else -- the variance, the cdf, the quantile -- is the plain estimate over
     the window.
 
@@ -620,7 +625,7 @@ class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
         return float((swx2 * (w * y).sum() - swx * (w * x * y).sum()) / det)
 
 
-class EmpiricalJointRewardDistribution:  # pragma: no cover
+class EmpiricalJointDistribution:  # pragma: no cover
     """
     Empirical counterpart of :class:`~phasegen.distributions.reward.JointRewardDistribution`: the sampled joint
     distribution of two accumulated rewards, built from the per-replicate samples and sliced into the 1D
@@ -715,12 +720,12 @@ class EmpiricalJointRewardDistribution:  # pragma: no cover
         return float(empty.mean()), EmpiricalDistribution(other[empty])
 
     def cdf(self, x: float, y: float) -> float:
-        """The empirical joint CDF ``P(R_a <= x, R_b <= y)``."""
+        r"""The empirical joint CDF :math:`P(R_a \le x, R_b \le y)`."""
         return float(((self._a <= x) & (self._b <= y)).mean())
 
     @property
     def mean(self) -> np.ndarray:
-        """The pair of marginal means ``(E[R_a], E[R_b])``."""
+        r"""The pair of marginal means :math:`(\mathbb{E}[R_a], \mathbb{E}[R_b])`."""
         return np.array([self._a.mean(), self._b.mean()])
 
     def cov(self) -> float:
@@ -877,10 +882,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         self._mutations = None
 
     def cross_moment(self, i: int, j: int) -> float:
-        """
-        Empirical cross-moment ``E[L_i L_j]`` of the branch lengths subtending ``i`` and ``j`` samples, from the
-        per-replicate SFS branch-length samples — the simulated counterpart of
-        :meth:`JointRewardDistribution.moment` ``(1, 1)``.
+        r"""
+        Empirical cross-moment :math:`\mathbb{E}[L_i L_j]` of the branch lengths subtending ``i`` and ``j`` samples,
+        from the per-replicate SFS branch-length samples, the simulated counterpart of
+        :meth:`~phasegen.distributions.reward.JointRewardDistribution.moment` ``(1, 1)``.
 
         :param i: First frequency class.
         :param j: Second frequency class.
@@ -889,9 +894,9 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         return float((self.samples[:, i] * self.samples[:, j]).mean())
 
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
-        """
-        Empirical joint CDF ``P(L_i <= x, L_j <= y)`` of two SFS bins, from the per-replicate samples — the
-        simulated counterpart of :meth:`JointRewardDistribution.cdf`.
+        r"""
+        Empirical joint CDF :math:`P(L_i \le x, L_j \le y)` of two SFS bins, from the per-replicate samples, the
+        simulated counterpart of :meth:`~phasegen.distributions.reward.JointRewardDistribution.cdf`.
 
         :param i: First frequency class.
         :param j: Second frequency class.
@@ -930,7 +935,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         This is the one conditional a sample pins exactly -- the atom event has positive probability, so the
         conditioning set needs no window and carries no bandwidth bias (see
-        :meth:`EmpiricalJointRewardDistribution.conditional_on_atom`). Nothing else validates the ``value = 0``
+        :meth:`EmpiricalJointDistribution.conditional_on_atom`). Nothing else validates the ``value = 0``
         branch: every conditional check places its conditioning values at ``quantile(p0 + (1 - p0) u)``, strictly
         *above* the atom.
 
@@ -952,7 +957,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         self._atom_conditional = []
 
         for i, j in pairs:
-            jd = EmpiricalJointRewardDistribution(s[:, i], s[:, j])
+            jd = EmpiricalJointDistribution(s[:, i], s[:, j])
             for on in ('a', 'b'):
                 try:
                     mass, dist = jd.conditional_on_atom(on)
@@ -1019,12 +1024,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                  float(sel.std() / np.sqrt(sel.size)), ys, cdf)
             )
 
-    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointRewardDistribution':
+    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
         samples — the sampled counterpart of
         :meth:`~phasegen.distributions.spectra.SFSDistribution.joint_distribution`, exposing the same
-        :meth:`~EmpiricalJointRewardDistribution.marginal` and :meth:`~EmpiricalJointRewardDistribution.conditional`
+        :meth:`~EmpiricalJointDistribution.marginal` and :meth:`~EmpiricalJointDistribution.conditional`
         slices for a sanity check against the exact joint.
 
         :param i: First frequency class.
@@ -1035,7 +1040,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         if self.samples is None:
             raise ValueError("The per-replicate samples have been dropped; joint_distribution needs them.")
         s = np.asarray(self.samples)
-        return EmpiricalJointRewardDistribution(s[:, i], s[:, j], label=f"SFS bins ({i}, {j})")
+        return EmpiricalJointDistribution(s[:, i], s[:, j], label=f"SFS bins ({i}, {j})")
 
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
@@ -1095,8 +1100,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
     """
     Empirical (msprime-based) two-locus SFS, exposing the same ``mean`` interface as
-    :class:`TwoLocusSFSDistribution` (a :class:`~phasegen.spectrum.TwoLocusSFS`) so the two can be compared by
-    :class:`~phasegen.comparison.Comparison`.
+    :class:`~phasegen.distributions.spectra.TwoLocusSFSDistribution` (a :class:`~sfsutils.spectrum.TwoLocusSFS`) so the
+    two can be compared by ``Comparison``.
     """
 
     def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None) -> None:
@@ -1124,9 +1129,10 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         self._right = None
 
     def cross_moment(self, i: int, j: int) -> float:
-        """
-        Empirical cross-moment ``E[L^0_i L^1_j]`` (the two-locus SFS entry) from the per-replicate locus branch
-        lengths — the simulated counterpart of :meth:`JointRewardDistribution.moment` ``(1, 1)``.
+        r"""
+        Empirical cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]` (the two-locus SFS entry) from the per-replicate locus
+        branch lengths, the simulated counterpart of
+        :meth:`~phasegen.distributions.reward.JointRewardDistribution.moment` ``(1, 1)``.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1135,9 +1141,9 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         return float((self._left[:, i] * self._right[:, j]).mean())
 
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
-        """
-        Empirical joint CDF ``P(L^0_i <= x, L^1_j <= y)`` from the per-replicate locus branch lengths — the
-        simulated counterpart of :meth:`JointRewardDistribution.cdf`.
+        r"""
+        Empirical joint CDF :math:`P(L^0_i \le x, L^1_j \le y)` from the per-replicate locus branch lengths, the
+        simulated counterpart of :meth:`~phasegen.distributions.reward.JointRewardDistribution.cdf`.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1617,7 +1623,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
         # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
         # survives the subsequent drop(). The single pair (0, 1) over a full grid. The within-tree (single-locus and
-        # multi-population) joint surfaces are cached separately by :meth:`Comparison.cache_ground_truth` from the
+        # multi-population) joint surfaces are cached separately by ``Comparison.cache_ground_truth`` from the
         # configured pairwise surface pairs.
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
@@ -1887,12 +1893,16 @@ class MsprimeCoalescent(AbstractCoalescent):
 
 
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
-    """
-    PhaseGen-sampled empirical coalescent: the same per-statistic distributions as :class:`MsprimeCoalescent`, but
-    estimated from PhaseGen's own trajectory sampler (:meth:`PhaseTypeDistribution._sample`) rather than msprime.
-    Used by :class:`~phasegen.comparison.Comparison` to validate the sampler against the exact analytic
-    :class:`Coalescent`. The sampled realization is frozen into the comparison fixture at creation time; the
-    per-statistic seeds make it reproducible and independent of access order.
+    r"""
+    PhaseGen-sampled empirical coalescent: the same per-statistic distributions as
+    :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own vectorized
+    trajectory sampler (:meth:`~phasegen.distributions.phase_type.PhaseTypeDistribution._sample`) rather than msprime.
+    All walkers are advanced through the continuous-time Markov chain in lockstep, one wave per jump, so after the
+    one-time setup each statistic is an unbiased Monte Carlo estimate whose cost scales with the number of samples
+    :math:`N` rather than the state-space size. Used by ``Comparison`` to validate the
+    sampler against the exact analytic :class:`~phasegen.distributions.coalescent.Coalescent`. The sampled realization
+    is frozen into the comparison fixture at creation time; the per-statistic seeds make it reproducible and
+    independent of access order.
 
     .. warning::
         Each statistic is sampled in its **own** simulation run, so different statistics come from **different
@@ -1968,11 +1978,9 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     @staticmethod
     def _get_cached_times(dist: 'EmpiricalPhaseTypeDistribution') -> np.ndarray:
-        """The grid a distribution's curves are cached on: **its own** support, from 0 up to the largest value it
-        sampled. Each distribution must get its own grid rather than share the tree height's -- they live on different
-        scales (the total branch length exceeds the tree height by roughly ``2 H_{n-1}``), so a shared grid runs one of
-        them off its own support, where both the sampled and the exact curve are zero and the comparison passes while
-        asserting nothing. Mirrors :meth:`MsprimeCoalescent._get_cached_times`."""
+        """The grid a distribution's curves are cached on: its own support, from 0 up to the largest value it sampled.
+        See :meth:`MsprimeCoalescent._get_cached_times` for why each distribution needs its own grid rather than
+        sharing the tree height's."""
         return np.linspace(0, float(np.max(dist.samples)), 100)
 
     def touch(self, **kwargs: dict) -> None:

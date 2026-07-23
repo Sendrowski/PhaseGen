@@ -44,7 +44,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.EmpiricalDistribution
    ~phasegen.distributions.EmpiricalPhaseTypeDistribution
    ~phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
-   ~phasegen.distributions.EmpiricalJointRewardDistribution
+   ~phasegen.distributions.EmpiricalJointDistribution
    ~phasegen.distributions.EmpiricalSFSDistribution
    ~phasegen.distributions.EmpiricalJointSFSDistribution
    ~phasegen.distributions.EmpiricalTwoLocusSFSDistribution
@@ -153,7 +153,7 @@ The same statistics can be estimated empirically from simulated genealogies -- v
 
 .. autoclass:: phasegen.distributions.EmpiricalPhaseTypeSFSDistribution
 
-.. autoclass:: phasegen.distributions.EmpiricalJointRewardDistribution
+.. autoclass:: phasegen.distributions.EmpiricalJointDistribution
 
 .. autoclass:: phasegen.distributions.EmpiricalSFSDistribution
 

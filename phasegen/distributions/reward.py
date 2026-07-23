@@ -1,32 +1,42 @@
-"""
+r"""
 Distribution of an accumulated reward.
 
-For a reward ``r`` over the states, the accumulated reward to absorption is ``R = int_0^tau_abs r(X_s) ds``
-(e.g. tree height for the unit reward, total branch length for the lineage-count reward, an SFS bin for the
-size-``i`` block-count reward). Unlike :meth:`MomentEvaluator.moment`, which returns only the moments of ``R``,
-this gives the full distribution (CDF / PDF / quantiles) for an *arbitrary* reward and an *arbitrary*
-piecewise time-homogeneous demography, via the Laplace-Stieltjes transform and its numerical inversion.
+For a reward :math:`\mathbf{r}` over the states, the accumulated reward to absorption is
+:math:`R = \int_0^{\tau_\mathrm{abs}} r(X_s)\,\mathrm{d}s` (e.g. tree height for the unit reward, total branch
+length for the lineage-count reward, an SFS bin for the size-:math:`i` block-count reward). Unlike
+:meth:`MomentEvaluator.moment`, which returns only the moments of :math:`R`, this gives the full distribution
+(CDF / PDF / quantiles) for an *arbitrary* reward and an *arbitrary* piecewise time-homogeneous demography, via
+the Laplace-Stieltjes transform and its numerical inversion.
 
-The transform tracks, in real time, the row vector ``a(t)_i = E[e^{-s R_t}; X_t = i, not absorbed]``. While in
-state ``i`` the reward grows at rate ``r(i)``, so the weight ``e^{-s R_t}`` decays at rate ``s r(i)`` — i.e. the
-reward enters as a *shift* of the generator:
+The transform tracks, in real time, the row vector :math:`a(t)_i = \mathbb{E}[e^{-s R_t};\ X_t = i,\ \text{not
+absorbed}]`. While in state :math:`i` the reward grows at rate :math:`r(i)`, so the weight :math:`e^{-s R_t}`
+decays at rate :math:`s\,r(i)`: the reward enters as a *shift* of the generator,
 
-    da/dt = a (T - s diag(r)).
+.. math::
+
+    \dot{\mathbf{a}} = \mathbf{a}\,(\mathbf{T} - s\,\triangle(\mathbf{r})).
 
 Chaining the (real-time) epochs and augmenting with the absorbing state (reward rate 0 there, so absorbed mass
 keeps its frozen weight) gives the accumulated-reward LST
 
-    phi(s) = E[e^{-s R}] = c + a (s diag(r) - T_m)^{-1} (-T_m 1),
-    [a, c] = [alpha, 0] prod_{finite epochs e} exp((Q_e - s diag(r)_aug) tau_e),
+.. math::
 
-with ``Q_e`` the full (incl. absorbing) generator of epoch ``e`` and ``T_m`` the final unbounded epoch's
-transient sub-generator. The CDF has Laplace transform ``phi(s) / s``; both are inverted with the de Hoog
-quotient-difference method, which (unlike Talbot) is robust to a double-precision transform and (unlike the
-Euler method) stays accurate on steep multi-epoch CDFs.
+    \begin{aligned}
+    \varphi(s) &= \mathbb{E}[e^{-s R}] = c + \mathbf{a}\,\big(s\,\triangle(\mathbf{r}) -
+    \mathbf{T}_m\big)^{-1}(-\mathbf{T}_m\mathbf{e}), \\
+    [\mathbf{a},\, c] &= [\boldsymbol{\alpha},\, 0]\ \prod_{e}\ \exp\!\big((\mathbf{Q}_e -
+    s\,\triangle(\mathbf{r})_\mathrm{aug})\,\tau_e\big),
+    \end{aligned}
 
-Zero-reward states need no special handling: ``s diag(r)`` simply has zeros there, so ``e^{-s R}`` does not decay
-while the chain passes through them. An atom at ``R = 0`` (e.g. an SFS bin that may be empty) is recovered
-automatically by the inversion.
+with :math:`\mathbf{Q}_e` the full (incl. absorbing) generator of epoch :math:`e` (the product running over the
+finite epochs) and :math:`\mathbf{T}_m` the final unbounded epoch's transient sub-generator. The CDF has Laplace
+transform :math:`\varphi(s)/s`; both are inverted with the de Hoog quotient-difference method, which (unlike
+Talbot) is robust to a double-precision transform and (unlike the Euler method) stays accurate on steep
+multi-epoch CDFs.
+
+Zero-reward states need no special handling: :math:`s\,\triangle(\mathbf{r})` simply has zeros there, so
+:math:`e^{-s R}` does not decay while the chain passes through them. An atom at :math:`R = 0` (e.g. an SFS bin
+that may be empty) is recovered automatically by the inversion.
 """
 import logging
 import functools
@@ -54,14 +64,16 @@ logger = logging.getLogger('phasegen')
 
 
 class RewardDistribution(CallableDistributionFunctions):
-    """
-    Full distribution of the accumulated reward ``R = int_0^tau_abs r(X_s) ds`` to absorption, via the
-    Laplace-Stieltjes transform and numerical inversion. Handles arbitrary (non-negative) rewards, zero-reward
-    states, and arbitrary piecewise time-homogeneous demographies (so it is multi-epoch-native).
+    r"""
+    Full distribution of the accumulated reward :math:`R = \int_0^{\tau_\mathrm{abs}} r(X_s)\,\mathrm{d}s` to
+    absorption, via the Laplace-Stieltjes transform and numerical inversion. Handles arbitrary (non-negative)
+    rewards, zero-reward states, and arbitrary piecewise time-homogeneous demographies (so it is
+    multi-epoch-native).
 
     Its ``cdf`` / ``pdf`` / ``quantile`` are callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); this is the 1D object returned by ``SFSDistribution.bin`` etc. The de
-    Hoog / Fourier-cosine inversion that turns the transform into those functions lives on the function objects (the
+    :class:`CallableDistributionFunctions`); this is the 1D object returned by
+    :meth:`~phasegen.distributions.spectra.SFSDistribution.bin` etc. The de Hoog / Fourier-cosine inversion that
+    turns the transform into those functions lives on the function objects (the
     :class:`~phasegen.distributions.base._LSTFunction` family); this distribution supplies the transform and scale
     primitives (:meth:`lst`, :meth:`_invert`, :meth:`_cumulants`, :meth:`_range`, :attr:`_time_scale`).
     """
@@ -123,21 +135,23 @@ class RewardDistribution(CallableDistributionFunctions):
 
     @property
     def _s_inf(self) -> float:
-        """
-        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
+        r"""
+        The :math:`s \to \infty` probe used for the atom :math:`\Pr(R = 0) = \varphi(\infty)` (and the axis atoms
+        of a joint).
 
         Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
-        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
-        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
-        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
+        which go like :math:`1/\tau`, so a hard-coded :math:`s` is only large in the :math:`\tau \sim 1` regime. On
+        a small-N demography (:math:`\tau = 10^{-6}`) :math:`\varphi(10^8)` has not decayed at all and reports a 1.9%
+        atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry); it needs
+        :math:`s \sim 10^{12}` to converge. Probing at :math:`10^8/\tau` keeps :math:`s` the same large multiple of
+        the rate scale in every regime.
         """
         return 1e8 / self._time_scale
 
     @cached_property
     def mean(self) -> float:
-        """Mean ``E[R]`` of the accumulated reward (the exact first moment from the moment engine). The conditional
-        flavours carry no state-space reward, so they fall back to the (reliable) LST cumulant mean."""
+        r"""Mean :math:`\mathbb{E}[R]` of the accumulated reward (the exact first moment from the moment engine). The
+        conditional flavours carry no state-space reward, so they fall back to the (reliable) LST cumulant mean."""
         reward = getattr(self, 'reward', None)
         if reward is None:
             return float(self._cumulants()[0])
@@ -147,7 +161,8 @@ class RewardDistribution(CallableDistributionFunctions):
 
     @cached_property
     def var(self) -> float:
-        """Variance of the accumulated reward (the exact second central moment, from the moment engine). A conditional
+        r"""Variance :math:`\operatorname{Var}(R) = \mathbb{E}[R^2] - \mathbb{E}[R]^2` of the accumulated reward (the
+        exact second central moment, from the moment engine). A conditional
         carries no state-space reward and takes a different route (see :attr:`ConditionalRewardDistribution.var`)."""
         return float(MomentEvaluator.moment(self._host, k=2, rewards=(self.reward, self.reward), center=True))
 
@@ -173,7 +188,8 @@ class RewardDistribution(CallableDistributionFunctions):
             )
 
     def lst(self, s: complex) -> complex:
-        """The accumulated-reward Laplace-Stieltjes transform ``phi(s) = E[e^{-s R}]`` at (complex) ``s``."""
+        r"""The accumulated-reward Laplace-Stieltjes transform :math:`\varphi(s) = \mathbb{E}[e^{-s R}]` at (complex)
+        :math:`s`."""
         self._assert_no_window()
         st = self._setup
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
@@ -181,7 +197,7 @@ class RewardDistribution(CallableDistributionFunctions):
         return _lst_from_shift((s * st['tau']) * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
 
     def _invert(self, transform, t: float) -> float:
-        """
+        r"""
         Numerical Laplace inversion (de Hoog) of ``transform`` evaluated at ``t``.
 
         de Hoog evaluates ``transform`` at ``2 * degree + 1`` contour nodes (each a linear solve over the transient
@@ -191,12 +207,14 @@ class RewardDistribution(CallableDistributionFunctions):
         threads was tried and did not pay off -- the per-node matrix assembly holds the GIL, so the solves do not
         parallelise; whole-curve speed comes from the Fourier-cosine plotting path instead.)
 
-        The inversion runs in **tau-scaled time**, which makes it scale-invariant. For any transform ``G`` with
-        inverse ``g`` (a density or a CDF alike),
+        The inversion runs in **tau-scaled time**, which makes it scale-invariant. For any transform :math:`G` with
+        inverse :math:`g` (a density or a CDF alike),
 
-            g(t) = (1 / tau) * L^-1[ sigma -> G(sigma / tau) ](t / tau),
+        .. math::
 
-        so the contour nodes and the inverted value both stay O(1) however large the demography's rewards are.
+            g(t) = \frac{1}{\tau}\,\mathcal{L}^{-1}\!\big[\sigma \mapsto G(\sigma/\tau)\big](t/\tau),
+
+        so the contour nodes and the inverted value both stay :math:`O(1)` however large the demography's rewards are.
         Inverting at the raw ``t`` instead lets de Hoog's accuracy drift with the units: on a large-N demography
         (rewards ~1e7) it put the *reference* conditional mean 16% off at the 0.75 conditioning quantile, while the
         same demography rescaled to N ~ 1e-6 -- the identical model in different units -- was accurate to 1%.
@@ -218,8 +236,9 @@ class RewardDistribution(CallableDistributionFunctions):
         return f"{self.label} {base}" if self.label else base
 
     def _cumulants(self) -> tuple:
-        """Mean and variance of the accumulated reward from the LST near 0 (``phi(0) = 1``): ``c1 = -phi'(0)``,
-        ``c2 = phi''(0) - phi'(0)^2``. Cheap (three transform evaluations); used to set the COS / plot range. The
+        r"""Mean and variance of the accumulated reward from the LST near 0 (:math:`\varphi(0) = 1`):
+        :math:`c_1 = -\varphi'(0)`, :math:`c_2 = \varphi''(0) - \varphi'(0)^2`. Cheap (three transform evaluations);
+        used to set the COS / plot range. The
         finite-difference step is scaled by ``1/tau`` (``tau ~`` the reward scale for large N) so that ``h * R`` stays
         small and ``phi(-h) = E[e^{h R}]`` does not overflow for large-N demographies."""
         h = 1e-4 / self._time_scale
@@ -228,7 +247,8 @@ class RewardDistribution(CallableDistributionFunctions):
         return -d1, max(d2 - d1 ** 2, 1e-12)
 
     def _range(self, scale: float = 12.0) -> float:
-        """An upper end for the support (``mean + scale * std``), for the COS interval and default plot grids."""
+        r"""An upper end for the support (:math:`\mathbb{E}[R] + \text{scale}\cdot\operatorname{std}(R)`), for the COS
+        interval and default plot grids."""
         c1, c2 = self._cumulants()
         return float(c1 + scale * np.sqrt(c2))
 
@@ -274,15 +294,16 @@ def _avg_ne_at_zero(host) -> float:
 
 
 def time_scale(host) -> float:
-    """
+    r"""
     Time-rescaling factor for the accumulated-reward LST inversion.
 
     For a large-N demography the LST is evaluated at tiny arguments (the COS frequencies / de Hoog nodes scale like
-    ``1/N``) against a generator whose rates also scale like ``1/N``, so the reward-shifted sub-generator
-    ``diag(s r) - T`` is ``~1/N``-scaled and its LU factorization loses precision and can overflow to inf/NaN.
-    Rescaling time by the average Ne at ``t = 0`` (``R -> R/tau``, ``T -> tau T``, epoch durations ``-> /tau``)
-    makes that solve ``O(1)``-conditioned. The transform value is *exactly invariant* under this rescaling -- the
-    ``tau`` factors cancel in both the ``expm(Q tau)`` of the bounded epochs and the final-epoch solve (see
+    :math:`1/N`) against a generator whose rates also scale like :math:`1/N`, so the reward-shifted sub-generator
+    :math:`\triangle(s\,\mathbf{r}) - \mathbf{T}` is :math:`\sim 1/N`-scaled and its LU factorization
+    loses precision and can overflow to inf/NaN. Rescaling time by the average Ne at :math:`t = 0`
+    (:math:`R \to R/\tau`, :math:`\mathbf{T} \to \tau\mathbf{T}`, epoch durations :math:`\to /\tau`) makes that
+    solve :math:`O(1)`-conditioned. The transform value is *exactly invariant* under this rescaling -- the :math:`\tau`
+    factors cancel in both the :math:`\exp(\mathbf{Q}\tau)` of the bounded epochs and the final-epoch solve (see
     :func:`_scale_epoch_data` and :meth:`RewardDistribution.lst`) -- so nothing downstream changes. A no-op (returns
     ``1.0``) in the normal range so existing single-N fixtures are byte-identical.
     """
@@ -303,19 +324,26 @@ def _scale_epoch_data(data: dict, tau: float) -> dict:
 
 
 def _exit_rates(T) -> np.ndarray:
-    """Per-state rate of (direct) absorption = row deficit of the transient sub-generator, ``-T 1``."""
+    r"""Per-state rate of (direct) absorption = row deficit of the transient sub-generator,
+    :math:`-\mathbf{T}\mathbf{e}`."""
     return -np.asarray(T @ np.ones(T.shape[0])).ravel()
 
 
 def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool, perm=_AUTO_PERM) -> complex:
-    """
+    r"""
     Accumulated-reward LST evaluated with an arbitrary diagonal *shift vector* ``shift`` (the reward enters the
-    generator only as ``-diag(shift)``). For one reward ``shift = s diag(r)``; for two rewards (the joint
-    transform) ``shift = s_a r_a + s_b r_b`` — so the univariate and joint cases share this one routine.
+    generator only as :math:`-\triangle(\text{shift})`). For one reward
+    :math:`\text{shift} = s\,\mathbf{r}`; for two rewards (the joint transform)
+    :math:`\text{shift} = s_a\,\mathbf{r}_a + s_b\,\mathbf{r}_b`, so the univariate and joint cases share this
+    one routine.
 
-    ``E[e^{-<shift-as-accumulated>}] = c + a (diag(shift) - T_m)^{-1} (-T_m 1)``, with ``[a, c]`` the transient /
-    absorbed mass pushed through the finite epochs (augmented with the absorbing state, reward 0, so absorbed mass
-    keeps its frozen weight).
+    .. math::
+
+        \varphi = c + \mathbf{a}\,\big(\triangle(\text{shift}) - \mathbf{T}_m\big)^{-1}
+        (-\mathbf{T}_m\mathbf{e}),
+
+    with :math:`[\mathbf{a},\, c]` the transient / absorbed mass pushed through the finite epochs (augmented with
+    the absorbing state, reward 0, so absorbed mass keeps its frozen weight).
 
     ``perm`` is the precomputed block-triangular ordering of the final epoch's sub-generator (pattern-fixed across
     shifts), passed through to :meth:`MomentEvaluator._lu_solver` so repeated evaluations (the de Hoog nodes) skip the
@@ -344,24 +372,28 @@ def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool
 
 def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
                            perm=_AUTO_PERM, order: int = 2) -> list:
-    """
-    Taylor coefficients in ``eps`` of :func:`_lst_from_shift` evaluated at the shift ``shift + eps * deriv``, i.e.
-    ``[Phi_0, Phi_1, ..., Phi_order]`` with ``Phi(eps) = sum_k Phi_k eps^k``. So the ``k``-th derivative in ``eps`` is
-    ``k! Phi_k`` — **exactly**, with no finite difference.
+    r"""
+    Taylor coefficients in :math:`\epsilon` of :func:`_lst_from_shift` evaluated at the shift
+    :math:`\text{shift} + \epsilon\,\text{deriv}`, i.e. ``[Phi_0, Phi_1, ..., Phi_order]`` with
+    :math:`\Phi(\epsilon) = \sum_k \Phi_k\,\epsilon^k`. So the :math:`k`-th derivative in :math:`\epsilon` is
+    :math:`k!\,\Phi_k`, **exactly**, with no finite difference.
 
-    Every quantity is evaluated in the truncated polynomial ring ``R[eps] / (eps^{order+1})``, whose elements are
+    Every quantity is evaluated in the truncated polynomial ring :math:`\mathbb{R}[\epsilon]/(\epsilon^{order+1})`,
+    whose elements are
     represented by their coefficient tuples. The matrix exponential and the linear solve both commute with the ring
     homomorphism, so a matrix over the ring is the block-Toeplitz upper-triangular matrix with the coefficient blocks
     on its diagonals, and:
 
     * a finite epoch propagates the coefficient vector by ``expm`` of that block matrix (its blocks *are* the Taylor
       coefficients of the epoch's propagator);
-    * the final epoch's ``x(eps) = (A + eps diag(deriv))^{-1} e`` is obtained by back-substitution in the ring,
-      ``x_0 = A^{-1} e`` and ``x_k = -A^{-1} (deriv * x_{k-1})`` — the same LU, reused.
+    * the final epoch's :math:`\mathbf{x}(\epsilon) = (\mathbf{A} + \epsilon\,\triangle(\text{deriv}))
+      ^{-1}(-\mathbf{T}_m\mathbf{e})` is obtained by back-substitution in the ring,
+      :math:`\mathbf{x}_0 = \mathbf{A}^{-1}(-\mathbf{T}_m\mathbf{e})` and
+      :math:`\mathbf{x}_k = -\mathbf{A}^{-1}(\text{deriv}\cdot\mathbf{x}_{k-1})`, the same LU, reused.
 
-    Differencing ``Phi`` instead is not viable: the derivative is fed to a de Hoog inversion whose QD recurrence
-    amplifies the ``eps_mach / h`` residue of the difference, which made the inverted value swing by 15% between
-    neighbouring steps ``h``.
+    Differencing :math:`\Phi` instead is not viable: the derivative is fed to a de Hoog inversion whose QD recurrence
+    amplifies the :math:`\epsilon_\mathrm{mach}/h` residue of the difference, which made the inverted value swing by
+    15% between neighbouring steps :math:`h`.
     """
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
@@ -398,12 +430,16 @@ def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarr
 
 
 class JointRewardDistribution(CallableDistributionFunctions):
-    """
-    Joint distribution of two accumulated rewards ``R_a = int r_a(X_s) ds`` and ``R_b = int r_b(X_s) ds`` to
-    absorption, the distributional object behind a cross-moment ``E[R_a R_b]`` (the within-tree 2-SFS / the
-    two-locus SFS). The joint Laplace-Stieltjes transform uses the *combined* generator shift,
+    r"""
+    Joint distribution of two accumulated rewards :math:`R_a = \int r_a(X_s)\,\mathrm{d}s` and
+    :math:`R_b = \int r_b(X_s)\,\mathrm{d}s` to absorption, the distributional object behind a cross-moment
+    :math:`\mathbb{E}[R_a R_b]` (the within-tree 2-SFS / the two-locus SFS). The joint Laplace-Stieltjes transform
+    uses the *combined* generator shift,
 
-        Phi(s_a, s_b) = E[e^{-s_a R_a - s_b R_b}] = _lst_from_shift(s_a r_a + s_b r_b, ...),
+    .. math::
+
+        \Phi(s_a, s_b) = \mathbb{E}[e^{-s_a R_a - s_b R_b}]
+        = \texttt{\_lst\_from\_shift}(s_a\,\mathbf{r}_a + s_b\,\mathbf{r}_b, \ldots),
 
     so it is the same machinery as the univariate :class:`RewardDistribution` with a two-parameter shift, and is
     multi-epoch-native. Setting one argument to zero recovers a marginal; mixed derivatives at the origin recover
@@ -425,15 +461,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @property
     def _s_inf(self) -> float:
-        """
-        The ``s -> inf`` probe used for the atom ``P(R = 0) = phi(inf)`` (and the axis atoms of a joint).
-
-        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        which go like ``1 / tau``, so a hard-coded ``s`` is only large in the ``tau ~ 1`` regime. On a small-N
-        demography (``tau = 1e-6``) ``phi(1e8)`` has not decayed at all and reports a 1.9% atom for a doubleton bin
-        whose atom is exactly 0 (every binary tree has a cherry); it needs ``s ~ 1e12`` to converge. Probing at
-        ``1e8 / tau`` keeps ``s`` the same large multiple of the rate scale in every regime.
-        """
+        r"""The :math:`s \to \infty` atom probe :math:`10^8/\tau`; see :attr:`RewardDistribution._s_inf` for why it is
+        scaled by the inversion time scale rather than fixed."""
         return 1e8 / self._time_scale
 
     #: bivariate function-object flavours (built by the :class:`CallableDistributionFunctions` mixin, passing the
@@ -493,7 +522,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out
 
     def lst(self, s_a: complex, s_b: complex) -> complex:
-        """The joint LST ``Phi(s_a, s_b) = E[e^{-s_a R_a - s_b R_b}]`` via the combined generator shift."""
+        r"""The joint LST :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a R_a - s_b R_b}]` via the combined generator
+        shift."""
         st = self._setup
         # both rewards share the time-scale tau (R -> R/tau): evaluate at s*tau against the tau-scaled generators;
         # the value equals the unscaled joint LST exactly but stays well-conditioned for large N (see ``time_scale``)
@@ -502,10 +532,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
                                st['sparse'], st['lu_perm'])
 
     def lst_taylor(self, s: complex, on: str = 'a', order: int = 2) -> list:
-        """
-        The Taylor coefficients of the joint LST in *one* argument at 0, with the other held at ``s``:
-        ``[Phi_k]`` such that ``Phi(s, eps) = sum_k Phi_k eps^k`` (for ``on = 'a'``; mirrored for ``'b'``). The
-        ``k``-th derivative in the free argument is therefore ``k! Phi_k``, exactly (see
+        r"""
+        The Taylor coefficients of the joint LST in *one* argument at 0, with the other held at :math:`s`:
+        ``[Phi_k]`` such that :math:`\Phi(s, \epsilon) = \sum_k \Phi_k\,\epsilon^k` (for ``on = 'a'``; mirrored
+        for ``'b'``). The :math:`k`-th derivative in the free argument is therefore :math:`k!\,\Phi_k`, exactly (see
         :func:`_lst_taylor_from_shift`).
 
         :param s: The value at which the conditioned argument (``on``) is held.
@@ -537,13 +567,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
 
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
-        """The joint LST ``Phi(s_a, s_b)`` on the full outer grid ``s_a_vals x s_b_vals`` (shape
+        r"""The joint LST ``Phi(s_a, s_b)`` on the full outer grid ``s_a_vals x s_b_vals`` (shape
         ``(len(s_a_vals), len(s_b_vals))``), the batched form of :meth:`lst` used to build the 2D cosine coefficients.
 
-        For a single (homogeneous) epoch with a dense generator, ``Phi = alpha (diag(s_a tau r_a + s_b tau r_b) -
-        T)^{-1}(-T 1)``. Fixing ``s_a``, the column family ``(M + s_b tau diag(r_b)) x = -T 1`` with ``M = diag(s_a
-        tau r_a) - T`` is a *shifted* linear system in ``s_b``: one generalized Schur (QZ) factorization of the pencil
-        ``(M, tau diag(r_b))`` then solves every ``s_b`` by triangular back-substitution (O(n^2)). This replaces the
+        For a single (homogeneous) epoch with a dense generator,
+        :math:`\Phi = \boldsymbol{\alpha}\,(\triangle(s_a \tau\,\mathbf{r}_a + s_b \tau\,\mathbf{r}_b)
+        - \mathbf{T})^{-1}(-\mathbf{T}\mathbf{e})`. Fixing :math:`s_a`, the column family
+        :math:`(\mathbf{M} + s_b \tau\triangle(\mathbf{r}_b))\,\mathbf{x} = -\mathbf{T}\mathbf{e}`
+        with :math:`\mathbf{M} = \triangle(s_a \tau\,\mathbf{r}_a) - \mathbf{T}` is a *shifted* linear
+        system in :math:`s_b`: one generalized Schur (QZ) factorization of the pencil
+        :math:`(\mathbf{M}, \tau\triangle(\mathbf{r}_b))` then solves every :math:`s_b` by triangular
+        back-substitution (:math:`O(n^2)`). This replaces the
         naive grid's ``len(s_a) x len(s_b)`` dense LU factorizations (O(n^3) each) with ``len(s_a)`` QZ factorizations
         -- a ~n-fold cut in the cubic work, the dominant cost of :attr:`_cos2d`. ``diag(r_b)`` is generally singular
         (rewards have zero entries); the QZ handles the singular pencil. The multi-epoch / sparse case -- where the
@@ -581,21 +615,24 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out.T if transpose else out
 
     def marginal(self, which: str = 'a') -> RewardDistribution:
-        """The marginal accumulated-reward distribution of ``R_a`` (``which='a'``) or ``R_b`` (``which='b'``)."""
+        """The marginal accumulated-reward distribution of :math:`R_a` (``which='a'``) or :math:`R_b`
+        (``which='b'``)."""
         return RewardDistribution(self._host, self.reward_a if which == 'a' else self.reward_b)
 
     @cached_property
     def _is_diagonal(self) -> bool:
-        """Whether the two rewards are identical, so ``R_a = R_b`` almost surely. The joint law then lives on the
+        """Whether the two rewards are identical, so :math:`R_a = R_b` almost surely. The joint law then lives on the
         diagonal -- a singular measure the smooth 2D representation cannot resolve -- but the joint CDF reduces in
         closed form to the marginal at ``min(x, y)`` (see :meth:`cdf`)."""
         st = self._setup
         return np.array_equal(st['ra'], st['rb'])
 
     def moment(self, order_a: int = 1, order_b: int = 1, center: bool = False) -> float:
-        """
-        The cross-moment ``E[R_a^{order_a} R_b^{order_b}]`` (uncentered by default), via the exact moment engine —
-        i.e. ``Phi``'s mixed derivative ``(-1)^{a+b} d^{a+b}/ds_a^a ds_b^b`` at the origin, but computed exactly.
+        r"""
+        The cross-moment :math:`\mathbb{E}[R_a^{order_a} R_b^{order_b}]` (uncentered by default), via the exact
+        moment engine, i.e. :math:`\Phi`'s mixed derivative
+        :math:`(-1)^{a+b}\,\partial^{a+b}\Phi/\partial s_a^a\,\partial s_b^b` at the origin, but computed
+        exactly.
 
         :param order_a: Power of ``R_a``.
         :param order_b: Power of ``R_b``.
@@ -609,15 +646,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @cached_property
     def mean(self) -> np.ndarray:
-        """The pair of marginal means ``(E[R_a], E[R_b])``."""
+        r"""The pair of marginal means :math:`(\mathbb{E}[R_a], \mathbb{E}[R_b])`."""
         return np.array([self.moment(1, 0), self.moment(0, 1)])
 
     def cov(self) -> float:
-        """The covariance ``E[R_a R_b] - E[R_a] E[R_b]``."""
+        r"""The covariance :math:`\operatorname{Cov}(R_a, R_b) = \mathbb{E}[R_a R_b] - \mathbb{E}[R_a]\,
+        \mathbb{E}[R_b]`."""
         return self.moment(1, 1, center=False) - self.moment(1, 0) * self.moment(0, 1)
 
     def corr(self) -> float:
-        """The Pearson correlation between ``R_a`` and ``R_b``."""
+        r"""The Pearson correlation
+        :math:`\operatorname{corr}(R_a, R_b) = \operatorname{Cov}(R_a, R_b)/\sqrt{\operatorname{Var}(R_a)\,
+        \operatorname{Var}(R_b)}` between :math:`R_a` and :math:`R_b`."""
         va = self.marginal('a')._cumulants()[1]
         vb = self.marginal('b')._cumulants()[1]
         return self.cov() / np.sqrt(va * vb)
@@ -627,19 +667,20 @@ class JointRewardDistribution(CallableDistributionFunctions):
     # ------------------------------------------------------------------------------------------------------------
     @cached_property
     def _atoms(self) -> dict:
-        """Atom probabilities from the ``s -> inf`` limits of ``Phi``: ``P(R_a = 0)``, ``P(R_b = 0)``,
-        ``P(R_a = 0, R_b = 0)`` (an SFS bin is empty with positive probability)."""
+        r"""Atom probabilities from the :math:`s \to \infty` limits of :math:`\Phi`: :math:`\Pr(R_a = 0)`,
+        :math:`\Pr(R_b = 0)`, :math:`\Pr(R_a = 0, R_b = 0)` (an SFS bin is empty with positive probability)."""
         big = self._s_inf
         return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
 
     @cached_property
     def _cos_axis_coeffs(self) -> dict:
-        """Fourier-cosine coefficients for the two axis-atom sub-CDFs, the cosine replacement for the per-point de Hoog
+        r"""Fourier-cosine coefficients for the two axis-atom sub-CDFs, the cosine replacement for the per-point de Hoog
         atom inversions in :meth:`_cdf_grid`. Validated across scenarios to match the de Hoog atoms (and msprime)
         identically, so the cosine CDF path uses these and avoids de Hoog entirely (the de Hoog mixing bought no
-        accuracy -- both are equally imperfect near 0). Each is a defective 1D distribution: ``g_b(x) = P(R_a <= x,
-        R_b = 0)`` (key ``'b'``, sub-transform ``lst(., inf)``) and ``g_a(y) = P(R_a = 0, R_b <= y)`` (key ``'a'``,
-        ``lst(inf, .)``), with atom ``P(both = 0)`` at 0 and continuous mass up to ``P(R_b = 0)`` / ``P(R_a = 0)``,
+        accuracy -- both are equally imperfect near 0). Each is a defective 1D distribution:
+        :math:`g_b(x) = \Pr(R_a \le x,\, R_b = 0)` (key ``'b'``, sub-transform :math:`\Phi(\cdot, \infty)`) and
+        :math:`g_a(y) = \Pr(R_a = 0,\, R_b \le y)` (key ``'a'``, :math:`\Phi(\infty, \cdot)`), with atom
+        :math:`\Pr(R_a = 0, R_b = 0)` at 0 and continuous mass up to :math:`\Pr(R_b = 0)` / :math:`\Pr(R_a = 0)`,
         COS-inverted over the corresponding marginal's support window."""
         big = self._s_inf
         both0 = self._atoms['both0']
@@ -660,9 +701,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out
 
     def _cos_axis(self, which: str, xs: np.ndarray) -> np.ndarray:
-        """The axis-atom sub-CDF on ``xs`` via the cached 1D Fourier-cosine fit (:attr:`_cos_axis_coeffs`) -- the
-        cosine analogue of the de Hoog atom inversion: ``which='b'`` -> ``g_b(x) = P(R_a <= x, R_b = 0)``,
-        ``which='a'`` -> ``g_a(y) = P(R_a = 0, R_b <= y)``. At ``x = 0`` it returns the atom ``P(both = 0)`` exactly."""
+        r"""The axis-atom sub-CDF on ``xs`` via the cached 1D Fourier-cosine fit (:attr:`_cos_axis_coeffs`) -- the
+        cosine analogue of the de Hoog atom inversion: ``which='b'`` -> :math:`g_b(x) = \Pr(R_a \le x, R_b = 0)`,
+        ``which='a'`` -> :math:`g_a(y) = \Pr(R_a = 0, R_b \le y)`. At :math:`x = 0` it returns the atom
+        :math:`\Pr(R_a = 0, R_b = 0)` exactly."""
         c = self._cos_axis_coeffs[which]
         w, fk = c['w'], c['fk']
         xa = np.clip(np.asarray(xs, dtype=float), 0.0, c['b'])
@@ -671,11 +713,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @cached_property
     def _cos2d(self) -> dict:
-        """
-        The *continuous-continuous* joint density (both rewards ``> 0``) as a 2D Fourier-cosine (COS) expansion on
-        ``[0, b_a] x [0, b_b]``. The marginal atoms are removed by inclusion-exclusion so the cosine series only
-        sees the smooth part: ``cf_cc(w_a, w_b) = Phi(-i w_a, -i w_b) - Phi(-i w_a, inf) - Phi(inf, -i w_b) +
-        P(both = 0)``. Returns the coefficient matrix and the (zero-based) ranges/frequencies.
+        r"""
+        The *continuous-continuous* joint density (both rewards :math:`> 0`) as a 2D Fourier-cosine (COS) expansion on
+        :math:`[0, b_a] \times [0, b_b]`. The marginal atoms are removed by inclusion-exclusion so the cosine series
+        only sees the smooth part,
+
+        .. math::
+
+            \chi_{cc}(\omega_a, \omega_b) = \Phi(-i\omega_a, -i\omega_b) - \Phi(-i\omega_a, \infty)
+            - \Phi(\infty, -i\omega_b) + \Pr(R_a = 0, R_b = 0).
+
+        Returns the coefficient matrix and the (zero-based) ranges/frequencies.
         """
         n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
@@ -767,8 +815,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @staticmethod
     def _cos_antideriv(u: np.ndarray, x: np.ndarray) -> np.ndarray:
-        """``int_0^x cos(u_k t) dt`` for each frequency ``u_k`` and point ``x`` (``sin(u_k x)/u_k``, and ``x`` for
-        ``u_0 = 0``); returns shape ``(len(x), len(u))``. Used to integrate the cosine density in closed form."""
+        r""":math:`\int_0^x \cos(u_k t)\,\mathrm{d}t` for each frequency :math:`u_k` and point :math:`x`
+        (:math:`\sin(u_k x)/u_k`, and :math:`x` for :math:`u_0 = 0`); returns shape ``(len(x), len(u))``. Used to
+        integrate the cosine density in closed form."""
         x = np.atleast_1d(x).astype(float)
         safe = np.where(u == 0, 1.0, u)
         out = np.sin(np.outer(x, u)) / safe
@@ -776,8 +825,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out
 
     def _cc_box(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """The continuous-continuous box probabilities ``int_0^x int_0^y f_cc`` on the grid ``xs x ys``, evaluated
-        *analytically* from the cosine coefficients (exact, unlike a grid quadrature of the oscillatory density)."""
+        r"""The continuous-continuous box probabilities :math:`\int_0^x\!\int_0^y f_{cc}` on the grid ``xs x ys``,
+        evaluated *analytically* from the cosine coefficients (exact, unlike a grid quadrature of the oscillatory
+        density)."""
         _ = self._cos2d_wiggle_check  # one-time ringing/under-resolution warning (cached)
         st = self._cos2d
         Ix = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba']))   # (len_x, N)
@@ -785,20 +835,22 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return Ix @ st['A'] @ Iy.T                                     # (len_x, len_y)
 
     def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """Joint CDF on the grid ``xs x ys``: the axis atoms ``P(R_a = 0, R_b <= y)`` and ``P(R_b = 0, R_a <= x)``
-        (1D Fourier-cosine inversions, one per grid line) plus the continuous box integral (:meth:`_cc_box`)."""
+        r"""Joint CDF on the grid ``xs x ys``: the axis atoms :math:`\Pr(R_a = 0, R_b \le y)` and
+        :math:`\Pr(R_b = 0, R_a \le x)` (1D Fourier-cosine inversions, one per grid line) plus the continuous box
+        integral (:meth:`_cc_box`)."""
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
         g_a, g_b = self._cos_axis('a', ys), self._cos_axis('b', xs)
         return g_b[:, None] + g_a[None, :] - self._atoms['both0'] + self._cc_box(xs, ys)
 
     def conditional(self, on: str = 'a', value: float = 0.0) -> 'ConditionalRewardDistribution':
-        """
-        The 1D conditional distribution of the *other* reward given ``R_{on} = value``.
+        r"""
+        The 1D conditional distribution of the *other* reward given :math:`R_{on} = value`.
 
-        For ``value > 0`` this is the continuous conditional density -- a slice of the 2D density at the conditioning
-        value, normalized by the marginal density there -- plus the atom ``P(R_other = 0 | R_{on} = value)`` (non-zero
-        only when the other bin can be empty). For ``value = 0`` it conditions on the atom event ``{R_{on} = 0}``
-        (which must have positive probability).
+        For :math:`value > 0` this is the continuous conditional density -- a slice of the 2D density at the
+        conditioning value, normalized by the marginal density there -- plus the atom
+        :math:`\Pr(R_\text{other} = 0 \mid R_{on} = value)` (non-zero only when the other bin can be empty). For
+        :math:`value = 0` it conditions on the atom event :math:`\{R_{on} = 0\}` (which must have positive
+        probability).
 
         The result is a :class:`ConditionalRewardDistribution`: callable and plottable like any other 1D distribution
         (``cdf`` / ``pdf`` / ``quantile`` / ``mean`` / ``var``), but obtained differently, and -- for ``value > 0`` --
@@ -830,15 +882,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
 
     def check_total_expectation(self, n_points: int = 32, tol: float = 0.01) -> dict:
-        """
+        r"""
         Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total expectation**
-        ``E[R_other] = E_{R_on}[ E[R_other | R_on ] ]`` for conditioning on each axis, and **log a warning** (per axis)
-        when the relative error exceeds ``tol``.
+        :math:`\mathbb{E}[R_\text{other}] = \mathbb{E}_{R_{on}}[\,\mathbb{E}[R_\text{other} \mid R_{on}]\,]` for
+        conditioning on each axis, and **log a warning** (per axis) when the relative error exceeds ``tol``.
 
-        The conditioning marginal's expectation is split into its atom at 0 (``P(R_on = 0) E[R_other | R_on = 0]``)
-        plus a Gauss-Legendre integral over its continuous part, taken in probability space: substituting
-        ``u = F_on(v)`` turns ``INT E[R_other|v] f_on(v) dv`` into ``INT_0^1 E[R_other | F_on^{-1}(u)] du``, so the
-        marginal density is absorbed into the measure and only quantiles are needed.
+        The conditioning marginal's expectation is split into its atom at 0
+        (:math:`\Pr(R_{on} = 0)\,\mathbb{E}[R_\text{other} \mid R_{on} = 0]`) plus a Gauss-Legendre integral over
+        its continuous part, taken in probability space: substituting :math:`u = F_{on}(v)` turns
+        :math:`\int \mathbb{E}[R_\text{other} \mid v]\,f_{on}(v)\,\mathrm{d}v` into
+        :math:`\int_0^1 \mathbb{E}[R_\text{other} \mid F_{on}^{-1}(u)]\,\mathrm{d}u`, so the marginal density is
+        absorbed into the measure and only quantiles are needed.
 
         ``n_points`` must not be cut: the integrand grows without bound as ``u -> 1``, so it is the *quadrature*, not
         the conditional, that limits this check (with a perfect integrand it is still 8% off at 8 nodes, 0.2% at 32).
@@ -882,10 +936,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out
 
     def check_total_probability(self, n_points: int = 8, n_y: int = 15, tol: float = 0.01) -> dict:
-        """
+        r"""
         Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total probability**
-        ``F_other(y) = E_{R_on}[ P(R_other <= y | R_on) ]`` for conditioning on each axis, and **log a warning** (per
-        axis) when the sup-norm deviation over ``y`` exceeds ``tol``.
+        :math:`F_\text{other}(y) = \mathbb{E}_{R_{on}}[\,\Pr(R_\text{other} \le y \mid R_{on})\,]` for
+        conditioning on each axis, and **log a warning** (per axis) when the sup-norm deviation over :math:`y` exceeds
+        ``tol``.
 
         **Not wired into the scenario suite, and not recommended as a tripwire:** unlike :meth:`check_total_expectation`
         it does not converge under refinement (it plateaus near 0.01 and then drifts up: 0.037 / 0.0096 / 0.0099 /
@@ -974,11 +1029,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     def window_average(self, statistic, on: str = 'a', value: float = 0.0, half_width: float = 0.0,
                        n_nodes: int = None) -> np.ndarray:
-        """
-        A statistic of the conditional, averaged over the conditioning window ``[value - half_width, value +
-        half_width]`` and weighted by the conditioning marginal's density::
+        r"""
+        A statistic of the conditional, averaged over the conditioning window :math:`W = [value - half\_width,\,
+        value + half\_width]` and weighted by the conditioning marginal's density,
 
-            E[ g(R_other) | R_on in W ]  =  int_W f_on(u) E[ g(R_other) | R_on = u ] du  /  int_W f_on(u) du
+        .. math::
+
+            \mathbb{E}[\,g(R_\text{other}) \mid R_{on} \in W\,] = \frac{\int_W f_{on}(u)\,
+            \mathbb{E}[\,g(R_\text{other}) \mid R_{on} = u\,]\,\mathrm{d}u}{\int_W f_{on}(u)\,\mathrm{d}u}.
 
         This is what a **sample** of the conditional actually estimates. No replicate lands exactly on ``value``, so
         an empirical conditional keeps those in a window around it, and what it then measures is not the conditional
@@ -1145,7 +1203,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     def check_conditional_grid_moments(self, n_points: int = 3, tol: float = 0.02, k: int = 2,
                                        quantiles: 'Sequence[float]' = None) -> dict:
-        """
+        r"""
         The distribution-level counterpart of :meth:`check_conditional_moments`: compare the raw moments obtained by
         **integrating each conditional's CDF grid** against the exact ones from
         :meth:`ConditionalRewardDistribution._raw_moments`, and **log a warning** (per axis) when the worst scaled
@@ -1156,8 +1214,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
         would sail straight past it. Here the grid is the thing being integrated, and order 2 sees the tail long
         before the mean does.
 
-        The moments come from the survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy``, rather than from
-        ``int y^j f(y) dy``: the CDF is what the cosine fit actually produces (the density is its gradient), and the
+        The moments come from the survival function,
+        :math:`\mathbb{E}[R^j] = \int_0^b j\,y^{j-1}(1 - F(y))\,\mathrm{d}y`, rather than from
+        :math:`\int y^j f(y)\,\mathrm{d}y`: the CDF is what the cosine fit actually produces (the density is its
+        gradient), and the
         atom at 0 -- which a conditional generally has -- contributes nothing to a raw moment of order ``j >= 1`` but
         would dominate a density quadrature near the origin.
 
@@ -1210,17 +1270,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out
 
     def _uncond_raw_moments(self, which: str, k: int) -> list:
-        """The exact *unconditional* raw moments ``E[R^j]``, ``j = 1..k``, of one of the two rewards, straight from the
-        moment engine (no inversion anywhere). They set the error floor of :meth:`check_conditional_grid_moments`."""
+        r"""The exact *unconditional* raw moments :math:`\mathbb{E}[R^j]`, :math:`j = 1..k`, of one of the two rewards,
+        straight from the moment engine (no inversion anywhere). They set the error floor of
+        :meth:`check_conditional_grid_moments`."""
         reward = self.reward_a if which == 'a' else self.reward_b
         return [float(MomentEvaluator.moment(self._host, k=j, rewards=(reward,) * j, center=False))
                 for j in range(1, k + 1)]
 
     @staticmethod
     def _grid_raw_moments(cond: RewardDistribution, k: int = 2, n: int = 4001) -> list:
-        """
-        The raw moments ``E[R^j]``, ``j = 1..k``, of a conditional **as its CDF grid represents it**: from the
-        survival function, ``E[R^j] = int_0^b j y^(j-1) (1 - F(y)) dy``.
+        r"""
+        The raw moments :math:`\mathbb{E}[R^j]`, :math:`j = 1..k`, of a conditional **as its CDF grid represents
+        it**: from the survival function, :math:`\mathbb{E}[R^j] = \int_0^b j\,y^{j-1}(1 - F(y))\,\mathrm{d}y`.
 
         The window ``b`` is the **cosine fit's own**, not ``_range``: the fit force-normalises to 1 there, so the
         survival is zero beyond it by construction and a wider window adds nothing but wasted resolution. On a small-N
@@ -1249,7 +1310,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
 
 class ConditionalRewardDistribution(RewardDistribution):
-    """
+    r"""
     The distribution of one accumulated reward given a value of another, as returned by
     :meth:`JointRewardDistribution.conditional`. A :class:`RewardDistribution` like any other in how it is *used*
     (``cdf`` / ``pdf`` / ``quantile`` / ``mean``, callable and plottable), but not in how it is *obtained*, and the
@@ -1257,37 +1318,47 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     A conditional carries no state-space reward, so its moments do not come from the moment engine: :attr:`var` and
     :meth:`moment` take the conditional's own transform on the atom and the derivative identity away from it. Its
-    support is sized by bracketing the exact CDF rather than from ``mean + scale * std``, whose variance the nested
-    transform under-estimates.
+    support is sized by bracketing the exact CDF rather than from
+    :math:`\mathbb{E}[R] + \text{scale}\cdot\operatorname{std}(R)`, whose variance the nested transform
+    under-estimates.
 
     .. warning::
-        Conditioning on a *value* (``value > 0``) makes the transform a **nested inversion**: one numerical inversion
-        divided by another. A loss of precision is possible, most of all far out in the conditioning tail and on
-        demographies with many epochs. Expect a few correct digits rather than machine precision. Conditioning on the
-        atom (``value = 0``) is not affected -- that transform is exact.
+        Conditioning on a *value* (:math:`value > 0`) makes the transform a **nested inversion**: one numerical
+        inversion divided by another. A loss of precision is possible, most of all far out in the conditioning tail
+        and on demographies with many epochs. Expect a few correct digits rather than machine precision. Conditioning
+        on the atom (:math:`value = 0`) is not affected -- that transform is exact.
     """
     #: The conditioning value. Overridden by :class:`_NestedConditional`; the atom conditions on ``R_on = 0``.
     _value: float = 0.0
 
     def _raw_moments(self, k: int = 2) -> list:
-        """
-        The raw moments ``E[R_other^j | R_on = value]``, ``j = 1..k``, by the derivative identity.
+        r"""
+        The raw moments :math:`\mathbb{E}[R_\text{other}^j \mid R_{on} = value]`, :math:`j = 1..k`, by the
+        derivative identity.
 
         Differentiating the joint transform in the *other* argument at 0 turns a conditional moment into a single
-        **1D** Laplace inversion, with no nested inversion anywhere::
+        **1D** Laplace inversion, with no nested inversion anywhere:
 
-            d^j/ds_o^j Phi(s_on, s_o) |_{s_o = 0}  =  (-1)^j L_{s_on}[ E[R_other^j | R_on = v] f_on(v) ]
+        .. math::
 
-        because the right-hand side is just the transform of ``v -> E[R_other^j | R_on = v] f_on(v)``. So
+            \frac{\partial^j}{\partial s_o^j}\,\Phi(s_{on}, s_o)\Big|_{s_o = 0}
+            = (-1)^j\,\mathcal{L}_{s_{on}}\!\big[\,\mathbb{E}[R_\text{other}^j \mid R_{on} = v]\,f_{on}(v)\,
+            \big],
 
-            E[R_other^j | R_on = v]  =  L^-1[ (-1)^j d^j Phi ](v)  /  f_on(v),
+        because the right-hand side is just the transform of
+        :math:`v \mapsto \mathbb{E}[R_\text{other}^j \mid R_{on} = v]\,f_{on}(v)`. So
 
-        with ``f_on(v) = L^-1[Phi(., 0)](v)`` the conditioning marginal's density (the ``j = 0`` case). The derivatives
-        come from :meth:`~JointRewardDistribution.lst_taylor`, which evaluates the transform in a truncated polynomial
-        ring and so returns them **exactly**: ``d^j Phi = j! Phi_j``. They are *not* finite differences. Differencing
-        here is not viable, even though the transform is analytic: the difference's ``eps_mach / h`` residue is then
-        fed to de Hoog's QD recurrence, which amplifies it enough to swing the inverted value by 15% between
-        neighbouring steps ``h``.
+        .. math::
+
+            \mathbb{E}[R_\text{other}^j \mid R_{on} = v] = \frac{\mathcal{L}^{-1}[(-1)^j\,\partial^j\Phi](v)}
+            {f_{on}(v)},
+
+        with :math:`f_{on}(v) = \mathcal{L}^{-1}[\Phi(\cdot, 0)](v)` the conditioning marginal's density (the
+        :math:`j = 0` case). The derivatives come from :meth:`~JointRewardDistribution.lst_taylor`, which evaluates the
+        transform in a truncated polynomial ring and so returns them **exactly**: :math:`\partial^j\Phi = j!\,
+        \Phi_j`. They are *not* finite differences. Differencing here is not viable, even though the transform is
+        analytic: the difference's :math:`\epsilon_\mathrm{mach}/h` residue is then fed to de Hoog's QD recurrence,
+        which amplifies it enough to swing the inverted value by 15% between neighbouring steps :math:`h`.
 
         Costs ``k + 1`` 1D inversions over one shared node set, so it shares no code and no quadrature with the nested
         transform whose mean :meth:`JointRewardDistribution.check_conditional_moments` checks against it.
@@ -1359,10 +1430,11 @@ class ConditionalRewardDistribution(RewardDistribution):
         return max(float(m2) - float(m1) ** 2, 0.0)
 
     def moment(self, k: int) -> float:
-        """
-        The ``k``-th raw moment ``E[R_other^k | R_on = value]``.
+        r"""
+        The :math:`k`-th raw moment :math:`\mathbb{E}[R_\text{other}^k \mid R_{on} = value]`.
 
-        Away from the atom any ``k`` is available, from :meth:`_raw_moments`. On the atom only the first two are: the
+        Away from the atom any :math:`k` is available, from :meth:`_raw_moments`. On the atom only the first two are:
+        the
         identity cannot be evaluated there, and the higher cumulant differences of the transform are too noisy.
 
         :param k: Order of the moment.
@@ -1428,14 +1500,15 @@ class ConditionalRewardDistribution(RewardDistribution):
 
 
 class _AtomConditional(ConditionalRewardDistribution):
-    """
-    The 1D conditional of the *other* reward given ``R_{on} = 0`` -- conditioning on the **atom** ``{R_on = 0}``: the
-    sub-distribution of the other reward there, normalised by the atom mass ``P(R_on = 0)``. Its LST is the marginal
-    sub-transform restricted to that atom (``Phi(inf, .)`` for ``on='a'``, ``Phi(., inf)`` for ``on='b'``) divided by
-    the atom mass, so it plugs straight into the full :class:`RewardDistribution` machinery -- de Hoog ``cdf``/``pdf``,
-    the cosine ``cdf`` / ``pdf``, quantile and plotting -- exactly like :class:`_NestedConditional` does
-    for the ``value > 0`` case, so both conditional cases share one accurate path. The residual atom at 0
-    (``P(both = 0) / P(R_on = 0)``) surfaces automatically as ``p0 = lst(inf)``.
+    r"""
+    The 1D conditional of the *other* reward given :math:`R_{on} = 0` -- conditioning on the **atom**
+    :math:`\{R_{on} = 0\}`: the sub-distribution of the other reward there, normalised by the atom mass
+    :math:`\Pr(R_{on} = 0)`. Its LST is the marginal sub-transform restricted to that atom
+    (:math:`\Phi(\infty, \cdot)` for ``on='a'``, :math:`\Phi(\cdot, \infty)` for ``on='b'``) divided by the atom
+    mass, so it plugs straight into the full :class:`RewardDistribution` machinery -- de Hoog ``cdf``/``pdf``, the
+    cosine ``cdf`` / ``pdf``, quantile and plotting -- exactly like :class:`_NestedConditional` does for the
+    :math:`value > 0` case, so both conditional cases share one accurate path. The residual atom at 0
+    (:math:`\Pr(R_a = 0, R_b = 0)/\Pr(R_{on} = 0)`) surfaces automatically as :math:`p_0 = \varphi(\infty)`.
     """
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
@@ -1461,7 +1534,8 @@ class _AtomConditional(ConditionalRewardDistribution):
         self.label = label
 
     def lst(self, s: complex) -> complex:
-        """Conditional LST: the marginal sub-transform on the atom ``{R_on = 0}``, normalised by the atom mass."""
+        r"""Conditional LST: the marginal sub-transform on the atom :math:`\{R_{on} = 0\}`, normalised by the atom
+        mass."""
         return self._sub(s) / self._atom
 
 
@@ -1536,28 +1610,32 @@ _EULER_N0 = 30
 
 
 def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: int = 12) -> complex:
-    """
-    Euler-accelerated Fourier-series (Abate-Whitt) Laplace inversion of ``transform`` at ``t``.
+    r"""
+    Euler-accelerated Fourier-series (Abate-Whitt) Laplace inversion of ``transform`` at :math:`t`.
 
-    With period ``T = 2t`` the Bromwich integral becomes the Fourier series
+    With period :math:`T = 2t` the Bromwich integral becomes the Fourier series
 
-        f(t) ~ (e^{A/2} / 2t) sum_{k=-inf}^{inf} (-1)^k F( (A + 2 pi i k) / (2t) ),
+    .. math::
 
-    whose ``2 pi / T`` node spacing makes it genuinely *alternating*, which is what Euler summation requires (a
-    ``pi / T`` spacing gives weights ``i^k``, a period-4 rotation, and the acceleration is then invalid). The tail
-    beyond ``N0`` is Euler-averaged with binomial weights over the partial sums ``S_{N0..N0+m}``.
+        f(t) \approx \frac{e^{A/2}}{2t}\sum_{k=-\infty}^{\infty} (-1)^k\,F\!\left(\frac{A + 2\pi i k}{2t}
+        \right),
+
+    whose :math:`2\pi/T` node spacing makes it genuinely *alternating*, which is what Euler summation requires (a
+    :math:`\pi/T` spacing gives weights :math:`i^k`, a period-4 rotation, and the acceleration is then invalid). The
+    tail beyond :math:`N_0` is Euler-averaged with binomial weights over the partial sums
+    :math:`S_{N_0 \ldots N_0 + m}`.
 
     Summed **two-sided**, so the inverse may be complex-valued -- no conjugate symmetry is assumed (unlike de Hoog
     and Talbot, which evaluate only the upper half-plane and take a real part).
 
-    The nodes and weights are *fixed*, so the result is a plain linear combination ``sum_k w_k F(u_k)``: for a
+    The nodes and weights are *fixed*, so the result is a plain linear combination :math:`\sum_k w_k\,F(u_k)`: for a
     two-argument transform this keeps the inversion exactly as analytic in the *other* argument as the transform
     itself, which is what lets it be nested inside the outer de Hoog (see :meth:`_NestedConditional._G`).
 
-    ``A`` trades aliasing error (``~ e^{-A}``) against amplification of roundoff and of the near-cancelling
-    alternating sum (``~ e^{A/2}``). Larger is *not* better: the aliasing term is negligible here, while by
-    ``A = 36`` the amplification alone puts the bottleneck normaliser 94% off. The residual error is Fourier-series
-    truncation, which ``N0`` (not ``A``) buys down.
+    :math:`A` trades aliasing error (:math:`\sim e^{-A}`) against amplification of roundoff and of the near-cancelling
+    alternating sum (:math:`\sim e^{A/2}`). Larger is *not* better: the aliasing term is negligible here, while by
+    :math:`A = 36` the amplification alone puts the bottleneck normaliser 94% off. The residual error is
+    Fourier-series truncation, which :math:`N_0` (not :math:`A`) buys down.
     """
     ks = np.arange(-(N0 + m), N0 + m + 1)
     u = (A + 2.0j * np.pi * ks) / (2.0 * t)
@@ -1570,21 +1648,22 @@ def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: 
 
 
 class _NestedConditional(ConditionalRewardDistribution):
-    """
-    The 1D conditional distribution of one reward given ``R_{on} = value`` (``value > 0``), built by **nested
-    inversion**: invert the conditioned dimension at ``value`` to get the other reward's conditional Laplace
+    r"""
+    The 1D conditional distribution of one reward given :math:`R_{on} = value` (:math:`value > 0`), built by **nested
+    inversion**: invert the conditioned dimension at :math:`value` to get the other reward's conditional Laplace
     transform, then reuse the full :class:`RewardDistribution` machinery (de Hoog ``cdf``/``pdf``, two-pass COS
     plotting curves, atom handling, quantile, plotting).
 
-    The conditional LST is ``phi(s) = G(s) / G(0)`` where ``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ]`` is the
-    inner inversion of the joint transform ``Phi`` along the conditioned axis at ``value`` (see :meth:`_G`), and
-    ``G(0)`` is the marginal density of the conditioning reward there (the normaliser). This resolves the conditional
-    exactly, unlike the coarse 2D-cosine slice.
+    The conditional LST is :math:`\varphi(s) = G(s)/G(0)` where
+    :math:`G(s) = \mathcal{L}^{-1}_{u \to value}[\,u \mapsto \Phi(s, u)\,]` is the inner inversion of the joint
+    transform :math:`\Phi` along the conditioned axis at :math:`value` (see :meth:`_G`), and :math:`G(0)` is the
+    marginal density of the conditioning reward there (the normaliser). This resolves the conditional exactly, unlike
+    the coarse 2D-cosine slice.
 
-    The inner inversion's resolution (``N0``, its Fourier-series truncation) is calibrated **once** in
-    :meth:`__init__`, by refining until the normaliser ``G(0)`` stops moving, and then held **fixed for every** ``s``.
-    Letting it vary with ``s`` would make ``G`` a *different* linear functional at each ``s`` and so destroy its
-    analyticity in ``s`` -- the one property the outer inversion depends on (see :meth:`_G`).
+    The inner inversion's resolution (:math:`N_0`, its Fourier-series truncation) is calibrated **once** in
+    :meth:`__init__`, by refining until the normaliser :math:`G(0)` stops moving, and then held **fixed for every**
+    :math:`s`. Letting it vary with :math:`s` would make :math:`G` a *different* linear functional at each :math:`s`
+    and so destroy its analyticity in :math:`s` -- the one property the outer inversion depends on (see :meth:`_G`).
     """
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
@@ -1605,14 +1684,14 @@ class _NestedConditional(ConditionalRewardDistribution):
 
     def _calibrate(self, tol: float = 2e-2, n_max: int = 480) -> tuple:
         """
-        Pick the inner inversion's Fourier truncation ``N0`` and evaluate the normaliser ``G(0)`` (the marginal
-        density of the conditioning reward at ``value``) with it.
+        Pick the inner inversion's Fourier truncation :math:`N_0` and evaluate the normaliser :math:`G(0)` (the
+        marginal density of the conditioning reward at :math:`value`) with it.
 
-        ``N0`` is refined by doubling until ``G(0)`` stops moving by more than ``tol`` in relative terms. A fixed
-        ``N0`` cannot serve every demography: a sharply peaked reward density has slowly-decaying Fourier
-        coefficients, and where ``N0 = 30`` leaves the normaliser 27% off on a strong bottleneck, ``N0 = 240`` gets it
-        to 4e-5. Refining is also what makes the *easy* cases cheap -- they converge at the first step and never pay
-        for the hard ones.
+        :math:`N_0` is refined by doubling until :math:`G(0)` stops moving by more than ``tol`` in relative terms. A
+        fixed :math:`N_0` cannot serve every demography: a sharply peaked reward density has slowly-decaying Fourier
+        coefficients, and where :math:`N_0 = 30` leaves the normaliser 27% off on a strong bottleneck, :math:`N_0 =
+        240` gets it to 4e-5. Refining is also what makes the *easy* cases cheap -- they converge at the first step and
+        never pay for the hard ones.
 
         ``tol`` is deliberately loose. The Euler sum converges slowly enough in ``N0`` that a tight criterion keeps
         doubling long after the *conditional* has stopped improving: at ``tol = 1e-3`` a cell whose conditional mean
@@ -1659,14 +1738,15 @@ class _NestedConditional(ConditionalRewardDistribution):
         )
 
     def _phi(self, u: np.ndarray) -> np.ndarray:
-        """``u -> Phi(., u)`` along the conditioned axis, with the *other* argument held at 0 (the normaliser)."""
+        r""":math:`u \mapsto \Phi(\cdot, u)` along the conditioned axis, with the *other* argument held at 0 (the
+        normaliser)."""
         z = np.zeros(len(u))
         return self._joint.lst_batch(z, u) if self._on == 'b' else self._joint.lst_batch(u, z)
 
     def _G(self, s: complex) -> complex:
-        """
-        ``G(s) = L^{-1}_{u -> value}[ u -> Phi(s, u) ](value)`` (inner inversion along the conditioned axis), by the
-        **Euler-accelerated Fourier series** (Abate-Whitt) -- see :func:`_euler_invert`.
+        r"""
+        :math:`G(s) = \mathcal{L}^{-1}_{u \to value}[\,u \mapsto \Phi(s, u)\,](value)` (inner inversion along the
+        conditioned axis), by the **Euler-accelerated Fourier series** (Abate-Whitt) -- see :func:`_euler_invert`.
 
         The inner inversion has to satisfy three constraints at once, and each rules out an obvious method:
 
@@ -1678,14 +1758,16 @@ class _NestedConditional(ConditionalRewardDistribution):
           truncation error dies. It returned *negative* densities 3x to 32x too large, which is what produced the
           spurious "density is zero" refusals in :meth:`__init__`, the negative conditional branch lengths, and the
           tail errors.
-        * **a fixed linear functional of Phi**, i.e. ``G(s) = sum_k w_k Phi(u_k, s)`` at *fixed* nodes, so that ``G``
-          inherits ``Phi``'s analyticity in ``s``. The **outer** inversion (:meth:`RewardDistribution._invert`) is an
-          ill-conditioned QD recurrence and needs a smooth, analytic ``phi(s)``. This rules out using de Hoog for the
-          inner inversion too: de Hoog is *nonlinear* (Pade/QD acceleration), so ``G(s)`` is accurate pointwise but
-          not smooth in ``s``, and nesting one ill-conditioned recurrence inside another produces a non-monotone CDF
-          wrong by tens of percent even on Kingman.
-        * **nodes on a vertical contour.** Rules out Talbot, whose contour deforms into ``Re(s) -> -inf``, where the
-          per-epoch ``exp((T - s diag(r)) dt)`` overflows.
+        * **a fixed linear functional of Phi**, i.e. :math:`G(s) = \sum_k w_k\,\Phi(u_k, s)` at *fixed* nodes, so
+          that :math:`G` inherits :math:`\Phi`'s analyticity in :math:`s`. The **outer** inversion
+          (:meth:`RewardDistribution._invert`) is an ill-conditioned QD recurrence and needs a smooth, analytic
+          :math:`\varphi(s)`. This rules out using de Hoog for the inner inversion too: de Hoog is *nonlinear*
+          (Pade/QD acceleration), so :math:`G(s)` is accurate pointwise but not smooth in :math:`s`, and nesting one
+          ill-conditioned recurrence inside another produces a non-monotone CDF wrong by tens of percent even on
+          Kingman.
+        * **nodes on a vertical contour.** Rules out Talbot, whose contour deforms into :math:`\operatorname{Re}(s)
+          \to -\infty`, where the per-epoch :math:`\exp((\mathbf{T} - s\,\triangle(\mathbf{r}))\,\mathrm{d}t)`
+          overflows.
 
         Euler satisfies all three. It is summed two-sided, so no conjugate symmetry is assumed and a complex-valued
         inverse (which ``G_s`` is, whenever ``s`` is complex) needs no special handling.
@@ -1695,5 +1777,5 @@ class _NestedConditional(ConditionalRewardDistribution):
         return _euler_invert(lambda u: self._joint.lst_batch(u, np.full(len(u), s)), self._value, N0=self._N0)
 
     def lst(self, s: complex) -> complex:
-        """The conditional Laplace-Stieltjes transform ``phi(s) = G(s) / G(0)``."""
+        r"""The conditional Laplace-Stieltjes transform :math:`\varphi(s) = G(s)/G(0)`."""
         return self._G(complex(s)) / self._G0

@@ -72,7 +72,7 @@ class _SurfacePlottable:
 # --- function kinds -------------------------------------------------------------------------------------------------
 
 class DensityFunction(DistributionFunction):
-    """Probability density function.
+    r"""Probability density function :math:`f(x) = F'(x)`.
 
     - **Callable** ``pdf(x)``: the density at ``x`` (scalar or array). For an accumulated reward this is the
       derivative of the cosine CDF. The tree height uses the exact matrix exponential, empirical samples a
@@ -83,7 +83,7 @@ class DensityFunction(DistributionFunction):
 
 
 class CumulativeDistributionFunction(DistributionFunction):
-    """Cumulative distribution function -- the probability of being at most ``x``.
+    r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)`, the probability of being at most ``x``.
 
     - **Callable** ``cdf(x)``: the probability at ``x`` (scalar or array). For an accumulated reward this is the
       Fourier-cosine inversion. The tree height uses the exact matrix exponential, samples the empirical CDF.
@@ -93,7 +93,7 @@ class CumulativeDistributionFunction(DistributionFunction):
 
 
 class QuantileFunction(DistributionFunction):
-    """Quantile function -- the inverse CDF.
+    r"""Quantile function :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, the inverse CDF.
 
     - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
       reward this inverts the very CDF grid the :class:`CumulativeDistributionFunction` reads, so the two are exact
@@ -106,19 +106,19 @@ class QuantileFunction(DistributionFunction):
 # --- the shared CDF representation ----------------------------------------------------------------------------------
 
 class _HazardGrid:
-    """
+    r"""
     The one representation the cdf, pdf and quantile of a continuous distribution are read off: a grid of nodes and
-    the **cumulative hazard** ``H = -log(1 - F)`` on them, interpolated linearly in ``x``.
+    the **cumulative hazard** :math:`H(x) = -\log(1 - F(x))` on them, interpolated linearly in ``x``.
 
-    The map is the whole definition: ``F(x) = 1 - exp(-H(x))``, so the cdf reads it forwards
+    The map is the whole definition: :math:`F(x) = 1 - e^{-H(x)}`, so the cdf reads it forwards
     (:meth:`_interp_cdf`), the quantile backwards (:meth:`_interp_quantile`) and the pdf differentiates it
     (:meth:`_interp_pdf`). No root-find, no finite difference, and the three are exact mutual inverses of one
     another rather than agreeing to a tolerance.
 
     ``H`` is the coordinate because it is the one in which both halves of the curve are near-straight: near the
-    origin ``H ~ F``, so a chord in ``H`` is the obvious linear interpolation of the CDF; out in the tail ``H`` is
-    ``-log S``, which an (asymptotically exponential) survival traces almost exactly. Linear in ``H`` is a
-    piecewise-constant *hazard*, the natural interpolant of a survival function.
+    origin :math:`H \approx F`, so a chord in ``H`` is the obvious linear interpolation of the CDF; out in the tail
+    ``H`` is :math:`-\log S` (the survival :math:`S = 1 - F`), which an (asymptotically exponential) survival traces
+    almost exactly. Linear in ``H`` is a piecewise-constant *hazard*, the natural interpolant of a survival function.
 
     Where the nodes come from is the subclass's business, and the two sources differ because their point evaluators
     do: :class:`_LSTFunction` inverts the Laplace transform, which is dear enough (by some three orders of magnitude)
@@ -129,7 +129,7 @@ class _HazardGrid:
 
     def _shared(self, key: str, build) -> 'Any':
         """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
-        (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`Settings.cache`."""
+        (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`~phasegen.settings.Settings.cache`."""
         cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
         # the grid is built for one de Hoog tail cut; if that setting was changed on this live distribution the cached
         # nodes no longer join the fit at the same place, so discard them and rebuild for the new cut.
@@ -156,13 +156,13 @@ class _HazardGrid:
 
     @staticmethod
     def _hazard(cdf: 'np.ndarray | float') -> np.ndarray:
-        """The cumulative hazard ``H = -log(1 - F)``, the coordinate the grid is interpolated in. Capped, so a CDF
-        that has saturated at 1 (as the cosine fit does at the end of its window) does not take it to infinity."""
+        r"""The cumulative hazard :math:`H = -\log(1 - F)`, the coordinate the grid is interpolated in. Capped, so a
+        CDF that has saturated at 1 (as the cosine fit does at the end of its window) does not take it to infinity."""
         return -np.log1p(-np.minimum(np.asarray(cdf, dtype=float), 1.0 - 1e-16))
 
     def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
-        """
-        The CDF between the grid's nodes: ``F(x) = 1 - exp(-H(x))``, with the cumulative hazard ``H`` interpolated
+        r"""
+        The CDF between the grid's nodes: :math:`F(x) = 1 - e^{-H(x)}`, with the cumulative hazard ``H`` interpolated
         linearly in ``x``. A chord in ``F`` out in the tail would instead join the nodes underneath a concave curve,
         biasing the far-tail quantile 1e-3 long.
 
@@ -175,8 +175,8 @@ class _HazardGrid:
         return -np.expm1(-np.interp(t, nodes, hazard, left=0.0))
 
     def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
-        """The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
-        other way. Levels at or below the atom ``P(R = 0)`` land on the first node, which is 0.
+        r"""The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
+        other way. Levels at or below the atom :math:`\mathbb{P}(R = 0)` land on the first node, which is 0.
 
         :param q: Probability levels.
         :param nodes: The grid's nodes.
@@ -186,8 +186,9 @@ class _HazardGrid:
         return np.interp(self._hazard(q), hazard, nodes)
 
     def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
-        """The derivative of :meth:`_interp_cdf`'s map: ``f = dF/dx = S * dH/dx``, the survival times the hazard rate.
-        Non-negative by construction, so it cannot inherit the raw cosine sum's Gibbs negativity.
+        r"""The derivative of :meth:`_interp_cdf`'s map: :math:`f = \mathrm{d}F/\mathrm{d}x = S\,\mathrm{d}H/\mathrm{d}x`,
+        the survival :math:`S = 1 - F` times the hazard rate. Non-negative by construction, so it cannot inherit the
+        raw cosine sum's Gibbs negativity.
 
         :param t: Points to evaluate at.
         :param nodes: The grid's nodes.
@@ -209,19 +210,33 @@ class _HazardGrid:
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
 
 class _LSTFunction(_HazardGrid):
-    """
+    r"""
     Mixin owning the 1D accumulated-reward inversion machinery for the function objects of an LST distribution
     (:class:`~phasegen.distributions.reward.RewardDistribution` and its conditional flavours; a bare
     :class:`~phasegen.distributions.PhaseTypeDistribution` such as ``total_branch_length``). It pulls the transform
     and scale *primitives* (``lst`` / ``_invert`` / ``_cumulants`` / ``_range`` / ``_time_scale`` / ``_titled`` /
     the inversion guards) from ``self._distribution`` and turns them into the cdf / pdf / quantile.
 
+    The distribution is defined by the Laplace-Stieltjes transform of its accumulated reward
+    :math:`R`, :math:`\varphi(s) = \mathbb{E}[e^{-sR}]`; the CDF transform is :math:`\varphi(s)/s` and the atom at the
+    origin is :math:`\varphi(\infty) = \mathbb{P}(R = 0)`. Two routes invert it. The **Fourier-cosine (COS)** series
+    reconstructs a whole curve on a truncated support :math:`[0, b]` from the characteristic function
+    :math:`\chi(\omega) = (\varphi(-i\omega) - p_0)/(1 - p_0)` sampled on :math:`\omega_j = j\pi/b`,
+
+    .. math::
+        F(x) = p_0 + (1 - p_0)\Big[ f_0\,x + \sum_{j \ge 1} \frac{f_j}{\omega_j}\sin(\omega_j x) \Big],
+        \qquad f_j = \tfrac{2}{b}\,\mathrm{Re}\,\chi(\omega_j),
+
+    with :math:`p_0 = \varphi(\infty)` the atom (:math:`f_0` halved); **de Hoog's** accelerated per-point inversion is
+    the exact but costly reference used above the tail quantile.
+
     One representation serves the cdf / pdf / quantile: the **CDF grid** of :meth:`_cdf_grid`, a two-pass
     Fourier-cosine fit carrying exact de Hoog nodes above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`,
     where the fit force-normalises to 1 and so loses the tail outright. A single fit answers a whole array, and the
     grid is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang off, see
-    :meth:`CallableDistributionFunctions._function`), so all three read it and are mutually consistent by construction:
-    the pdf is its derivative and the quantile its inverse interpolation, making ``cdf(quantile(q)) == q`` exact.
+    :meth:`~CallableDistributionFunctions._function`), so all three read it and are mutually consistent by
+    construction: the pdf is its derivative and the quantile its inverse interpolation, making
+    :math:`F(F^{-1}(q)) = q` exact.
 
     The **per-point de Hoog inversion** (:meth:`_cdf_point` / :meth:`_pdf_point`) is exact but costs one Laplace
     inversion (~19 ms) per point, so it is never a route the caller selects -- there is no ``exact=`` switch, and every
@@ -229,9 +244,10 @@ class _LSTFunction(_HazardGrid):
 
     - the grid's own **far-tail nodes**, materialised on first use and only as far as the query reaches, so a plot
       (whose endpoint quantile sits below the cut) never pays for them;
-    - a **conditional's support window** (``_Conditional._range_via_cdf``), which brackets the exact CDF because the
-      nested transform's finite-difference variance is unusable;
-    - the **joint's near-origin wiggle check** (``JointRewardDistribution._cos2d_wiggle_check``), cached per joint;
+    - a **conditional's support window** (:meth:`~phasegen.distributions.reward.ConditionalRewardDistribution._range_via_cdf`),
+      which brackets the exact CDF because the nested transform's finite-difference variance is unusable;
+    - the **joint's near-origin wiggle check**
+      (:meth:`~phasegen.distributions.reward.JointRewardDistribution._cos2d_wiggle_check`), cached per joint;
     - the exactness pins of the test suite, which need a reference the grid cannot be its own judge of.
     """
     #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
@@ -258,11 +274,12 @@ class _LSTFunction(_HazardGrid):
     #: error in the CDF itself, all of which this removes at no cost in terms or transform evaluations.
     _cos_tail_target: float = 1.0 - 1e-5
 
-    #: Spacing of the exact (de Hoog) nodes, as a decrement of the cumulative hazard ``H = -log(1 - F)`` -- the
+    #: Spacing of the exact (de Hoog) nodes, as a decrement of the cumulative hazard :math:`H = -\log(1 - F)` -- the
     #: coordinate the whole grid is interpolated in (see :meth:`_interp_cdf`). One spacing resolves body and tail
-    #: alike because ``H`` is both: near the origin ``H ~ F``, so a step in ``H`` is a step in probability; near
-    #: ``F -> 1`` it is ``-log S``, so a step is a fixed factor of survival. A ladder in ``F`` alone cannot resolve a
-    #: survival of 1e-6, and one in ``log S`` alone takes enormous steps through the body, where ``S`` barely moves.
+    #: alike because ``H`` is both: near the origin :math:`H \approx F`, so a step in ``H`` is a step in probability;
+    #: near :math:`F \to 1` it is :math:`-\log S`, so a step is a fixed factor of survival. A ladder in ``F`` alone
+    #: cannot resolve a survival of 1e-6, and one in :math:`\log S` alone takes enormous steps through the body, where
+    #: the survival ``S`` barely moves.
     _hazard_step: float = 0.25
 
     #: Probability spacing of the exact nodes, applied alongside :attr:`_hazard_step`. Redundant at the default cut
@@ -278,10 +295,10 @@ class _LSTFunction(_HazardGrid):
         return self._distribution._range(scale)
 
     def _cdf_point(self, t: float) -> float:
-        """Per-point de Hoog CDF ``P(R <= t)`` (``L[CDF] = phi(s) / s``) -- the exact reference the cosine grid is
-        checked against, the nodes of its far-tail extension, the conditional support bracket and the joint wiggle
-        check. Memoised per distribution: one inversion costs ~19 ms, so it is the *points* that are worth caching,
-        not any grid assembled from them."""
+        r"""Per-point de Hoog CDF :math:`\mathbb{P}(R \le t)` (transform :math:`\mathcal{L}[F] = \varphi(s)/s`) -- the
+        exact reference the cosine grid is checked against, the nodes of its far-tail extension, the conditional
+        support bracket and the joint wiggle check. Memoised per distribution: one inversion costs ~19 ms, so it is the
+        *points* that are worth caching, not any grid assembled from them."""
         if t < 0:
             return 0.0
         d = self._distribution
@@ -297,7 +314,7 @@ class _LSTFunction(_HazardGrid):
         return cache[t]
 
     def _pdf_point(self, t: float) -> float:
-        """Per-point de Hoog density (``L[pdf] = phi(s)``)."""
+        r"""Per-point de Hoog density (transform :math:`\mathcal{L}[f] = \varphi(s)`)."""
         d = self._distribution
         return d._invert(d.lst, float(t))
 
@@ -325,11 +342,13 @@ class _LSTFunction(_HazardGrid):
         return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
 
     def _fit_cos(self, b: float, n_terms: int) -> dict:
-        """
+        r"""
         Fit the COS (Fourier-cosine) inversion over ``[0, b]``: evaluate the characteristic function
-        ``chi(w) = phi(-i w)`` on a fixed frequency grid and return the cosine coefficients. An atom at ``R = 0``
-        (``p0 = phi(inf)``) is split off so the series sees only the smooth continuous part. Warns if a substantial
-        CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this window/resolution).
+        :math:`\chi(\omega) = \varphi(-i\omega)` on a fixed frequency grid :math:`\omega_j = j\pi/b` and return the
+        cosine coefficients :math:`f_j = \tfrac{2}{b}\,\mathrm{Re}\,\chi(\omega_j)` (:math:`f_0` halved). An atom at
+        :math:`R = 0` (:math:`p_0 = \varphi(\infty)`) is split off so the series sees only the smooth continuous part.
+        Warns if a substantial CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this
+        window/resolution).
         """
         d = self._distribution
         p0 = d.lst(d._s_inf).real
@@ -385,10 +404,11 @@ class _LSTFunction(_HazardGrid):
         return cdf
 
     def _exact_step(self, nodes: list) -> float:
-        """
+        r"""
         The distance from the last exact node to the next: whichever of a step in the cumulative hazard and a step in
-        the probability is the *finer* there, converted to a distance by the local density (``dx = dF / f``, and
-        ``dx = dH * S / f`` since ``dH/dx = f / S``).
+        the probability is the *finer* there, converted to a distance by the local density
+        (:math:`\mathrm{d}x = \mathrm{d}F / f`, and :math:`\mathrm{d}x = \mathrm{d}H\,S / f` since
+        :math:`\mathrm{d}H/\mathrm{d}x = f / S`).
 
         Neither spacing suffices alone. A ladder in ``F`` cannot reach a survival of 1e-6 -- it would need a million
         steps -- while a ladder in ``H`` takes enormous strides through the body, where the survival barely moves; on
@@ -510,8 +530,8 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
     """The CDF of a 1D accumulated-reward distribution, on top of the shared :class:`_LSTFunction` machinery."""
 
     def __call__(self, t) -> 'np.ndarray | float':
-        """
-        CDF ``P(R <= t)``, for a scalar or an array of ``t``, interpolated on the shared CDF grid
+        r"""
+        CDF :math:`F(t) = \mathbb{P}(R \le t)`, for a scalar or an array of ``t``, interpolated on the shared CDF grid
         (:meth:`_LSTFunction._cdf_grid`), so a whole array costs one fit.
 
         :param t: Point(s) at which to evaluate the CDF.
@@ -573,14 +593,14 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
     """The quantile function of a 1D accumulated-reward distribution: inverse interpolation of the shared CDF grid."""
 
     def __call__(self, q) -> 'np.ndarray | float':
-        """
-        The ``q``-quantile ``inf{x : F(x) >= q}``, for a scalar or an array of ``q``.
+        r"""
+        The ``q``-quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, for a scalar or an array of ``q``.
 
         The shared CDF grid (:meth:`_LSTFunction._cdf_grid`) is monotone, so the quantile is its inverse
         *interpolation* -- a whole array in one vectorised pass. There is no Laplace inversion that returns a quantile
         directly (the transform gives ``F``, so a quantile is always a root of it), but reading the same piecewise
-        linear ``F`` the CDF reads makes the two exact mutual inverses, ``cdf(quantile(q)) == q``. At or below the
-        atom mass ``P(R = 0)`` the quantile is exactly 0.
+        linear ``F`` the CDF reads makes the two exact mutual inverses, :math:`F(F^{-1}(q)) = q`. At or below the
+        atom mass :math:`\mathbb{P}(R = 0)` the quantile is exactly 0.
 
         Just *above* a large atom the quantile is accurate in absolute terms but loses relative precision, because it
         is itself near zero there: for a bin empty with probability 0.44, ``q = 0.5`` lands at 0.041 against the exact
@@ -748,8 +768,9 @@ class JointDensity(_JointFunction, DensityFunction):
     """
 
     def __call__(self, x, y) -> 'np.ndarray | float':
-        """Joint probability density of ``(R_a, R_b)`` (the continuous, both-positive part). The distribution also has
-        atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none there)."""
+        r"""Joint probability density :math:`f(x, y)` of :math:`(R_a, R_b)` (the continuous, both-positive part). The
+        distribution also has atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none
+        there)."""
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         f = self._grid_values(xs, ys)
         return float(f.ravel()[0]) if f.size == 1 else f
@@ -779,8 +800,9 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     """
 
     def __call__(self, x, y) -> 'np.ndarray | float':
-        """Joint CDF ``P(R_a <= x, R_b <= y)``: the axis atoms plus the continuous box integral. When both rewards are
-        identical the law is singular on the diagonal and the CDF reduces to ``P(R <= min(x, y))``."""
+        r"""Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x, R_b \le y)`: the axis atoms plus the continuous box
+        integral. When both rewards are identical the law is singular on the diagonal and the CDF reduces to
+        :math:`\mathbb{P}(R \le \min(x, y))`."""
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         G = self._grid_values(xs, ys)
         return float(G.ravel()[0]) if G.size == 1 else G
@@ -807,7 +829,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
 class ConditionalDensity(_LSTDensityFunction):
-    """Density of one reward conditional on another being held at a value (e.g. one bin's length given another's).
+    r"""Density :math:`f(x \mid R_b = v)` of one reward conditional on another being held at a value (e.g. one bin's
+    length given another's).
 
     The conditional transform is itself a *nested* inversion (an inner inversion along the conditioned axis, then the
     outer one), so a single de Hoog node costs an entire inner inversion and the per-point route is ~1e4x dearer here
@@ -868,7 +891,7 @@ class CallableDistributionFunctions:
         this distribution. Caching the object -- not just rebuilding a thin wrapper -- is what lets the function
         object's own cached cosine coefficients / CDF grid persist across ``.cdf`` / ``.pdf`` /
         ``.quantile`` accesses, since the three share the one distribution they hang off. Honors the global cache
-        switch (:attr:`Settings.cache`)."""
+        switch (:attr:`~phasegen.settings.Settings.cache`)."""
         cache = self.__dict__.setdefault('_function_cache', {})
         if kind in cache:
             return cache[kind]
@@ -911,7 +934,7 @@ class CallableDistributionFunctions:
         """Warn (via this distribution's logger) if ``values`` has a substantial negative entry relative to its scale,
         then return it unchanged (the caller clips). A density / probability must be non-negative, so a real negative
         -- beyond the ``rtol`` numerical-noise band -- signals inversion ringing (Gibbs) worth surfacing rather than
-        silently clipping. Gated by :attr:`Settings.check_inversions`."""
+        silently clipping. Gated by :attr:`~phasegen.settings.Settings.check_inversions`."""
         arr = np.asarray(values, dtype=float)
         if Settings.check_inversions and arr.size:
             scale = max(float(np.abs(arr).max()), 1e-300)
@@ -925,7 +948,7 @@ class CallableDistributionFunctions:
         """Warn (via this distribution's logger) if ``cdf`` has a substantial downward step relative to its range, then
         return it unchanged (the caller enforces monotonicity). A CDF must be non-decreasing, so a real drop -- beyond
         the ``rtol`` numerical-noise band -- signals inversion ringing (a wiggle). Gated by
-        :attr:`Settings.check_inversions`."""
+        :attr:`~phasegen.settings.Settings.check_inversions`."""
         arr = np.asarray(cdf, dtype=float)
         if Settings.check_inversions and arr.size > 1:
             rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)

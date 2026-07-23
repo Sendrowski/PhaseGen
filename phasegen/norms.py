@@ -28,7 +28,14 @@ class Norm(ABC):
 
 class LNorm(Norm):
     """
-    Class for L-norms.
+    Class for :math:`L^p`-norms of the element-wise difference,
+
+    .. math::
+
+        \\|\\mathbf{a} - \\mathbf{b}\\|_p = \\left( \\sum_i |a_i - b_i|^p \\right)^{1/p},
+
+    with the inputs flattened first, so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise
+    vector distance rather than an induced matrix norm.
     """
 
     def __init__(self, p: int) -> None:
@@ -55,7 +62,8 @@ class LNorm(Norm):
 
 class L2Norm(LNorm):
     """
-    Class for L2-norm (Euclidean distance).
+    Class for the :math:`L^2`-norm (Euclidean distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_2 = \\sqrt{\\sum_i (a_i - b_i)^2}`.
     """
 
     def __init__(self) -> None:
@@ -67,7 +75,8 @@ class L2Norm(LNorm):
 
 class L1Norm(LNorm):
     """
-    Class for L1-norm (Manhattan distance).
+    Class for the :math:`L^1`-norm (Manhattan distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_1 = \\sum_i |a_i - b_i|`.
     """
 
     def __init__(self) -> None:
@@ -79,7 +88,8 @@ class L1Norm(LNorm):
 
 class LInfNorm(LNorm):
     """
-    Class for L-infinity norm (Chebyshev distance).
+    Class for the :math:`L^\\infty`-norm (Chebyshev distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_\\infty = \\max_i |a_i - b_i|`.
     """
 
     def __init__(self) -> None:
@@ -100,6 +110,14 @@ class PoissonLikelihood(Likelihood):
     """
     Class for Poisson likelihoods. Site frequency spectra are often assumed to be
     independent Poisson random variables.
+
+    For observed counts :math:`k_i` and modelled means :math:`\\mu_i`, the additive inverse of the log-likelihood
+
+    .. math::
+
+        L = -\\sum_i \\left( k_i \\log \\mu_i - \\mu_i - \\log k_i! \\right)
+
+    is returned, a positive value to be minimized.
     """
 
     def compute(self, observed: Iterable | float, modelled: Iterable | float) -> float | int:
@@ -126,8 +144,15 @@ class MultinomialLikelihood(Likelihood):
     Class for Multinomial likelihoods. Used when modeling observed counts distributed
     across categories, given expected probabilities.
 
-    The modelled values are normalized to form a valid probability distribution
-    (i.e., they sum to 1).
+    The modelled values :math:`m_i` are normalized to form a valid probability distribution,
+    :math:`p_i = m_i / \\sum_j m_j`, and the additive inverse of the log-likelihood
+
+    .. math::
+
+        L = -\\sum_i k_i \\log p_i
+
+    is returned, a positive value to be minimized (the multinomial coefficient, constant in the parameters, is
+    dropped).
     """
 
     def compute(self, observed: Iterable, modelled: Iterable) -> float:

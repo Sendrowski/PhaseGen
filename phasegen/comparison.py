@@ -256,7 +256,13 @@ class Comparison(Serializable):
     @classmethod
     def rel_diff(cls, a: np.ndarray | float, b: np.ndarray | float) -> np.ndarray | float:
         """
-        Compute the relative difference between two arrays.
+        Compute the element-wise symmetric relative difference
+
+        .. math::
+
+            \\frac{|a - b|}{(|a| + |b|) / 2},
+
+        taken to be zero where both entries vanish.
 
         :param a: The first array.
         :param b: The second array.
@@ -391,7 +397,8 @@ class Comparison(Serializable):
     def _diff_and_plot_mutation_configs(self, ph_stat, ms_stat, name: str) -> tuple:
         """Total-variation distance between the mutation-configuration probability distributions, with a deferred line
         plot. The configs are a probability distribution (over descendant-count configurations), so the natural
-        discrepancy is the total variation ``0.5 * sum|p_ph - p_ms|`` -- bounded, mass-weighted, and the fraction of
+        discrepancy is the total variation :math:`\\tfrac{1}{2}\\sum_k |p_k^{\\mathrm{ph}} - p_k^{\\mathrm{ms}}|`
+        (``0.5 * sum|p_ph - p_ms|``) -- bounded, mass-weighted, and the fraction of
         probability mass misallocated -- rather than a mean per-config *relative* difference, which the rare,
         near-zero-probability configs (where the relative difference saturates) would dominate as sampling noise."""
         configs = [x[0] for x in ph_stat]
@@ -656,8 +663,9 @@ class Comparison(Serializable):
     @staticmethod
     def _diff_label(stat: str) -> str:
         """Human-readable name of the difference metric used for a statistic (shown in the comparison log): the CDF
-        uses the worst *absolute* difference; the pdf and the mutation configurations use the *total-variation
-        distance* between the two distributions (``0.5 * integral|f_ref - f|`` for a density, ``0.5 * sum|p - q|`` for
+        uses the worst *absolute* difference :math:`\\max_t |F_{\\mathrm{ph}}(t) - F_{\\mathrm{ms}}(t)|`; the pdf and
+        the mutation configurations use the *total-variation distance* between the two distributions
+        (:math:`\\tfrac{1}{2}\\int |f_{\\mathrm{ref}} - f|` for a density, :math:`\\tfrac{1}{2}\\sum_k |p_k - q_k|` for
         the discrete configs); the quantile uses the *relative Wasserstein-1* distance (the mean-normalised area
         between the quantile curves); the remaining scalars (mean/var/cov/corr, ...) use a worst *relative* difference."""
         return {'cdf': 'max abs', 'pairwise_cdf': 'max abs', 'loci_pairwise_cdf': 'max abs',
@@ -667,7 +675,8 @@ class Comparison(Serializable):
 
     @staticmethod
     def _pdf_diff(y_ref, y_ph, *axes) -> float:
-        """Total-variation distance between two densities: ``0.5 * integral|f_ref - f|`` -- the proper distributional
+        """Total-variation distance between two densities,
+        :math:`\\tfrac{1}{2}\\int |f_{\\mathrm{ref}} - f|` (``0.5 * integral|f_ref - f|``) -- the proper distributional
         distance (the continuous analogue of the :meth:`_diff_and_plot_mutation_configs` TV; in ``[0, 1]`` for
         probability densities and support-width-independent, since a density integrates to its dimensionless mass).
         The integral is a trapezoidal rule over the coordinate ``axes``: one axis for a 1-D curve or a per-bin
@@ -687,9 +696,16 @@ class Comparison(Serializable):
     @staticmethod
     def _quantile_diff(y_ms, y_ph, q) -> float:
         """Relative Wasserstein-1 (earth-mover) distance between an empirical and analytic quantile curve over the
-        probability grid ``q``: ``integral|Q_ph - Q_ms| dq / integral Q_ms dq``. The L1 distance between the quantile
+        probability grid ``q``,
+
+        .. math::
+
+            \\frac{\\int |Q_{\\mathrm{ph}}(q) - Q_{\\mathrm{ms}}(q)|\\, \\mathrm{d}q}{\\int Q_{\\mathrm{ms}}(q)\\, \\mathrm{d}q}.
+
+        The :math:`L^1` distance between the quantile
         functions is a proper distributional distance (it equals the area between the CDFs); normalising by the
-        reference mean (``integral Q dq = E[L]``) makes it dimensionless and transferable across scenarios.
+        reference mean (:math:`\\int Q\\, \\mathrm{d}q = \\mathbb{E}[L]`) makes it dimensionless and transferable across
+        scenarios.
 
         It is naturally **atom-robust**: for an SFS bin with an atom ``P(L_i = 0) = p0`` the inverse CDF is exactly 0
         for every probability below ``p0``, so on that flat region both quantiles are 0 and the integrand contributes
@@ -1615,7 +1631,8 @@ class Comparison(Serializable):
 
     def cache_ground_truth(self) -> None:
         """Cache the ground truth needed by the configured comparisons -- the standard per-statistic caches
-        (:meth:`MsprimeCoalescent.touch` / :meth:`SampledCoalescent.touch`), any full-grid pairwise surface grids, and
+        (:meth:`~phasegen.distributions.MsprimeCoalescent.touch` /
+        :meth:`~phasegen.distributions.SampledCoalescent.touch`), any full-grid pairwise surface grids, and
         the atom-conditional ground truth. The msprime operand is touched for the top-level ``tolerance`` stats, the
         sampler for the nested ``empirical`` sub-spec; each only if its stats are present, so a config validates
         against msprime, the sampler, or both. Call before :meth:`drop` so the grids are serialized with the
@@ -1628,7 +1645,8 @@ class Comparison(Serializable):
             self.ms.touch()
 
             # the coalescent-level scalar statistics (F_ST, the Patterson f-statistics) are evaluated straight off the
-            # simulated data and the demography, both of which :meth:`MsprimeCoalescent.drop` discards, so their values
+            # simulated data and the demography, both of which :meth:`~phasegen.distributions.MsprimeCoalescent.drop`
+            # discards, so their values
             # have to be cached here rather than recomputed at comparison time
             for stat, spec in self.comparisons.get('statistics', {}).items():
                 args = spec.get('args', []) if isinstance(spec, dict) else []

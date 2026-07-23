@@ -37,6 +37,7 @@ extensions = [
 # documentation, rather than repeating those objects in PhaseGen's own reference.
 intersphinx_mapping = {
     'sfsutils': ('https://sfsutils.readthedocs.io/en/latest/', None),
+    'msprime': ('https://tskit.dev/msprime/docs/stable/', None),
     'python': ('https://docs.python.org/3', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'pandas': ('https://pandas.pydata.org/docs/', None),

@@ -77,7 +77,8 @@ class Settings:
     #: Raise it if you have the memory for a larger space.
     max_state_space_size: int = 1_000_000
 
-    #: Maximum number of trajectories the vectorized sampler (:meth:`PhaseTypeDistribution._sample`) simulates in a
+    #: Maximum number of trajectories the vectorized sampler
+    #: (:meth:`~phasegen.distributions.PhaseTypeDistribution._sample`) simulates in a
     #: single ensemble pass. Its peak memory scales with the number of trajectories (chiefly the
     #: ``n_samples * n_rewards`` reward array), not the state count, so larger requests are split into batches of
     #: this size and concatenated, bounding peak memory at no cost to the result. The default (1e6) keeps every

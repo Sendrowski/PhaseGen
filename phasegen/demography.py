@@ -15,8 +15,11 @@ logger = logging.getLogger('phasegen')
 
 
 class Demography:
-    """
-    Class storing full demographic information.
+    r"""
+    Class storing full demographic information: piecewise-constant population sizes :math:`N(t)` and backward-in-time
+    migration rates :math:`m_{ij}(t)`, resolved into a sequence of epochs on which both are constant. Within an epoch
+    the coalescent generator :math:`\mathbf{S}` is therefore constant, and consecutive epochs differ only in
+    :math:`N(t)` and :math:`m_{ij}(t)` (see :class:`~phasegen.demography.Epoch`).
     """
     #: Population names.
     pop_names: List[str]
@@ -438,8 +441,11 @@ class Demography:
 
 
 class Epoch:
-    """
-    Epoch of a demographic scenario with constant population sizes and migration rates.
+    r"""
+    Epoch of a demographic scenario with constant population sizes :math:`N` and migration rates :math:`m_{ij}`. As
+    both are constant over the epoch, the coalescent generator :math:`\mathbf{S}` is constant here, and coalescence
+    rates scale inversely with :math:`N`: under the standard (Kingman) coalescent a state with :math:`i` lineages
+    coalesces at rate :math:`\binom{i}{2}/N`.
     """
 
     #: Start time of the epoch.
@@ -466,7 +472,7 @@ class Epoch:
 
         :param start_time: Start time of the epoch.
         :param end_time: End time of the epoch.
-        :param pop_sizes: Population sizes. By default, we have ``{'pop_0': 1}`.
+        :param pop_sizes: Population sizes. By default, we have ``{'pop_0': 1}``.
         :param migration_rates: Migration rates of the form ``{(pop_i, pop_j): rate}``, where ``rate`` is the
             backward-in-time rate at which a lineage moves from population ``pop_i`` to population ``pop_j``. By
             default, we have zero migration rates between all populations.
@@ -505,8 +511,8 @@ class Epoch:
 
     @cached_property
     def tau(self) -> float:
-        """
-        Time interval of the epoch.
+        r"""
+        Time interval of the epoch, :math:`\tau = t_{\mathrm{end}} - t_{\mathrm{start}}`.
         """
         return self.end_time - self.start_time
 
@@ -842,15 +848,16 @@ class PopulationSplit(DiscreteDemographicEvent):
             ancestral: str,
             multiplier: float = 100
     ) -> None:
-        """
+        r"""
         Initialize the population split.
 
         :param time: Time of the split.
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
         :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population is
-            set to the population size of the derived population times this multiplier. This value should be chosen
-            large enough to ensure that the lineages move to the ancestral population *fast enough*.
+            set to :math:`m = c\,N`, the population size :math:`N` of the derived population times the multiplier
+            :math:`c`. This value should be chosen large enough to ensure that the lineages move to the ancestral
+            population *fast enough*.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -1054,8 +1061,11 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
 
 
 class ExponentialRateChanges(DiscretizedRateChanges):
-    """
-    Demographic event for exponential rate changes of multiple populations or migration rates.
+    r"""
+    Demographic event for exponential rate changes of multiple populations or migration rates. Each rate follows the
+    trajectory :math:`x(t) = x_0 \exp\!\big(-g\,(t - t_0)\big)`, with initial value :math:`x_0` at start time
+    :math:`t_0` and growth rate :math:`g`, discretized into piecewise-constant steps (see
+    :class:`~phasegen.demography.DiscretizedRateChanges`).
     """
 
     def __init__(
@@ -1101,8 +1111,9 @@ class ExponentialRateChanges(DiscretizedRateChanges):
 
 
 class ExponentialPopSizeChanges(ExponentialRateChanges):
-    """
-    Demographic event for exponential population size changes of multiple populations.
+    r"""
+    Demographic event for exponential population size changes of multiple populations, following
+    :math:`N(t) = N_0 \exp\!\big(-g\,(t - t_0)\big)` (see :class:`~phasegen.demography.ExponentialRateChanges`).
     """
 
     def __init__(

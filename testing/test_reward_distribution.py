@@ -1090,7 +1090,7 @@ def test_atom_conditional_matches_the_sampler_exactly(label, coal):
     Conditioning on the atom is the one conditional a sampler validates **exactly**: ``{R_a = 0}`` is a
     positive-probability event, so the replicates with an empty bin *are* the conditioning set -- no window, no
     bandwidth, none of the O(h) bias that makes a sampled ``R_b | R_a = v`` a rough check at best (see
-    :class:`~phasegen.distributions.EmpiricalJointRewardDistribution`).
+    :class:`~phasegen.distributions.EmpiricalJointDistribution`).
 
     Worth pinning because nothing else does: every scenario's conditional check places its conditioning points at
     ``quantile(p0 + (1 - p0) u)``, strictly *above* the atom, so ``value = 0`` -- a different class
@@ -1153,7 +1153,7 @@ def test_windowed_conditional_mean_cancels_the_window_bias():
     a = rng.exponential(1.0, 400_000)
     b = a + rng.normal(0.0, 0.1, a.size)  # E[R_b | R_a = v] = v
 
-    jd = pg.distributions.EmpiricalJointRewardDistribution(a, b)
+    jd = pg.distributions.EmpiricalJointDistribution(a, b)
 
     v, h = 0.5, 0.3
     cond = jd.conditional('a', v, window=h)

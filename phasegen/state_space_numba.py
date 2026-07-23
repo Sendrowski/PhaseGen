@@ -75,7 +75,13 @@ def _binom_pmf(k, n, p) -> float:
 
 @njit(cache=True)
 def _rate_pairwise(model_id, alpha, psi, c, b, k) -> float:
-    """Reproduce ``CoalescentModel._get_rate(b, k)`` (lineage-counting merger rate)."""
+    """
+    Port of the lineage-counting merger rate of ``k`` out of ``b`` lineages, dispatched by ``model_id``
+    (0 standard, 1 beta, 2 dirac). See :meth:`~phasegen.coalescent_models.CoalescentModel._get_rate` and the
+    per-model overrides (:class:`~phasegen.coalescent_models.StandardCoalescent`,
+    :class:`~phasegen.coalescent_models.BetaCoalescent`, :class:`~phasegen.coalescent_models.DiracCoalescent`) for the
+    formulae.
+    """
     if model_id == 0:  # standard
         if k == 2:
             return b * (b - 1) / 2.0
@@ -94,7 +100,12 @@ def _rate_pairwise(model_id, alpha, psi, c, b, k) -> float:
 
 @njit(cache=True)
 def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr) -> float:
-    """Reproduce ``CoalescentModel._get_rate_block_counting(n, b, k)`` for a merger touching ``len(b_arr)`` blocks."""
+    """
+    Port of the block-counting rate of a simultaneous merger of ``k_i`` out of ``b_i`` lineages touching
+    ``len(b_arr)`` blocks, among ``n`` present lineages, dispatched by ``model_id`` (0 standard, 1 beta, 2 dirac).
+    See :meth:`~phasegen.coalescent_models.CoalescentModel._get_rate_block_counting` and the per-model overrides for
+    the formulae.
+    """
     m = b_arr.shape[0]
 
     if model_id == 0:  # standard

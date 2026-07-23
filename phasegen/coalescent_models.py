@@ -12,8 +12,15 @@ from scipy.stats import binom
 
 
 class CoalescentModel(ABC):
-    """
-    Abstract class for coalescent models.
+    r"""
+    Abstract base class for coalescent models.
+
+    A coalescent model supplies the positive off-diagonal merger rates that populate the intensity matrix
+    :math:`\mathbf{S}` of the coalescent state space (:class:`~phasegen.state_space.StateSpace`). The diagonal of
+    :math:`\mathbf{S}` is fixed by the zero-row-sum convention :math:`s_{ii} = -\sum_{j \ne i} s_{ij}`, so only the
+    positive rates :math:`q_{ij}` returned here are model-specific. A model defines the rate of a :math:`k`-fold
+    merger of :math:`b` lineages; the concrete subclasses are :class:`StandardCoalescent`, :class:`BetaCoalescent`,
+    and :class:`DiracCoalescent`.
     """
 
     def get_rate(self, s1: int, s2: int) -> float:
@@ -33,13 +40,8 @@ class CoalescentModel(ABC):
 
     def get_rate_block_counting(self, n: int, s1: np.ndarray, s2: np.ndarray) -> float:
         r"""
-        Get (positive) rate between two block-counting states.
-
-        A block-counting state is a vector of length ``n`` where each element represents the number of lineages
-        subtending ``i`` lineages in the coalescent tree.
-
-        .. math::
-            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} i a_i = n.
+        Get (positive) rate between two block-counting states ``s1`` and ``s2``. See
+        :class:`~phasegen.state_space.BlockCountingStateSpace` for the block-counting state representation.
 
         :param n: Total number of lineages.
         :param s1: Block configuration 1, a vector of length n.
@@ -90,8 +92,8 @@ class CoalescentModel(ABC):
 
     @abstractmethod
     def _get_rate(self, b: int, k: int) -> float:
-        """
-        Get positive rate for a merger of k out of b lineages.
+        r"""
+        Get the positive rate for a merger of :math:`k` out of :math:`b` lineages.
 
         :param b: Number of lineages.
         :param k: Number of lineages that merge.
@@ -101,8 +103,9 @@ class CoalescentModel(ABC):
 
     @abstractmethod
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
-        """
-        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        r"""
+        Get the positive rate for a simultaneous merger of :math:`k_i` out of :math:`b_i` lineages for all :math:`i`,
+        among :math:`n` lineages currently present.
 
         :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merger for blocks that experience a merger.
@@ -125,10 +128,16 @@ class CoalescentModel(ABC):
 
 
 class StandardCoalescent(CoalescentModel):
-    """
-    Standard (Kingman) coalescent model. Refer to the
-    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
-    highlight=standard+coalescent#msprime.StandardCoalescent>`__
+    r"""
+    Standard (Kingman) coalescent model, in which only binary mergers occur. A state with :math:`b` lineages
+    coalesces at the pairwise rate
+
+    .. math::
+        \binom{b}{2} = \frac{b(b-1)}{2}
+
+    (divided by the per-deme timescale). On the block-counting state space a within-class binary merge of the
+    :math:`a_i` lineages subtending :math:`i` samples has rate :math:`\binom{a_i}{2}`, and a cross-class merge of one
+    :math:`i`-block with one :math:`j`-block has rate :math:`a_i a_j`. See :class:`msprime.StandardCoalescent`
     for more information.
     """
 
@@ -142,8 +151,9 @@ class StandardCoalescent(CoalescentModel):
         return N
 
     def _get_rate(self, b: int, k: int) -> float:
-        """
-        Get positive rate for a merger of k out of b lineages.
+        r"""
+        Get the positive rate for a merger of :math:`k` out of :math:`b` lineages. Only binary mergers
+        (:math:`k = 2`) are permitted, with rate :math:`\binom{b}{2} = b(b-1)/2`; all other :math:`k` have rate zero.
 
         :param b: Number of lineages.
         :param k: Number of lineages that merge.
@@ -157,8 +167,11 @@ class StandardCoalescent(CoalescentModel):
         return 0
 
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
-        """
-        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        r"""
+        Get the positive rate for a merger of :math:`k_i` out of :math:`b_i` lineages for all :math:`i`. Under the
+        standard coalescent only two lineages may merge at a time: a within-class binary merge (:math:`k = (2)`) has
+        rate :math:`\binom{b_0}{2}`, and a cross-class merge of one lineage from each of two classes
+        (:math:`k = (1, 1)`) has rate :math:`b_0 b_1`. All other configurations have rate zero.
 
         :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merger for blocks that experience a merger.
@@ -232,8 +245,6 @@ class StandardCoalescent(CoalescentModel):
 class MultipleMergerCoalescent(CoalescentModel, ABC):
     """
     Base class for multiple merger coalescent models.
-
-    :meta private:
     """
 
     def coalesce(self, n: int, blocks: np.ndarray[int]) -> List[Tuple[np.ndarray, float]]:
@@ -271,10 +282,16 @@ class MultipleMergerCoalescent(CoalescentModel, ABC):
 
 
 class BetaCoalescent(MultipleMergerCoalescent):
-    """
-    Beta coalescent model. Refer to the
-    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=beta+coalescent#msprime.BetaCoalescent>`__
-    for more information.
+    r"""
+    Beta(:math:`2 - \alpha, \alpha`) coalescent model, a multiple-merger (:math:`\Lambda`) coalescent with
+    :math:`1 < \alpha < 2`. A :math:`k`-of-:math:`b` merger has rate
+
+    .. math::
+        \lambda_{b,k} = \binom{b}{k}\,\frac{B(k - \alpha,\; b - k + \alpha)}{B(\alpha,\; 2 - \alpha)},
+
+    where :math:`B(\cdot, \cdot)` is the Euler beta function. Smaller :math:`\alpha` gives heavier-tailed offspring
+    distributions and hence more frequent large mergers; the Kingman coalescent is recovered as
+    :math:`\alpha \to 2`. See :class:`msprime.BetaCoalescent` for more information.
     """
 
     def __init__(self, alpha: float, scale_time: bool = True) -> None:
@@ -283,8 +300,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
 
         :param alpha: The alpha parameter of the beta coalescent model.
         :param scale_time: Whether to scale coalescence time as described in
-            `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
-            highlight=beta+coalescent#msprime.BetaCoalescent>`__. If ``False``, the timescale is set to N.
+            :class:`msprime.BetaCoalescent`. If ``False``, the timescale is set to N.
         """
         if not 1 < alpha < 2:
             raise ValueError("Alpha must be between 1 and 2.")
@@ -296,8 +312,12 @@ class BetaCoalescent(MultipleMergerCoalescent):
         self.alpha: float = alpha
 
     def _get_base_rate(self, b: int, k: int) -> float:
-        """
-        Get base rate for a merger of k out of b lineages (without number of ways).
+        r"""
+        Get the base rate for a merger of :math:`k` out of :math:`b` lineages, i.e. the per-tuple rate before
+        multiplying by the number :math:`\binom{b}{k}` of ways to choose the merging lineages:
+
+        .. math::
+            \frac{B(k - \alpha,\; b - k + \alpha)}{B(\alpha,\; 2 - \alpha)}.
 
         :param b: The number of lineages before the merger.
         :param k: The number of lineages that merge.
@@ -324,9 +344,10 @@ class BetaCoalescent(MultipleMergerCoalescent):
         return scale
 
     def _get_rate(self, b: int, k: int) -> float:
-        """
-        Get positive rate for a merger of k out of b lineages.
-        Negative rates will be filled in later.
+        r"""
+        Get the positive rate for a merger of :math:`k` out of :math:`b` lineages,
+        :math:`\lambda_{b,k} = \binom{b}{k}\,B(k - \alpha,\, b - k + \alpha)/B(\alpha,\, 2 - \alpha)`.
+        The diagonal (negative) entries are filled in later by the zero-row-sum convention.
 
         :param b: The number of lineages before the merger.
         :param k: The number of lineages that merge.
@@ -338,8 +359,14 @@ class BetaCoalescent(MultipleMergerCoalescent):
         return comb(b, k, exact=True) * self._get_base_rate(b, k)
 
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
-        """
-        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        r"""
+        Get the positive rate for a merger of :math:`k_i` out of :math:`b_i` lineages for all :math:`i`. A single
+        merging lineage is formed from :math:`\sum_i k_i` of the :math:`n` present lineages, so the rate is the
+        base rate at :math:`(n, \sum_i k_i)` times the product of the per-block choices:
+
+        .. math::
+            \Big(\prod_i \binom{b_i}{k_i}\Big)\,
+            \frac{B\big(\sum_i k_i - \alpha,\; n - \sum_i k_i + \alpha\big)}{B(\alpha,\; 2 - \alpha)}.
 
         :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merger for blocks that experience a merger.
@@ -365,10 +392,16 @@ class BetaCoalescent(MultipleMergerCoalescent):
 
 
 class DiracCoalescent(MultipleMergerCoalescent):
-    """
-    Dirac coalescent model. Refer to the
-    `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?highlight=dirac+coalescent#msprime.DiracCoalescent>`__
-    for more information.
+    r"""
+    Dirac (point-mass :math:`\Lambda = \delta_\psi`) coalescent model. Each :math:`k`-of-:math:`b` merger adds a
+    point-mass multiple-merger term to the Kingman binary rate:
+
+    .. math::
+        \lambda_{b,k} = \binom{b}{2}\,\mathbf{1}\{k = 2\} + c\,\binom{b}{k}\,\psi^k (1 - \psi)^{b-k},
+
+    where :math:`0 < \psi < 1` is the fraction of the population replaced in a large reproduction event and
+    :math:`c > 0` is the rate of such events. The second term is :math:`c` times the binomial pmf
+    :math:`\mathrm{Binom}(k;\, b, \psi)`. See :class:`msprime.DiracCoalescent` for more information.
     """
 
     def __init__(self, psi: float, c: float, scale_time: bool = True) -> None:
@@ -378,8 +411,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         :param psi: The fraction of the population replaced by offspring in one large reproduction event.
         :param c: The rate of potential multiple merger events.
         :param scale_time: Whether to scale coalescence time as described in
-            `Msprime docs <https://tskit.dev/msprime/docs/stable/api.html?
-            highlight=dirac+coalescent#msprime.DiracCoalescent>`__. If `False`, the timescale is set to N.
+            :class:`msprime.DiracCoalescent`. If `False`, the timescale is set to N.
         """
         super().__init__()
 
@@ -411,9 +443,10 @@ class DiracCoalescent(MultipleMergerCoalescent):
         return N ** 2
 
     def _get_rate(self, b: int, k: int) -> float:
-        """
-        Get positive rate for a merger of k out of b lineages.
-        Negative rates will be filled in later.
+        r"""
+        Get the positive rate for a merger of :math:`k` out of :math:`b` lineages, the sum of the Kingman binary rate
+        :math:`\binom{b}{2}\mathbf{1}\{k = 2\}` and the point-mass term :math:`c\,\binom{b}{k}\psi^k(1-\psi)^{b-k}`.
+        The diagonal (negative) entries are filled in later by the zero-row-sum convention.
 
         :param b: The number of lineages before the merger.
         :param k: The number of lineages that merge.
@@ -431,8 +464,16 @@ class DiracCoalescent(MultipleMergerCoalescent):
         return rate_binary + rate_multi
 
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
-        """
-        Get positive rate for a merger of k_i out of b_i lineages for all i.
+        r"""
+        Get the positive rate for a merger of :math:`k_i` out of :math:`b_i` lineages for all :math:`i`, the sum of
+        the standard-coalescent binary rate and the point-mass multiple-merger term. The latter is :math:`c` times
+        the probability that a single large event (each lineage participating independently with probability
+        :math:`\psi`) selects exactly :math:`k_i` lineages from each involved block and none of the remaining
+        :math:`n - \sum_i b_i` lineages:
+
+        .. math::
+            c \left(\prod_i \mathrm{Binom}(k_i;\, b_i, \psi)\right)
+            \mathrm{Binom}\!\big(0;\, n - \textstyle\sum_i b_i,\, \psi\big).
 
         :param n: Number of lineages currently present in the block configuration.
         :param b: Number of lineages before merger for blocks that experience a merger.

@@ -1,5 +1,9 @@
 """
-Matrix exponentiation backends.
+Matrix exponentiation backends, used when computing the moments of phase-type distributions.
+
+Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})` (:meth:`ExpmBackend.compute`)
+and the exponential action :math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
+(:meth:`ExpmBackend.compute_action`), the latter evaluated without forming the dense exponential.
 """
 from abc import ABC, abstractmethod
 from typing import Literal
@@ -18,18 +22,19 @@ class ExpmBackend(ABC):
     @abstractmethod
     def compute(self, m: np.ndarray) -> np.ndarray:
         """
-        Compute the matrix exponential.
+        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`.
         """
         pass
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action of the matrix exponential on a vector (or thin matrix), ``exp(a) @ b``.
+        Compute the action of the matrix exponential on a vector (or thin matrix),
+        :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``).
 
         The default implementation densifies ``a`` and forms the dense exponential via :meth:`compute`, so the action
         uses the backend's own exponentiation. :class:`SciPyExpmBackend` overrides this with scipy's sparse
-        Krylov/Taylor ``expm_multiply``, which exploits the sparsity of ``a`` without forming the dense exponential;
-        other backends may likewise override it (e.g. with a GPU Krylov method).
+        Krylov/Taylor ``expm_multiply``, which exploits the sparsity of :math:`\\mathbf{A}` without forming the dense
+        exponential; other backends may likewise override it (e.g. with a GPU Krylov method).
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.
@@ -91,8 +96,8 @@ class SciPyExpmBackend(ExpmBackend):
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action ``exp(a) @ b`` using scipy's sparse Krylov/Taylor ``expm_multiply``, which exploits the
-        sparsity of ``a`` without forming the dense exponential.
+        Compute the action :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``) using scipy's sparse Krylov/Taylor
+        ``expm_multiply``, which exploits the sparsity of :math:`\\mathbf{A}` without forming the dense exponential.
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.
@@ -170,15 +175,15 @@ class Backend(ABC):
     @abstractmethod
     def expm(cls, m: np.ndarray) -> np.ndarray:
         """
-        Compute the matrix exponential.
+        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`.
         """
         return cls.backend.compute(m)
 
     @classmethod
     def expm_multiply(cls, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action of the matrix exponential, ``exp(a) @ b``, via the active backend without forming the
-        dense exponential.
+        Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
+        active backend without forming the dense exponential.
         """
         return cls.backend.compute_action(a, b)
 
