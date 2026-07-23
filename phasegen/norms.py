@@ -166,7 +166,9 @@ class MultinomialLikelihood(Likelihood):
         """
         observed = np.array(list(observed))
         modelled = np.array(list(modelled))
-        modelled = modelled / modelled.sum()
+        modelled = modelled / max(modelled.sum(), np.finfo(float).tiny)
 
+        # floor the probabilities before the log so a category the model assigns zero probability yields a large
+        # finite penalty rather than an infinite objective, matching the epsilon convention of the Poisson likelihood
         mask = observed > 0
-        return -np.sum(observed[mask] * np.log(modelled[mask]))
+        return -np.sum(observed[mask] * np.log(np.maximum(modelled[mask], 1e-50)))

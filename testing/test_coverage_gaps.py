@@ -13,6 +13,55 @@ class CoverageGapsTestCase(TestCase):
     Small, fast tests that exercise otherwise-uncovered helper paths.
     """
 
+    def test_combined_reward_does_not_mutate_input_list(self):
+        """CombinedReward must not mutate (or alias) the caller's reward list."""
+        rewards = [pg.TotalBranchLengthReward(), pg.LocusReward(0)]
+        pg.CombinedReward(rewards)
+        self.assertEqual(len(rewards), 2)
+        self.assertIsInstance(rewards[0], pg.TotalBranchLengthReward)
+        self.assertIsInstance(rewards[1], pg.LocusReward)
+
+    def test_point_mass_reward_distribution_functions(self):
+        """A reward that is zero almost surely (a full atom at 0) yields the trivial point-mass CDF / quantile
+        without a division-by-zero crash in the cosine fit."""
+        d = pg.Coalescent(n=4).distribution(pg.CustomReward(func=lambda ss: np.zeros(ss.k)))
+        self.assertAlmostEqual(d.cdf(1.0), 1.0)
+        self.assertEqual(d.quantile(0.5), 0.0)
+
+    def test_multinomial_likelihood_finite_for_zero_probability_category(self):
+        """The multinomial likelihood stays finite when the model gives an observed category zero probability."""
+        val = pg.MultinomialLikelihood().compute(observed=[5, 3, 2], modelled=[1.0, 0.0, 1.0])
+        self.assertTrue(np.isfinite(val))
+        self.assertTrue(np.isfinite(pg.MultinomialLikelihood().compute(observed=[1, 2], modelled=[0.0, 0.0])))
+
+    def test_touch_persists_moments_under_disabled_cache(self):
+        """touch() must persist the cached moments even with Settings.cache = False, so drop() cannot corrupt the
+        object (the touch/drop serialization contract is independent of the debug cache switch)."""
+        from phasegen.settings import Settings
+
+        emp = pg.Coalescent(n=3).tree_height.to_empirical(500)
+        t = np.linspace(0, float(np.max(emp.samples)), 50)
+        old = Settings.cache
+        try:
+            Settings.cache = False
+            emp.touch(t)
+            emp.drop()
+            self.assertTrue(np.isfinite(emp.mean))
+        finally:
+            Settings.cache = old
+
+    def test_sampled_coalescent_restores_global_rng_state(self):
+        """A seeded sampler must not perturb the caller's global numpy RNG state."""
+        np.random.seed(1)
+        expected = np.random.rand(3)
+
+        np.random.seed(1)
+        sc = pg.Coalescent(n=3).to_empirical(200, seed=42)
+        _ = sc.tree_height
+        got = np.random.rand(3)
+
+        np.testing.assert_array_equal(expected, got)
+
     def test_take_n_and_takewhile_inclusive(self):
         """The ``take_n`` and ``takewhile_inclusive`` iterator helpers."""
         self.assertEqual(list(take_n(range(10), 3)), [0, 1, 2])

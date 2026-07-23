@@ -549,8 +549,8 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
 
 class LocusReward(LineageCountingReward):
     """
-    Reward fraction of lineages in a specific locus. Taking the product of this reward with another reward
-    will result in a reward that only considers the specified locus.
+    Reward states in which the given locus is still segregating (an indicator that the locus holds more than one
+    lineage). Taking the product of this reward with another reward restricts that reward to the specified locus.
     """
 
     def __init__(self, locus: int) -> None:
@@ -723,6 +723,9 @@ class CombinedReward(ProductReward):
 
         :param rewards: Rewards to combine
         """
+        # copy so we never mutate (or alias) the caller's list
+        rewards = list(rewards)
+
         # replace rewards with combined rewards if possible
         for (c1, c2), comb in CombinedReward.combinations.items():
             # keep looping until we have no rewards to combine

@@ -354,6 +354,8 @@ class _LSTFunction(_HazardGrid):
         w = np.arange(n_terms) * np.pi / b
         chi = np.array([d.lst(-1j * wk) for wk in w])
         if p0 > 1e-9:
+            if 1.0 - p0 <= 1e-12:  # full atom at 0 (R = 0 almost surely): degenerate point mass, no continuous part
+                return dict(b=b, w=w, fk=np.zeros(n_terms), p0=p0)
             chi = (chi - p0) / (1 - p0)  # continuous part only
         fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
         fk[0] *= 0.5
@@ -971,7 +973,9 @@ class ProbabilityDistribution(ABC):
         for cls in self.__class__.__mro__:
             for attr, value in cls.__dict__.items():
                 if isinstance(value, cached_property):
-                    getattr(self, attr)
+                    # force-persist the value: touch/drop is the serialization contract and must hold even under
+                    # Settings.cache = False, where the getter would otherwise recompute without storing
+                    self.__dict__[attr] = getattr(self, attr)
 
 
 class MomentAwareDistribution(ProbabilityDistribution, ABC):

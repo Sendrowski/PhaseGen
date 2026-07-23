@@ -1914,5 +1914,9 @@ class CoalescentTestCase(TestCase):
         samp = np.asarray(sfs._sample(2000, rewards=rewards))
         finite_frac = np.mean(np.isfinite(samp), axis=0)
 
-        self.assertTrue((finite_frac > 0.5).any())  # some components stay finite (the fix)
-        self.assertTrue((finite_frac < 0.5).any())  # the 3-ton component diverges
+        # both stuck lineages subtend 3 samples, so exactly the 3-ton bin accumulates an infinite reward while
+        # every other bin stays finite in every sample
+        indices = list(sfs._get_indices())
+        three_ton = indices.index(3)
+        self.assertEqual(finite_frac[three_ton], 0.0)
+        self.assertTrue(np.all(np.delete(finite_frac, three_ton) == 1.0))
