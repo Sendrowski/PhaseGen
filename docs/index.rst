@@ -33,11 +33,14 @@ Contents
 
    reference/R/installation
    reference/R/quickstart
+   reference/R/distribution_functions
    reference/R/spectra
    reference/R/multiple_merger_coalescents
    reference/R/rewards
    reference/R/demography
    reference/R/mutation_configs
+   reference/R/empirical_distributions
+   reference/R/inference
    reference/R/miscellaneous
 
 .. toctree::
