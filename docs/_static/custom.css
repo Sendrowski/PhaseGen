@@ -41,6 +41,8 @@ div.cell_output img {
 .bd-sidebar-primary li.toctree-l1 > a.reference {
     font-weight: 700 !important;
     color: var(--pst-color-text-base) !important;
+    /* never show the "current" accent bar/colour on a group heading, only on the active page below it */
+    box-shadow: none !important;
     pointer-events: none;
     cursor: default;
 }

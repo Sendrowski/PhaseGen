@@ -1,7 +1,7 @@
 .. _reference.performance:
 
-Runtime Performance
-===================
+Performance
+===========
 
 .. toctree::
    :maxdepth: 1
