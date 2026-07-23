@@ -32,11 +32,15 @@ div.cell_output img {
     margin-right: auto;
 }
 
-/* sidebar navigation: bold the top-level group headings and space the groups apart */
-.bd-sidebar-primary nav.bd-links li.toctree-l1 > a.reference {
-    font-weight: 700;
+/* sidebar navigation: bold, non-linking top-level group headings, spaced apart. The heading is an
+   anchor to the group's landing page; disable navigation (the chevron still toggles the group). */
+.bd-sidebar-primary li.toctree-l1 {
+    margin-top: 0.9em;
 }
 
-.bd-sidebar-primary nav.bd-links li.toctree-l1 {
-    margin-top: 0.9em;
+.bd-sidebar-primary li.toctree-l1 > a.reference {
+    font-weight: 700 !important;
+    color: var(--pst-color-text-base) !important;
+    pointer-events: none;
+    cursor: default;
 }

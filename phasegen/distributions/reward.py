@@ -75,6 +75,8 @@ class RewardDistribution(CallableDistributionFunctions):
     turns the transform into those functions lives on the function objects (the
     :class:`~phasegen.distributions.base._LSTFunction` family); this distribution supplies the transform and scale
     primitives (:meth:`lst`, :meth:`_invert`, :meth:`_cumulants`, :meth:`_range`, :attr:`_time_scale`).
+
+    .. versionadded:: 2.0
     """
     #: the 1D LST function-object flavours owning the de Hoog / cosine inversion machinery
     _cdf_function = _LSTCumulativeDistributionFunction
@@ -451,6 +453,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
     reach of the scenario suite. Nested **Euler** (which the 1D conditional does need, see :class:`_NestedConditional`)
     is accurate but likewise per-point, and equally untestable at grid scale. Cosine's known weakness is the
     steep near-origin rise, mitigated by the window scale (:attr:`_cos2d_window_scale`).
+
+    .. versionadded:: 2.0
     """
     @property
     def _time_scale(self) -> float:
@@ -614,8 +618,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return out.T if transpose else out
 
     def marginal(self, which: str = 'a') -> RewardDistribution:
-        """The marginal accumulated-reward distribution of :math:`R_a` (``which='a'``) or :math:`R_b`
-        (``which='b'``)."""
+        r"""The marginal accumulated-reward distribution of :math:`R_a` (``which='a'``) or :math:`R_b`
+        (``which='b'``).
+
+        .. versionadded:: 2.0
+        """
         return RewardDistribution(self._host, self.reward_a if which == 'a' else self.reward_b)
 
     @cached_property
@@ -860,6 +867,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The conditional distribution of the other reward.
         :raises NotImplementedError: If the pair is a self-pair (``R_a == R_b`` a.s., so the conditional is a point
             mass at ``value``).
+
+        .. versionadded:: 2.0
         """
         if on not in ('a', 'b'):
             raise ValueError("`on` must be 'a' or 'b'.")
@@ -1326,6 +1335,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         inversion divided by another. A loss of precision is possible, most of all far out in the conditioning tail
         and on demographies with many epochs. Expect a few correct digits rather than machine precision. Conditioning
         on the atom (:math:`value = 0`) is not affected -- that transform is exact.
+
+    .. versionadded:: 2.0
     """
     #: The conditioning value. Overridden by :class:`_NestedConditional`; the atom conditions on ``R_on = 0``.
     _value: float = 0.0

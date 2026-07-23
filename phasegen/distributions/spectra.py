@@ -1082,6 +1082,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param theta: The mutation rate.
         :return: An iterator over the probabilities of observing mutational configurations.
+
+        .. versionadded:: 2.0
+            Support for time-inhomogeneous (multi-epoch) demographies.
         """
         # reset generated mass
         self.generated_mass = 0

@@ -557,6 +557,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param reward_a: The first reward.
         :param reward_b: The second reward.
         :return: The joint 2D accumulated-reward distribution.
+
+        .. versionadded:: 2.0
         """
         return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint_distribution(reward_a, reward_b)
 
@@ -826,6 +828,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param n_samples: Number of trajectories to sample per statistic.
         :param seed: Random seed.
         :return: The sampled coalescent.
+
+        .. versionadded:: 2.0
         """
         from .empirical import SampledCoalescent
         return SampledCoalescent(coalescent=self, n_samples=n_samples, seed=seed)

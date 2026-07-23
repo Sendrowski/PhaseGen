@@ -1907,6 +1907,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         their trajectories, so their joints, covariances and correlations are valid), but pairing the raw ``.samples``
         of *two* statistics is not meaningful -- ``corrcoef(sc.tree_height.samples, sc.total_branch_length.samples)``
         is ~0 where the truth is ~1.
+
+    .. versionadded:: 2.0
     """
 
     #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.

@@ -125,6 +125,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param reward_a: The first reward.
         :param reward_b: The second reward.
         :return: The joint accumulated-reward distribution.
+
+        .. versionadded:: 2.0
         """
         from .reward import JointRewardDistribution
 
@@ -346,6 +348,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         :param n_samples: Number of trajectories to simulate.
         :return: An :class:`~phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution`.
+
+        .. versionadded:: 2.0
         """
         from .empirical import EmpiricalPhaseTypeDistribution
 
