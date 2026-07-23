@@ -63,7 +63,7 @@ class Inference(Serializable):
             are passed as keyword arguments.
         :param loss: The loss function. This function must return a single numerical
             value that is to be minimized. It receives as first argument the coalescent
-            distribution returned by the ``dist`` callback, and as second argument the
+            distribution returned by the ``coal`` callback, and as second argument the
             observation passed to the ``observation`` argument (if any).
         :param x0: Dictionary of initial numeric guesses for parameters to optimize.
         :param observation: The observed summary statistic the inference is based on.
@@ -243,7 +243,7 @@ class Inference(Serializable):
         """
         Get the (possibly cached) coalescent distribution.
 
-        :param kwargs: Keyword arguments passed to the callback specified as ``dist`.
+        :param kwargs: Keyword arguments passed to the callback specified as ``coal``.
         :return: Coalescent distribution.
         """
         coal = self.coal(**kwargs)
@@ -789,12 +789,13 @@ class Inference(Serializable):
         other.__dict__.pop('x0', None)
         other.__dict__.pop('_state_spaces', None)
 
-        other._check_x0_within_bounds()
+        # give the child an independent RNG drawn from this instance's RNG so that repeated calls sample distinct
+        # start points; add_run keeps only the lowest-loss run, which is pointless if every run starts identically.
+        # This must precede _check_x0_within_bounds, which materializes and caches the sampled x0.
+        other.seed = int(self._rng.integers(0, 2 ** 32 - 1))
+        other._rng = np.random.default_rng(other.seed)
 
-        # generate a new random seed if seeded
-        if other.seed is not None:
-            other.seed = self._rng.integers(0, 2 ** 32 - 1)
-            other._rng = np.random.default_rng(other.seed)
+        other._check_x0_within_bounds()
 
         return other
 

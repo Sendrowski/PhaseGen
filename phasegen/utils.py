@@ -151,4 +151,7 @@ def take_n(iterable: Iterable, n: int) -> Iterator:
     iterator = iter(iterable)
 
     for _ in range(int(n)):
-        yield next(iterator)
+        try:
+            yield next(iterator)
+        except StopIteration:
+            return

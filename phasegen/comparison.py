@@ -1018,9 +1018,8 @@ class Comparison(Serializable):
         array for a scalar distribution, or ``(len(q), n_bins)`` for a spectrum (one column per bin; the monomorphic
         edge bins are held at 0).
 
-        An earlier version interpolated the inverse on a uniform grid over ``[0, mean + 12 std]``; for a heavily
-        skewed reward (a time-inhomogeneous demography spanning 0 to many tens) that grid is far too coarse near the
-        origin, giving large errors at small ``q``.
+        The distribution's own quantile function is used directly so that a heavily skewed reward (a
+        time-inhomogeneous demography spanning 0 to many tens) stays accurate near the origin at small ``q``.
 
         :param ph: The phase-type distribution (scalar, or a spectrum exposing :meth:`bin`).
         :param q: Probabilities at which to evaluate the quantile.

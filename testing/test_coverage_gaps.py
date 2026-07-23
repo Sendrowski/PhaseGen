@@ -16,8 +16,29 @@ class CoverageGapsTestCase(TestCase):
     def test_take_n_and_takewhile_inclusive(self):
         """The ``take_n`` and ``takewhile_inclusive`` iterator helpers."""
         self.assertEqual(list(take_n(range(10), 3)), [0, 1, 2])
+        # a shorter-than-n iterable is truncated rather than raising (PEP 479 turns a bare StopIteration
+        # inside the generator into a RuntimeError)
+        self.assertEqual(list(take_n(iter([1, 2]), 5)), [1, 2])
         # takewhile_inclusive keeps the first element that fails the predicate
         self.assertEqual(list(takewhile_inclusive(lambda x: x < 3, [1, 2, 3, 4])), [1, 2, 3])
+
+    def test_demography_empty_dicts_are_treated_as_unspecified(self):
+        """An explicit empty ``migration_rates`` or ``pop_sizes`` dict must be accepted, not raise IndexError."""
+        d = pg.Demography(pop_sizes={'pop_0': 1.0}, migration_rates={})
+        self.assertEqual(d.n_pops, 1)
+
+        # an empty pop_sizes dict falls through to the unspecified case as well
+        pg.Demography(pop_sizes={})
+
+    def test_msprime_coalescent_num_replicates_below_n_threads(self):
+        """``num_replicates`` below the default ``n_threads`` clamps threads instead of flooring per-thread reps to 0."""
+        from phasegen.distributions.empirical import MsprimeCoalescent
+
+        m = MsprimeCoalescent(n=2, num_replicates=50, parallelize=False)
+        m.touch()
+
+        self.assertEqual(m.n_threads, 50)
+        self.assertGreater(m.n_total, 0)
 
     def test_population_split_demography(self):
         """A population split builds valid epochs and plots, exercising the split event and migration plotting."""

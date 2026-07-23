@@ -57,18 +57,18 @@ class Demography:
             pop_sizes = {'pop_0': {0: pop_sizes}}
 
         # assuming a single population if only a dictionary of time to size is given
-        elif isinstance(pop_sizes, dict) and isinstance(list(pop_sizes.keys())[0], (float, int)):
+        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.keys())[0], (float, int)):
             pop_sizes = {'pop_0': pop_sizes}
 
         # assuming constant population sizes if only a dictionary of population to size is given
-        elif isinstance(pop_sizes, dict) and isinstance(list(pop_sizes.values())[0], (float, int)):
+        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.values())[0], (float, int)):
             pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
 
         if migration_rates is None:
             migration_rates = {}
 
         # wrap migration rate in dictionary if only one time per migration pair is given
-        elif isinstance(migration_rates, dict) and isinstance(list(migration_rates.values())[0], (float, int)):
+        elif isinstance(migration_rates, dict) and migration_rates and isinstance(list(migration_rates.values())[0], (float, int)):
             migration_rates = {(p, q): {0: r} for (p, q), r in migration_rates.items()}
 
         #: The logger instance

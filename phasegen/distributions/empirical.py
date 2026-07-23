@@ -1414,8 +1414,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Mutation rate.
         self.mutation_rate: float = mutation_rate
 
-        #: Number of threads.
-        self.n_threads: int = n_threads
+        #: Number of threads, capped at ``num_replicates`` so each thread simulates at least one replicate
+        #: (``num_replicates // n_threads`` must not floor to zero, which would yield empty simulations).
+        self.n_threads: int = max(1, min(n_threads, num_replicates))
 
         #: Whether to parallelize computations.
         self.parallelize: bool = parallelize

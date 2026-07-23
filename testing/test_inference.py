@@ -78,6 +78,18 @@ class InferenceTestCase(TestCase):
 
         return pg.Inference(**kwargs)
 
+    def test_create_run_samples_independent_start_points(self):
+        """
+        Unseeded ``create_run`` must draw an independent start point on each call. Identical starts would make
+        the cluster multi-start pointless, since ``add_run`` keeps only the lowest-loss of otherwise equal runs.
+        """
+        inf = self.get_fast_inference(dict(x0=None, seed=None))
+
+        first = inf.create_run().x0
+        second = inf.create_run().x0
+
+        self.assertNotEqual(first, second)
+
     def test_fast_inference_run_bootstrap_and_plots(self):
         """
         Run a small inference with bootstrapping and exercise the plotting and serialization paths.
