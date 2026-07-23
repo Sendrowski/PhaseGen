@@ -1896,7 +1896,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     r"""
     PhaseGen-sampled empirical coalescent: the same per-statistic distributions as
     :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own vectorized
-    trajectory sampler (:meth:`~phasegen.distributions.phase_type.PhaseTypeDistribution._sample`) rather than msprime.
+    trajectory sampler (:meth:`~phasegen.distributions.phase_type.PhaseTypeDistribution.sample`) rather than msprime.
     All walkers are advanced through the continuous-time Markov chain in lockstep, one wave per jump, so after the
     one-time setup each statistic is an unbiased Monte Carlo estimate whose cost scales with the number of samples
     :math:`N` rather than the state-space size. Used by ``Comparison`` to validate the

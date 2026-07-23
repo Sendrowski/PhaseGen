@@ -314,8 +314,18 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return MarginalLocusDistributions(self)
 
     def sample(self, n_samples: int) -> np.ndarray:
-        """
-        Draw samples of the accumulated reward by simulating trajectories through the underlying Markov chain.
+        r"""
+        Draw samples of the accumulated reward :math:`R = \int_0^{\tau} r(X_u)\,\mathrm{d}u` by forward-simulating
+        trajectories of the underlying Markov jump process.
+
+        Sampling uses a vectorized ensemble simulator: all walkers are advanced through the continuous-time Markov
+        chain in lockstep, one wave per jump. Each walker starts in a state drawn from the initial distribution
+        :math:`\boldsymbol{\alpha}` and carries a unit-rate hazard budget :math:`H \sim \mathrm{Exp}(1)`; in a state
+        with exit rate :math:`\lambda` the holding time is :math:`\mathrm{d}t = H/\lambda`, the reward increment
+        :math:`r(X)\,\mathrm{d}t` is accrued, and the next state is drawn from the embedded jump chain. The cost
+        therefore scales with the number of samples rather than the size of the state space; memory is bounded by
+        simulating in batches of :attr:`~phasegen.settings.Settings.sample_batch_size`. See :meth:`to_empirical` for
+        the sample-based distribution built on top of this.
 
         :param n_samples: Number of samples to draw.
         :return: Array of sampled rewards of shape ``(n_samples,)``.
