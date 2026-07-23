@@ -117,11 +117,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return RewardDistribution(self, reward)
 
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
-        r"""
-        Joint distribution of two accumulated rewards, the distributional object behind a cross-moment
-        :math:`\mathbb{E}[Y_a Y_b]` (e.g. a pair of SFS bins within a tree, or a two-locus SFS entry across loci).
-        Provides the joint LST :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a Y_a - s_b Y_b}]`, the marginals, and the
-        cross-moments/covariance/correlation; the joint CDF/PDF builds on it.
+        """
+        Joint distribution of two accumulated rewards (e.g. a pair of SFS bins within a tree, or a two-locus SFS
+        entry across loci), as a callable :class:`~phasegen.distributions.reward.JointRewardDistribution` (see there
+        for the joint transform, marginals, cross-moments and joint CDF / PDF).
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.

@@ -26,18 +26,19 @@ logger = logging.getLogger('phasegen')
 
 
 class Inference(Serializable):
-    """
+    r"""
     Gradient-based parameter inference with respect to a specified loss function,
     summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
-    The optimization minimises the loss over the parameters :math:`\\theta` (the entries of ``x0``,
+    The optimization minimises the loss over the parameters :math:`\theta` (the entries of ``x0``,
     constrained to ``bounds``),
 
     .. math::
-        \\hat{\\theta} = \\arg\\min_{\\theta} L\\big(\\mathrm{coal}(\\theta),\\, y\\big),
+        \hat{\theta} = \arg\min_{\theta} L\big(\mathrm{coal}(\theta),\, y\big),
 
-    where :math:`\\mathrm{coal}(\\theta)` is the coalescent distribution returned by the ``coal`` callback and
-    :math:`y` the observation. The minimisation is performed with a gradient-based scipy optimizer
-    (L-BFGS-B by default), restarted from several initial points.
+    where :math:`L` is the user-supplied ``loss`` function (any scalar objective, not necessarily a likelihood),
+    :math:`\mathrm{coal}(\theta)` the coalescent distribution returned by the ``coal`` callback, and :math:`y` the
+    observation. The minimisation is performed with a gradient-based scipy optimizer (L-BFGS-B by default),
+    restarted from several initial points.
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb

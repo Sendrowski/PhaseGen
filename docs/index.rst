@@ -44,8 +44,7 @@ Contents
    :caption: Runtime Performance
    :maxdepth: 2
 
-   reference/performance/state_space_size
-   reference/performance/state_space_construction
+   reference/performance/state_space
    reference/performance/runtime
 
 .. toctree::
@@ -59,7 +58,6 @@ Contents
    modules/inference
    modules/config
    modules/state_space
-   modules/norms
    modules/spectrum
    modules/expm
    modules/settings

@@ -3,10 +3,9 @@ Distribution of an accumulated reward.
 
 For a reward :math:`\mathbf{r}` over the states, the accumulated reward to absorption is
 :math:`R = \int_0^{\tau_\mathrm{abs}} r(X_s)\,\mathrm{d}s` (e.g. tree height for the unit reward, total branch
-length for the lineage-count reward, an SFS bin for the size-:math:`i` block-count reward). Unlike
-:meth:`MomentEvaluator.moment`, which returns only the moments of :math:`R`, this gives the full distribution
-(CDF / PDF / quantiles) for an *arbitrary* reward and an *arbitrary* piecewise time-homogeneous demography, via
-the Laplace-Stieltjes transform and its numerical inversion.
+length for the lineage-count reward, an SFS bin for the size-:math:`i` block-count reward). Its full distribution
+(CDF / PDF / quantiles) for an *arbitrary* reward and an *arbitrary* piecewise time-homogeneous demography follows
+from the Laplace-Stieltjes transform and its numerical inversion.
 
 The transform tracks, in real time, the row vector :math:`a(t)_i = \mathbb{E}[e^{-s R_t};\ X_t = i,\ \text{not
 absorbed}]`. While in state :math:`i` the reward grows at rate :math:`r(i)`, so the weight :math:`e^{-s R_t}`
@@ -1356,9 +1355,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         with :math:`f_{on}(v) = \mathcal{L}^{-1}[\Phi(\cdot, 0)](v)` the conditioning marginal's density (the
         :math:`j = 0` case). The derivatives come from :meth:`~JointRewardDistribution.lst_taylor`, which evaluates the
         transform in a truncated polynomial ring and so returns them **exactly**: :math:`\partial^j\Phi = j!\,
-        \Phi_j`. They are *not* finite differences. Differencing here is not viable, even though the transform is
-        analytic: the difference's :math:`\epsilon_\mathrm{mach}/h` residue is then fed to de Hoog's QD recurrence,
-        which amplifies it enough to swing the inverted value by 15% between neighbouring steps :math:`h`.
+        \Phi_j`. They are *not* finite differences; :func:`_lst_taylor_from_shift` explains why differencing them is
+        not viable.
 
         Costs ``k + 1`` 1D inversions over one shared node set, so it shares no code and no quadrature with the nested
         transform whose mean :meth:`JointRewardDistribution.check_conditional_moments` checks against it.

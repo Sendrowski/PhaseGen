@@ -50,29 +50,20 @@ class _SFSAggregateFunction:
 
 
 class SFSDensity(_SFSAggregateFunction, MarginalDensity):
-    """Per-bin SFS densities -- the density of each frequency class's branch length, one curve per bin.
-
-    - **Callable** ``pdf(t)``: every bin's ``pdf(t)``, the derivative of that bin's cosine CDF grid.
-    - **Plot** ``pdf.plot()``: overlays those same curves, one per polymorphic bin.
-    """
+    """Per-bin SFS densities, one curve per frequency class: each bin's ``pdf(t)`` is the derivative of its cosine
+    CDF grid. See :class:`_SFSAggregateFunction`."""
 
 
 class SFSCDF(_SFSAggregateFunction, MarginalCDF):
-    """Per-bin SFS cumulative distribution functions -- the probability each frequency class's branch length is at
-    most ``t``, one curve per bin.
-
-    - **Callable** ``cdf(t)``: every bin's ``cdf(t)``, read off that bin's cosine CDF grid.
-    - **Plot** ``cdf.plot()``: overlays those same curves, one per polymorphic bin.
-    """
+    """Per-bin SFS cumulative distribution functions, one curve per frequency class: each bin's ``cdf(t)``, the
+    probability its branch length is at most ``t``, is read off that bin's cosine CDF grid.
+    See :class:`_SFSAggregateFunction`."""
 
 
 class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
-    """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length).
-
-    - **Callable** ``quantile(q)``: every bin's ``quantile(q)`` -- the inverse interpolation of that bin's cosine CDF
-      grid, handing over to the de Hoog bisection above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`.
-    - **Plot** ``quantile.plot()``: overlays those same curves, one per bin.
-    """
+    """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length): each
+    bin's ``quantile(q)`` inverts that bin's cosine CDF grid, handing over to the de Hoog bisection above
+    :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`. See :class:`_SFSAggregateFunction`."""
 
 
 class SFSDistribution(PhaseTypeDistribution, ABC):
@@ -941,11 +932,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         r"""
         Mutational-configuration probability for piecewise time-homogeneous demography.
 
-        Conditional on the coalescent tree the class-:math:`i` mutation count is Poisson with mean
-        :math:`\theta\, \ell_i`, where :math:`\ell_i` is the :math:`i`-subtending branch length, so the configuration
-        :math:`\mathbf{k}` has probability :math:`\mathbb{E}_{\mathrm{tree}}[\prod_i \operatorname{Poisson}(k_i;\,
-        \theta\, \ell_i)]`. This is evaluated with an augmented killed process on (phase, mutation-count lattice), the
-        lattice node :math:`c` ranging over :math:`0 \le c_i \le k_i`:
+        The tree-averaged Poisson expectation (see :meth:`get_mutation_config`) is evaluated with an augmented killed
+        process on (phase, mutation-count lattice), the lattice node :math:`c` ranging over :math:`0 \le c_i \le k_i`:
 
         - diagonal block :math:`(c, c)`: the epoch sub-intensity matrix
           :math:`\mathbf{T}_j - \theta\, \triangle(\sum_i \mathbf{R}_i)`;
@@ -1578,9 +1566,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
         return [(c, JointSFSReward(c)) for c in cfgs]
 
     def bin(self, *config: int) -> 'RewardDistribution':
-        """The 1D branch-length distribution of the joint SFS bin with the given per-population descendant counts —
-        a callable-and-plottable :class:`RewardDistribution` (e.g. ``jsfs.bin(1, 0).pdf.plot()``). The number of
-        indices is the number of populations.
+        """The 1D branch-length distribution of the joint SFS bin with the given per-population descendant counts, a
+        callable-and-plottable :class:`~phasegen.distributions.reward.RewardDistribution` (e.g.
+        ``jsfs.bin(1, 0).pdf.plot()``). The number of indices is the number of populations.
 
         :param config: The descendant configuration (one count per population).
         :return: The accumulated-reward distribution of ``L_{config}``.

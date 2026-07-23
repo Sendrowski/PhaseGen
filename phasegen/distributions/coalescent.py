@@ -534,10 +534,10 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cache
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         r"""
-        The full 1D distribution of an accumulated reward :math:`R = \int_0^{\tau} r(X_s)\,\mathrm{d}s` to absorption
-        -- a callable-and-plottable object housing the ``mean`` / ``var`` / ``std``, the ``cdf`` / ``pdf`` and the
-        ``quantile`` function (via the Laplace-transform inversion). The state space is inferred from the reward
-        (as for :meth:`moment`); cached per reward.
+        The full 1D distribution of an accumulated reward :math:`R = \int_0^{\tau} r(X_s)\,\mathrm{d}s` to
+        absorption, as a callable :class:`~phasegen.distributions.reward.RewardDistribution` (see there for the
+        mean / variance, the CDF / PDF and the quantile). The state space is inferred from the reward (as for
+        :meth:`moment`); cached per reward.
 
         :param reward: The reward whose accumulation is distributed. Defaults to the tree-height reward.
         :return: The 1D accumulated-reward distribution.
@@ -549,9 +549,10 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cache
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
-        The joint 2D distribution of two accumulated rewards to absorption -- a callable-and-plottable object housing
-        the ``mean`` (per reward), the cross-moments / ``cov`` / ``corr`` and the joint ``cdf`` / ``pdf`` (a bivariate
-        joint has no quantile). The state space is inferred from the rewards (as for :meth:`moment`); cached per pair.
+        The joint 2D distribution of two accumulated rewards to absorption, as a callable
+        :class:`~phasegen.distributions.reward.JointRewardDistribution` (see there for the cross-moments,
+        covariance, correlation and the joint CDF / PDF). The state space is inferred from the rewards (as for
+        :meth:`moment`); cached per pair.
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.

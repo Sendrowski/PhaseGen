@@ -706,8 +706,8 @@ class MomentEvaluator:
     ) -> np.ndarray:
         r"""
         Sparse-action variant of :meth:`_accumulate` for large state spaces. Instead of forming the dense Van Loan
-        propagator :math:`\mathbf{Q} = \prod_i \exp(\mathbf{V}_i \tau_i)` and reading off the top-right block
-        contraction :math:`\boldsymbol{\alpha}\, \mathbf{Q}_{[1,\,k+1]}\, \mathbf{e}`, this threads the extended
+        propagator :math:`\mathbf{Q} = \prod_i \exp(\mathbf{V}_i \tau_i)` and reading off its top-right block
+        contraction (see :meth:`moment`), this threads the extended
         vector :math:`\mathbf{w}` (with :math:`\boldsymbol{\alpha}` in its first block) through the epochs by the
         action of the transposed Van Loan matrix, :math:`\mathbf{w} \mapsto \exp(\mathbf{V}^\top \tau)\,\mathbf{w}`
         (:func:`scipy.sparse.linalg.expm_multiply`), reading off :math:`\mathbf{w}^\top \mathbf{e}_{\text{ext}}`
@@ -1048,7 +1048,7 @@ class MomentEvaluator:
         e = np.asarray(self.state_space.e)
 
         # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
-        # dense-LU vs sparse-LU crossover sits at ``Settings.closed_form_sparse_min_states`` transient states. This is a different
+        # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. This is a different
         # quantity from the Van Loan dimension that governs the matrix-exponential path (:attr:`expm_action_min_dim`):
         # the LU only ever sees ``T``, independent of the moment order, so the threshold is on ``len(idx_t)`` alone.
         use_action = len(idx_t) >= Settings.closed_form_sparse_min_states

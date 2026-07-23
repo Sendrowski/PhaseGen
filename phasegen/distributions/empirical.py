@@ -1027,7 +1027,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
-        samples — the sampled counterpart of
+        samples, the sampled counterpart of
         :meth:`~phasegen.distributions.spectra.SFSDistribution.joint_distribution`, exposing the same
         :meth:`~EmpiricalJointDistribution.marginal` and :meth:`~EmpiricalJointDistribution.conditional`
         slices for a sanity check against the exact joint.
@@ -1733,11 +1733,9 @@ class MsprimeCoalescent(AbstractCoalescent):
     def jsfs(self) -> 'EmpiricalJointSFSDistribution':
         """
         Joint (multi-population) site-frequency spectrum ground truth, accumulated from the same simulated trees as
-        the other statistics (see :meth:`simulate`). Returns an :class:`EmpiricalJointSFSDistribution` exposing
-        ``mean``, ``m2``, ``m3`` and ``var`` as arrays of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, matching
-        :class:`JointSFSDistribution`. The descendant configuration of a branch is the number of its sample
-        descendants from each population (its deme of origin). Only available for multi-population, single-locus
-        scenarios.
+        the other statistics (see :meth:`simulate`), returned as an :class:`EmpiricalJointSFSDistribution`. The
+        descendant configuration of a branch is the number of its sample descendants from each population (its deme of
+        origin). Only available for multi-population, single-locus scenarios.
         """
         self.simulate()
 
@@ -1753,9 +1751,8 @@ class MsprimeCoalescent(AbstractCoalescent):
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
         """
         Two-locus SFS ground truth, simulated with msprime: two sites at recombination distance ``r`` (the two loci),
-        the per-bin branch-length cross product averaged over replicates. Only available for two-locus, single-locus-
-        sample scenarios. Returns an :class:`EmpiricalTwoLocusSFSDistribution` exposing ``mean`` as a
-        :class:`~phasegen.spectrum.TwoLocusSFS`, matching :class:`TwoLocusSFSDistribution`.
+        the per-bin branch-length cross product averaged over replicates, returned as an
+        :class:`EmpiricalTwoLocusSFSDistribution`. Only available for two-locus, single-locus-sample scenarios.
         """
         import msprime as ms
 
