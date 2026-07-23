@@ -105,7 +105,7 @@ class CurveStatRegressionTestCase(TestCase):
         the per-bin densities without error."""
         coal = pg.Coalescent(n=4)
         dens = coal.sfs.pdf  # SFSDensity: returns (len(grid), n + 1), grid on axis 0
-        t = np.linspace(0, float(np.max(coal.sfs.quantile(0.99))), 20)
+        t = np.linspace(0, float(np.max(coal.sfs.quantile(0.99).data)), 20)
 
         # the density's own orientation is grid-first -- the exact shape the pre-fix reshape mis-handled
         self.assertEqual(np.asarray(dens(t)).shape, (len(t), 5))

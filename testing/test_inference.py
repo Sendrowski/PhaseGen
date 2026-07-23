@@ -167,7 +167,7 @@ class InferenceTestCase(TestCase):
             bounds=dict(t=(0, 2), Ne=(0.1, 1)),
             observation=obs,
             n_runs=2,
-            loss=lambda coal, observation: float(np.sum((coal.sfs.mean - observation) ** 2))
+            loss=lambda coal, observation: float(np.sum((coal.sfs.mean.data - observation.data) ** 2))
         ))
 
         inf.run()
