@@ -181,7 +181,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute: bool = True
     ) -> SFS:
         """
-        Get the kth moments of the site-frequency spectrum.
+        Get the kth moments of the site-frequency spectrum. By default (``center=True``) these are the central
+        moments (so ``moment(2)`` is the per-bin variance); pass ``center=False`` for the raw (non-central) moments,
+        matching the sample-based empirical spectrum under the same default.
 
         The plain mean (``k = 1``, default reward) is computed once for the whole spectrum as a single occupation-time
         contraction shared across bins, rather than a separate solve per bin; other moments fall through to the
@@ -193,7 +195,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment around the mean.
+        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
             the order of rewards.
@@ -1469,7 +1471,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
             permute: bool = True
     ) -> np.ndarray:
         """
-        Get the kth moments of the joint site-frequency spectrum.
+        Get the kth moments of the joint site-frequency spectrum. By default (``center=True``) these are the central
+        moments (so ``moment(2)`` is the per-bin variance); pass ``center=False`` for the raw (non-central) moments,
+        matching the sample-based empirical spectrum under the same default.
 
         The plain mean (``k = 1``) is computed once for the whole spectrum as a single occupation-time contraction
         shared across all joint bins, rather than a separate solve per bin; other moments fall through to the per-bin
@@ -1480,7 +1484,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment around the mean.
+        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
         :param permute: For cross-moments, whether to average over all permutations of rewards.
         :return: An array of shape :attr:`shape` holding the kth moment of each joint SFS bin.
         """

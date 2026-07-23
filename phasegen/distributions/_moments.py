@@ -199,7 +199,7 @@ class MomentEvaluator:
     ) -> float:
         r"""
         Get the kth (cross-)moment of the accumulated reward(s). By default (``center=True``) this is the *central*
-        moment, so ``moment(2)`` is the variance; pass ``center=False`` for the raw (non-central) moment, evaluated by
+        moment, so ``moment(2)`` is the variance; pass ``center=False`` for the raw (non-central) moment. Evaluated by
         Van Loan's method as
 
         .. math::
@@ -210,11 +210,8 @@ class MomentEvaluator:
         the top-right block of the Van Loan propagator (see :meth:`_van_loan_matrix`) contracted with the initial
         distribution :math:`\boldsymbol{\alpha}` on the left and the exit vector :math:`\mathbf{e}` on
         the right; to absorption :math:`t \to \infty`. With all rewards equal and ``center=False`` this is the
-        :math:`k`-th raw moment :math:`\mathbb{E}[Y^k]` of a single reward :math:`Y`.
-
-        .. note::
-            The sample-based counterpart :meth:`~phasegen.distributions.empirical.EmpiricalDistribution.moment`
-            returns the raw (non-central) moment; pass ``center=False`` here to compare the two like with like.
+        :math:`k`-th raw moment :math:`\mathbb{E}[Y^k]` of a single reward :math:`Y`. The sample-based counterpart
+        :meth:`~phasegen.distributions.empirical.EmpiricalDistribution.moment` shares this default.
 
         :param k: The order of the moment.
         :param rewards: Iterable of k rewards. By default, the reward of the underlying distribution.

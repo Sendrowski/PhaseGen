@@ -581,9 +581,12 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute: bool = True
     ) -> float:
         r"""
-        Get the :math:`k`-th (non-central) moment :math:`\mathbb{E}[R^k]` using the specified rewards and state space.
-        For a cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`, averaged over
-        the ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
+        Get the :math:`k`-th moment :math:`\mathbb{E}[R^k]` using the specified rewards and state space. By default
+        (``center=True``) this is the central moment, so ``moment(2)`` is the variance; pass ``center=False`` for the
+        raw (non-central) moment, matching the sample-based
+        :meth:`~phasegen.distributions.empirical.EmpiricalDistribution.moment` under the same default. For a
+        cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`, averaged over the
+        ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
 
         :param k: The order of the moment
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.
@@ -591,7 +594,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             initializing the distribution.
         :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
             initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment.
+        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
             which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
             the order of rewards.

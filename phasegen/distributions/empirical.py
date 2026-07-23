@@ -347,16 +347,22 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         with np.errstate(divide='ignore', invalid='ignore'):
             return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
 
-    def moment(self, k: int) -> float | np.ndarray:
+    def moment(self, k: int, center: bool = True) -> float | np.ndarray:
         r"""
-        The :math:`k`-th (non-central) moment estimated from the realisations,
-        :math:`\hat{\mathbb{E}}[Y^k] = \tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`, an unbiased Monte Carlo estimate over the
-        :math:`N` sampled trajectories.
+        The :math:`k`-th moment estimated from the realisations. By default (``center=True``) this is the central
+        moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} (Y_m - \hat{\mu}_N)^k`, so ``moment(2)`` is the variance and matches
+        the analytic :meth:`~phasegen.distributions._moments.MomentEvaluator.moment` under the same default; pass
+        ``center=False`` for the raw (non-central) moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`. As with the
+        analytic moment, centering is a no-op for :math:`k = 1`, so ``moment(1)`` is the mean either way. Both are
+        Monte Carlo estimates over the :math:`N` sampled trajectories.
 
         :param k: The order of the moment
+        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
         :return: The kth moment
         """
-        return np.mean(self.samples ** k, axis=0)
+        samples = self.samples - np.mean(self.samples, axis=0) if (center and k > 1) else self.samples
+
+        return np.mean(samples ** k, axis=0)
 
 
 class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
