@@ -286,8 +286,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
     def sample(self, n_samples: int) -> np.ndarray:
         """
-        Draw samples of the site-frequency spectrum by simulating trajectories. Each sampled trajectory yields the
-        branch lengths subtending every (polymorphic) frequency class; the monomorphic edge bins are zero.
+        Draw samples of the site-frequency spectrum by
+        :meth:`simulating trajectories <phasegen.distributions.PhaseTypeDistribution.sample>`. Each sampled trajectory
+        yields the branch lengths subtending every (polymorphic) frequency class; the monomorphic edge bins are zero.
 
         :param n_samples: Number of spectra to sample.
         :return: Array of shape ``(n_samples, n + 1)`` whose per-sample mean equals :attr:`mean`.
@@ -1431,8 +1432,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
     def sample(self, n_samples: int) -> np.ndarray:
         """
-        Draw samples of the joint site-frequency spectrum by simulating trajectories. Each sample is an array of
-        shape :attr:`shape` holding the branch length subtending every (polymorphic) descendant configuration.
+        Draw samples of the joint site-frequency spectrum by
+        :meth:`simulating trajectories <phasegen.distributions.PhaseTypeDistribution.sample>`. Each sample is an array
+        of shape :attr:`shape` holding the branch length subtending every (polymorphic) descendant configuration.
 
         :param n_samples: Number of joint spectra to sample.
         :return: Array of shape ``(n_samples, *shape)`` whose per-sample mean equals :meth:`moment` (k=1).

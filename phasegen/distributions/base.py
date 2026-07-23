@@ -74,10 +74,9 @@ class _SurfacePlottable:
 class DensityFunction(DistributionFunction):
     r"""Probability density function :math:`f(x) = F'(x)`.
 
-    - **Callable** ``pdf(x)``: the density at ``x`` (scalar or array). For an accumulated reward this is the
-      derivative of the cosine CDF. The tree height uses the exact matrix exponential, empirical samples a
-      histogram.
-    - **Plot** ``pdf.plot()``: the same function, over a grid.
+    Calling ``pdf(x)`` returns the density at ``x`` (scalar or array). For an accumulated reward this is the
+    derivative of the cosine CDF; the tree height uses the exact :mod:`matrix exponential <phasegen.expm>`, and an
+    :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution a histogram.
     """
     kind = 'pdf'
 
@@ -85,9 +84,9 @@ class DensityFunction(DistributionFunction):
 class CumulativeDistributionFunction(DistributionFunction):
     r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)`, the probability of being at most ``x``.
 
-    - **Callable** ``cdf(x)``: the probability at ``x`` (scalar or array). For an accumulated reward this is the
-      Fourier-cosine inversion. The tree height uses the exact matrix exponential, samples the empirical CDF.
-    - **Plot** ``cdf.plot()``: the same function, over a grid.
+    Calling ``cdf(x)`` returns the probability at ``x`` (scalar or array). For an accumulated reward this is the
+    Fourier-cosine inversion; the tree height uses the exact :mod:`matrix exponential <phasegen.expm>`, and an
+    :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution the empirical CDF.
     """
     kind = 'cdf'
 
@@ -95,10 +94,10 @@ class CumulativeDistributionFunction(DistributionFunction):
 class QuantileFunction(DistributionFunction):
     r"""Quantile function :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, the inverse CDF.
 
-    - **Callable** ``quantile(q)``: the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
-      reward this inverts the very CDF grid the :class:`CumulativeDistributionFunction` reads, so the two are exact
-      mutual inverses. Empirical data uses the sample quantile.
-    - **Plot** ``quantile.plot()``: the same function, over a grid of probabilities.
+    Calling ``quantile(q)`` returns the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
+    reward this inverts the very CDF grid the :class:`CumulativeDistributionFunction` reads, so the two are exact
+    mutual inverses; an :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution uses the
+    sample quantile.
     """
     kind = 'quantile'
 
@@ -681,28 +680,18 @@ class _GridQuantileFunction(QuantileFunction):
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
 
 class MarginalDensity(DensityFunction):
-    """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin).
-
-    - **Callable** ``pdf(x)``: every bin's ``pdf(x)``, the derivative of that bin's cosine CDF grid.
-    - **Plot** ``pdf.plot()``: overlays those same curves, one per bin.
-    """
+    """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin). Calling ``pdf(x)`` returns every bin's
+    density, the derivative of that bin's cosine CDF grid."""
 
 
 class MarginalCDF(CumulativeDistributionFunction):
-    """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin).
-
-    - **Callable** ``cdf(x)``: every bin's ``cdf(x)``, read off that bin's cosine CDF grid.
-    - **Plot** ``cdf.plot()``: overlays those same curves, one per bin.
-    """
+    """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin). Calling ``cdf(x)`` returns every bin's
+    probability, read off that bin's cosine CDF grid."""
 
 
 class MarginalQuantileFunction(QuantileFunction):
-    """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin).
-
-    - **Callable** ``quantile(q)``: every bin's ``quantile(q)`` -- the inverse interpolation of that bin's cosine
-      CDF grid.
-    - **Plot** ``quantile.plot()``: overlays those same curves, one per bin.
-    """
+    """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin). Calling ``quantile(q)`` returns
+    every bin's quantile, the inverse interpolation of that bin's cosine CDF grid."""
 
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
@@ -760,12 +749,7 @@ class _JointFunction(_SurfacePlottable):
 
 
 class JointDensity(_JointFunction, DensityFunction):
-    """Joint density of two rewards / bins (the within-tree pair of branch lengths).
-
-    - **Callable** ``pdf(x, y)``: the continuous part of the joint law, by 2D cosine expansion. Accepts scalars or
-      arrays.
-    - **Plot** ``pdf.plot()`` / ``pdf.plot_surface()``: heatmap / 3D surface of the density.
-    """
+    """Joint density of two rewards / bins (the within-tree pair of branch lengths)."""
 
     def __call__(self, x, y) -> 'np.ndarray | float':
         r"""Joint probability density :math:`f(x, y)` of :math:`(R_a, R_b)` (the continuous, both-positive part). The
@@ -792,12 +776,7 @@ class JointDensity(_JointFunction, DensityFunction):
 
 
 class JointCDF(_JointFunction, CumulativeDistributionFunction):
-    """Joint CDF of two rewards / bins -- the probability both are at most their thresholds.
-
-    - **Callable** ``cdf(x, y)``: the axis atoms (where a reward is zero) plus the continuous cosine box integral.
-      Accepts scalars or arrays.
-    - **Plot** ``cdf.plot()`` / ``cdf.plot_surface()``: heatmap / 3D surface of the box CDF.
-    """
+    """Joint CDF of two rewards / bins -- the probability both are at most their thresholds."""
 
     def __call__(self, x, y) -> 'np.ndarray | float':
         r"""Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x, R_b \le y)`: the axis atoms plus the continuous box
@@ -921,13 +900,25 @@ class CallableDistributionFunctions:
         return self._function('quantile', self._quantile_function)
 
     def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
-        """Deprecated: use :attr:`cdf`.plot() instead."""
-        warnings.warn("plot_cdf() is deprecated; use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        """
+        Plot the CDF curve.
+
+        .. deprecated:: 2.0.0
+            Use :attr:`cdf`.plot() instead; ``plot_cdf`` will be removed in a future release.
+        """
+        warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
+                      "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self.cdf.plot(*args, **kwargs)
 
     def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
-        """Deprecated: use :attr:`pdf`.plot() instead."""
-        warnings.warn("plot_pdf() is deprecated; use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        """
+        Plot the density curve.
+
+        .. deprecated:: 2.0.0
+            Use :attr:`pdf`.plot() instead; ``plot_pdf`` will be removed in a future release.
+        """
+        warnings.warn("plot_pdf() is deprecated since 2.0.0 and will be removed in a future release; "
+                      "use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self.pdf.plot(*args, **kwargs)
 
     def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:

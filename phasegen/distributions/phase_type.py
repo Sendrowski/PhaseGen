@@ -56,22 +56,22 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         super().__init__()
 
-        #: Population configuration
+        #: Population configuration (:class:`~phasegen.lineage.LineageConfig`).
         self.lineage_config: LineageConfig = state_space.lineage_config
 
-        #: Locus configuration
+        #: Locus configuration (:class:`~phasegen.locus.LocusConfig`).
         self.locus_config: LocusConfig = state_space.locus_config
 
-        #: Reward
+        #: The accumulated :class:`~phasegen.rewards.Reward`.
         self.reward: Reward = reward
 
-        #: State space
+        #: The :class:`~phasegen.state_space.StateSpace`.
         self.state_space: StateSpace = state_space
 
-        #: Demography
+        #: The :class:`~phasegen.demography.Demography`.
         self.demography: Demography = demography
 
-        #: Tree height distribution
+        #: The :class:`~phasegen.distributions.TreeHeightDistribution`.
         self.tree_height: TreeHeightDistribution = tree_height
 
     @cached_property
@@ -104,11 +104,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         r"""
-        Full distribution (CDF / PDF / quantiles) of the accumulated reward :math:`Y = \int_0^\tau r(X_s)\,
-        \mathrm{d}s` to absorption, for an arbitrary reward and demography, via the Laplace-Stieltjes transform
-        :math:`\varphi(s) = \mathbb{E}[e^{-sY}]` and its numerical inversion. Where :attr:`mean` / :meth:`moment`
-        give only the moments of the accumulated reward, this gives its distribution. The reward must be scalar (one
-        value per state); for a spectrum, pass a single bin's reward.
+        The distribution of the accumulated reward :math:`Y = \int_0^\tau r(X_s)\,\mathrm{d}s` to absorption, as a
+        callable and plottable :class:`~phasegen.distributions.reward.RewardDistribution` (see there for how its
+        CDF / PDF / quantiles are computed). The reward must be scalar (one value per state); for a spectrum, pass a
+        single bin's reward.
 
         :param reward: The reward whose accumulation is distributed. Defaults to this distribution's own reward.
         :return: The accumulated-reward distribution.
