@@ -38,7 +38,8 @@ div.cell_output img {
     margin-top: 0.9em;
 }
 
-.bd-sidebar-primary li.toctree-l1 > a.reference {
+/* group headings (top-level entries WITH children); a leaf like "Introduction" stays a normal link */
+.bd-sidebar-primary li.toctree-l1.has-children > a.reference {
     font-weight: 700 !important;
     color: var(--pst-color-text-base) !important;
     /* never show the "current" accent bar/colour on a group heading, only on the active page below it */
@@ -48,7 +49,12 @@ div.cell_output img {
 }
 
 /* no hover underline on the (non-navigating) group headings */
-.bd-sidebar-primary li.toctree-l1 > a.reference,
-.bd-sidebar-primary li.toctree-l1 > a.reference:hover {
+.bd-sidebar-primary li.toctree-l1.has-children > a.reference,
+.bd-sidebar-primary li.toctree-l1.has-children > a.reference:hover {
     text-decoration: none !important;
+}
+
+/* nudge the collapse caret in from the sidebar's right edge */
+.bd-sidebar-primary li.has-children > details > summary .toctree-toggle {
+    right: 0.4rem !important;
 }
