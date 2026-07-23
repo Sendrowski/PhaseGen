@@ -145,6 +145,25 @@ class CurveStatRegressionTestCase(TestCase):
         self.assertEqual(float(Comparison._get_stat(th, 'std')), float(th.std))
 
 
+class WindowedConditionalConfigTestCase(TestCase):
+    """The windowed-conditional CDF check reads its ``cdf_axes`` from the config; a value outside the axis labels
+    ``{'a', 'b'}`` (e.g. a user writing index-based ``[0, 1]``) would otherwise make the check a silent no-op that
+    passes with diff 0.0, so it must be rejected."""
+
+    def test_invalid_cdf_axes_raises(self):
+        """An unrecognised ``cdf_axes`` value raises a clear ValueError instead of silently passing."""
+        c = Comparison.__new__(Comparison)
+        pair = (1, 2)
+        # a cached entry for the pair so the check reaches the cdf_axes validation (only the first two fields matter)
+        entry = (pair[0], pair[1], 'a', 0.5, 0.1, 100, 1.0, 0.01, np.linspace(0, 1, 3), np.zeros(3))
+        ms = type('Ms', (), {'_windowed_conditional': [entry]})()
+
+        with self.assertRaises(ValueError) as ctx:
+            c._compare_windowed_conditional(jd=None, ms=ms, pair=pair,
+                                            tols={'cdf': 0.0, 'cdf_axes': [0, 1]}, title='t')
+        self.assertIn('cdf_axes', str(ctx.exception))
+
+
 class _ExplodingJD:
     """A joint distribution whose curve inversions raise -- used to prove the degenerate guard returns *before* it
     would evaluate any surface."""

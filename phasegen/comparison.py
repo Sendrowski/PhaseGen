@@ -1187,6 +1187,9 @@ class Comparison(Serializable):
 
         nodes = tols.get('nodes')
         cdf_axes = tols.get('cdf_axes', ('a', 'b'))
+        bad = set(cdf_axes) - {'a', 'b'}
+        if bad:
+            raise ValueError(f"Unknown windowed-conditional cdf_axes {sorted(bad)}; expected a subset of ('a', 'b').")
         worst = {s: 0.0 for s in stats}
         t0 = time.perf_counter()
 

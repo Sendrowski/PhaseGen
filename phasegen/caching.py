@@ -9,6 +9,7 @@ discarding or bypassing expensive results that were already cached (e.g. a deser
 constructed state space).
 """
 import functools
+import weakref
 
 from .settings import Settings
 
@@ -75,27 +76,31 @@ def cache(func) -> 'Callable':
     Like :func:`functools.cache`, but only stores new results when :attr:`Settings.cache` is ``True``. Existing
     memoized results are always served; with caching disabled, an un-memoized call is recomputed and not stored.
     Exposes ``cache_clear`` / ``cache_info`` like :func:`functools.cache`.
+
+    All ``@cache``-decorated functions in the library are methods, so the memo is kept per instance in a
+    :class:`weakref.WeakKeyDictionary` keyed on ``self``: an instance's cached results are dropped when the instance
+    is garbage-collected, rather than a single module-level memo pinning every instance (and its state space and
+    dense rate matrix) for the lifetime of the process.
     """
-    memo = {}
+    memo = weakref.WeakKeyDictionary()  # self -> {argkey: result}
     hits = misses = 0
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs) -> 'Any':
+    def wrapper(self, *args, **kwargs) -> 'Any':
         nonlocal hits, misses
         key = functools._make_key(args, kwargs, typed=False)
-        try:
-            result = memo[key]
+        entries = memo.get(self)
+        if entries is not None and key in entries:
             hits += 1
-            return result
-        except KeyError:
-            misses += 1
+            return entries[key]
+        misses += 1
         _enter_computation()
         try:
-            result = func(*args, **kwargs)
+            result = func(self, *args, **kwargs)
         finally:
             _exit_computation()
         if Settings.cache:
-            memo[key] = result
+            memo.setdefault(self, {})[key] = result
         return result
 
     def cache_clear() -> None:
@@ -104,5 +109,5 @@ def cache(func) -> 'Callable':
         hits = misses = 0
 
     wrapper.cache_clear = cache_clear
-    wrapper.cache_info = lambda: functools._CacheInfo(hits, misses, None, len(memo))
+    wrapper.cache_info = lambda: functools._CacheInfo(hits, misses, None, sum(len(v) for v in list(memo.values())))
     return wrapper

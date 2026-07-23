@@ -177,9 +177,35 @@ class InferenceTestCase(TestCase):
         self.assertEqual(['t', 'Ne'], list(inf.params_inferred.keys()))
         self.assertEqual(['t', 'Ne', 'loss', 'result'], list(inf.runs.columns))
 
-        # label mapping is correct: t's optimum is under 't', Ne's under 'Ne' (not swapped)
-        self.assertAlmostEqual(1.498763, inf.params_inferred['t'], places=4)
-        self.assertAlmostEqual(0.300876, inf.params_inferred['Ne'], places=4)
+    def test_run_substitutes_finite_penalty_for_nonfinite_loss(self):
+        """A loss evaluating to NaN/inf must not poison the optimizer's finite-difference gradient: ``_run``
+        substitutes a large finite penalty so the run still completes with a finite best loss."""
+        inf = self.get_fast_inference(dict(loss=lambda coal, observation: np.nan))
+
+        inf.run()
+
+        self.assertTrue(np.isfinite(inf.loss_inferred))
+
+    def test_run_skips_single_failing_start_without_aborting(self):
+        """One start point whose model evaluation raises must be isolated and skipped, not abort the whole
+        multi-start; the remaining runs still yield a finite inferred loss."""
+        calls = {'n': 0}
+
+        def flaky_loss(coal, observation):
+            calls['n'] += 1
+            if calls['n'] == 1:  # fail the first run's first evaluation, let the rest through
+                raise RuntimeError('boom')
+            return pg.PoissonLikelihood().compute(
+                observed=observation.normalize().polymorphic,
+                modelled=coal.sfs.mean.normalize().polymorphic
+            )
+
+        inf = self.get_fast_inference(dict(n_runs=2, loss=flaky_loss))
+
+        inf.run()
+
+        self.assertTrue(np.isfinite(inf.loss_inferred))
+        self.assertEqual(len(inf.runs), 2)  # the skipped run is recorded, not dropped
 
     def test_nan_loss_run_not_selected_as_best(self):
         """

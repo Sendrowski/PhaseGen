@@ -493,7 +493,14 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param k: Order of the moment.
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :return: Distribution.
+        :raises ValueError: if a single :class:`~phasegen.rewards.Reward` is passed instead of a sequence.
         """
+        if isinstance(rewards, Reward):
+            raise ValueError(
+                f"rewards must be a sequence of {k} rewards, but a single {Reward.__name__} instance was given. "
+                f"Wrap it in a list, e.g. rewards=[reward]."
+            )
+
         if rewards is None:
             rewards = [TreeHeightReward()] * k
 

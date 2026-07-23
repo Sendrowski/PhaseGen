@@ -132,6 +132,19 @@ class CoverageGapsTestCase(TestCase):
         with self.assertRaises(ValueError):
             _ = pg.Coalescent(n=3).fst
 
+    def test_moment_rejects_single_reward(self):
+        """Passing a single Reward instead of a one-element sequence raises a clear ValueError naming the type,
+        rather than a cryptic 'not subscriptable' from an internal rewards[0]."""
+        coal = pg.Coalescent(n=4)
+
+        with self.assertRaises(ValueError) as ctx:
+            coal.moment(1, rewards=pg.TotalBranchLengthReward())
+
+        self.assertIn('Reward', str(ctx.exception))
+
+        # the normal one-element list case is unaffected
+        self.assertTrue(np.isfinite(coal.moment(1, rewards=[pg.TotalBranchLengthReward()])))
+
     def test_tree_height_density_cdf_quantile(self):
         """Evaluate the tree-height CDF, density and quantile, exercising the numerical paths."""
         coal = pg.Coalescent(n=4)
@@ -140,3 +153,45 @@ class CoverageGapsTestCase(TestCase):
         self.assertTrue(np.all(np.isfinite(coal.tree_height.cdf(t))))
         self.assertTrue(np.all(np.isfinite(coal.tree_height.pdf(t))))
         self.assertTrue(np.isfinite(coal.tree_height.quantile(0.5)))
+
+    def test_empirical_sfs_mean_is_sfs_type(self):
+        """The sampled and msprime SFS statistics must return the same SFS / TwoSFS containers as the exact
+        Coalescent, so the empirical distributions are drop-in interchangeable with the exact one."""
+        from phasegen.spectrum import SFS, TwoSFS
+
+        exact = pg.Coalescent(n=5).sfs
+        self.assertIsInstance(exact.mean, SFS)
+
+        for emp in (pg.Coalescent(n=5).to_empirical(2000).sfs, pg.Coalescent(n=5).to_msprime(2000).sfs):
+            self.assertIsInstance(emp.mean, SFS)
+            self.assertIsInstance(emp.var, SFS)
+            self.assertIsInstance(emp.m2, SFS)
+            self.assertIsInstance(emp.cov, TwoSFS)
+            self.assertIsInstance(emp.corr, TwoSFS)
+            # the wrapped statistics still expose their array through np.asarray (used by the Tajima mixin)
+            self.assertEqual(np.asarray(emp.mean).shape, (6,))
+            self.assertEqual(np.asarray(emp.cov).shape, (6, 6))
+
+    def test_sfs_cov_batched_is_cached(self):
+        """SFSDistribution._cov_batched is memoized, so accessing sfs.corr (which reads both var and cov, each of
+        which needs the shared two-point occupation) runs the expensive solve only once, without changing results."""
+        import phasegen.distributions.spectra as sp
+
+        # reference correlation before instrumenting the solve
+        reference = np.asarray(pg.Coalescent(n=6).sfs.corr.data).copy()
+
+        calls = {'n': 0}
+        original = sp.SFSDistribution._two_point_occupation
+
+        def counting(self, *args, **kwargs):
+            calls['n'] += 1
+            return original(self, *args, **kwargs)
+
+        sp.SFSDistribution._two_point_occupation = counting
+        try:
+            corr = np.asarray(pg.Coalescent(n=6).sfs.corr.data)
+        finally:
+            sp.SFSDistribution._two_point_occupation = original
+
+        self.assertEqual(calls['n'], 1)  # a single shared solve, not one per var and cov
+        np.testing.assert_allclose(corr, reference)

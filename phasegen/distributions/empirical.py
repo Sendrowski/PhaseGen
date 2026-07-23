@@ -814,6 +814,41 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Cached windowed-conditional ground truth, see :meth:`cache_windowed_conditional`.
         self._windowed_conditional: list = []
 
+    @cached_property
+    def mean(self) -> SFS:
+        """
+        First moment / mean.
+        """
+        return SFS(super().mean)
+
+    @cached_property
+    def var(self) -> SFS:
+        """
+        Second central moment / variance.
+        """
+        return SFS(super().var)
+
+    @cached_property
+    def m2(self) -> SFS:
+        """
+        Second non-central moment.
+        """
+        return SFS(super().m2)
+
+    @cached_property
+    def cov(self) -> TwoSFS:
+        """
+        Covariance matrix.
+        """
+        return TwoSFS(super().cov)
+
+    @cached_property
+    def corr(self) -> TwoSFS:
+        """
+        Correlation matrix.
+        """
+        return TwoSFS(super().corr)
+
     def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins) -> 'plt.Axes':
         """
         Plot the per-bin empirical pdf / cdf / quantile (one curve per polymorphic SFS bin), the empirical

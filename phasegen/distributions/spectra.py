@@ -601,6 +601,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute=permute
         )
 
+    @cached_property
     def _cov_batched(self) -> Optional[TwoSFS]:
         r"""
         Batched 2-SFS: all :math:`O(n^2)` bin pairs share one two-point occupation operator :math:`\mathbf{K}` (see
@@ -646,7 +647,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         Covariance matrix across site-frequency counts.
         """
-        batched = self._cov_batched()
+        batched = self._cov_batched
         if batched is not None:
             self._logger.debug("sfs.cov: batched (shared two-point occupation)")
             return batched
@@ -685,7 +686,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :attr:`cov` (one shared two-point occupation solve for the whole spectrum); otherwise it falls back to the
         per-bin central moment, which is cheaper than the per-pair covariance the fallback would otherwise build.
         """
-        batched = self._cov_batched()
+        batched = self._cov_batched
         if batched is not None:
             return SFS(np.diag(np.asarray(batched.data)))
 

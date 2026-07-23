@@ -327,12 +327,16 @@ class Inference(Serializable):
             # return the value of the loss function
             loss = get_loss(dist, observation)
 
+            # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
+            # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
+            if not np.isscalar(loss) or not np.isfinite(loss):
+                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}; '
+                               f'substituting a large finite penalty')
+                loss = 1e100
+
             data = params_dict | {'loss': loss}
 
             logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
-
-            if not np.isscalar(loss) or np.isnan(loss):
-                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}')
 
             if pbar is not None:
                 pbar.update()
@@ -419,18 +423,25 @@ class Inference(Serializable):
             :param x0: Initial parameters.
             :return: Bootstrap sample.
             """
-            # perform the optimization
-            return self._optimize(
-                observation=observation,
-                x0=x0,
-                bounds=bounds,
-                show_pbar=False,
-                get_dist=get_dist,
-                get_loss=get_loss,
-                opts=opts,
-                method_mle=method_mle,
-                logger=logger
-            )
+            # isolate a single run's failure so one bad start point (an ill-conditioned demography, a raising
+            # model evaluation) does not abort the whole multi-start; the non-converged sentinel is dropped by the
+            # finite-loss filter in _run
+            try:
+                return self._optimize(
+                    observation=observation,
+                    x0=x0,
+                    bounds=bounds,
+                    show_pbar=False,
+                    get_dist=get_dist,
+                    get_loss=get_loss,
+                    opts=opts,
+                    method_mle=method_mle,
+                    logger=logger
+                )
+            except Exception as e:
+                logger.warning(f'Optimization run from x0={x0} failed and was skipped: {e}')
+                return OptimizeResult(x=np.array(list(x0.values()), dtype=float), fun=np.inf, success=False,
+                                      message=str(e))
 
         results = parallelize(
             func=run_sample,
