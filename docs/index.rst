@@ -1,4 +1,4 @@
-.. _home:
+.. _introduction:
 
 Introduction
 ============
@@ -8,13 +8,66 @@ Motivation
 ----------
 Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/intro.html>`_, while being very fast and flexible, provide stochastic solutions. This necessitates the use of Approximate Bayesian Computation (ABC) for parameter estimation, which can be computationally expensive. A set of tools that do, in principle, provide exact solutions are forward simulators, such as `dadi <https://dadi.readthedocs.io/en/latest>`_ and `moments <https://moments.readthedocs.io/en/latest/index.html>`_. However, forward simulators, while having the great advantage of being able to incorporate selection, have different caveats associated with model initialization, choice of run times, and they tend to be overall less efficient than backward simulations. ``phasegen`` is particularly useful in settings where exact solutions of the coalescent are required. The availability of exact solutions furthermore lends itself to gradient-based parameter estimation, such as maximum likelihood estimation (MLE), which can be more efficient than ABC in some cases.
 
-.. toctree::
-   :maxdepth: 2
-   :hidden:
+Contents
+--------
 
-   introduction
-   reference/Python/index
-   reference/R/index
-   reference/performance/index
-   modules/index
-   miscellaneous
+.. toctree::
+   :caption: Python Reference
+   :maxdepth: 2
+
+   reference/Python/installation
+   reference/Python/quickstart
+   reference/Python/distribution_functions
+   reference/Python/spectra
+   reference/Python/multiple_merger_coalescents
+   reference/Python/rewards
+   reference/Python/demography
+   reference/Python/mutation_configs
+   reference/Python/empirical_distributions
+   reference/Python/inference
+   reference/Python/miscellaneous
+
+.. toctree::
+   :caption: R Reference
+   :maxdepth: 2
+
+   reference/R/installation
+   reference/R/quickstart
+   reference/R/distribution_functions
+   reference/R/spectra
+   reference/R/multiple_merger_coalescents
+   reference/R/rewards
+   reference/R/demography
+   reference/R/mutation_configs
+   reference/R/empirical_distributions
+   reference/R/inference
+   reference/R/miscellaneous
+
+.. toctree::
+   :caption: Runtime Performance
+   :maxdepth: 2
+
+   reference/performance/state_space
+   reference/performance/runtime
+
+.. toctree::
+   :caption: API Reference
+   :maxdepth: 1
+
+   modules/distributions
+   modules/coalescent_models
+   modules/demography
+   modules/rewards
+   modules/inference
+   modules/config
+   modules/state_space
+   modules/spectrum
+   modules/expm
+   modules/settings
+
+.. toctree::
+   :caption: Miscellaneous
+   :maxdepth: 1
+
+   modules/citing
+   modules/changelog
