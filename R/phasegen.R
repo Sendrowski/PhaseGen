@@ -64,14 +64,12 @@ install_phasegen <- function(version = NULL, force = FALSE, silent = FALSE, pyth
   # Check if phasegen is installed or if force is TRUE
   if (force || !phasegen_is_installed()) {
     reticulate::py_install(
-      package_name, 
+      package_name,
       method = "conda",
       pip = TRUE,
-      force = force,  # force = TRUE does not seem to work
-      python_version = python_version,
-      version = version, 
-      ignore_installed = TRUE
-   )
+      ignore_installed = force,
+      python_version = python_version
+    )
   } else {
     if (!silent) {
       message("The 'phasegen' Python module is already installed.")
@@ -81,12 +79,10 @@ install_phasegen <- function(version = NULL, force = FALSE, silent = FALSE, pyth
   invisible(NULL)
 }
 
-#' Load the phasegen library and associated visualization functions
+#' Load the phasegen library
 #'
 #' This function imports the Python package 'phasegen' using the reticulate package
-#' and then configures it to work seamlessly with R, overriding some of the default
-#' visualization functions with custom R-based ones. This function also ensures
-#' that required R libraries are loaded for visualization.
+#' and returns a reference to it, optionally installing it first when `install = TRUE`.
 #'
 #' @param install A logical. If TRUE, the function will attempt to run install_phasegen().
 #'
