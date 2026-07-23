@@ -44,7 +44,9 @@ Contents
    :caption: Runtime Performance
    :maxdepth: 2
 
-   reference/performance
+   reference/performance/state_space_size
+   reference/performance/state_space_construction
+   reference/performance/runtime
 
 .. toctree::
    :caption: API Reference
