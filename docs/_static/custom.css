@@ -46,3 +46,9 @@ div.cell_output img {
     /* the heading toggles its group (via custom.js) rather than navigating */
     cursor: pointer;
 }
+
+/* no hover underline on the (non-navigating) group headings */
+.bd-sidebar-primary li.toctree-l1 > a.reference,
+.bd-sidebar-primary li.toctree-l1 > a.reference:hover {
+    text-decoration: none !important;
+}
