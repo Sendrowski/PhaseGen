@@ -43,6 +43,6 @@ div.cell_output img {
     color: var(--pst-color-text-base) !important;
     /* never show the "current" accent bar/colour on a group heading, only on the active page below it */
     box-shadow: none !important;
-    pointer-events: none;
-    cursor: default;
+    /* the heading toggles its group (via custom.js) rather than navigating */
+    cursor: pointer;
 }
