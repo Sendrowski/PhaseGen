@@ -387,18 +387,23 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         if rewards is None:
             rewards = [self.reward]
 
+        if rng is None:
+            rng = np.random.default_rng()
+
         batch = Settings.sample_batch_size
         if batch is None or n_samples <= batch:
             return self._sample_vectorized(n_samples, rewards, record_visits, rng=rng)
 
-        # bound peak memory by simulating the ensemble in batches and concatenating the per-trajectory results
+        # bound peak memory by simulating the ensemble in batches and concatenating the per-trajectory results.
+        # each batch draws from its own independent child generator, so the memory-batching does not couple the
+        # batches' draw streams (a batch's samples do not depend on the preceding batches' sizes)
         sizes = [batch] * (n_samples // batch)
         if n_samples % batch:
             sizes.append(n_samples % batch)
 
         mass_parts, visits = [], None
-        for size in sizes:
-            out = self._sample_vectorized(size, rewards, record_visits, rng=rng)
+        for size, child in zip(sizes, rng.spawn(len(sizes))):
+            out = self._sample_vectorized(size, rewards, record_visits, rng=child)
             if record_visits:
                 part, visited = out
                 visits = visited * size if visits is None else visits + visited * size  # visit counts, re-averaged below
@@ -444,6 +449,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         absorbing = self.state_space.absorbing
         alpha = self.state_space.alpha
         R = np.array([r._get(self.state_space) for r in rewards])  # (n_rewards, k), epoch-invariant
+
+        # accumulation window [t_a, t_b): reward accrues only for time within it (default [0, inf), i.e. to
+        # absorption, in which case the clips below are no-ops)
+        t_a = self.tree_height.start_time
+        t_b = self.tree_height.end_time if self.tree_height.end_time is not None else np.inf
 
         # materialize the per-epoch generators once: exit rates and a sparse cumulative jump distribution. States,
         # rewards, absorption and the initial distribution are epoch-invariant, so only the rates differ across
@@ -511,7 +521,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                         break
                     ca = a[cross]
                     dca = end_times[e[ca]] - t[ca]
-                    mass[ca] += R[:, state[ca]].T * dca[:, None]
+                    ov = np.clip(np.minimum(t[ca] + dca, t_b) - np.maximum(t[ca], t_a), 0.0, None)
+                    mass[ca] += R[:, state[ca]].T * ov[:, None]
                     H[ca] -= lam_epochs[e[ca], state[ca]] * dca
                     t[ca] = end_times[e[ca]]
                     e[ca] += 1
@@ -525,9 +536,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 stuck = lam == 0
                 if stuck.any():
                     sa = a[stuck]
-                    # only reward components with a positive rate in the stuck state diverge; a component whose rate
-                    # is zero there keeps its finite accumulated value rather than becoming inf
-                    mass[sa] = np.where(R[:, state[sa]].T > 0, np.inf, mass[sa])
+                    if t_b == np.inf:
+                        # a stuck walker waits forever; only reward components with a positive rate in the stuck
+                        # state diverge, a zero-rate component keeps its finite accumulated value
+                        mass[sa] = np.where(R[:, state[sa]].T > 0, np.inf, mass[sa])
+                    else:
+                        # a finite window caps the wait, so even a stuck walker accrues a finite reward
+                        ov = np.clip(t_b - np.maximum(t[sa], t_a), 0.0, None)
+                        mass[sa] += R[:, state[sa]].T * ov[:, None]
                     active[sa] = False
                     keep = ~stuck
                     a, lam = a[keep], lam[keep]
@@ -535,8 +551,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                         break
 
                 dt = H[a] / lam
-                mass[a] += R[:, state[a]].T * dt[:, None]
+                ov = np.clip(np.minimum(t[a] + dt, t_b) - np.maximum(t[a], t_a), 0.0, None)
+                mass[a] += R[:, state[a]].T * ov[:, None]
                 t[a] += dt
+                if t_b != np.inf:
+                    active[a[t[a] >= t_b]] = False  # past the window end: done accruing
 
                 # sample the next state via inverse-CDF on the sparse cumulative jump distribution: one global
                 # searchsorted over the band-shifted cumulative probabilities, clipped to each walker's own row
