@@ -1,6 +1,6 @@
 Package: phasegen
 Title: Computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
-Version: 0.1.0
+Version: 2.0.0
 Authors@R:
     person("Janek", "Sendrowski", , "sendrowski.janek@gmail.com", role = c("aut", "cre"))
 Description: An R wrapper for the 'phasegen' Python package which provides computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios.
