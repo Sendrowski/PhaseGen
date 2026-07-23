@@ -1940,17 +1940,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
-        if self.seed is None:
-            return getattr(self._coalescent, name).to_empirical(self.n_samples)
-
-        # the vectorised sampler draws from the process-global numpy RNG; seed it reproducibly per statistic, then
-        # restore the caller's global RNG state so sampling does not perturb their reproducible pipeline
-        state = np.random.get_state()
-        try:
-            np.random.seed(self.seed + self._seed_offsets[name])
-            return getattr(self._coalescent, name).to_empirical(self.n_samples)
-        finally:
-            np.random.set_state(state)
+        rng = None if self.seed is None else np.random.default_rng(self.seed + self._seed_offsets[name])
+        return getattr(self._coalescent, name).to_empirical(self.n_samples, rng=rng)
 
     @cached_property
     def tree_height(self) -> EmpiricalPhaseTypeDistribution:

@@ -313,7 +313,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return MarginalLocusDistributions(self)
 
-    def sample(self, n_samples: int) -> np.ndarray:
+    def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
         r"""
         Draw samples of the accumulated reward :math:`R = \int_0^{\tau} r(X_u)\,\mathrm{d}u` by forward-simulating
         trajectories of the underlying Markov jump process.
@@ -330,7 +330,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_samples: Number of samples to draw.
         :return: Array of sampled rewards of shape ``(n_samples,)``.
         """
-        return self._sample(n_samples).reshape(n_samples)
+        return self._sample(n_samples, rng=rng).reshape(n_samples)
 
     @staticmethod
     def _empirical_locus_agg(x: np.ndarray) -> np.ndarray:
@@ -338,7 +338,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         height overrides this with the maximum). Mirrors :class:`~phasegen.distributions.empirical.MsprimeCoalescent`."""
         return x.sum(axis=0)
 
-    def to_empirical(self, n_samples: int) -> 'EmpiricalPhaseTypeDistribution':
+    def to_empirical(self, n_samples: int, rng: np.random.Generator = None) -> 'EmpiricalPhaseTypeDistribution':
         """
         Build an empirical (sample-based) counterpart of this distribution by simulating ``n_samples`` trajectories.
         The returned object exposes the same statistic interface (``mean``/``var``/``pdf``/``cdf``/...) computed from
@@ -358,7 +358,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         # stacked rewards over (locus, deme); one sampling pass yields the full (loci, demes) breakdown
         rewards = [self.loci[locus].demes[pop].reward for locus in range(n_loci) for pop in pops]
-        sampled = self._sample(n_samples, rewards=rewards)  # (n_samples, n_loci * n_demes)
+        sampled = self._sample(n_samples, rewards=rewards, rng=rng)  # (n_samples, n_loci * n_demes)
 
         # (n_samples, n_loci, n_demes) -> (n_loci, n_demes, n_samples), the layout the empirical container expects
         samples = sampled.reshape(n_samples, n_loci, len(pops)).transpose(1, 2, 0)
@@ -369,7 +369,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             self,
             n_samples: int,
             rewards: Sequence[Reward] = None,
-            record_visits: bool = False
+            record_visits: bool = False,
+            rng: np.random.Generator = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Generate samples from the mean reward distribution by simulating CTMC trajectories with the vectorized
@@ -388,7 +389,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         batch = Settings.sample_batch_size
         if batch is None or n_samples <= batch:
-            return self._sample_vectorized(n_samples, rewards, record_visits)
+            return self._sample_vectorized(n_samples, rewards, record_visits, rng=rng)
 
         # bound peak memory by simulating the ensemble in batches and concatenating the per-trajectory results
         sizes = [batch] * (n_samples // batch)
@@ -397,7 +398,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         mass_parts, visits = [], None
         for size in sizes:
-            out = self._sample_vectorized(size, rewards, record_visits)
+            out = self._sample_vectorized(size, rewards, record_visits, rng=rng)
             if record_visits:
                 part, visited = out
                 visits = visited * size if visits is None else visits + visited * size  # visit counts, re-averaged below
@@ -416,7 +417,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             self,
             n_samples: int,
             rewards: Sequence[Reward],
-            record_visits: bool = False
+            record_visits: bool = False,
+            rng: np.random.Generator = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         r"""
         Vectorized trajectory sampler: advance all ``n_samples`` walkers through the CTMC in lockstep, one wave per
@@ -434,6 +436,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param record_visits: Whether to also return the per-state visit frequencies.
         :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
         """
+        if rng is None:
+            rng = np.random.default_rng()
+
         n_rewards = len(rewards)
         k = self.state_space.k
         absorbing = self.state_space.absorbing
@@ -480,10 +485,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         cum_offsets = np.concatenate(cum_list)  # (nnz,) globally sorted
 
         # ensemble state
-        state = np.random.choice(k, size=n_samples, p=alpha)
+        state = rng.choice(k, size=n_samples, p=alpha)
         t = np.zeros(n_samples)
         e = np.zeros(n_samples, dtype=int)
-        H = np.random.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
+        H = rng.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
         mass = np.zeros((n_samples, n_rewards))
         states_visited = np.zeros(k) if record_visits else None
         if record_visits:
@@ -536,7 +541,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 # sample the next state via inverse-CDF on the sparse cumulative jump distribution: one global
                 # searchsorted over the band-shifted cumulative probabilities, clipped to each walker's own row
                 row = e[a] * k + state[a]
-                q = np.random.random(a.size) + row  # band-shifted uniform draw lands in this row's band
+                q = rng.random(a.size) + row  # band-shifted uniform draw lands in this row's band
                 pos = np.clip(np.searchsorted(cum_offsets, q, side='left'), cum_indptr[row], cum_indptr[row + 1] - 1)
                 nxt = cum_neighbours[pos]
                 state[a] = nxt
@@ -544,7 +549,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                     np.add.at(states_visited, nxt, 1)
 
                 # resample the hazard budget for survivors; absorbed walkers leave the ensemble
-                H[a] = np.random.exponential(size=a.size)
+                H[a] = rng.exponential(size=a.size)
                 active[a[absorbing[nxt]]] = False
 
         if record_visits:
