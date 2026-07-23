@@ -90,6 +90,24 @@ class InferenceTestCase(TestCase):
 
         self.assertNotEqual(first, second)
 
+    def test_add_bootstrap_tolerates_unreprable_result(self):
+        """
+        add_bootstrap must not crash when a bootstrap's OptimizeResult repr raises, as a scipy result restored
+        from a jsonpickle round-trip can on some scipy versions ("max() arg is an empty sequence").
+        """
+        class _ReprRaises(OptimizeResult):
+            def __repr__(self):
+                raise ValueError('max() arg is an empty sequence')
+
+        inf = self.get_fast_inference()
+        boot = self.get_fast_inference()
+        boot.loss_inferred = 1.0
+        boot.params_inferred = {'t': 0.5, 'Ne': 0.5}
+        boot.result = _ReprRaises()
+
+        inf.add_bootstrap(boot)
+        self.assertEqual(len(inf.bootstraps), 1)
+
     def test_fast_inference_run_bootstrap_and_plots(self):
         """
         Run a small inference with bootstrapping and exercise the plotting and serialization paths.

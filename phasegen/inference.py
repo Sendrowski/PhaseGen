@@ -871,9 +871,17 @@ class Inference(Serializable):
         if bootstrap.loss_inferred is None:
             raise RuntimeError('The provided Inference object must be run first (call :meth:`run`).')
 
+        # a scipy OptimizeResult restored from a jsonpickle round-trip (e.g. a bootstrap reloaded from file on a
+        # cluster) can come back empty, and its __repr__ then raises ("max() arg is an empty sequence"); fall back to
+        # a plain dict repr so a reloaded bootstrap still merges.
+        try:
+            result_repr = str(bootstrap.result)
+        except ValueError:
+            result_repr = repr(dict(bootstrap.result))
+
         # add bootstrap parameters
         self.bootstraps.loc[len(self.bootstraps)] = (
-                bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
+                bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=result_repr)
         )
 
     def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]) -> None:
