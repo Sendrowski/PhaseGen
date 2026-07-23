@@ -31,3 +31,12 @@ div.cell_output img {
     margin-left: auto;
     margin-right: auto;
 }
+
+/* sidebar navigation: bold the top-level group headings and space the groups apart */
+.bd-sidebar-primary nav.bd-links li.toctree-l1 > a.reference {
+    font-weight: 700;
+}
+
+.bd-sidebar-primary nav.bd-links li.toctree-l1 {
+    margin-top: 0.9em;
+}

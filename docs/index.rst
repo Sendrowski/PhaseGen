@@ -12,62 +12,10 @@ Contents
 --------
 
 .. toctree::
-   :caption: Python Reference
    :maxdepth: 2
 
-   reference/Python/installation
-   reference/Python/quickstart
-   reference/Python/distribution_functions
-   reference/Python/spectra
-   reference/Python/multiple_merger_coalescents
-   reference/Python/rewards
-   reference/Python/demography
-   reference/Python/mutation_configs
-   reference/Python/empirical_distributions
-   reference/Python/inference
-   reference/Python/miscellaneous
-
-.. toctree::
-   :caption: R Reference
-   :maxdepth: 2
-
-   reference/R/installation
-   reference/R/quickstart
-   reference/R/distribution_functions
-   reference/R/spectra
-   reference/R/multiple_merger_coalescents
-   reference/R/rewards
-   reference/R/demography
-   reference/R/mutation_configs
-   reference/R/empirical_distributions
-   reference/R/inference
-   reference/R/miscellaneous
-
-.. toctree::
-   :caption: Runtime Performance
-   :maxdepth: 2
-
-   reference/performance/state_space
-   reference/performance/runtime
-
-.. toctree::
-   :caption: API Reference
-   :maxdepth: 1
-
-   modules/distributions
-   modules/coalescent_models
-   modules/demography
-   modules/rewards
-   modules/inference
-   modules/config
-   modules/state_space
-   modules/spectrum
-   modules/expm
-   modules/settings
-
-.. toctree::
-   :caption: Miscellaneous
-   :maxdepth: 1
-
-   modules/citing
-   modules/changelog
+   reference/Python/index
+   reference/R/index
+   reference/performance/index
+   modules/index
+   miscellaneous

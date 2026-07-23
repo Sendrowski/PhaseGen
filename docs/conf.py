@@ -90,7 +90,10 @@ html_theme_options = {
     'repository_branch': 'master',
     'use_repository_button': True,
     'use_edit_page_button': False,
-    'use_issues_button': False
+    'use_issues_button': False,
+    # render each reference group as a collapsible section, expanded by default
+    'show_navbar_depth': 2,
+    'collapse_navbar': False,
 }
 html_static_path = ['_static']
 html_css_files = ["custom.css"]
