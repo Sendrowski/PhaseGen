@@ -49,6 +49,11 @@ autosummary_generate = False
 typehints_use_signature = True
 typehints_fully_qualified = False
 
+# The plot methods return the lazily-imported ``plt.Axes`` and several signatures reference names
+# that are not importable at documentation time, so sphinx_autodoc_typehints cannot resolve those
+# forward references. The warning is cosmetic, so suppress that subtype.
+suppress_warnings = ['sphinx_autodoc_typehints.forward_reference']
+
 pygments_style = 'default'
 
 # disable notebook execution
@@ -80,11 +85,16 @@ autodoc_default_options = {
 
 add_module_names = False
 
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = 'sphinx_book_theme'
 html_theme_options = {
+    # sphinx-book-theme puts the search in the primary sidebar and clears this in its
+    # theme.conf, but pydata only honours that when the key is set here, so it re-adds a
+    # second search field to the header. Clear it explicitly.
+    'navbar_persistent': [],
     'search_bar_text': 'Search...',
     'repository_url': 'https://github.com/Sendrowski/phasegen',
     'repository_branch': 'master',

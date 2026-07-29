@@ -59,6 +59,7 @@ Contents
    modules/demography
    modules/rewards
    modules/inference
+   modules/norms
    modules/config
    modules/state_space
    modules/spectrum
