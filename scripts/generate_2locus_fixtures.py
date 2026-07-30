@@ -13,11 +13,7 @@ sys.path.append('.')
 
 import numpy as np
 
-import phasegen as pg
 from phasegen.comparison import Comparison
-
-# run sequentially: forking after numpy/matplotlib are imported deadlocks on macOS
-pg.Settings.parallelize = False
 
 try:
     file = snakemake.input[0]  # noqa: F821
@@ -28,6 +24,7 @@ except NameError:
     out = f'results/comparisons/serialized/{name}.json'
 
 c = Comparison.from_yaml(file)
+# run sequentially: forking after numpy/matplotlib are imported deadlocks on macOS
 c.parallelize = False
 c.n_threads = 1
 

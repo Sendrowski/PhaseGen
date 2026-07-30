@@ -13,11 +13,7 @@ sys.path.append('.')
 
 import numpy as np
 
-import phasegen as pg
 from phasegen.comparison import Comparison
-
-# run sequentially: forking after numpy/matplotlib are imported deadlocks on macOS
-pg.Settings.parallelize = False
 
 try:
     file = snakemake.input[0]  # noqa: F821
@@ -44,6 +40,7 @@ def get_stat(dist, stat: str) -> np.ndarray:
 
 
 c = Comparison.from_yaml(file)
+# run sequentially: forking after numpy/matplotlib are imported deadlocks on macOS
 c.parallelize = False
 c.n_threads = 1
 

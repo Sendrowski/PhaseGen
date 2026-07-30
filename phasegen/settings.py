@@ -2,13 +2,40 @@
 Settings for the PhaseGen application.
 """
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 
-class Settings:
+class _SettingsMeta(type):
+    """
+    Metaclass rejecting assignment to a setting that does not exist.
+
+    Settings are class-level attributes, so a mistyped or removed name would otherwise bind a new attribute that
+    nothing reads, leaving the caller to believe a flag was set when the behaviour is unchanged.
+    """
+
+    def __setattr__(cls, name: str, value: Any):
+        """
+        Set a setting, rejecting names that are not declared on the class.
+
+        :param name: Name of the setting.
+        :param value: Value to assign.
+        :raises AttributeError: If no setting of that name exists.
+        """
+        if not name.startswith('_') and not hasattr(cls, name):
+            available = ', '.join(sorted(n for n in vars(cls) if not n.startswith('_')))
+            raise AttributeError(
+                f"{cls.__name__} has no setting {name!r}, so assigning it would have no effect. "
+                f"Available settings: {available}."
+            )
+
+        super().__setattr__(name, value)
+
+
+class Settings(metaclass=_SettingsMeta):
     """
     Global configuration flags governing caching, state-space construction, sampling, and the numerical backends.
-    The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``).
+    The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``). Assigning a name that is
+    not declared here raises :class:`AttributeError`.
     """
     #: Whether to flatten the block-counting state space when possible.
     #: In certain cases, this can be achieved by computing block probabilities
