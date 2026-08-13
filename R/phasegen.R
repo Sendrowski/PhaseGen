@@ -23,59 +23,71 @@ for(package in required_packages){
 #' 
 #' @export
 phasegen_is_installed <- function() {
-  
+
+  # An unbound session reports FALSE without touching Python, leaving the interpreter
+  # for the declared requirements to select at the version they ask for
+  if (!reticulate::py_available(initialize = FALSE)) {
+    return(FALSE)
+  }
+
   # Check if phasegen is installed
   return(reticulate::py_module_available("phasegen"))
 }
 
 
-#' Install the `phasegen` Python module
+# Requirement string for the Python distribution, carrying a pinned version where one is given
+py_requirement <- function(version = NULL) {
+
+  spec <- "phasegen"
+
+  if (!is.null(version)) {
+    spec <- paste0(spec, "==", version)
+  }
+
+  spec
+}
+
+
+.onLoad <- function(libname, pkgname) {
+  reticulate::py_require(py_requirement(), python_version = "3.11")
+}
+
+
+#' Declare the `phasegen` Python module requirement
 #'
-#' This function checks if the `phasegen` Python module is available.
-#' If not, or if the `force` argument is TRUE, it installs it via pip.
-#' If the `silent` argument is set to TRUE, the function will not output a 
-#' message when the module is already installed.
+#' Loading the package declares `phasegen`. This function declares a pinned version. The requirement is resolved when Python is first initialised, at which
+#' point reticulate provisions an environment satisfying it.
 #'
 #' @param version A character string specifying the version of the `phasegen` module
-#'        to install. Default is `NULL` which will install the latest version.
-#' @param force Logical, if `TRUE` it will force the reinstallation of the `phasegen` module
-#'        even if it's already available. Default is `FALSE`.
-#' @param silent Logical, if `TRUE` it will suppress the message about `phasegen` being
-#'        already installed. Default is `FALSE`.
+#'        to require. Default is `NULL` which resolves to the latest version.
+#' @param force Logical, has no effect. Default is `FALSE`.
+#' @param silent Logical, if `TRUE` it will suppress the message naming the declared
+#'        requirement. Default is `FALSE`.
+#' @param python_version A character string specifying the Python version reticulate
+#'        should provision the environment with. Default is `'3.11'`.
 #'
 #' @return Invisible `NULL`.
-#' 
+#'
 #' @examples
 #' \dontrun{
-#' install_phasegen()  # Installs the latest version of phasegen
-#' install_phasegen("1.0.2")  # Installs version 1.0.2 of phasegen
-#' install_phasegen(force = TRUE)  # Reinstalls the phasegen module
+#' install_phasegen()  # Requires the latest version of phasegen
 #' }
-#' 
+#'
 #' @export
 install_phasegen <- function(version = NULL, force = FALSE, silent = FALSE, python_version = '3.11') {
-  
-  # Create the package string with the version if specified
-  package_name <- "phasegen"
-  if (!is.null(version)) {
-    package_name <- paste0(package_name, "==", version)
+
+  if (force) {
+    warning("'force' has no effect.", call. = FALSE)
   }
-  
-  # Check if phasegen is installed or if force is TRUE
-  if (force || !phasegen_is_installed()) {
-    reticulate::py_install(
-      package_name,
-      method = "conda",
-      pip = TRUE,
-      ignore_installed = force,
-      python_version = python_version
-    )
-  } else {
-    if (!silent) {
-      message("The 'phasegen' Python module is already installed.")
-    }
+
+  spec <- py_requirement(version)
+
+  reticulate::py_require(spec, python_version = python_version)
+
+  if (!silent) {
+    message("Declared Python requirement '", spec, "' on Python ", python_version, ".")
   }
-  
+
   invisible(NULL)
 }
 

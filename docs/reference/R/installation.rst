@@ -15,20 +15,19 @@ Once the installation is successfully completed, initiate the package within you
 
    library(phasegen)
 
-The ``phasegen`` R package serves as a wrapper around the Python library although visualization utilities are not reimplemented. You may choose to use the visualization capabilities of the Python API but this will offer limited customizability. The Python package must be installed separately which can be accomplished with:
+The ``phasegen`` R package serves as a wrapper around the Python library although visualization utilities are not reimplemented. The visualization capabilities of the Python API remain available, with limited customizability. Loading the R package declares the Python requirement, which reticulate resolves into a suitable environment the first time the module is loaded:
 
 .. code-block:: r
 
-   install_phasegen()
+   pg <- load_phasegen()
 
 ``phasegen`` is compatible with Python 3.10 through 3.13.
 
-Alternatively, you can also follow the instructions in the `Python installation guide <../Python/installation.html>`_ to install the Python package.
-
-After installing the Python package, the ``phasegen`` wrapper module can be loaded into your R environment using the following command:
+To use an existing Python installation instead, follow the `Python installation guide <../Python/installation.html>`_ and select the environment before loading the module:
 
 .. code-block:: r
 
+   reticulate::use_condaenv("~/miniforge3/envs/phasegen", required = TRUE)
    pg <- load_phasegen()
 
 See the R package documentation for more information on the available functions.
