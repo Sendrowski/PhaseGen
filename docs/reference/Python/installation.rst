@@ -39,8 +39,9 @@ Then run the following commands to create and activate the environment:
 .. code-block:: bash
 
   mamba env create -f environment.yml
+  mamba activate phasegen
 
-Activate the newly created conda environment:
+You are now ready to use ``phasegen``:
 
 .. code-block:: python
 
