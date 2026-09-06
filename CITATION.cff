@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: If you use this software, please cite the article below.
+title: PhaseGen
+authors:
+  - family-names: Sendrowski
+    given-names: Janek
+  - family-names: Hobolth
+    given-names: Asger
+repository-code: https://github.com/Sendrowski/PhaseGen
+preferred-citation:
+  type: article
+  title: "PhaseGen: exact solutions for time-inhomogeneous multivariate coalescent distributions under diverse demographies"
+  authors:
+    - family-names: Sendrowski
+      given-names: Janek
+    - family-names: Hobolth
+      given-names: Asger
+  journal: Genetics
+  publisher:
+    name: Oxford University Press
+  volume: 232
+  issue: 1
+  start: iyaf135
+  issn: 1943-2631
+  year: 2026
+  month: 1
+  doi: 10.1093/genetics/iyaf135
