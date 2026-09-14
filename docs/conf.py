@@ -3,19 +3,19 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-import datetime
 import sys
 
 sys.path.append('..')
+
+from phasegen import __version__
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'PhaseGen'
-year = datetime.datetime.now().year
-copyright = f'{year}, Janek Sendrowski'
 author = 'Janek Sendrowski'
-release = '1.2.0'
+release = __version__
+html_show_copyright = False
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -50,6 +50,8 @@ intersphinx_mapping = {
 autosummary_generate = False
 
 typehints_use_signature = True
+typehints_use_signature_return = True
+typehints_document_rtype = False
 typehints_fully_qualified = False
 
 # Render unions as ``X | Y``. The Python inventory lists ``typing.Union`` as a class, which the ``data`` role
