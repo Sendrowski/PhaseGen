@@ -141,7 +141,7 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :members:
    :special-members: __call__
 
-The same statistics can be estimated empirically from simulated genealogies -- via msprime (:class:`~phasegen.distributions.MsprimeCoalescent`) or PhaseGen's own trajectory sampler (:class:`~phasegen.distributions.SampledCoalescent`) -- with the containers below computing the statistics from the sampled realisations.
+The same statistics can be estimated empirically from simulated genealogies -- via msprime (:class:`~phasegen.distributions.MsprimeCoalescent`) or ``phasegen``'s own trajectory sampler (:class:`~phasegen.distributions.SampledCoalescent`) -- with the containers below computing the statistics from the sampled realisations.
 
 .. autoclass:: phasegen.distributions.MsprimeCoalescent
 
