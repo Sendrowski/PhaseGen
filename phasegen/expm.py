@@ -49,10 +49,8 @@ class ExpmBackend(ABC):
 
 class TensorFlowExpmBackend(ExpmBackend):
     """
-    Compute the matrix exponential using TensorFlow. Tends to be faster than scipy.
-    Note that tensorflow is an optional dependency and thus needs to be installed separately.
-    GPU acceleration may be available depending on the underlying hardware.
-    Tends to be faster than :class:`SciPyExpmBackend` for large matrices and highly parallelized computations.
+    Compute the matrix exponential using TensorFlow, an optional dependency with the installation, GPU and
+    performance notes of :class:`JaxExpmBackend`.
     """
 
     def compute(self, m: np.ndarray) -> np.ndarray:

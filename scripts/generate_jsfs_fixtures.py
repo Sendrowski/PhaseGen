@@ -53,12 +53,12 @@ msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 # cache the msprime joint-SFS ground truth (accumulated within simulate()) -- the moments are retained by the cached
 # jsfs distribution -- then null the raw per-replicate samples and the demography to keep the fixture small. Cache the
 # full-grid joint *surface* ground truth for any configured pairwise surface pairs (config-pair keys like
-# ``((0, 1), (1, 0))`` under ``jsfs: pairwise: cosine``) before dropping the per-replicate samples (``drop`` only nulls
+# ``((0, 1), (1, 0))`` under ``jsfs: pairwise: cosine``) before dropping the per-replicate samples (``_drop`` only nulls
 # the samples, leaving ``_joint_surface`` intact)
 if msprime_spec:
     for dist, pairs in c._pairwise_surface_pairs(msprime_spec).items():
         getattr(c.ms, dist)._cache_joint_surface(pairs)
-    c.ms.jsfs.drop()
+    c.ms.jsfs._drop()
     for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples', 'demography'):
         setattr(c.ms, attr, None)
 
@@ -72,10 +72,10 @@ if msprime_spec:
 
 # cache the phasegen-sampler (self-consistency) ground truth for the nested ``empirical`` sub-spec, if present
 if empirical_spec:
-    c.empirical.touch()
+    c.empirical._touch()
     for dist, pairs in c._pairwise_surface_pairs(empirical_spec).items():
         getattr(c.empirical, dist)._cache_joint_surface(pairs)
-    c.empirical.drop()
+    c.empirical._drop()
 
 # drop the cached analytical coalescent so only the small msprime ground truth is serialized (otherwise the joint
 # state space would bloat the fixture); the analytical side is recomputed fresh at test time

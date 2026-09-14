@@ -57,12 +57,12 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         self._moments: np.ndarray = np.asarray(moments)
 
         #: Joint SFS branch lengths, one row per simulated replicate, of shape
-        #: ``(n_samples, n_0 + 1, ..., n_{P-1} + 1)``, possibly a capped subset of the replicates. ``None`` after
-        #: :meth:`drop`.
+        #: ``(n_samples, n_0 + 1, ..., n_{P-1} + 1)``, possibly a capped subset of the replicates. ``None`` once freed
+        #: for serialization.
         self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
 
-        #: Number of replicates the moments were averaged over (retained after :meth:`drop`, so it is recorded in a
-        #: serialized comparison). Not ``len(samples)`` when the samples are a capped subset.
+        #: Number of replicates the moments were averaged over, retained when the samples are freed so that it is
+        #: recorded in a serialized comparison. Not ``len(samples)`` when the samples are a capped subset.
         self.n_samples: Optional[int] = (
             n_samples if n_samples is not None else (None if samples is None else np.asarray(samples).shape[0]))
 
@@ -71,9 +71,8 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
 
     def _cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
                             q_max: float = 0.95) -> None:
-        """Pre-compute, for each config pair, the empirical joint CDF and density over a 2D grid (the full-grid
-        surface comparison ground truth). Mirrors ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` but
-        indexed by descendant configuration."""
+        """Cache the ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` per configuration
+        pair."""
         s = self.samples
         n = s.shape[0]
         self._joint_surface = []
@@ -85,7 +84,7 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((tuple(ca), tuple(cb), xs, ys, cdf, pdf))
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """Drop the (large) per-replicate samples once the joint ground truth has been cached."""
         self.samples = None
 
@@ -368,9 +367,9 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     """
-    Probability distribution estimated from sampled realisations. Its moments and spectra are unbiased Monte Carlo
-    estimates formed directly from the raw samples (see :meth:`moment`), so the estimation cost scales with the number
-    of samples :math:`N` rather than the state-space size.
+    Probability distribution estimated from sampled realisations, such as those drawn by
+    :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`. Its moments and
+    spectra are Monte Carlo estimates formed from the samples.
     """
     # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
     # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
@@ -389,22 +388,22 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         self._cache = None
 
         #: Sampled values, one row per replicate, of shape ``(n_samples,)``, or ``(n_samples, n + 1)`` for a spectrum.
-        #: ``None`` after :meth:`drop`.
+        #: ``None`` once freed for serialization.
         self.samples: np.ndarray | None = np.array(samples, dtype=float)
 
-        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
+        #: Number of samples, retained when the samples are freed so that it is recorded in a serialized comparison.
         self.n_samples: int = self.samples.shape[0]
 
-        #: Standard error of each moment statistic, estimated from blocks of the samples, retained after :meth:`drop`.
+        #: Standard error of each moment statistic, estimated from blocks of the samples, retained when they are freed.
         self._standard_errors: dict = {}
 
-    def touch(self, t: np.ndarray) -> None:
+    def _touch(self, t: np.ndarray) -> None:
         """
         Touch all cached properties.
 
         :param t: Times to cache properties for.
         """
-        super().touch()
+        super()._touch()
 
         # probability grid for the quantile function (kept off the extreme tails, where the empirical quantile is
         # noisy and -- for SFS bins with an atom at 0 -- flat at 0 below the atom mass)
@@ -425,7 +424,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
-        Estimate and cache the standard error of each moment statistic, so that it survives :meth:`drop` and a
+        Estimate and cache the standard error of each moment statistic, so that it survives ``_drop`` and a
         consumer of the (samples-free) distribution can tell how much of a discrepancy against it is the distribution's
         own Monte-Carlo noise.
 
@@ -458,7 +457,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             values = np.array([np.asarray(getattr(s, name), dtype=float) for s in stats])
             self._standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """
         Drop simulated samples.
         """
@@ -636,27 +635,27 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             #: Covariance matrix for the loci
             self.loci_cov: np.ndarray = np.cov(over_demes)
 
-    def touch(self, t: np.ndarray) -> None:
+    def _touch(self, t: np.ndarray) -> None:
         """
         Touch all cached properties.
 
         :param t: Times to cache properties for.
         """
-        super().touch(t)
+        super()._touch(t)
 
-        [d.touch(t) for d in self.demes.values()]
-        [l.touch(t) for l in self.loci.values()]
+        [d._touch(t) for d in self.demes.values()]
+        [l._touch(t) for l in self.loci.values()]
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """
         Drop simulated samples.
         """
-        super().drop()
+        super()._drop()
 
         self._samples = None
 
-        [d.drop() for d in self.demes.values()]
-        [l.drop() for l in self.loci.values()]
+        [d._drop() for d in self.demes.values()]
+        [l._drop() for l in self.loci.values()]
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
@@ -739,9 +738,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         return self._samples[locus].sum(axis=0)
 
     def _cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
-        """Pre-compute, for each locus pair, the empirical cross-locus joint CDF and density over a 2D grid (the
-        full-grid surface comparison ground truth). Mirrors ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``
-        but indexed by locus."""
+        """Cache the ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` per locus pair."""
         self._loci_joint_surface = []
         for l1, l2 in pairs:
             a, b = self._locus_samples(l1), self._locus_samples(l2)
@@ -869,14 +866,13 @@ class EmpiricalJointDistribution:  # pragma: no cover
 
     def conditional_on_atom(self, on: str = 'a') -> Tuple[float, EmpiricalDistribution]:
         """
-        The empirical conditional distribution of the *other* reward given the **atom event** ``{R_{on} = 0}``, with
-        the atom's own mass.
+        The empirical conditional distribution of the other reward given the atom event that the conditioning reward
+        is zero, with the atom's mass.
 
-        Unlike :meth:`conditional`, this is not a window estimate and carries no bandwidth: the atom event has
-        positive probability, so the replicates in which the conditioning reward is exactly zero *are* the
-        conditioning set. It is an ordinary sample estimate of an ordinary conditional law, and so the one place a
-        sample is a genuine ground truth for a conditional -- which is what makes it worth comparing the exact
-        (``_AtomConditional``) path against.
+        Unlike :meth:`EmpiricalJointDistribution.conditional()
+        <phasegen.distributions.EmpiricalJointDistribution.conditional>`, this needs no window: the atom event has
+        positive probability, so the conditioning set is exactly the replicates in which the conditioning reward is
+        zero, and the estimate carries no bandwidth bias.
 
         :param on: Which reward to condition on, ``'a'`` or ``'b'``.
         :return: The atom's mass ``P(R_{on} = 0)`` and the distribution of the other reward over those replicates.
@@ -982,7 +978,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         self.generated_mass = 0
 
         #: Atom-conditional ground truth: ``[(i, j, on, mass, dist), ...]``, see
-        #: :meth:`cache_atom_conditional`. Survives :meth:`drop` and is serialized with the comparison.
+        #: :meth:`cache_atom_conditional`. Survives ``_drop`` and is serialized with the comparison.
         self._atom_conditional: list = []
 
         #: Cached windowed-conditional ground truth, see :meth:`cache_windowed_conditional`.
@@ -1023,11 +1019,11 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return TwoSFS(super().corr)
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """
         Drop simulated samples.
         """
-        super().drop()
+        super()._drop()
 
         self._mutations = None
 
@@ -1116,8 +1112,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                     self._atom_conditional.append((int(i), int(j), on, 0.0, None))
                     continue
 
-                dist.touch(np.linspace(0.0, float(np.max(dist.samples)), n_grid))
-                dist.drop()
+                dist._touch(np.linspace(0.0, float(np.max(dist.samples)), n_grid))
+                dist._drop()
                 self._atom_conditional.append((int(i), int(j), on, mass, dist))
 
     def cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
@@ -1261,14 +1257,14 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """
         :param mean: The simulated mean two-locus SFS array.
         :param left: Optional per-replicate locus-0 SFS branch lengths ``(num_replicates, n + 1)`` (for the joint
-            distribution / cross-moment tracking). Dropped on :meth:`drop` and absent from a serialized comparison.
+            distribution / cross-moment tracking), freed before serialization.
         :param right: Optional per-replicate locus-1 SFS branch lengths.
         """
         self._mean = np.asarray(mean)
         self._left = None if left is None else np.asarray(left)
         self._right = None if right is None else np.asarray(right)
 
-        #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
+        #: Number of samples, retained when the samples are freed so that it is recorded in a serialized comparison.
         self.n_samples: Optional[int] = None if left is None else np.asarray(left).shape[0]
 
     @property
@@ -1276,16 +1272,16 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """Mean two-locus SFS."""
         return TwoLocusSFS(self._mean)
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """Drop the per-replicate samples (the mean is retained)."""
         self._left = None
         self._right = None
 
     def cross_moment(self, i: int, j: int) -> float:
         r"""
-        Empirical cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]` (the two-locus SFS entry) from the per-replicate locus
-        branch lengths, the simulated counterpart of
-        :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>` ``(1, 1)``.
+        Empirical cross-locus moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the two-locus SFS entry, estimated as in
+        :meth:`EmpiricalPhaseTypeSFSDistribution.cross_moment()
+        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.cross_moment>`.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1295,9 +1291,9 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
 
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
         r"""
-        Empirical joint CDF :math:`P(L^0_i \le x, L^1_j \le y)` from the per-replicate locus branch lengths, the
-        simulated counterpart of :attr:`JointRewardDistribution.cdf
-        <phasegen.distributions.JointRewardDistribution.cdf>`.
+        Empirical cross-locus joint CDF :math:`P(L^0_i \le x, L^1_j \le y)`, estimated as in
+        :meth:`EmpiricalPhaseTypeSFSDistribution.joint_cdf()
+        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint_cdf>`.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1308,9 +1304,8 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
 
     def _cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
-        """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical
-        joint CDF and density over a 2D grid (the full-grid surface comparison ground truth). Same structure as
-        ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``, indexed by the two loci's frequency classes."""
+        """Pre-compute the joint surface ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``
+        for each cross-locus bin pair ``(i, j)``, locus-0 class ``i`` against locus-1 class ``j``."""
         n = self._left.shape[0]
         self._joint_surface = []
         for i, j in pairs:
@@ -1758,7 +1753,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         return np.linspace(0, float(np.max(dist.samples)), 100)
 
-    def touch(self, **kwargs: dict) -> None:
+    def _touch(self, **kwargs: dict) -> None:
         """
         Touch cached properties.
 
@@ -1768,22 +1763,22 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         t = self._get_cached_times(self.tree_height)
 
-        self.tree_height.touch(t)
-        self.total_tree_height.touch(self._get_cached_times(self.total_tree_height))
-        self.total_branch_length.touch(self._get_cached_times(self.total_branch_length))
-        self.sfs.touch(self._get_cached_times(self.sfs))
-        self.fsfs.touch(self._get_cached_times(self.fsfs))
+        self.tree_height._touch(t)
+        self.total_tree_height._touch(self._get_cached_times(self.total_tree_height))
+        self.total_branch_length._touch(self._get_cached_times(self.total_branch_length))
+        self.sfs._touch(self._get_cached_times(self.sfs))
+        self.fsfs._touch(self._get_cached_times(self.fsfs))
 
         # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
         # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
-        # survives the subsequent drop(). The single pair (0, 1) over a full grid. The within-tree (single-locus and
+        # survives the subsequent _drop(). The single pair (0, 1) over a full grid. The within-tree (single-locus and
         # multi-population) joint surfaces are cached separately by ``Comparison.cache_ground_truth`` from the
         # configured pairwise surface pairs.
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
                 dist._cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """
         Drop simulated data.
         """
@@ -1792,16 +1787,16 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.sfs_lengths = None
         self.mutations = None
 
-        # the moments are retained by the cached jsfs distribution (referenced before drop), so this only removes
+        # the moments are retained by the cached jsfs distribution (referenced before _drop), so this only removes
         # the duplicate reference held on the coalescent
         self.jsfs_moments = None
         self.jsfs_samples = None
 
-        self.tree_height.drop()
-        self.total_tree_height.drop()
-        self.total_branch_length.drop()
-        self.sfs.drop()
-        self.fsfs.drop()
+        self.tree_height._drop()
+        self.total_tree_height._drop()
+        self.total_branch_length._drop()
+        self.sfs._drop()
+        self.fsfs._drop()
 
         # caused problems when serializing
         self.demography = None
@@ -2132,16 +2127,16 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         sharing the tree height's."""
         return np.linspace(0, float(np.max(dist.samples)), 100)
 
-    def touch(self, **kwargs: dict) -> None:
-        """Build and cache the empirical distributions (so the cached stats/surfaces survive :meth:`drop` and are
+    def _touch(self, **kwargs: dict) -> None:
+        """Build and cache the empirical distributions (so the cached stats/surfaces survive ``_drop`` and are
         serialized with the comparison)."""
-        self.tree_height.touch(self._get_cached_times(self.tree_height))
-        self.total_branch_length.touch(self._get_cached_times(self.total_branch_length))
+        self.tree_height._touch(self._get_cached_times(self.tree_height))
+        self.total_branch_length._touch(self._get_cached_times(self.total_branch_length))
 
         # the single-locus site-frequency spectra (undefined for multiple loci, where ``sfs2`` is used instead)
         if self.locus_config.n == 1:
-            self.sfs.touch(self._get_cached_times(self.sfs))
-            self.fsfs.touch(self._get_cached_times(self.fsfs))
+            self.sfs._touch(self._get_cached_times(self.sfs))
+            self.fsfs._touch(self._get_cached_times(self.fsfs))
 
             # multi-population: the joint SFS
             if len(self.lineage_config.pop_names) > 1:
@@ -2155,11 +2150,11 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
             if len(self.lineage_config.pop_names) == 1:
                 _ = self.sfs2
 
-    def drop(self) -> None:
+    def _drop(self) -> None:
         """Drop the per-sample data and the analytic coalescent; the cached stats and surfaces are retained."""
         for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2'):
             if name in self.__dict__:
-                self.__dict__[name].drop()
+                self.__dict__[name]._drop()
 
         self._coalescent = None
         self.demography = None

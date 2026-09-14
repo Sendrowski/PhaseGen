@@ -682,7 +682,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     @cached_property
     def _cos_axis_coeffs(self) -> dict:
         r"""Fourier-cosine coefficients for the two axis-atom sub-CDFs, the cosine replacement for the per-point de Hoog
-        atom inversions in :meth:`_cdf_grid`. Validated across scenarios to match the de Hoog atoms (and msprime)
+        atom inversions in ``_cdf_grid``. Validated across scenarios to match the de Hoog atoms (and msprime)
         identically, so the cosine CDF path uses these and avoids de Hoog entirely (the de Hoog mixing bought no
         accuracy -- both are equally imperfect near 0). Each is a defective 1D distribution:
         :math:`g_b(x) = \Pr(R_a \le x,\, R_b = 0)` (key ``'b'``, sub-transform :math:`\Phi(\cdot, \infty)`) and
@@ -946,10 +946,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     def check_total_probability(self, n_points: int = 8, n_y: int = 15, tol: float = 0.01) -> dict:
         r"""
-        Self-consistency tripwire for the (nested-inversion) conditional path: verify the **law of total probability**
-        :math:`F_\text{other}(y) = \mathbb{E}_{R_{on}}[\,\Pr(R_\text{other} \le y \mid R_{on})\,]` for
-        conditioning on each axis, and **log a warning** (per axis) when the sup-norm deviation over :math:`y` exceeds
-        ``tol``.
+        Verify the law of total probability
+        :math:`F_\text{other}(y) = \mathbb{E}_{R_{on}}[\,\Pr(R_\text{other} \le y \mid R_{on})\,]`, the whole-law
+        counterpart of :meth:`JointRewardDistribution.check_total_expectation()
+        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`, and log a warning per axis when the
+        sup-norm deviation over :math:`y` exceeds ``tol``.
 
         **Not wired into the scenario suite, and not recommended as a tripwire:** unlike :meth:`check_total_expectation`
         it does not converge under refinement (it plateaus near 0.01 and then drifts up: 0.037 / 0.0096 / 0.0099 /
@@ -961,30 +962,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         below the mean offset. This tests the whole law instead, at every ``y``, and so catches shape errors that the
         moment check cannot see.
 
-        The conditioning marginal is integrated out in **probability space**: substituting ``u = F_on(v)`` turns
-        ``INT F(y|v) f_on(v) dv`` into ``INT_0^1 F(y | F_on^{-1}(u)) du``, so the marginal density is absorbed into the
-        measure and only quantiles are needed. The atom at 0 (``P(R_on = 0) F(y | R_on = 0)``) is added separately.
-        Both sides are CDFs, so each already carries its own atom at ``R_other = 0`` and the identity holds without a
-        correction. A conditional that *refuses* to build (a non-positive normaliser at an interior quantile) is itself
-        a violation and is reported as such.
+        The conditioning marginal is integrated out in probability space, with its atom at 0 added separately, as in
+        :meth:`JointRewardDistribution.check_total_expectation()
+        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`. Both sides are CDFs, so each carries
+        its own atom at ``R_other = 0`` and the identity holds without a correction. A conditional that refuses to
+        build (a non-positive normaliser at an interior quantile) is itself a violation and is reported as such.
 
-        The ``u``-integrand is smooth, so the nodes are **Gauss-Legendre** rather than the equal-probability midpoints
-        of :meth:`check_total_expectation`. This matters: the midpoint rule converges as ``O(n^-2)``, and against a
-        closed-form copula its discretisation error at ``n_points = 8`` is 0.004 to 0.020 (rising with the coupling
-        between the two rewards) *for an exact conditional* -- the same size as the inversion error being hunted, which
-        would make the check measure its own quadrature and read strongly-coupled reward pairs as broken. Gauss-Legendre
-        at ``n_points = 12`` holds that floor below 5e-4, roughly ``tol / 20``.
+        The ``u``-integral uses Gauss-Legendre nodes, which weight each conditional by the density of the conditioning
+        reward. A conditional that is wrong only far out in the tail therefore contributes little and may pass, so the
+        check bounds errors in the bulk of the distribution.
 
-        Note that the quadrature weights each conditional by ``f_on(v)``, so a conditional that is only wrong far out
-        in the tail contributes little and may pass. This bounds bulk error; it is not a tail certificate.
-
-        **This is expensive**: ``n_points`` nested inversions per axis, each building a CDF curve. On a multi-epoch
-        demography a single conditional costs tens of seconds, so the whole check runs in minutes -- and it is slow
-        precisely *because* it is useful, since the outermost quadrature nodes sit at the ~99th percentile of the
-        conditioning marginal, exactly where the inner inversion has to refine hardest (see
-        ``_NestedConditional._calibrate()``). Call it deliberately when a conditional looks suspect, never on every
-        construction. ``n_points = 8`` holds the Gauss-Legendre quadrature floor at ~2.6e-3, comfortably inside
-        ``tol``, while keeping the node count down.
+        The check is expensive, with ``n_points`` nested inversions per axis, each building a CDF curve.
 
         :param n_points: Gauss-Legendre nodes for the integral over the continuous part of each conditioning marginal.
         :param n_y: Evaluation points for the sup-norm, at evenly spaced quantiles of the other reward's marginal.

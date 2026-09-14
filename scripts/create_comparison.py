@@ -34,8 +34,8 @@ if __name__ == '__main__':
 
     # drop the simulated data of whichever operands were built (the cached stats/surfaces are retained + serialized)
     if 'ms' in c.__dict__:
-        c.ms.drop()
+        c.ms._drop()
     if 'empirical' in c.__dict__:
-        c.empirical.drop()
+        c.empirical._drop()
 
     c.to_file(out)

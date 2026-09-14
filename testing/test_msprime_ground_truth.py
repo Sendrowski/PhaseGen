@@ -72,7 +72,7 @@ class MsprimeGroundTruthTestCase(TestCase):
 
         d = EmpiricalJointSFSDistribution(moments=moments, samples=capped, n_samples=1000)
         self.assertEqual(d.n_samples, 1000)
-        d.drop()
+        d._drop()
         self.assertIsNone(d.samples)
         self.assertEqual(d.n_samples, 1000)  # survives the drop, so a serialized comparison keeps the true count
 
@@ -175,11 +175,11 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         self.assertAlmostEqual(float(dist._standard_errors['var']) / exact_var, 1, delta=0.25)
 
     def test_standard_errors_survive_the_drop(self):
-        """The standard errors are cached by ``touch`` and outlive the samples, so a serialized comparison can still
+        """The standard errors are cached by ``_touch`` and outlive the samples, so a serialized comparison can still
         tell how much of a discrepancy against its ground truth is that ground truth's own Monte-Carlo noise."""
         ms = self._ms(pg.Coalescent(n=4))
-        ms.touch()
-        ms.drop()
+        ms._touch()
+        ms._drop()
 
         for dist in (ms.tree_height, ms.total_branch_length, ms.sfs):
             self.assertIsNone(dist.samples)

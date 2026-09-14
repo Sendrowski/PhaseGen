@@ -120,11 +120,11 @@ def test_coalescent_to_empirical_returns_sampled_coalescent():
 
 
 def test_to_empirical_exposes_n_samples():
-    """``to_empirical`` records the sample count on the empirical object, surviving ``drop``."""
+    """``to_empirical`` records the sample count on the empirical object, surviving ``_drop``."""
     e = pg.Coalescent(n=5).tree_height.to_empirical(12345)
     assert e.n_samples == 12345
-    e.touch(np.linspace(0, 5, 20))
-    e.drop()
+    e._touch(np.linspace(0, 5, 20))
+    e._drop()
     assert e.n_samples == 12345  # retained for the serialized fixture
 
     dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1},
@@ -193,7 +193,7 @@ def test_sampled_and_msprime_share_facade():
 
     # the per-statistic distributions and lifecycle hooks the comparison framework relies on (checked on the class
     # to avoid triggering the lazy cached_property simulations)
-    for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2', 'touch', 'drop'):
+    for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2', '_touch', '_drop'):
         assert hasattr(SampledCoalescent, name) and hasattr(MsprimeCoalescent, name), name
 
     # the delegated configuration both expose as instance attributes
@@ -203,16 +203,16 @@ def test_sampled_and_msprime_share_facade():
 
 @pytest.mark.slow
 def test_msprime_touch_grids_sfs_on_its_own_support():
-    """``MsprimeCoalescent.touch`` must cache each spectrum on its **own** support, not the tree-height grid.
+    """``MsprimeCoalescent._touch`` must cache each spectrum on its **own** support, not the tree-height grid.
 
-    Regression for the bug where ``touch`` passed the tree-height grid ``t = _get_cached_times(self.tree_height)`` to
-    ``self.sfs.touch`` / ``self.fsfs.touch``. Individual SFS bin branch lengths are not bounded by the tree height (the
+    Regression for the bug where ``_touch`` passed the tree-height grid ``t = _get_cached_times(self.tree_height)`` to
+    ``self.sfs._touch`` / ``self.fsfs._touch``. SFS bin branch lengths are not bounded by the tree height (the
     summed singleton branches routinely exceed the TMRCA), so caching the SFS cdf/pdf on the tree-height grid truncated
     the SFS tail: the serialized cdf never reached 1 and the comparison asserted nothing above the tree height. The fix
     passes ``_get_cached_times(self.sfs)`` / ``_get_cached_times(self.fsfs)`` instead.
     """
     ms = MsprimeCoalescent(n=6, num_replicates=2000, n_threads=1, parallelize=False, seed=42)
-    ms.touch()
+    ms._touch()
 
     # the SFS's own support genuinely extends beyond the tree height (else this test would assert nothing)
     assert np.max(ms.sfs.samples) > np.max(ms.tree_height.samples)

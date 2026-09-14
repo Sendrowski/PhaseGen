@@ -64,9 +64,8 @@ class LineageConfig:
 
     def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         r"""
-        Get the (unnormalized) initial-state indicator for the population configuration, i.e. the states of
-        :class:`~phasegen.state_space.StateSpace` whose per-deme lineage counts match this configuration. Combined
-        with the locus indicator and normalized, this yields the initial distribution :math:`\boldsymbol{\alpha}`.
+        Get the unnormalized population factor of :attr:`StateSpace.alpha <phasegen.state_space.StateSpace.alpha>`,
+        the indicator of the states whose per-deme lineage counts match this configuration.
 
         :param s: State space
         :return: Initial state vector

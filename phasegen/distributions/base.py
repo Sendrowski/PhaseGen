@@ -152,9 +152,9 @@ class _SurfacePlottable:
 class DensityFunction(DistributionFunction):
     r"""Probability density function :math:`f(x) = F'(x)`.
 
-    Calling ``pdf(x)`` returns the density at ``x`` (scalar or array). For an accumulated reward this is the
-    derivative of the cosine CDF; the tree height uses the exact :mod:`matrix exponential <phasegen.expm>`, and an
-    :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution a histogram.
+    Calling ``pdf(x)`` returns the density at ``x`` (scalar or array). It follows the evaluation route of the
+    :class:`CumulativeDistributionFunction`, differentiated for an accumulated reward and replaced by a histogram for
+    an empirical distribution.
     """
     kind = 'pdf'
 
@@ -340,7 +340,7 @@ class _LSTFunction(_HazardGrid):
     with :math:`p_0 = \varphi(\infty)` the atom (:math:`f_0` halved); **de Hoog's** accelerated per-point inversion is
     the exact but costly reference used above the tail quantile.
 
-    One representation serves the cdf / pdf / quantile: the **CDF grid** of :meth:`_cdf_grid`, a two-pass
+    One representation serves the cdf / pdf / quantile: the **CDF grid** of ``_cdf_grid``, a two-pass
     Fourier-cosine fit carrying exact de Hoog nodes above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`,
     where the fit force-normalises to 1 and so loses the tail outright. A single fit answers a whole array, and the
     grid is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang off, see
@@ -488,7 +488,7 @@ class _LSTFunction(_HazardGrid):
         return np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
 
     def _build_cos_cdf_grid(self) -> tuple:
-        """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of :meth:`_cdf_grid`,
+        """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of ``_cdf_grid``,
         computed once per distribution."""
         fit = self._cos_coeffs
         xs = np.linspace(0.0, fit['b'], self._cos_n_grid)
@@ -643,8 +643,8 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 
     def __call__(self, t) -> 'np.ndarray | float':
         r"""
-        CDF :math:`F(t) = \mathbb{P}(R \le t)`, for a scalar or an array of ``t``, interpolated on the shared CDF grid
-        (``_LSTFunction._cdf_grid()``), so a whole array costs one fit.
+        CDF :math:`F(t) = \mathbb{P}(R \le t)`, for a scalar or an array of ``t``, interpolated on the CDF grid the
+        density and quantile function share, so a whole array costs one fit.
 
         :param t: Point(s) at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
@@ -704,8 +704,8 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
 
     def __call__(self, t, **kwargs) -> 'np.ndarray | float':
         """
-        Density, for a scalar or an array of ``t``, by differentiating the shared CDF grid
-        (``_LSTFunction._cdf_grid()``) -- which keeps it consistent with the CDF, free of the raw cosine sum's Gibbs
+        Density, for a scalar or an array of ``t``, by differentiating the CDF grid shared with the CDF, which keeps it
+        consistent with the CDF, free of the raw cosine sum's Gibbs
         negativity, and non-zero in the far tail, where the cosine window alone ends and its derivative is flat zero.
 
         :param t: Point(s) at which to evaluate the density.
@@ -738,7 +738,7 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         r"""
         The ``q``-quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, for a scalar or an array of ``q``.
 
-        The shared CDF grid (``_LSTFunction._cdf_grid()``) is monotone, so the quantile is its inverse
+        The CDF grid shared with the CDF is monotone, so the quantile is its inverse
         *interpolation* -- a whole array in one vectorised pass. There is no Laplace inversion that returns a quantile
         directly (the transform gives ``F``, so a quantile is always a root of it), but reading the same piecewise
         linear ``F`` the CDF reads makes the two exact mutual inverses, :math:`F(F^{-1}(q)) = q`. At or below the
@@ -824,8 +824,7 @@ class _GridQuantileFunction(QuantileFunction):
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
 
 class MarginalDensity(DensityFunction):
-    """Per-bin marginal densities of a spectrum (one per SFS / jSFS bin). Calling ``pdf(x)`` returns every bin's
-    density, the derivative of that bin's cosine CDF grid."""
+    """Per-bin marginal densities of a spectrum, the derivatives of the per-bin CDFs of :class:`MarginalCDF`."""
 
 
 class MarginalCDF(CumulativeDistributionFunction):
@@ -834,8 +833,8 @@ class MarginalCDF(CumulativeDistributionFunction):
 
 
 class MarginalQuantileFunction(QuantileFunction):
-    """Per-bin marginal quantile functions of a spectrum (one per SFS / jSFS bin). Calling ``quantile(q)`` returns
-    every bin's quantile, the inverse interpolation of that bin's cosine CDF grid."""
+    """Per-bin marginal quantile functions of a spectrum, the inverse interpolations of the per-bin CDF grids of
+    :class:`MarginalCDF`."""
 
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
@@ -1004,13 +1003,10 @@ class ConditionalDensity(_LSTDensityFunction):
 
 
 class ConditionalCDF(_LSTCumulativeDistributionFunction):
-    """CDF of one reward conditional on another being held at a value (see
-    :class:`~phasegen.distributions.ConditionalDensity` on why the per-point route is prohibitive for a nested
-    transform)."""
+    """CDF of one reward conditional on another being held at a value, evaluated by the nested inversion described in
+    :class:`ConditionalDensity`."""
 
-    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
-    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
-    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    #: COS terms for the conditionals, tuned as described at ``ConditionalDensity._cos_terms``.
     _cos_terms: int = 192
     _cos_terms_rough: int = 96
 
@@ -1018,13 +1014,9 @@ class ConditionalCDF(_LSTCumulativeDistributionFunction):
 
 
 class ConditionalQuantileFunction(_LSTQuantileFunction):
-    """Quantile function of one reward conditional on another being held at a value (see
-    :class:`~phasegen.distributions.ConditionalDensity` on why the per-point route is prohibitive for a nested
-    transform)."""
+    """Quantile function of a conditional reward, the inverse of :class:`ConditionalCDF`."""
 
-    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
-    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
-    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    #: COS terms for the conditionals, tuned as described at ``ConditionalDensity._cos_terms``.
     _cos_terms: int = 192
     _cos_terms_rough: int = 96
 
@@ -1117,10 +1109,8 @@ class CallableDistributionFunctions:
         return values
 
     def _warn_if_nonmonotone(self, cdf: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
-        """Warn (via this distribution's logger) if ``cdf`` has a substantial downward step relative to its range, then
-        return it unchanged (the caller enforces monotonicity). A CDF must be non-decreasing, so a real drop -- beyond
-        the ``rtol`` numerical-noise band -- signals inversion ringing (a wiggle). Gated by
-        :attr:`~phasegen.settings.Settings.check_inversions`."""
+        """Warn if ``cdf`` has a downward step beyond ``rtol`` of its range, then return it unchanged (the caller
+        enforces monotonicity). Logging, noise band and gating are those of ``_warn_if_negative``."""
         arr = np.asarray(cdf, dtype=float)
         if Settings.check_inversions and arr.size > 1:
             rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
@@ -1143,7 +1133,7 @@ class ProbabilityDistribution(ABC):
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self, **kwargs: dict) -> None:
+    def _touch(self, **kwargs: dict) -> None:
         """
         Touch all cached properties.
 
@@ -1152,7 +1142,7 @@ class ProbabilityDistribution(ABC):
         for cls in self.__class__.__mro__:
             for attr, value in cls.__dict__.items():
                 if isinstance(value, cached_property):
-                    # force-persist the value: touch/drop is the serialization contract and must hold even under
+                    # force-persist the value: _touch/_drop is the serialization contract and must hold even under
                     # Settings.cache = False, where the getter would otherwise recompute without storing
                     self.__dict__[attr] = getattr(self, attr)
 

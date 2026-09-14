@@ -47,7 +47,7 @@ if changed:
     raise ValueError(f"Simulation-defining parameters changed {changed} for {fixture}; the cached ground truth is "
                      f"stale -- run the create_comparison rule to regenerate from scratch.")
 
-# every requested pairwise *surface* pair must already have a cached empirical grid (touch caches the per-statistic
+# every requested pairwise *surface* pair must already have a cached empirical grid (_touch caches the per-statistic
 # and pointwise-pairwise data for all bins, so only the explicit surface pairs can be genuinely missing)
 for dist, pairs in new._pairwise_surface_pairs().items():
     cached = {(e[0], e[1]) for e in getattr(getattr(old.ms, dist), '_joint_surface', [])}

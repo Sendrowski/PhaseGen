@@ -323,7 +323,7 @@ class CoalescentTestCase(TestCase):
             record_migration=True
         )
 
-        coal.touch()
+        coal._touch()
 
         pass
 

@@ -558,9 +558,8 @@ class Coalescent(AbstractCoalescent, Serializable):
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
         The joint 2D distribution of two accumulated rewards to absorption, as a callable
-        :class:`~phasegen.distributions.reward.JointRewardDistribution` (see there for the cross-moments,
-        covariance, correlation and the joint CDF / PDF). The state space is inferred from the rewards (as for
-        :meth:`moment`); cached per pair.
+        :class:`~phasegen.distributions.reward.JointRewardDistribution`. State-space inference and caching follow
+        :meth:`Coalescent.distribution() <phasegen.Coalescent.distribution>`, per pair of rewards.
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.

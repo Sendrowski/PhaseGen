@@ -1312,11 +1312,8 @@ class FoldedSFSDistribution(SFSDistribution):
 
 
 class _JointSFSAggregateFunction:
-    """Mixin: a per-bin joint-SFS function object evaluates by looping the spectrum's descendant configurations --
-    each a single-reward :class:`~phasegen.distributions.reward.RewardDistribution` -- and stacking their cdf / pdf /
-    quantile (selected by :attr:`kind`) into a :class:`~sfsutils.spectrum.JointSFS` (one value per configuration;
-    monomorphic bins 0). A scalar argument returns a :class:`~sfsutils.spectrum.JointSFS`; an array returns a
-    ``(len(t),) + shape`` stack."""
+    """Mixin: the joint-SFS counterpart of ``_SFSAggregateFunction``, looping the descendant configurations. A scalar
+    argument returns a :class:`~sfsutils.spectrum.JointSFS`, an array a ``(len(t),) + shape`` stack."""
 
     def __call__(self, t) -> 'JointSFS | np.ndarray':
         d = self._distribution
@@ -1420,8 +1417,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
     mean is :math:`\mathbb{E}[L_{(k_0, \dots, k_{P-1})}]`. The monomorphic bins (the all-zero and the full
     :math:`(n_0, \dots, n_{P-1})` configuration) are zero by convention.
 
-    The spectrum-wide moment accessors (:attr:`mean`, :attr:`var`, :attr:`cov`) share a single occupation-time solve
-    across all bins rather than solving each bin separately.
+    Its spectrum-wide moment accessors share one occupation-time solve across bins, as for
+    :class:`~phasegen.distributions.SFSDistribution`.
     """
     # per-bin (per descendant configuration) pdf/cdf/quantile -> joint-SFS aggregate flavours (the per-config loop
     # lives on these function objects)
@@ -1490,9 +1487,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
     def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
         """
-        Draw samples of the joint site-frequency spectrum by
-        :meth:`simulating trajectories <phasegen.distributions.PhaseTypeDistribution.sample>`. Each sample is an array
-        of shape :attr:`shape` holding the branch length subtending every (polymorphic) descendant configuration.
+        Draw samples of the joint site-frequency spectrum, as
+        :meth:`SFSDistribution.sample() <phasegen.distributions.SFSDistribution.sample>` does per frequency class.
+        Each sample is indexed by descendant configuration.
 
         :param n_samples: Number of joint spectra to sample.
         :return: Array of shape ``(n_samples, *shape)`` whose per-sample mean equals :meth:`moment` (k=1).
@@ -1535,13 +1532,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
             permute: bool = True
     ) -> np.ndarray:
         """
-        Get the kth moments of the joint site-frequency spectrum. By default (``center=True``) these are the central
-        moments (so ``moment(2)`` is the per-bin variance); pass ``center=False`` for the raw (non-central) moments,
-        matching the sample-based empirical spectrum under the same default.
-
-        The plain mean (``k = 1``) is computed once for the whole spectrum as a single occupation-time contraction
-        shared across all joint bins, rather than a separate solve per bin; other moments fall through to the per-bin
-        path.
+        Get the kth moments of the joint site-frequency spectrum, one per joint bin. Centering and the shared
+        occupation-time solve for the plain mean (``k = 1``) follow
+        :meth:`SFSDistribution.moment() <phasegen.distributions.SFSDistribution.moment>`.
 
         :param k: The order of the moment.
         :param start_time: Time when to start accumulation of moments. By default, the start time specified when

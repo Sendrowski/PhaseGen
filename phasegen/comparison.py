@@ -968,7 +968,7 @@ class Comparison(Serializable):
                 diff = float(self.rel_diff(np.array([ms_val]), np.array([ph_val])).max())
 
             elif stat in ('pdf', 'cdf', 'quantile'):
-                # the empirical per-bin curves were cached over a grid by ``touch``; orient to (n_bins, len(grid))
+                # the empirical per-bin curves were cached over a grid by ``_touch``; orient to (n_bins, len(grid))
                 grid_key = 'q' if stat == 'quantile' else 't'
                 t = np.asarray(ms._cache[grid_key], dtype=float)
                 y_ms_all = np.asarray(ms._cache[stat], dtype=float)
@@ -1634,22 +1634,20 @@ class Comparison(Serializable):
         return out
 
     def cache_ground_truth(self) -> None:
-        """Cache the ground truth needed by the configured comparisons -- the standard per-statistic caches
-        (:meth:`~phasegen.distributions.MsprimeCoalescent.touch` /
-        :meth:`~phasegen.distributions.SampledCoalescent.touch`), any full-grid pairwise surface grids, and
-        the atom-conditional ground truth. The msprime operand is touched for the top-level ``tolerance`` stats, the
-        sampler for the nested ``empirical`` sub-spec; each only if its stats are present, so a config validates
-        against msprime, the sampler, or both. Call before :meth:`drop` so the grids are serialized with the
-        comparison."""
+        """Cache the ground truth needed by the configured comparisons: the standard per-statistic caches of the
+        msprime and sampler operands, any full-grid pairwise surface grids, and the atom-conditional ground truth. The
+        msprime operand is cached for the top-level ``tolerance`` stats and the sampler for the nested ``empirical``
+        sub-spec, each only if its stats are present, so a config validates against msprime, the sampler, or both.
+        Call before the operands' simulated data is freed so the grids are serialized with the comparison."""
         tol = self._expand_keys(self.comparisons.get('tolerance', {}))
         empirical_spec = tol.get('empirical')
         msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 
         if msprime_spec or self.comparisons.get('statistics'):
-            self.ms.touch()
+            self.ms._touch()
 
             # the coalescent-level scalar statistics (F_ST, the Patterson f-statistics) are evaluated straight off the
-            # simulated data and the demography, both of which :meth:`~phasegen.distributions.MsprimeCoalescent.drop`
+            # simulated data and the demography, both of which ``MsprimeCoalescent._drop``
             # discards, so their values
             # have to be cached here rather than recomputed at comparison time
             for stat, spec in self.comparisons.get('statistics', {}).items():
@@ -1666,7 +1664,7 @@ class Comparison(Serializable):
         if empirical_spec:
             if self.n_samples is None:
                 raise ValueError("A 'tolerance.empirical' block requires 'n_samples' to be set in the config.")
-            self.empirical.touch()
+            self.empirical._touch()
             for dist, pairs in self._pairwise_surface_pairs(empirical_spec).items():
                 getattr(self.empirical, dist)._cache_joint_surface(pairs)
 

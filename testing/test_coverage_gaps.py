@@ -35,8 +35,8 @@ class CoverageGapsTestCase(TestCase):
         self.assertTrue(np.isfinite(pg.MultinomialLikelihood().compute(observed=[1, 2], modelled=[0.0, 0.0])))
 
     def test_touch_persists_moments_under_disabled_cache(self):
-        """touch() must persist the cached moments even with Settings.cache = False, so drop() cannot corrupt the
-        object (the touch/drop serialization contract is independent of the debug cache switch)."""
+        """_touch() must persist the cached moments even with Settings.cache = False, so _drop() cannot corrupt the
+        object (the _touch/_drop serialization contract is independent of the debug cache switch)."""
         from phasegen.settings import Settings
 
         emp = pg.Coalescent(n=3).tree_height.to_empirical(500)
@@ -44,8 +44,8 @@ class CoverageGapsTestCase(TestCase):
         old = Settings.cache
         try:
             Settings.cache = False
-            emp.touch(t)
-            emp.drop()
+            emp._touch(t)
+            emp._drop()
             self.assertTrue(np.isfinite(emp.mean))
         finally:
             Settings.cache = old
@@ -94,7 +94,7 @@ class CoverageGapsTestCase(TestCase):
         from phasegen.distributions.empirical import MsprimeCoalescent
 
         m = MsprimeCoalescent(n=2, num_replicates=50, parallelize=False)
-        m.touch()
+        m._touch()
 
         self.assertEqual(m.n_threads, 50)
         self.assertGreater(m.n_total, 0)

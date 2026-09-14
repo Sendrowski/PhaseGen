@@ -1039,8 +1039,9 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
     @cached_property
     def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
-        Ordered two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n`` and at least one non-zero entry.
-        Returned as an immutable tuple so a consumer cannot mutate the cached configurations in place.
+        Ordered two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n``, the two-locus form of
+        :attr:`JointBlockCountingStateSpace.block_configs
+        <phasegen.state_space.JointBlockCountingStateSpace.block_configs>`.
         """
         n = int(self.lineage_config.n)
 

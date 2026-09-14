@@ -870,8 +870,8 @@ class Inference(Serializable):
 
     def add_runs(self, inferences: Iterable['Inference']) -> None:
         """
-        Merge the main optimization results from an iterable of Inference objects with the current Inference object. We
-        only store the result of the run with the lowest loss.
+        Merge the main optimization results from an iterable of Inference objects by calling
+        :meth:`Inference.add_run() <phasegen.Inference.add_run>` on each.
 
         :param inferences: Iterable of Inference objects.
         """

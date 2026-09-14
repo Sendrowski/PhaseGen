@@ -158,15 +158,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     @property
     def _s_inf(self) -> float:
         r"""
-        The :math:`s \to \infty` probe used for the atom :math:`\mathbb{P}(Y = 0) = \varphi(\infty)` (and the axis
-        atoms of a joint).
-
-        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        which go like :math:`1 / \tau`, so a hard-coded :math:`s` is only large in the :math:`\tau \sim 1` regime.
-        On a small-N demography (:math:`\tau = 10^{-6}`) :math:`\varphi(10^8)` has not decayed at all and reports a
-        1.9% atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry); it needs
-        :math:`s \sim 10^{12}` to converge. Probing at :math:`10^8 / \tau` keeps :math:`s` the same large multiple
-        of the rate scale in every regime.
+        The :math:`s \to \infty` probe used for the atom :math:`\mathbb{P}(Y = 0) = \varphi(\infty)`, scaled by the
+        inversion time scale as explained at ``RewardDistribution._s_inf``.
         """
         return 1e8 / self._time_scale
 
@@ -746,7 +739,7 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
 
 
 class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
-    """The tree-height quantile by inverse interpolation of the shared hazard grid (:meth:`_ExpmFunction._cdf_grid`),
+    """The tree-height quantile by inverse interpolation of the shared hazard grid (``_ExpmFunction._cdf_grid``),
     whose nodes carry exact matrix-exponential CDF values."""
 
     def __call__(self, q) -> 'np.ndarray | float':
@@ -993,7 +986,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         The exact CDF and density on roughly ``n`` nodes, spread uniformly *within* each segment of ``bounds``, with
         every bound landing exactly on a node. The node budget is split equally between segments, so the segmentation
-        is what grades the nodes (see :meth:`~._ExpmFunction._build_cdf_grid`, which chooses segments of equal
+        is what grades the nodes (see ``_ExpmFunction._build_cdf_grid``, which chooses segments of equal
         cumulative hazard).
 
         Uniform within a segment is what makes this affordable at large ``n``: when the segment lies within a single
