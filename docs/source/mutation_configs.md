@@ -1,19 +1,13 @@
 # Mutation count probabilities
-So far, we have only looked at statistics based on branch lengths of the coalescent tree. However, when dealing with short sequences, we may not have enough mutations to compute stable branch-length-based summary statistics. Instead, we may like to obtain the distribution of mutational counts. It is particularly informative to consider the SFS computed over small non-recombining blocks.
+So far, we have only looked at statistics based on branch lengths of the coalescent tree. However, when dealing with short sequences, we may not have enough mutations to compute stable branch-length-based summary statistics. Instead, we may obtain the distribution of mutational counts. It is particularly informative to consider the SFS computed over small non-recombining blocks.
 
 In the following example we obtain the first 8 unfolded mutational configuration probabilities under a three-epoch size-change demography using a mutation rate of 1. {meth}`~phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs` returns a generator that yields the mutational configurations in descending order of probability, so a target probability mass is reached after evaluating comparatively few of them. Each configuration is a vector of length `n-1` where the `i`th entry denotes the number of mutations with multiplicities `i+1`, and `n` is the number of lineages. For example, `[1, 1, 0]` means that there is one singleton, one doubleton, and no tripleton mutations.
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = [4.4, 3.3]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} python
@@ -29,16 +23,7 @@ pd.DataFrame(islice(coal.sfs.get_mutation_configs(theta=1), 8))
 
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 ```{code-cell} r
@@ -130,6 +115,11 @@ assert (df[1] > 0).all() and df[1].sum() <= 1
 ```
 
 ```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.height = 3.8)
+```
+
+```{code-cell} r
 df <- do.call(rbind, reticulate::iterate(
     pg$take_n(coal$fsfs$get_mutation_configs(theta = 1), 30L)
 ))
@@ -137,7 +127,8 @@ df <- do.call(rbind, reticulate::iterate(
 heights <- as.numeric(df[, 2])
 labels <- sapply(df[, 1], function(x) paste(unlist(x), collapse = ", "))
 
-barplot(heights, names.arg = labels, las = 2, xlab = "config", cex.names = 0.6)
+par(mar = c(4.5, 4, 1, 1))
+barplot(heights, names.arg = labels, las = 2, xlab = "config", cex.names = 0.6, col = "#1f77b4", border = NA)
 ```
 
 ```{code-cell} r

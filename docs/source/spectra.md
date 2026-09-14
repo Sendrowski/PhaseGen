@@ -1,45 +1,20 @@
 # Spectra & summary statistics
-Beyond scalar moments, the {class}`~phasegen.distributions.Coalescent` provides full *spectra* — the joint (multi-population) and two-locus site-frequency spectra — as well as a set of standard scalar summary statistics. All of these are exact and respect the full demography and coalescent model. See the {doc}`quickstart` for how to configure the underlying model.
+Beyond scalar moments, the {class}`~phasegen.distributions.Coalescent` provides full spectra, namely the joint (multi-population) and two-locus site-frequency spectra, as well as a set of standard scalar summary statistics. All of these are exact and respect the full demography and coalescent model. See the {doc}`quickstart` for how to configure the underlying model.
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = (5, 4)
+matplotlib.rcParams['figure.figsize'] = (5, 4)
 ```
 
 ```{code-cell} python
 import phasegen as pg
 ```
 
-```{code-cell} python
-:tags: [remove-cell]
-# keep the rendered docs clean: silence informational logging and warnings
-import logging
-import warnings
-
-logging.getLogger('phasegen').setLevel(logging.ERROR)
-warnings.filterwarnings('ignore')
-```
-
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 5, repr.plot.height = 4, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 5, repr.plot.height = 4)
 ```
 
 ```{code-cell} r
@@ -48,16 +23,9 @@ library(phasegen)
 pg <- load_phasegen()
 ```
 
-```{code-cell} r
-:tags: [remove-cell]
-# keep the rendered docs clean: silence informational logging and warnings
-pg$logger$setLevel("ERROR")
-options(warn = -1)
-```
-
 +++
 ## Joint site-frequency spectrum
-For multiple populations, {meth}`~phasegen.distributions.Coalescent.jsfs` gives the *joint* (multi-population) SFS: the expected branch length subtending each configuration of derived-allele counts *per population* (the deme of origin). For ``P`` populations it is a ``P``-dimensional {class}`~sfsutils.spectrum.JointSFS` of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, with higher moments available via {meth}`moment(k) <phasegen.distributions.JointSFSDistribution.moment>`, {meth}`var <phasegen.distributions.JointSFSDistribution.var>` and {meth}`cov <phasegen.distributions.JointSFSDistribution.cov>`. It is restricted to a single locus, and the state space grows quickly with the per-population sample sizes, so keep these small.
+For multiple populations, {meth}`~phasegen.distributions.Coalescent.jsfs` gives the joint (multi-population) SFS: the expected branch length subtending each configuration of derived-allele counts per population (the deme of origin). For ``P`` populations it is a ``P``-dimensional {class}`~sfsutils.spectrum.JointSFS` of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, with higher moments available via {meth}`moment(k) <phasegen.distributions.JointSFSDistribution.moment>`, {meth}`var <phasegen.distributions.JointSFSDistribution.var>` and {meth}`cov <phasegen.distributions.JointSFSDistribution.cov>`. It is restricted to a single locus, and the state space grows quickly with the per-population sample sizes, which therefore need to remain small.
 
 ```{code-cell} python
 # a two-population demography with a population-size change and asymmetric migration
@@ -105,7 +73,7 @@ stopifnot(abs(sum(data) - data[1, 1] - data[nrow(data), ncol(data)] - coal$total
 
 +++
 ## Tree height under recombination
-For two loci separated by recombination, ``phasegen`` provides the exact distribution of the tree height — both the time to the ultimate MRCA across the two loci and the marginal genealogy at each locus.
+For two loci separated by recombination, ``phasegen`` provides the exact distribution of the tree height, covering both the time to the ultimate MRCA across the two loci and the marginal genealogy at each locus.
 
 Two loci at recombination rate 0.1, and the mean time to the ultimate most recent common ancestor of the sample across both loci:
 
@@ -144,12 +112,12 @@ assert abs(coal.tree_height.loci[0].mean - 2 * (1 - 1 / 8)) < 1e-8 and linked > 
 ```
 
 ```{code-cell} r
-coal$tree_height$loci[[1]]$mean
+coal$tree_height$loci[[0L]]$mean
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(abs(coal$tree_height$loci[[1]]$mean - 2 * (1 - 1 / 8)) < 1e-8, linked > coal$tree_height$loci[[1]]$mean)
+stopifnot(abs(coal$tree_height$loci[[0L]]$mean - 2 * (1 - 1 / 8)) < 1e-8, linked > coal$tree_height$loci[[0L]]$mean)
 ```
 
 +++
@@ -179,16 +147,22 @@ stopifnot(coal$tree_height$mean > linked)
 
 +++
 ## Two-locus SFS under recombination
-For two loci separated by recombination rate ``r``, {meth}`~phasegen.distributions.Coalescent.sfs2` gives the *two-locus* SFS: entry ``(i, j)`` is the expected product of the branch length subtending ``i`` samples at locus 0 and ``j`` samples at locus 1. It is a {class}`~sfsutils.spectrum.TwoLocusSFS` and interpolates between the within-tree SFS covariance at ``r = 0`` (fully linked) and independent loci as ``r → ∞`` (for the standard coalescent). The starting linkage is set via the {class}`~phasegen.locus.LocusConfig` ``n_unlinked``. A single population is supported, and the state space grows quickly with the sample size.
+For two loci separated by recombination rate ``r``, {meth}`~phasegen.distributions.Coalescent.sfs2` gives the two-locus SFS, whose entry ``(i, j)`` is the expected product of the branch length subtending ``i`` samples at locus 0 and ``j`` samples at locus 1. It is a {class}`~sfsutils.spectrum.TwoLocusSFS` and interpolates between the within-tree SFS covariance at ``r = 0`` (fully linked) and independent loci as ``r → ∞`` (for the standard coalescent). The starting linkage is set via the {class}`~phasegen.locus.LocusConfig` ``n_unlinked``. A single population is supported, and the state space grows quickly with the sample size.
 
-The single- and two-locus spectra guard each other: {meth}`~phasegen.distributions.Coalescent.sfs2` requires exactly two loci, while the single-locus {meth}`~phasegen.distributions.Coalescent.sfs` requires one (its marginal mean is recombination-invariant, so to obtain it for one locus simply drop the other).
+The single- and two-locus spectra apply to different locus configurations. {meth}`~phasegen.distributions.Coalescent.sfs2` requires exactly two loci, while the single-locus {meth}`~phasegen.distributions.Coalescent.sfs` requires one. Its marginal mean does not depend on the recombination rate, so the SFS of one of two loci equals that of a coalescent with a single locus.
 
 ```{code-cell} python
+:tags: [remove-cell]
+subplot_defaults = {k: matplotlib.rcParams[k] for k in ('figure.subplot.left', 'figure.subplot.right', 'figure.subplot.wspace')}
+matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1, 'figure.subplot.wspace': 0})
+```
+
+```{code-cell} python
+:tags: [full-width]
+import matplotlib.pyplot as plt
+
 # the two-locus SFS interpolates between tightly linked and independent loci as r grows
-fig, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={"projection": "3d"})
-for ax in axs:
-    ax.set_box_aspect(None, zoom=1.15)
-fig.subplots_adjust(left=0, right=1, wspace=0)
+_, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={"projection": "3d"})
 
 # r = 0.1: tightly linked -> strong cross-locus structure (close to the within-tree SFS covariance)
 pg.Coalescent(n=6, loci=2, recombination_rate=0.1).sfs2.mean.plot_surface(
@@ -197,6 +171,11 @@ pg.Coalescent(n=6, loci=2, recombination_rate=0.1).sfs2.mean.plot_surface(
 # r = 10: nearly independent -> approaches the outer product of the marginal SFS
 pg.Coalescent(n=6, loci=2, recombination_rate=10.0).sfs2.mean.plot_surface(
     ax=axs[1], title='Near-independent (r = 10)');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams.update(subplot_defaults)
 ```
 
 ```{code-cell} python
@@ -215,6 +194,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 # the two-locus SFS interpolates between tightly linked and independent loci as r grows
 
 par(mfrow = c(1, 2))
@@ -228,23 +208,18 @@ persp(pg$Coalescent(n = 6L, loci = 2L, recombination_rate = 10.0)$sfs2$mean, tit
 ```{code-cell} r
 :tags: [remove-cell]
 marginal <- pg$Coalescent(n = 6L)$sfs$mean$data[2:6]
-outer_sfs <- outer(marginal, marginal)
-rel <- function(r) max(abs(pg$Coalescent(n = 6L, loci = 2L, recombination_rate = r)$sfs2$mean$data[2:6, 2:6] / outer_sfs - 1))
+outer_product <- outer(marginal, marginal)
+rel <- function(r) max(abs(pg$Coalescent(n = 6L, loci = 2L, recombination_rate = r)$sfs2$mean$data[2:6, 2:6] / outer_product - 1))
 stopifnot(rel(10) < 0.1, rel(0.1) > 1)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 5, repr.plot.height = 4)
 ```
 
 +++
 ## Summary statistics
 Beyond full spectra, several standard scalar summaries are available directly from the {class}`~phasegen.distributions.Coalescent`, each respecting the full demography and coalescent model:
 
-- **Population structure** — Hudson's {meth}`~phasegen.distributions.Coalescent.fst` and Patterson's f-statistics ({meth}`~phasegen.distributions.Coalescent.f2`, {meth}`~phasegen.distributions.Coalescent.f3`, {meth}`~phasegen.distributions.Coalescent.f4`), all derived from inter-population pairwise coalescence times.
-- **Linkage** — the correlation of coalescence times between two loci ({meth}`tree_height.loci.get_corr <phasegen.distributions.MarginalLocusDistributions.get_corr>`), which decays towards zero as the recombination rate grows.
-- **SFS skew** — Tajima's {meth}`~phasegen.distributions.UnfoldedSFSDistribution.tajimas_d`, together with the underlying {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_pi` and {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_w` estimators.
+- Population structure: Hudson's {meth}`~phasegen.distributions.Coalescent.fst` and Patterson's f-statistics ({meth}`~phasegen.distributions.Coalescent.f2`, {meth}`~phasegen.distributions.Coalescent.f3`, {meth}`~phasegen.distributions.Coalescent.f4`), all derived from inter-population pairwise coalescence times.
+- Linkage: the correlation of coalescence times between two loci ({meth}`tree_height.loci.get_corr <phasegen.distributions.MarginalLocusDistributions.get_corr>`), which decays towards zero as the recombination rate grows.
+- SFS skew: Tajima's {meth}`~phasegen.distributions.UnfoldedSFSDistribution.tajimas_d`, together with the underlying {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_pi` and {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_w` estimators.
 
 We illustrate them on a relatively complex scenario: a structured three-population demography with asymmetric population sizes and migration.
 

@@ -9,43 +9,18 @@ Any two rewards additionally have a joint distribution, from which the {meth}`Jo
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = (5, 4)
+matplotlib.rcParams['figure.figsize'] = (5, 4)
 ```
 
 ```{code-cell} python
 import phasegen as pg
 ```
 
-```{code-cell} python
-:tags: [remove-cell]
-# keep the rendered docs clean: silence informational logging and warnings
-import logging
-import warnings
-
-logging.getLogger('phasegen').setLevel(logging.ERROR)
-warnings.filterwarnings('ignore')
-```
-
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 5, repr.plot.height = 4, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 5, repr.plot.height = 4)
 ```
 
 ```{code-cell} r
@@ -57,7 +32,7 @@ pg <- load_phasegen()
 +++
 ## One-dimensional reward distributions
 
-Take a single population through a sharp bottleneck. Its {meth}`Coalescent.total_branch_length <phasegen.distributions.Coalescent.total_branch_length>`, the summed length of every branch in the tree, is a distribution whose `pdf`, `cdf` and `quantile` are callable at points and plottable.
+Consider a single population that passes through a sharp bottleneck. Its {meth}`Coalescent.total_branch_length <phasegen.distributions.Coalescent.total_branch_length>`, the summed length of every branch in the tree, is a distribution whose `pdf`, `cdf` and `quantile` are callable at points and plottable.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -106,6 +81,9 @@ stopifnot(abs(tbl$cdf(tbl$quantile(0.5)) - 0.5) < 1e-4, tbl$cdf(2) > 0, tbl$cdf(
 The density, the cumulative distribution function and the quantile function of the total branch length:
 
 ```{code-cell} python
+:tags: [full-width]
+import matplotlib.pyplot as plt
+
 _, axs = plt.subplots(ncols=2, figsize=(7, 3))
 tbl.pdf.plot(ax=axs[0], show=False, label='density')
 tbl.cdf.plot(ax=axs[0], show=False, clear=False, label='CDF', title='Density and CDF')
@@ -118,6 +96,7 @@ options(repr.plot.width = 7, repr.plot.height = 3)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 library(patchwork)
 
 p <- plot(tbl$pdf, label = "density")
@@ -131,12 +110,12 @@ options(repr.plot.width = 5, repr.plot.height = 4)
 ```
 
 +++
-The `quantile` is the inverse of the `cdf`: `quantile(0.5)` is the median, `quantile(0.9)` the branch length exceeded only one time in ten.
+The `quantile` is the inverse of the `cdf`. Thus `quantile(0.5)` is the median, and `quantile(0.9)` is the branch length exceeded only one time in ten.
 
 +++
 ## Joint distributions
 
-Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint_distribution <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf` (a joint quantile is not well-defined). As an example, take two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent: within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
+Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint_distribution <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
 
 ```{code-cell} python
 joint = coal.sfs.joint_distribution(1, 2)  # singleton and doubleton branch lengths
@@ -171,12 +150,21 @@ stopifnot(joint$corr() < 0, isTRUE(all.equal(as.numeric(joint$mean), as.numeric(
 The joint density and the joint cumulative distribution function, drawn as surfaces over the singleton and doubleton branch lengths:
 
 ```{code-cell} python
-fig, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
-for ax in axs:
-    ax.set_box_aspect(None, zoom=1.15)
-fig.subplots_adjust(left=0, right=1, wspace=0)
+:tags: [remove-cell]
+subplot_defaults = {k: matplotlib.rcParams[k] for k in ('figure.subplot.left', 'figure.subplot.right', 'figure.subplot.wspace')}
+matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1, 'figure.subplot.wspace': 0})
+```
+
+```{code-cell} python
+:tags: [full-width]
+_, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
 joint.pdf.plot_surface(ax=axs[0], show=False, title='Joint density')
 joint.cdf.plot_surface(ax=axs[1], title='Joint CDF');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams.update(subplot_defaults)
 ```
 
 ```{code-cell} r
@@ -185,6 +173,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 par(mfrow = c(1, 2))
 persp(joint$pdf, title = "Joint density")
 persp(joint$cdf, title = "Joint CDF")
@@ -230,7 +219,7 @@ stopifnot(abs(marg$mean - coal$sfs$bin(1L)$mean) < 1e-6 * coal$sfs$bin(1L)$mean)
 +++
 ## Conditional distributions
 
-{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. Conditioning on a *short* singleton branch leaves the doubleton length bimodal, reflecting whether lineages coalesced during or after the bottleneck; conditioning on a *long* one collapses it to a single mode.
+{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. Conditioning on a short singleton branch leaves the doubleton length bimodal, reflecting whether lineages coalesced during or after the bottleneck. Conditioning on a long one collapses it to a single mode.
 
 ```{code-cell} python
 print("E[R_b | R_a = v]:")

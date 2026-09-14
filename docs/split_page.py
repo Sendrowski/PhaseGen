@@ -8,15 +8,17 @@ format. Markdown cells are separated by ``+++`` lines, which may carry cell meta
 
     ```{code-cell} r
     :tags: [remove-cell]
-    Sys.setenv(TQDM_DISABLE = "1")
+    options(repr.plot.width = 7, repr.plot.height = 3.4)
     ```
 
 The Python notebook receives every markdown cell except those tagged ``r-only`` and every ``python`` code cell; the R
 notebook receives every markdown cell except those tagged ``python-only`` and every ``r`` code cell. Both notebooks
-therefore share the same prose cells, which ``docs/merge_notebooks.py`` pairs into language tabs after execution.
+therefore share the same prose cells, which ``docs/merge_notebooks.py`` pairs into language tabs after execution. Each
+notebook opens with a hidden setup cell common to all pages, which renders figures as PNG at the given resolution.
 
-The Snakemake rule ``split_page`` writes ``results/docs/Python/{name}.ipynb`` and ``results/docs/R/{name}.ipynb``.
-Run directly, ``python docs/split_page.py <name> ...`` writes the same files for each page name.
+The Snakemake rule ``split_page`` writes ``results/docs/Python/{name}.ipynb`` and ``results/docs/R/{name}.ipynb``,
+with the resolution ``DOCS_FIGURE_DPI`` of the Snakefile. Run directly, ``python docs/split_page.py <dpi> <name> ...``
+writes the same files for each page name, with figures rendered at ``dpi`` dots per inch.
 """
 import json
 import re
@@ -30,6 +32,21 @@ KERNELS = {
                    language_info=dict(name="python")),
     "r": dict(kernelspec=dict(name="ir-phasegen", display_name="R (phasegen)", language="R"),
               language_info=dict(name="R")),
+}
+
+# source of the hidden setup cell that opens every notebook of a language, formatted with the figure resolution
+SETUP = {
+    "python": (
+        "%config InlineBackend.figure_format = 'png'\n"
+        "# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots\n"
+        "%config InlineBackend.print_figure_kwargs = {{'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': {dpi}}}\n"
+        "%precision %.7g"
+    ),
+    "r": (
+        "options(repr.plot.res = {dpi})\n"
+        "# the ggplot2 theme of the R figures, padded like the Python figures\n"
+        "ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))"
+    ),
 }
 
 ONLY_TAG = {"python": "python-only", "r": "r-only"}
@@ -101,36 +118,43 @@ def lines_of(source: str) -> list[str]:
     return [p + "\n" for p in parts[:-1]] + [parts[-1]]
 
 
-def notebook(cells: list[dict], language: str) -> dict:
-    """Build the notebook of one language from the parsed cells of a page."""
+def code_cell(source: str, tags: list) -> dict:
+    return dict(cell_type="code", execution_count=None, metadata=dict(tags=tags) if tags else {}, outputs=[],
+                source=lines_of(source))
+
+
+def notebook(cells: list[dict], language: str, dpi: int) -> dict:
+    """Build the notebook of one language from the parsed cells of a page, rendering figures at ``dpi``."""
     other = ONLY_TAG["r" if language == "python" else "python"]
-    out = []
+    out = [code_cell(SETUP[language].format(dpi=dpi), ["remove-cell"])]
 
     for cell in cells:
-        metadata = dict(tags=cell["tags"]) if cell["tags"] else {}
-
         if cell["type"] == "markdown" and other not in cell["tags"]:
-            out.append(dict(cell_type="markdown", metadata=metadata, source=lines_of(cell["source"])))
-        elif cell["type"] == "code" and cell["language"] == language:
-            out.append(dict(cell_type="code", execution_count=None, metadata=metadata, outputs=[],
+            out.append(dict(cell_type="markdown", metadata=dict(tags=cell["tags"]) if cell["tags"] else {},
                             source=lines_of(cell["source"])))
+        elif cell["type"] == "code" and cell["language"] == language:
+            out.append(code_cell(cell["source"], cell["tags"]))
 
     return dict(nbformat=4, nbformat_minor=4, metadata=KERNELS[language], cells=out)
 
 
-def split(source: Path, python: Path, r: Path):
-    """Write the Python and R notebooks of the source page at ``source``."""
+def split(source: Path, python: Path, r: Path, dpi: int):
+    """Write the Python and R notebooks of the source page at ``source``, rendering figures at ``dpi``."""
     cells = parse(source.read_text())
 
     for language, path in (("python", python), ("r", r)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(notebook(cells, language), indent=1, ensure_ascii=False) + "\n")
+        path.write_text(json.dumps(notebook(cells, language, dpi), indent=1, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":
     try:
-        split(Path(snakemake.input[0]), Path(snakemake.output.python), Path(snakemake.output.r))
+        jobs = [(Path(snakemake.input[0]), Path(snakemake.output.python), Path(snakemake.output.r))]
+        dpi = snakemake.params.dpi
     except NameError:
-        for name in sys.argv[1:]:
-            split(ROOT / "docs" / "source" / f"{name}.md", ROOT / "results" / "docs" / "Python" / f"{name}.ipynb",
-                  ROOT / "results" / "docs" / "R" / f"{name}.ipynb")
+        dpi = int(sys.argv[1])
+        jobs = [(ROOT / "docs" / "source" / f"{name}.md", ROOT / "results" / "docs" / "Python" / f"{name}.ipynb",
+                 ROOT / "results" / "docs" / "R" / f"{name}.ipynb") for name in sys.argv[2:]]
+
+    for source, python, r in jobs:
+        split(source, python, r, dpi)

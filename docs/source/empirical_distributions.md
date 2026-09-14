@@ -1,54 +1,14 @@
 # Empirical distributions
 
-Every exact distribution `phasegen` computes can also be *sampled*. {meth}`~phasegen.distributions.PhaseTypeDistribution.to_empirical` draws genealogies from the same phase-type generator and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, only estimated by Monte Carlo rather than the exact matrix computation.
+Every exact distribution `phasegen` computes can also be sampled. {meth}`~phasegen.distributions.PhaseTypeDistribution.to_empirical` draws genealogies from the same phase-type generator and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, only estimated by Monte Carlo rather than the exact matrix computation.
 
 ```{versionadded} 2.0
 ```
 
-This serves two purposes. First, a fast, independent check that the exact results are right. Second, because the sampler is fully vectorised, a fallback for state spaces too large for the exact computation to remain tractable.
-
-```{code-cell} python
-:tags: [remove-cell]
-import os
-os.environ['TQDM_DISABLE'] = '1'  # silence msprime simulation progress bars in the docs
-
-import matplotlib.pyplot as plt
-
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = (5, 4)
-```
+This serves two purposes. First, it provides a fast, independent check of the exact results. Second, because the sampler is fully vectorised, it provides a fallback for state spaces too large for the exact computation to remain tractable.
 
 ```{code-cell} python
 import phasegen as pg
-```
-
-```{code-cell} python
-:tags: [remove-cell]
-# keep the rendered docs clean: silence informational logging and warnings
-import logging
-import warnings
-
-logging.getLogger('phasegen').setLevel(logging.ERROR)
-warnings.filterwarnings('ignore')
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 5, repr.plot.height = 4, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
 ```
 
 ```{code-cell} r
@@ -60,7 +20,7 @@ pg <- load_phasegen()
 +++
 ## Sampling a spectrum
 
-Take a two-population demography with a size change and asymmetric migration. {meth}`~phasegen.distributions.JointSFSDistribution.to_empirical` draws genealogies from this model and bins each one's branch lengths into the joint SFS; its `mean` is the sampled counterpart of the exact {meth}`~phasegen.distributions.Coalescent.jsfs`.
+Consider a two-population demography with a size change and asymmetric migration. {meth}`~phasegen.distributions.JointSFSDistribution.to_empirical` draws genealogies from this model and bins each one's branch lengths into the joint SFS. Its `mean` is the sampled counterpart of the exact {meth}`~phasegen.distributions.Coalescent.jsfs`.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -73,15 +33,28 @@ coal = pg.Coalescent(
 ```
 
 ```{code-cell} python
+:tags: [remove-cell]
+import matplotlib
+
+subplot_defaults = {k: matplotlib.rcParams[k] for k in ('figure.subplot.left', 'figure.subplot.right', 'figure.subplot.wspace')}
+matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1, 'figure.subplot.wspace': 0})
+```
+
+```{code-cell} python
+:tags: [full-width]
+import matplotlib.pyplot as plt
+
 # the sampled mean joint SFS reproduces the exact surface from 50,000 genealogies
 sampled = coal.jsfs.to_empirical(50_000)
 
-fig, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
-for ax in axs:
-    ax.set_box_aspect(None, zoom=1.15)
-fig.subplots_adjust(left=0, right=1, wspace=0)
+_, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
 coal.jsfs.mean.plot_surface(ax=axs[0], show=False, title='Exact')
 sampled.mean.plot_surface(ax=axs[1], title='Sampled (50,000)');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams.update(subplot_defaults)
 ```
 
 ```{code-cell} python
@@ -111,6 +84,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 # the sampled mean joint SFS reproduces the exact surface from 50,000 genealogies
 sampled <- coal$jsfs$to_empirical(50000L)
 
@@ -124,13 +98,8 @@ persp(sampled$mean, title = "Sampled (50,000)")
 stopifnot(abs(sum(sampled$mean$data) - sum(coal$jsfs$mean$data)) < 4 * sqrt(coal$total_branch_length$var / 50000))
 ```
 
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 5, repr.plot.height = 4)
-```
-
 +++
-Because the empirical object exposes the *same* interface as the exact distribution, scalar summaries compare directly. A hundred thousand genealogies recover the exact tree height and total branch length to three digits.
+Because the empirical object exposes the same interface as the exact distribution, scalar summaries compare directly. A hundred thousand genealogies closely recover the exact tree height and total branch length.
 
 ```{code-cell} python
 th = coal.tree_height.to_empirical(100_000)
@@ -171,7 +140,7 @@ stopifnot(
 +++
 ## External ground truth
 
-{meth}`~phasegen.distributions.Coalescent.to_msprime` returns an `msprime`-backed coalescent ({class}`~phasegen.distributions.MsprimeCoalescent`) with the same interface. Where `to_empirical` is `phasegen`'s own sampler, this is a fully independent implementation: an external ground truth rather than a self-consistency check, at the cost of the slower, non-vectorised `msprime` simulation. `phasegen` is extensively validated against msprime across a wide range of scenarios.
+{meth}`~phasegen.distributions.Coalescent.to_msprime` returns an `msprime`-backed coalescent ({class}`~phasegen.distributions.MsprimeCoalescent`) with the same interface. Where `to_empirical` is `phasegen`'s own sampler, this is a fully independent implementation: an external ground truth rather than a self-consistency check, at the cost of the slower, non-vectorised `msprime` simulation. `phasegen` is extensively validated against `msprime` across a wide range of scenarios.
 
 ```{code-cell} python
 ms = coal.to_msprime(num_replicates=5_000, seed=42)

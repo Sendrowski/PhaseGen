@@ -5,7 +5,7 @@ Coalesce the stored stream outputs of executed documentation notebooks into one 
 split across several output blocks and inflates the stored notebook. This merges consecutive same-name stream outputs
 and keeps only the final carriage-return state of each line. Progress bars stay enabled; only the stored output changes.
 
-The Snakemake rules ``reexecute_python_notebook`` and ``reexecute_r_notebook`` run this after executing a notebook.
+The Snakemake rules ``execute_python_page`` and ``execute_r_page`` run this after executing a notebook.
 Run directly as ``python docs/coalesce_streams.py <notebook> ...``. Already coalesced notebooks are left unchanged.
 """
 import json

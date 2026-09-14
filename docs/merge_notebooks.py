@@ -8,14 +8,17 @@ myst-nb glue from hidden carrier cells in the merged notebook. A markdown cell t
 after the shared segment it follows. The language-only segments of both notebooks at one position share a tab set, so
 their markdown must not contain section headings.
 
+Figures are shown at their nominal size of 100 CSS pixels per inch at the resolution they were rendered at, scaled by
+``SINGLE_FIGURE_SCALE`` unless their code cell is tagged ``full-width``, as cells drawing side-by-side panels are.
+
 The notebooks are split from the page source ``docs/source/{name}.md`` by ``docs/split_page.py`` and executed
 before merging. The Snakemake rule ``merge_page`` writes ``docs/reference/{name}.ipynb`` from
-``results/docs/Python/{name}.executed.ipynb`` and ``results/docs/R/{name}.executed.ipynb``. Run directly,
-``python docs/merge_notebooks.py <name> ...`` does the same for each page name.
+``results/docs/Python/{name}.executed.ipynb`` and ``results/docs/R/{name}.executed.ipynb``, with the resolution
+``DOCS_FIGURE_DPI`` of the Snakefile. Run directly, ``python docs/merge_notebooks.py <dpi> <name> ...`` does the same
+for each page name, with ``dpi`` the resolution the figures were rendered at.
 """
 import base64
 import copy
-import difflib
 import json
 import struct
 import sys
@@ -32,6 +35,12 @@ LANGUAGES = {
 
 # class of the language tab sets, styled in docs/_static/custom.css (docutils strips classes beginning with "language-")
 TAB_SET_CLASS = "code-tabs"
+
+# tag of the code cells whose figures are shown at their full nominal width
+FULL_WIDTH_TAG = "full-width"
+
+# display scale of the figures of code cells not tagged FULL_WIDTH_TAG
+SINGLE_FIGURE_SCALE = 0.8
 
 
 def tags(cell: dict) -> list:
@@ -74,29 +83,19 @@ def split_segments(nb: dict, only_tag: str) -> tuple[list, list]:
     return shared, only
 
 
-# resolution both languages render figures at, set in the setup cells of docs/source/*.md
-FIGURE_DPI = 300
-
-# figures displayed wider than this are multi-panel grids, shown at their full width
-SINGLE_FIGURE_MAX_WIDTH = 600
-
-# display scale of single-panel figures
-SINGLE_FIGURE_SCALE = 0.8
-
-
-def display_metadata(data: dict, metadata: dict) -> dict:
+def display_metadata(data: dict, metadata: dict, dpi: int, full_width: bool) -> dict:
     """
     Display metadata of an output. A PNG image is shown at its nominal size of 100 CSS pixels per inch rendered at
-    ``FIGURE_DPI``, shrunk by ``SINGLE_FIGURE_SCALE`` for a single-panel figure. Only the width is given, as myst-nb
-    writes a given height as an inline style that holds while the column scales the width down.
+    ``dpi``, scaled by ``SINGLE_FIGURE_SCALE`` unless ``full_width``. Only the width is given, as myst-nb writes a given
+    height as an inline style that holds while the column scales the width down.
     """
     metadata = copy.deepcopy(metadata)
 
     if "image/png" in data:
         pixels = struct.unpack(">I", base64.b64decode(data["image/png"])[16:20])[0]
-        width = round(pixels * 100 / FIGURE_DPI)
+        width = round(pixels * 100 / dpi)
 
-        if width <= SINGLE_FIGURE_MAX_WIDTH:
+        if not full_width:
             width = round(width * SINGLE_FIGURE_SCALE)
 
         metadata["image/png"] = dict(width=width)
@@ -104,7 +103,7 @@ def display_metadata(data: dict, metadata: dict) -> dict:
     return metadata
 
 
-def carrier_outputs(cell: dict, key_prefix: str) -> tuple[list, list]:
+def carrier_outputs(cell: dict, key_prefix: str, dpi: int) -> tuple[list, list]:
     """
     Convert a code cell's outputs into hidden glue outputs.
 
@@ -117,17 +116,14 @@ def carrier_outputs(cell: dict, key_prefix: str) -> tuple[list, list]:
 
     for output in cell.get("outputs", []):
         if output["output_type"] == "stream":
-            if outputs and outputs[-1]["stream"] == output["name"]:
-                outputs[-1]["data"][GLUE_PREFIX + "text/plain"] += "".join(output["text"])
+            if not "".join(output["text"]).strip():
                 continue
             data = {"text/plain": "".join(output["text"])}
-            stream = output["name"]
         elif output["output_type"] in ("display_data", "execute_result"):
             data = copy.deepcopy(output["data"])
-            # IRkernel pairs every value with HTML, Markdown and LaTeX renderings; the plain text matches the Python tab
+            # values are shown as plain text in both languages, without the HTML, Markdown and LaTeX renderings
             if "text/plain" in data and not any(k.startswith("image/") for k in data):
                 data = {"text/plain": data["text/plain"]}
-            stream = None
         else:
             continue
 
@@ -137,14 +133,10 @@ def carrier_outputs(cell: dict, key_prefix: str) -> tuple[list, list]:
             output_type="display_data",
             data={GLUE_PREFIX + k: v for k, v in data.items()},
             metadata=dict(
-                display_metadata(data, output.get("metadata", {})),
+                display_metadata(data, output.get("metadata", {}), dpi, FULL_WIDTH_TAG in tags(cell)),
                 scrapbook=dict(name=key, mime_prefix=GLUE_PREFIX),
             ),
-            stream=stream,
         ))
-
-    for output in outputs:
-        del output["stream"]
 
     return outputs, keys
 
@@ -155,7 +147,7 @@ def fence(n: int, directive: str, argument: str, options: str, body: str) -> str
     return f"{tildes}{{{directive}}} {argument}\n{options}\n\n{body}\n{tildes}\n"
 
 
-def tab_block(code_by_language: dict, carriers: list, segment_id: str) -> str:
+def tab_block(code_by_language: dict, carriers: list, segment_id: str, dpi: int) -> str:
     """Render one segment's code as a tab set, appending the hidden glue carrier cells to ``carriers``."""
     items = []
 
@@ -171,7 +163,7 @@ def tab_block(code_by_language: dict, carriers: list, segment_id: str) -> str:
             if "remove-input" not in tags(cell) and text(cell).strip():
                 parts.append(f"```{spec['lexer']}\n{text(cell).rstrip()}\n```\n")
 
-            outputs, keys = carrier_outputs(cell, f"{spec['sync']}-{segment_id}-{i}")
+            outputs, keys = carrier_outputs(cell, f"{spec['sync']}-{segment_id}-{i}", dpi)
             parts += [f"```{{glue}} {key}\n```\n" for key in keys]
 
             if outputs:
@@ -192,8 +184,13 @@ def markdown_cell(source: str) -> dict:
     return dict(cell_type="markdown", metadata={}, source=[l + "\n" for l in lines[:-1]] + [lines[-1]])
 
 
-def merge(python_path: Path, r_path: Path, out: Path):
-    """Merge the Python notebook at ``python_path`` and the R notebook at ``r_path`` into ``out``."""
+def merge(python_path: Path, r_path: Path, out: Path, dpi: int):
+    """
+    Merge the Python notebook at ``python_path`` and the R notebook at ``r_path`` into ``out``.
+
+    :param dpi: Resolution the figures of both notebooks were rendered at, in dots per inch.
+    :raises ValueError: If the notebooks hold different numbers of shared segments.
+    """
     python = json.load(open(python_path))
     r = json.load(open(r_path))
     page = out.stem
@@ -202,14 +199,7 @@ def merge(python_path: Path, r_path: Path, out: Path):
     r_shared, r_only = split_segments(r, LANGUAGES["R"]["only"])
 
     if len(py_shared) != len(r_shared):
-        sys.exit(f"{page}: {len(py_shared)} shared Python segments but {len(r_shared)} shared R segments")
-
-    for k, (a, b) in enumerate(zip(py_shared, r_shared)):
-        ta, tb = (text(s["md"]) if s["md"] else "" for s in (a, b))
-        ratio = difflib.SequenceMatcher(None, ta, tb, autojunk=False).ratio()
-        if ratio < 1:
-            print(f"{page}: shared markdown {k} differs between Python and R (similarity {ratio:.2f}); "
-                  f"using the Python prose")
+        raise ValueError(f"{page}: {len(py_shared)} shared Python segments but {len(r_shared)} shared R segments")
 
     cells, carriers = [], []
     extra = {k: [] for k in range(-1, len(py_shared))}
@@ -220,7 +210,7 @@ def merge(python_path: Path, r_path: Path, out: Path):
     def emit(md, code_by_language, segment_id):
         if md is not None:
             cells.append(markdown_cell(text(md)))
-        block = tab_block(code_by_language, carriers, segment_id)
+        block = tab_block(code_by_language, carriers, segment_id, dpi)
         if block:
             cells.append(markdown_cell(block))
 
@@ -235,15 +225,19 @@ def merge(python_path: Path, r_path: Path, out: Path):
         emit(a["md"], {"Python": a["code"], "R": b["code"]}, f"s{k}")
         emit_only(k)
 
-    merged = dict(nbformat=4, nbformat_minor=5, metadata=python["metadata"], cells=cells + carriers)
+    merged = dict(nbformat=4, nbformat_minor=4, metadata=python["metadata"], cells=cells + carriers)
     out.write_text(json.dumps(merged, indent=1, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":
     try:
-        merge(Path(snakemake.input.python), Path(snakemake.input.r), Path(snakemake.output[0]))
+        jobs = [(Path(snakemake.input.python), Path(snakemake.input.r), Path(snakemake.output[0]))]
+        dpi = snakemake.params.dpi
     except NameError:
-        for name in sys.argv[1:]:
-            merge(ROOT / "results" / "docs" / "Python" / f"{name}.executed.ipynb",
-                  ROOT / "results" / "docs" / "R" / f"{name}.executed.ipynb",
-                  ROOT / "docs" / "reference" / f"{name}.ipynb")
+        dpi = int(sys.argv[1])
+        jobs = [(ROOT / "results" / "docs" / "Python" / f"{name}.executed.ipynb",
+                 ROOT / "results" / "docs" / "R" / f"{name}.executed.ipynb",
+                 ROOT / "docs" / "reference" / f"{name}.ipynb") for name in sys.argv[2:]]
+
+    for python, r, out in jobs:
+        merge(python, r, out, dpi)

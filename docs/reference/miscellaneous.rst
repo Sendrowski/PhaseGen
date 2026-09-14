@@ -6,7 +6,7 @@ Miscellaneous
 Logging
 -------
 
-``phasegen`` uses the standard Python :mod:`logging` module for logging. By default, ``phasegen`` logs to the console at the ``INFO`` level. You can change the logging level, to for example ``DEBUG`` as follows:
+``phasegen`` uses the standard Python :mod:`logging` module for logging. By default, ``phasegen`` logs to the console at the ``INFO`` level. The logging level can be changed, for example to ``DEBUG``, as follows:
 
 .. tab-set::
    :sync-group: language
@@ -34,7 +34,7 @@ Logging
 Debugging
 ---------
 
-If you encounter an unexpected error, you might want to disable parallelization to obtain a more descriptive stack trace (see :attr:`Settings.parallelize <phasegen.settings.Settings.parallelize>`).
+When an unexpected error occurs, disabling parallelization yields a more descriptive stack trace (see :attr:`Settings.parallelize <phasegen.settings.Settings.parallelize>`).
 
 Object-oriented design
 ----------------------

@@ -4,15 +4,9 @@ In order to obtain statistics from coalescent distributions, we first need to de
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = [4.4, 3.3]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} python
@@ -28,16 +22,7 @@ coal = pg.Coalescent(
 
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 ```{code-cell} r
@@ -139,7 +124,7 @@ stopifnot(isTRUE(all.equal(as.numeric(coal$sfs$mean$data[2:10]), 2 / (1:9))))
 ```
 
 +++
-In fact, ``tree_height``, ``total_branch_length`` and ``sfs`` are all {class}`~phasegen.distributions.PhaseTypeDistribution` objects which can be accessed to obtain statistics on these distributions. If you would like to take a closer look at the API reference, these are {class}`~phasegen.distributions.TreeHeightDistribution`, {class}`~phasegen.distributions.PhaseTypeDistribution`, and {class}`~phasegen.distributions.UnfoldedSFSDistribution`, respectively. {class}`~phasegen.distributions.PhaseTypeDistribution` instances support the computation of moments and cross-moments of arbitrary order, which is only limited by the computational burden associated with higher-order moments. {class}`~phasegen.distributions.TreeHeightDistribution` extends {class}`~phasegen.distributions.PhaseTypeDistribution` and offers additional information through the PDF, CDF and quantile function.
+In fact, ``tree_height``, ``total_branch_length`` and ``sfs`` are all {class}`~phasegen.distributions.PhaseTypeDistribution` objects which can be accessed to obtain statistics on these distributions. In the API reference, these are {class}`~phasegen.distributions.TreeHeightDistribution`, {class}`~phasegen.distributions.PhaseTypeDistribution`, and {class}`~phasegen.distributions.UnfoldedSFSDistribution`, respectively. {class}`~phasegen.distributions.PhaseTypeDistribution` instances support the computation of moments and cross-moments of arbitrary order, which is only limited by the computational burden associated with higher-order moments. {class}`~phasegen.distributions.TreeHeightDistribution` extends {class}`~phasegen.distributions.PhaseTypeDistribution` and offers additional information through the PDF, CDF and quantile function.
 
 ```{code-cell} python
 coal.tree_height.quantile(0.95)
@@ -168,7 +153,7 @@ plot(coal$tree_height$pdf)
 ```
 
 +++
-Before we discuss how to obtain more complex statistics, let us first define a more complex coalescent distribution. Here, we define a two-population coalescent using the {class}`~phasegen.coalescent_models.BetaCoalescent` model, where the population sizes and migration rates are time-dependent. The nested mappings passed as ``pop_sizes`` and ``migration_rates`` define the population name and times at which the population sizes and migration rates change.
+Before we discuss how to obtain more complex statistics, we first define a more complex coalescent distribution. Here, we define a two-population coalescent using the {class}`~phasegen.coalescent_models.BetaCoalescent` model, where the population sizes and migration rates are time-dependent. The nested mappings passed as ``pop_sizes`` and ``migration_rates`` define the population name and times at which the population sizes and migration rates change.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -216,7 +201,7 @@ plot(coal$demography)
 ```
 
 +++
-Let's take a look at the density of the underlying {class}`~phasegen.distributions.TreeHeightDistribution`.
+The density of the underlying {class}`~phasegen.distributions.TreeHeightDistribution`:
 
 ```{code-cell} python
 coal.tree_height.pdf.plot();
@@ -250,14 +235,14 @@ assert np.allclose(sum(coal.sfs.demes[d].mean.data for d in coal.demography.pop_
 ```
 
 ```{code-cell} r
-plot(coal$sfs$demes$demes$pop_0$mean)
+plot(coal$sfs$demes$pop_0$mean)
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-demes_sum <- Reduce(`+`, lapply(coal$demography$pop_names, function(d) coal$sfs$demes$demes[[d]]$mean$data))
+demes_sum <- Reduce(`+`, lapply(coal$demography$pop_names, function(d) coal$sfs$demes[[d]]$mean$data))
 stopifnot(isTRUE(all.equal(demes_sum, coal$sfs$mean$data)))
 ```
 
 +++
-In the {doc}`rewards` section, you can read more about how to obtain more complex moments by means of specifying rewards. Parameter inference from observed summary statistics is described in the {doc}`inference` section.
+The {doc}`rewards` section describes how to obtain more complex moments by specifying rewards. Parameter inference from observed summary statistics is described in the {doc}`inference` section.

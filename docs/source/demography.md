@@ -1,17 +1,11 @@
 # Demography
-The {class}`~phasegen.distributions.Coalescent` expects a demography object to be passed to it, which can be configured in various ways. When constructing a demography object, you can directly specify the time points at which the population sizes or migration rates change.
+The {class}`~phasegen.distributions.Coalescent` expects a demography object to be passed to it, which can be configured in various ways. When constructing a demography object, the time points at which the population sizes or migration rates change can be specified directly.
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = [4.4, 3.3]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} python
@@ -30,16 +24,7 @@ d.plot();
 
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 ```{code-cell} r
@@ -60,7 +45,7 @@ plot(d)
 ```
 
 +++
-Alternatively, you can configure the demography object after construction by adding demographic events. Below, we add {class}`~phasegen.demography.PopSizeChange` and {class}`~phasegen.demography.MigrationRateChange` events to an empty demography object and check that it has the same epochs as the demography constructed above.
+Alternatively, the demography object can be configured after construction by adding demographic events. Below, we add {class}`~phasegen.demography.PopSizeChange` and {class}`~phasegen.demography.MigrationRateChange` events to an empty demography object and check that it has the same epochs as the demography constructed above.
 
 ```{code-cell} python
 d_events = pg.Demography()
@@ -102,7 +87,7 @@ stopifnot(all(mapply(`==`, epochs(d_events), epochs(d))))
 ```
 
 +++
-This is similar to the [Msprime demography API](https://tskit.dev/msprime/docs/stable/demography.html), and we can easily convert to an [``msprime.Demography``](https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography) object. Note that the reverse, converting an msprime demography to a native {class}`~phasegen.demography.Demography` object, is not currently supported due to ``phasegen``'s inherent restriction to discrete rate changes.
+This is similar to the [``msprime`` demography API](https://tskit.dev/msprime/docs/stable/demography.html), and a demography converts directly to an [``msprime.Demography``](https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography) object. Note that the reverse, converting an ``msprime`` demography to a native {class}`~phasegen.demography.Demography` object, is not currently supported due to ``phasegen``'s inherent restriction to discrete rate changes.
 
 ```{code-cell} python
 d_msprime = d.to_msprime()
@@ -124,7 +109,7 @@ stopifnot(d_msprime$num_populations == 2)
 
 +++
 ## Discretizing continuous demographies
-There are also utilities for discretizing continuous demographies. In the example below, we create a discretized demography by passing a continuous callback function to {class}`~phasegen.demography.DiscretizedRateChange`. You can freely combine this with other demographic events. Note that the total runtime of the computations is linear in the number of epochs, i.e., it is roughly a multiple of the number of epochs.
+There are also utilities for discretizing continuous demographies. In the example below, we create a discretized demography by passing a continuous callback function to {class}`~phasegen.demography.DiscretizedRateChange`. This can be combined freely with other demographic events. Note that the total runtime of the computations is linear in the number of epochs, i.e., it is roughly a multiple of the number of epochs.
 
 ```{code-cell} python
 d = pg.Demography(
@@ -173,7 +158,7 @@ stopifnot(all(diff(sizes) > 0))
 ```
 
 +++
-For exponential growth or decline, you can also make use of {class}`~phasegen.demography.ExponentialPopSizeChanges`.
+Exponential growth or decline is modelled with {class}`~phasegen.demography.ExponentialPopSizeChanges`.
 
 ```{code-cell} python
 d = pg.Demography(
@@ -263,7 +248,7 @@ plot(d, which = "migration")
 ```
 
 +++
-Wrapping in a {class}`~phasegen.distributions.Coalescent` object, by specifying the initial numbers of lineages in each population, we can visualize the tree height distribution. We see that the probability of absorption is 0 after the split (forwards in time). This is because our scenario represents a *clean* population split, where the derived population is completely isolated from the ancestral population after the split, which makes coalescence between the two populations impossible.
+Wrapping in a {class}`~phasegen.distributions.Coalescent` object, by specifying the initial numbers of lineages in each population, we can visualize the tree height distribution. We see that the probability of absorption is 0 after the split (forwards in time). This is because our scenario represents a clean population split, where the derived population is completely isolated from the ancestral population after the split, which makes coalescence between the two populations impossible.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -302,6 +287,9 @@ Migration rates between demes are assumed to be 0 if not specified otherwise.
 ```
 
 ```{code-cell} python
+:tags: [full-width]
+import matplotlib.pyplot as plt
+
 coal = pg.Coalescent(
     n={'pop_0': 8, 'pop_1': 0},
     demography=pg.Demography(
@@ -328,6 +316,7 @@ options(repr.plot.width = 7, repr.plot.height = 3)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 coal <- pg$Coalescent(
     n = list(pop_0 = 8, pop_1 = 0),
     demography = pg$Demography(
@@ -345,10 +334,5 @@ coal <- pg$Coalescent(
 library(patchwork)
 
 plot(coal$demography, which = "migration") + plot(coal$tree_height$pdf)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 

@@ -12,7 +12,7 @@ Installation
 
       .. rubric:: PyPI
 
-      To install ``phasegen``, you can use pip:
+      ``phasegen`` can be installed with ``pip``:
 
       .. code-block:: bash
 
@@ -22,16 +22,14 @@ Installation
 
       .. rubric:: Conda
 
-      However, to avoid potential conflicts with other packages, it is recommended to install ``phasegen`` in an isolated environment. The easiest way to do this is to use `conda` (or `mamba`):
-
-      To do this, you can run
+      To avoid potential conflicts with other packages, it is recommended to install ``phasegen`` in an isolated environment. The easiest way to do this is with ``conda`` or ``mamba``:
 
       .. code-block:: bash
 
           mamba create -n phasegen -c conda-forge phasegen
           mamba activate phasegen
 
-      Alternatively, to ensure reproducibility, you can create a file ``environment.yml``:
+      Alternatively, for reproducibility, the environment can be defined in a file ``environment.yml``:
 
       .. code-block:: yaml
 
@@ -41,14 +39,14 @@ Installation
         dependencies:
           - phasegen
 
-      Then run the following commands to create and activate the environment:
+      The environment is then created and activated with:
 
       .. code-block:: bash
 
         mamba env create -f environment.yml
         mamba activate phasegen
 
-      You are now ready to use ``phasegen``:
+      ``phasegen`` is then imported with:
 
       .. code-block:: python
 
@@ -57,19 +55,19 @@ Installation
    .. tab-item:: :fab:`r-project` R
       :sync: r
 
-      To install the ``phasegen`` package in R, execute the following command:
+      The ``phasegen`` R package is installed from GitHub with:
 
       .. code-block:: r
 
          devtools::install_github("Sendrowski/PhaseGen")
 
-      Once the installation is successfully completed, initiate the package within your R session using:
+      Once the installation has completed, the package is loaded in an R session with:
 
       .. code-block:: r
 
          library(phasegen)
 
-      The ``phasegen`` R package serves as a wrapper around the Python library, and draws its figures with ``ggplot2`` through ``plot()`` and ``persp()`` methods. Loading the R package declares the Python requirement, which reticulate resolves into a suitable environment the first time the module is loaded:
+      The ``phasegen`` R package serves as a wrapper around the Python library, and draws its figures with ``ggplot2`` through ``plot()`` and ``persp()`` methods. Loading the R package declares the Python requirement, which ``reticulate`` resolves into a suitable environment the first time the module is loaded:
 
       .. code-block:: r
 
@@ -77,11 +75,11 @@ Installation
 
       ``phasegen`` is compatible with Python 3.10 through 3.13.
 
-      To use an existing Python installation instead, follow the installation instructions under the Python tab and select the environment before loading the module:
+      An existing Python installation can be used instead by installing ``phasegen`` as described under the Python tab and selecting its environment before loading the module:
 
       .. code-block:: r
 
          reticulate::use_condaenv("~/miniforge3/envs/phasegen", required = TRUE)
          pg <- load_phasegen()
 
-      See the R package documentation for more information on the available functions.
+      The R package documentation describes the available functions in more detail.

@@ -22,6 +22,6 @@ docs:
 docs-clean:
 	$(MAKE) -C docs clean html
 
-# execute the User Guide sources (Python in the dev env, R in the R env, one core per notebook) and merge the pages
+# execute the User Guide sources in their conda env, as many notebooks at a time as there are cores, and merge the pages
 notebooks:
 	snakemake --use-conda --cores all doc_pages

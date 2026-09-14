@@ -26,7 +26,8 @@ def get_dirnames(path) -> List[str]:
 configs = get_filenames("resources/configs")
 
 wildcard_constraints:
-    opts=r'[^/]*'  # match several optional options not separated by /
+    opts=r'[^/]*',  # match several optional options not separated by /
+    page=r'[^/.]+'  # a User Guide page name
 
 rule all:
     input:
@@ -441,42 +442,39 @@ rule plot_transitions:
     script:
         "scripts/plot_transitions.py"
 
-# User Guide pages, each written as one source (docs/source/{name}.md) holding the prose and the code of both languages
+# User Guide pages, each written as one source (docs/source/{page}.md) holding the prose and the code of both languages
 doc_pages = [p.stem for p in Path("docs/source").glob("*.md")]
+
+# resolution of the User Guide figures in dots per inch
+DOCS_FIGURE_DPI = 300
 
 # split a User Guide source into its Python and R notebooks
 rule split_page:
     input:
-        "docs/source/{name}.md"
+        "docs/source/{page}.md"
     output:
-        python="results/docs/Python/{name}.ipynb",
-        r="results/docs/R/{name}.ipynb"
-    wildcard_constraints:
-        name="[^/.]+"
+        python="results/docs/Python/{page}.ipynb",
+        r="results/docs/R/{page}.ipynb"
+    params:
+        dpi=DOCS_FIGURE_DPI
     conda:
-        "envs/dev.yaml"
+        "envs/docs.yaml"
     script:
         "docs/split_page.py"
 
-# execute the Python notebook of a page, collapsing the stored progress-bar frames
-rule execute_python_page:
+# install the repository's Python package into the User Guide env in editable mode
+rule install_python_package:
     input:
-        "results/docs/Python/{name}.ipynb"
+        "pyproject.toml",
+        [str(p) for p in Path("phasegen").rglob("*.py")]
     output:
-        "results/docs/Python/{name}.executed.ipynb"
-    wildcard_constraints:
-        name="[^/.]+"
+        touch("results/docs/Python/phasegen.installed")
     conda:
-        "envs/dev.yaml"
+        "envs/docs.yaml"
     shell:
-        """
-        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
-            --output {wildcards.name}.executed.ipynb {input}
-        python docs/coalesce_streams.py {output}
-        """
+        "python -m pip install --no-deps -e . > /dev/null"
 
-# install the repository's R package into the R env and register a kernel inside that env, which the notebooks run
-# on (a user-level "ir" kernelspec would otherwise take precedence)
+# install the repository's R package into the User Guide env and register its R kernel inside that env
 rule install_r_package:
     input:
         "DESCRIPTION",
@@ -485,49 +483,66 @@ rule install_r_package:
     output:
         touch("results/docs/R/phasegen.installed")
     conda:
-        "envs/r.yaml"
+        "envs/docs.yaml"
     shell:
         """
         R CMD INSTALL --no-docs . > /dev/null
-        Rscript -e 'IRkernel::installspec(name = "ir-phasegen", displayname = "R (phasegen)", user = FALSE, prefix = Sys.getenv("CONDA_PREFIX"))'
+        Rscript -e 'IRkernel::installspec(name = "ir-phasegen", displayname = "R (phasegen)", user = FALSE,
+                                          prefix = Sys.getenv("CONDA_PREFIX"))'
         """
 
-# execute the R notebook of a page, collapsing the stored stream frames
-rule execute_r_page:
+# execute the Python notebook of a page, collapsing the stored stream frames
+rule execute_python_page:
     input:
-        notebook="results/docs/R/{name}.ipynb",
-        installed="results/docs/R/phasegen.installed"
+        notebook="results/docs/Python/{page}.ipynb",
+        python_installed="results/docs/Python/phasegen.installed"
     output:
-        "results/docs/R/{name}.executed.ipynb"
-    wildcard_constraints:
-        name="[^/.]+"
+        "results/docs/Python/{page}.executed.ipynb"
     conda:
-        "envs/r.yaml"
+        "envs/docs.yaml"
     shell:
         """
         jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
-            --ExecutePreprocessor.kernel_name=ir-phasegen --output {wildcards.name}.executed.ipynb {input.notebook}
+            --output {wildcards.page}.executed.ipynb {input.notebook}
+        python docs/coalesce_streams.py {output}
+        """
+
+# execute the R notebook of a page on the Python interpreter of the same env, collapsing the stored stream frames
+rule execute_r_page:
+    input:
+        notebook="results/docs/R/{page}.ipynb",
+        python_installed="results/docs/Python/phasegen.installed",
+        r_installed="results/docs/R/phasegen.installed"
+    output:
+        "results/docs/R/{page}.executed.ipynb"
+    conda:
+        "envs/docs.yaml"
+    shell:
+        """
+        export RETICULATE_PYTHON="$CONDA_PREFIX/bin/python"
+        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
+            --output {wildcards.page}.executed.ipynb {input.notebook}
         python docs/coalesce_streams.py {output}
         """
 
 # merge the executed Python and R notebooks of a page into the User Guide page with language tabs
 rule merge_page:
     input:
-        python="results/docs/Python/{name}.executed.ipynb",
-        r="results/docs/R/{name}.executed.ipynb"
+        python="results/docs/Python/{page}.executed.ipynb",
+        r="results/docs/R/{page}.executed.ipynb"
     output:
-        "docs/reference/{name}.ipynb"
-    wildcard_constraints:
-        name="[^/.]+"
+        "docs/reference/{page}.ipynb"
+    params:
+        dpi=DOCS_FIGURE_DPI
     conda:
-        "envs/dev.yaml"
+        "envs/docs.yaml"
     script:
         "docs/merge_notebooks.py"
 
 # build all User Guide pages from their sources
 rule doc_pages:
     input:
-        expand("docs/reference/{name}.ipynb", name=doc_pages)
+        expand("docs/reference/{page}.ipynb", page=doc_pages)
 
 # update the documentation
 rule update_docs:

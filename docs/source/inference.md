@@ -1,31 +1,16 @@
 # Parameter inference
-The availability of exact moments lends itself to gradient-based parameter estimation. This is commonly done based on the SFS, but higher-order moments are also thinkable, provided they can be computed from the data at hand. ``phasegen`` provides a lightweight framework for performing parameter inference which is done by defining an {class}`~phasegen.inference.Inference` object.
+The availability of exact moments lends itself to gradient-based parameter estimation. This is commonly done based on the SFS, but higher-order moments can also be used, provided they can be computed from the data at hand. ``phasegen`` provides a lightweight framework for performing parameter inference which is done by defining an {class}`~phasegen.inference.Inference` object.
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = [4.4, 3.3]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 +++
@@ -75,7 +60,7 @@ inf <- pg$Inference(
             )
         )
     ),
-    loss = function(coal, obs) pg$PoissonLikelihood()$compute(
+    loss = function(coal, ...) pg$PoissonLikelihood()$compute(
         observed = observation$normalize()$polymorphic,
         modelled = coal$sfs$mean$normalize()$polymorphic
     )
@@ -201,7 +186,7 @@ stopifnot(nrow(inf$bootstraps) == 20)
 
 +++
 ## Distributed bootstrapping
-Whenever running inference with long runtimes, you might want to distribute the bootstrapping process. This can be done by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`~phasegen.inference.Inference.create_bootstrap`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`~phasegen.inference.Inference.add_bootstraps`).
+For inferences with long runtimes, the bootstrapping process can be distributed by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`~phasegen.inference.Inference.create_bootstrap`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`~phasegen.inference.Inference.add_bootstraps`).
 
 +++ {"tags": ["python-only"]}
 Below is an example [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow for distributed bootstrapping: 
@@ -333,9 +318,9 @@ inf.to_file(out)
 ```
 
 +++ {"tags": ["r-only"]}
-In a production setting the bootstraps are typically farmed out across a cluster, for instance with a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow: one rule sets up the inference and performs the initial run ({meth}`~phasegen.inference.Inference.to_file`), a second rule loads it ({meth}`~phasegen.inference.Inference.from_file`), creates a single bootstrap and runs it, and a final rule merges the bootstrap results back into the main inference object. Below we demonstrate the same API in a single notebook, running the bootstraps in a serial loop rather than as parallel cluster jobs.
+In a production setting the bootstraps are typically distributed across a cluster, for instance with a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow. In such a workflow, one rule sets up the inference and performs the initial run ({meth}`~phasegen.inference.Inference.to_file`), a second rule loads it ({meth}`~phasegen.inference.Inference.from_file`), creates a single bootstrap and runs it, and a final rule merges the bootstrap results back into the main inference object. Below we demonstrate the same API in a single notebook, running the bootstraps in a serial loop rather than as parallel cluster jobs.
 
-Two points are specific to driving `phasegen` from R. First, `create_bootstrap` and `to_file` serialize the `coal`, `loss` and `resample` callbacks, so we define them as Python functions (via `reticulate::py_run_string`) rather than R closures, which do not survive that round-trip. Second, we accumulate the bootstrap objects in memory and merge them directly, rather than reloading each from its file, so their optimizer results stay intact.
+Two points are specific to using `phasegen` from R. First, `create_bootstrap` and `to_file` serialize the `coal`, `loss` and `resample` callbacks, so we define them as Python functions (via `reticulate::py_run_string`) rather than R closures, which do not survive that round-trip. Second, we accumulate the bootstrap objects in memory and merge them directly, rather than reloading each from its file, so their optimizer results stay intact.
 
 ```{code-cell} r
 # the model, loss and resampling callbacks, defined in Python so they survive serialization
@@ -374,15 +359,16 @@ inf <- pg$Inference(
 
 inf$run()
 
-dir.create("results/inference", recursive = TRUE, showWarnings = FALSE)
-inf$to_file("results/inference/inference.json")
+path <- file.path(tempdir(), "inference.json")
+inf$to_file(path)
 ```
 
 +++ {"tags": ["r-only"]}
 Each bootstrap is created from the inference object with {meth}`~phasegen.inference.Inference.create_bootstrap`, which resamples the observation using the provided `resample` callback, and is then run independently. On a cluster each iteration of this loop would instead be a separate job that loads ``inference.json``, creates one bootstrap, runs it and writes its own file. Here we reload the saved object once and run the replicates serially.
 
 ```{code-cell} r
-inf <- pg$Inference$from_file("results/inference/inference.json")
+:tags: [remove-output]
+inf <- pg$Inference$from_file(path)
 
 boots <- lapply(seq_len(20L), function(i) {
     b <- inf$create_bootstrap()

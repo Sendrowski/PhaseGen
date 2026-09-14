@@ -1,17 +1,11 @@
 # Custom rewards
-In order to compute more complex moments such as higher order (cross)-moments that are not directly made available as cached properties of {class}`~phasegen.distributions.PhaseTypeDistribution`, we can specify our own rewards. A {class}`~phasegen.rewards.Reward` is a means of *rewarding* or weighting each state so as to obtain the moments of the quantity of interest. Examples of common rewards are {class}`~phasegen.rewards.TreeHeightReward` and {class}`~phasegen.rewards.TotalBranchLengthReward` or {class}`~phasegen.rewards.UnfoldedSFSReward`. We can use {class}`~phasegen.distributions.PhaseTypeDistribution`'s {meth}`~phasegen.distributions.PhaseTypeDistribution.moment`, which requires a *tuple* of rewards to be specified, whose length equals the order of the moment to be computed.
+In order to compute more complex moments such as higher order (cross)-moments that are not directly made available as cached properties of {class}`~phasegen.distributions.PhaseTypeDistribution`, we can specify our own rewards. A {class}`~phasegen.rewards.Reward` is a means of rewarding or weighting each state so as to obtain the moments of the quantity of interest. Examples of common rewards are {class}`~phasegen.rewards.TreeHeightReward` and {class}`~phasegen.rewards.TotalBranchLengthReward` or {class}`~phasegen.rewards.UnfoldedSFSReward`. We can use {class}`~phasegen.distributions.PhaseTypeDistribution`'s {meth}`~phasegen.distributions.PhaseTypeDistribution.moment`, which requires a tuple of rewards to be specified, whose length equals the order of the moment to be computed.
 
 ```{code-cell} python
 :tags: [remove-cell]
-import matplotlib.pyplot as plt
+import matplotlib
 
-# render figures at 300 dpi, displayed at their nominal size by docs/merge_notebooks.py
-%config InlineBackend.figure_format = 'png'
-# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots
-%config InlineBackend.print_figure_kwargs = {'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': 300}
-%precision %.7g
-
-plt.rcParams['figure.figsize'] = [4.4, 3.3]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} python
@@ -22,16 +16,7 @@ coal = pg.Coalescent(n=10)
 
 ```{code-cell} r
 :tags: [remove-cell]
-Sys.setenv(TQDM_DISABLE = "1")
-setwd("~/PycharmProjects/PhaseGen/")
-reticulate::use_condaenv("/Users/janek/miniforge3/envs/dev-phasegen", required = TRUE)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3, repr.plot.res = 300)
-# the ggplot2 theme of the R figures, padded like the Python figures
-ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 ```{code-cell} r
@@ -127,7 +112,7 @@ coal$moment(3L, c(pg$UnfoldedSFSReward(2L), pg$UnfoldedSFSReward(3L), pg$Unfolde
 
 +++
 ## Combining rewards
-Sometimes we may want to combine multiple rewards. To this end, we can use {class}`~phasegen.rewards.ProductReward` or {class}`~phasegen.rewards.SumReward`. Let us for example compute the mean SFS over the first 2 out of 3 demes. That is, we weight the branch lengths by the fraction of lineages in the first two demes.
+Sometimes we may want to combine multiple rewards. To this end, we can use {class}`~phasegen.rewards.ProductReward` or {class}`~phasegen.rewards.SumReward`. As an example, we compute the mean SFS over the first 2 out of 3 demes. That is, we weight the branch lengths by the fraction of lineages in the first two demes.
 
 ```{code-cell} python
 # 3-deme coalescent with symmetric migration
@@ -189,7 +174,7 @@ assert np.allclose(sfs.data, coal.sfs.demes['pop_0'].mean.data + coal.sfs.demes[
 
 ```{code-cell} r
 spectra <- pg$Spectra(setNames(
-    lapply(coal$demography$pop_names, function(d) coal$sfs$demes$demes[[d]]$mean),
+    lapply(coal$demography$pop_names, function(d) coal$sfs$demes[[d]]$mean),
     coal$demography$pop_names
 ))
 
@@ -198,7 +183,7 @@ plot(spectra)
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(isTRUE(all.equal(sfs$data, coal$sfs$demes$demes$pop_0$mean$data + coal$sfs$demes$demes$pop_1$mean$data)))
+stopifnot(isTRUE(all.equal(sfs$data, coal$sfs$demes$pop_0$mean$data + coal$sfs$demes$pop_1$mean$data)))
 ```
 
 +++
@@ -277,7 +262,7 @@ stopifnot(mean1 == mean2, mean1 < pg$Coalescent(n = 10L)$tree_height$mean)
 +++
 ## Distributions of custom rewards
 
-Each reward above was summarised by its moments, but any reward also has a full *distribution*. {meth}`~phasegen.distributions.Coalescent.distribution` returns the 1D law of a reward, with its `pdf`, `cdf` and `quantile`, and {meth}`~phasegen.distributions.Coalescent.joint_distribution` the joint law of two, reaching combinations with no dedicated accessor. See {doc}`Distribution functions <distribution_functions>` for these objects in general.
+Each reward above was summarised by its moments, but any reward also has a full distribution. {meth}`~phasegen.distributions.Coalescent.distribution` returns the 1D law of a reward, with its `pdf`, `cdf` and `quantile`, and {meth}`~phasegen.distributions.Coalescent.joint_distribution` the joint law of two, reaching combinations with no dedicated accessor. See {doc}`Distribution functions <distribution_functions>` for these objects in general.
 
 ```{code-cell} python
 king = pg.Coalescent(n=8)
@@ -317,15 +302,26 @@ stopifnot(
 The joint distribution of two rewards follows the same way. Here the tree height and the singleton branch length, two different statistics of the same genealogy, are positively correlated.
 
 ```{code-cell} python
+:tags: [remove-cell]
+subplot_defaults = {k: matplotlib.rcParams[k] for k in ('figure.subplot.left', 'figure.subplot.right', 'figure.subplot.wspace')}
+matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1, 'figure.subplot.wspace': 0})
+```
+
+```{code-cell} python
+:tags: [full-width]
+import matplotlib.pyplot as plt
+
 joint = king.joint_distribution(pg.TreeHeightReward(), pg.UnfoldedSFSReward(1))
 print(f"correlation = {joint.corr():.3f}")
 
-fig, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
-for ax in axs:
-    ax.set_box_aspect(None, zoom=1.15)
-fig.subplots_adjust(left=0, right=1, wspace=0)
+_, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
 joint.pdf.plot_surface(ax=axs[0], show=False, title='Joint density')
 joint.cdf.plot_surface(ax=axs[1], title='Joint CDF');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams.update(subplot_defaults)
 ```
 
 ```{code-cell} python
@@ -339,6 +335,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```
 
 ```{code-cell} r
+:tags: [full-width]
 joint <- king$joint_distribution(pg$TreeHeightReward(), pg$UnfoldedSFSReward(1L))
 cat(sprintf("correlation = %.3f\n", joint$corr()))
 
@@ -350,9 +347,4 @@ persp(joint$cdf, title = "Joint CDF")
 ```{code-cell} r
 :tags: [remove-cell]
 stopifnot(joint$corr() > 0)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
