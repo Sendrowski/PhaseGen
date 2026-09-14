@@ -1,9 +1,9 @@
 """
 Matrix exponentiation backends, used when computing the moments of phase-type distributions.
 
-Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})` (:meth:`ExpmBackend.compute`)
+Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})` (``ExpmBackend.compute()``)
 and the exponential action :math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
-(:meth:`ExpmBackend.compute_action`), the latter evaluated without forming the dense exponential.
+(``ExpmBackend.compute_action()``), the latter evaluated without forming the dense exponential.
 """
 from abc import ABC, abstractmethod
 from typing import Literal

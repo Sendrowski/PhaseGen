@@ -41,6 +41,8 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'pandas': ('https://pandas.pydata.org/docs/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
 }
 
 # the autosummary class tables on the module pages are written inline (no generated stub pages)
@@ -49,10 +51,9 @@ autosummary_generate = False
 typehints_use_signature = True
 typehints_fully_qualified = False
 
-# The plot methods return the lazily-imported ``plt.Axes`` and several signatures reference names
-# that are not importable at documentation time, so sphinx_autodoc_typehints cannot resolve those
-# forward references. The warning is cosmetic, so suppress that subtype.
-suppress_warnings = ['sphinx_autodoc_typehints.forward_reference']
+# Render unions as ``X | Y``. The Python inventory lists ``typing.Union`` as a class, which the ``data`` role
+# sphinx_autodoc_typehints emits for it cannot resolve.
+always_use_bars_union = True
 
 pygments_style = 'default'
 
@@ -73,7 +74,8 @@ autodoc_default_options = {
     'member-order': 'bysource',
     'special-members': '__init__',
     'undoc-members': True,
-    'inherited-members': True,
+    # Members inherited from ``collections.abc.Mapping`` carry docstring signatures that autodoc misreads as types.
+    'inherited-members': 'object,Mapping',
     'show-inheritance': True,
     # autodocsumm: prepend a compact summary table to each documented object -- a class table at the top of every
     # module page and a method table at the top of every class. Limit it to those two sections (``;;``-separated):
@@ -108,19 +110,28 @@ html_logo = "logo.png"
 html_favicon = "favicon.ico"
 
 
-def _resolve_sfs_to_sfsutils(app, env, node, contnode):
-    """Redirect references to PhaseGen's ``SFS`` (a thin, undocumented subclass of :class:`sfsutils.spectrum.Spectrum`)
-    to sfsutils' ``Spectrum`` documentation, so its return-type annotations resolve to a link rather than rendering as
-    bare text. The reference keeps its ``SFS`` label (the original ``contnode``) and points at the sfsutils page."""
+# Class references whose target is absent from the published inventories, mapped to the documented page: PhaseGen's
+# ``SFS`` is a thin, undocumented subclass of sfsutils' ``Spectrum``, and pandas lists ``DataFrame`` only under its
+# public path.
+_REDIRECTS = {
+    'SFS': 'sfsutils.spectrum.Spectrum',
+    'phasegen.spectrum.SFS': 'sfsutils.spectrum.Spectrum',
+    'pandas.core.frame.DataFrame': 'pandas.DataFrame',
+}
+
+
+def _resolve_redirects(app, env, node, contnode):
+    """Resolve a class reference listed in ``_REDIRECTS`` against its mapped intersphinx target. The reference keeps
+    its original label (the ``contnode``)."""
     from sphinx.ext.intersphinx import missing_reference
 
-    if node.get('reftype') in ('class', 'obj') and node.get('reftarget') in ('SFS', 'phasegen.spectrum.SFS'):
+    if node.get('reftype') in ('class', 'obj') and node.get('reftarget') in _REDIRECTS:
         redirected = node.copy()
-        redirected['reftarget'] = 'sfsutils.spectrum.Spectrum'
+        redirected['reftarget'] = _REDIRECTS[node['reftarget']]
         return missing_reference(app, env, redirected, contnode)
 
     return None
 
 
 def setup(app):
-    app.connect('missing-reference', _resolve_sfs_to_sfsutils)
+    app.connect('missing-reference', _resolve_redirects)

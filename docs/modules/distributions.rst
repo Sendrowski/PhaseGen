@@ -31,11 +31,13 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.MarginalCDF
    ~phasegen.distributions.SFSDensity
    ~phasegen.distributions.SFSCDF
+   ~phasegen.distributions.SFSQuantileFunction
    ~phasegen.distributions.MarginalQuantileFunction
    ~phasegen.distributions.JointDensity
    ~phasegen.distributions.JointCDF
    ~phasegen.distributions.JointSFSDensity
    ~phasegen.distributions.JointSFSCDF
+   ~phasegen.distributions.JointSFSQuantileFunction
    ~phasegen.distributions.ConditionalDensity
    ~phasegen.distributions.ConditionalCDF
    ~phasegen.distributions.ConditionalQuantileFunction
@@ -109,6 +111,10 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :members:
    :special-members: __call__
 
+.. autoclass:: phasegen.distributions.SFSQuantileFunction
+   :members:
+   :special-members: __call__
+
 .. autoclass:: phasegen.distributions.MarginalQuantileFunction
    :members:
    :special-members: __call__
@@ -126,6 +132,10 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
    :special-members: __call__
 
 .. autoclass:: phasegen.distributions.JointSFSCDF
+   :members:
+   :special-members: __call__
+
+.. autoclass:: phasegen.distributions.JointSFSQuantileFunction
    :members:
    :special-members: __call__
 

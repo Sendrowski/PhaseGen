@@ -41,7 +41,7 @@ import logging
 import functools
 from functools import cached_property
 from math import comb, factorial
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import mpmath as mp
 import numpy as np
@@ -69,12 +69,13 @@ class RewardDistribution(CallableDistributionFunctions):
     rewards, zero-reward states, and arbitrary piecewise time-homogeneous demographies (so it is
     multi-epoch-native).
 
-    Its ``cdf`` / ``pdf`` / ``quantile`` are callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); this is the 1D object returned by
-    :meth:`~phasegen.distributions.spectra.SFSDistribution.bin` etc. The de Hoog / Fourier-cosine inversion that
-    turns the transform into those functions lives on the function objects (the
-    :class:`~phasegen.distributions.base._LSTFunction` family); this distribution supplies the transform and scale
-    primitives (:meth:`lst`, :meth:`_invert`, :meth:`_cumulants`, :meth:`_range`, :attr:`_time_scale`).
+    Its ``cdf`` / ``pdf`` / ``quantile`` are callable-and-plottable
+    :class:`~phasegen.distributions.DistributionFunction` objects (see ``CallableDistributionFunctions``); this
+    is the 1D object returned by :meth:`UnfoldedSFSDistribution.bin()
+    <phasegen.distributions.UnfoldedSFSDistribution.bin>` etc. The de Hoog / Fourier-cosine inversion that turns the
+    transform into those functions lives on the function objects (the ``_LSTFunction`` family); this distribution
+    supplies the transform and scale primitives (:meth:`lst`, ``_invert()``, ``_cumulants()``, ``_range()``,
+    ``_time_scale``).
 
     .. versionadded:: 2.0
     """
@@ -446,13 +447,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
     multi-epoch-native. Setting one argument to zero recovers a marginal; mixed derivatives at the origin recover
     the cross-moments. The joint CDF/PDF (2D inversion) and the product distribution are views built on top.
 
-    The 2D inversion is the **Fourier-cosine expansion** (:meth:`_cc_box`), which is the only 2D method: it inverts
+    The 2D inversion is the **Fourier-cosine expansion** (``_cc_box()``), which is the only 2D method: it inverts
     both axes at once from a single coefficient matrix, so a whole grid costs one solve set. The nested per-point
     alternatives were dropped. Nested **de Hoog** was no more accurate than the cosine grid on realistic demographies
     (both within a few percent of msprime at the quantile corners) while costing ~1 s per point, which put it out of
-    reach of the scenario suite. Nested **Euler** (which the 1D conditional does need, see :class:`_NestedConditional`)
+    reach of the scenario suite. Nested **Euler** (which the 1D conditional does need, see ``_NestedConditional``)
     is accurate but likewise per-point, and equally untestable at grid scale. Cosine's known weakness is the
-    steep near-origin rise, mitigated by the window scale (:attr:`_cos2d_window_scale`).
+    steep near-origin rise, mitigated by the window scale (``_cos2d_window_scale``).
 
     .. versionadded:: 2.0
     """
@@ -539,7 +540,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         The Taylor coefficients of the joint LST in *one* argument at 0, with the other held at :math:`s`:
         ``[Phi_k]`` such that :math:`\Phi(s, \epsilon) = \sum_k \Phi_k\,\epsilon^k` (for ``on = 'a'``; mirrored
         for ``'b'``). The :math:`k`-th derivative in the free argument is therefore :math:`k!\,\Phi_k`, exactly (see
-        :func:`_lst_taylor_from_shift`).
+        ``_lst_taylor_from_shift()``).
 
         :param s: The value at which the conditioned argument (``on``) is held.
         :param on: Which argument is held at ``s``, ``'a'`` or ``'b'``; the coefficients are in the other one.
@@ -561,8 +562,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def lst_batch(self, s_a, s_b) -> np.ndarray:
         """The joint LST over a *vector* of nodes in one argument (the other held scalar), evaluated as one batch.
 
-        The inner inversion of :class:`_NestedConditional` always has its whole node set to hand, and batching the
-        per-epoch assembly and matrix exponential across it is ~2x (see :func:`_lst_from_shift_batch`)."""
+        The inner inversion of ``_NestedConditional`` always has its whole node set to hand, and batching the
+        per-epoch assembly and matrix exponential across it is ~2x (see ``_lst_from_shift_batch()``)."""
         st = self._setup
         tau = st['tau']
         s_a, s_b = np.atleast_1d(s_a), np.atleast_1d(s_b)
@@ -981,7 +982,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         demography a single conditional costs tens of seconds, so the whole check runs in minutes -- and it is slow
         precisely *because* it is useful, since the outermost quadrature nodes sit at the ~99th percentile of the
         conditioning marginal, exactly where the inner inversion has to refine hardest (see
-        :meth:`_NestedConditional._calibrate`). Call it deliberately when a conditional looks suspect, never on every
+        ``_NestedConditional._calibrate()``). Call it deliberately when a conditional looks suspect, never on every
         construction. ``n_points = 8`` holds the Gauss-Legendre quadrature floor at ~2.6e-3, comfortably inside
         ``tol``, while keeping the node count down.
 
@@ -1062,7 +1063,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param on: Axis to condition on, ``'a'`` or ``'b'``.
         :param value: Centre of the conditioning window.
         :param half_width: Half-width of the window, in the conditioning reward's units.
-        :param n_nodes: Quadrature nodes; defaults to :attr:`_WINDOW_QUAD_NODES`.
+        :param n_nodes: Quadrature nodes; defaults to ``_WINDOW_QUAD_NODES``.
         :return: The window average of ``statistic``, shaped as ``statistic`` returns.
         :raises ValueError: If the window reaches ``0``, where it would take in the conditioning atom and stop being
             a purely continuous average.
@@ -1106,14 +1107,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
                                   curves: int = 0) -> dict:
         """
         Self-consistency tripwire for the (nested-inversion) conditional path: compare each conditional's **mean**
-        against the exact one from :meth:`ConditionalRewardDistribution._raw_moments`, and **log a warning** (per
+        against the exact one from ``ConditionalRewardDistribution._raw_moments()``, and **log a warning** (per
         axis) when the worst scaled error over the conditioning points exceeds ``tol``.
 
         Where :meth:`check_total_expectation` integrates the conditional back out and so only tests it *on average*
         over the conditioning axis (errors at different ``v`` can cancel, and its own quadrature sets the floor), this
         pins it **pointwise**, at each ``v`` separately, against a reference that shares no code with the nested
         inversion and no quadrature. It is both stronger and several times cheaper, so it is the check to reach for --
-        but only where the reference is sound: :meth:`ConditionalRewardDistribution._raw_moments` is exact on a single
+        but only where the reference is sound: ``ConditionalRewardDistribution._raw_moments()`` is exact on a single
         epoch and carries de Hoog's ~1% error beyond it, so a multi-epoch tolerance has to be set against the
         *reference's* floor, and on an extreme bottleneck (where the reference is off by tens of percent) the tower
         check is the only option.
@@ -1121,16 +1122,16 @@ class JointRewardDistribution(CallableDistributionFunctions):
         The mean under test is the conditional's own (the cumulant of its nested transform), so this asserts the
         transform, not the cosine ``cdf`` / ``pdf`` grid built on top of it; ``curves`` draws those for inspection.
 
-        The conditioning points span :attr:`_COND_CHECK_SPAN` in quantile space of the conditioning marginal (so they
-        mean the same thing across demographies), and the error is scaled by :attr:`_COND_CHECK_FLOOR`. Pass
+        The conditioning points span ``_COND_CHECK_SPAN`` in quantile space of the conditioning marginal (so they
+        mean the same thing across demographies), and the error is scaled by ``_COND_CHECK_FLOOR``. Pass
         ``quantiles`` to target specific conditioning values instead.
 
-        :param n_points: Conditioning values per axis, spread over :attr:`_COND_CHECK_SPAN` by quantile. Ignored when
+        :param n_points: Conditioning values per axis, spread over ``_COND_CHECK_SPAN`` by quantile. Ignored when
             ``quantiles`` is given.
         :param tol: Error threshold above which a violation is logged.
         :param quantiles: Explicit conditioning quantiles of the conditioning marginal, in ``(0, 1)``.
         :param curves: Number of conditioning values per axis at which to also evaluate the conditional **density**,
-            for :attr:`conditional_densities` (and so the plots). Nothing is asserted on them; each one builds a
+            for ``conditional_densities`` (and so the plots). Nothing is asserted on them; each one builds a
             cosine grid the mean does not need (~1 s), which is why they are off by default.
         :return: ``{'a': worst_err_conditioning_on_a, 'b': ...}`` (empty for a self-pair).
         """
@@ -1214,7 +1215,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         r"""
         The distribution-level counterpart of :meth:`check_conditional_moments`: compare the raw moments obtained by
         **integrating each conditional's CDF grid** against the exact ones from
-        :meth:`ConditionalRewardDistribution._raw_moments`, and **log a warning** (per axis) when the worst scaled
+        ``ConditionalRewardDistribution._raw_moments()``, and **log a warning** (per axis) when the worst scaled
         error over the conditioning points and orders exceeds ``tol``.
 
         This is the only check that exercises the cosine ``cdf`` / ``pdf`` layer. :meth:`check_conditional_moments`
@@ -1237,7 +1238,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         is itself ~1e-5 that is a large relative error, and a third moment weights exactly there by ``y^3``: order 3
         reports several percent on a grid that is sound, which measures the amplification and not the grid.
 
-        :param n_points: Conditioning values per axis, spread over :attr:`_COND_CHECK_SPAN` by quantile. Ignored when
+        :param n_points: Conditioning values per axis, spread over ``_COND_CHECK_SPAN`` by quantile. Ignored when
             ``quantiles`` is given. Fewer than for the mean check by default: each point builds a cosine grid.
         :param tol: Error threshold above which a violation is logged.
         :param k: Highest raw moment to compare.
@@ -1320,9 +1321,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
 class ConditionalRewardDistribution(RewardDistribution):
     r"""
     The distribution of one accumulated reward given a value of another, as returned by
-    :meth:`JointRewardDistribution.conditional`. A :class:`RewardDistribution` like any other in how it is *used*
-    (``cdf`` / ``pdf`` / ``quantile`` / ``mean``, callable and plottable), but not in how it is *obtained*, and the
-    difference is visible in two places.
+    :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`. A
+    :class:`RewardDistribution` like any other in how it is *used* (``cdf`` / ``pdf`` / ``quantile`` / ``mean``,
+    callable and plottable), but not in how it is *obtained*, and the difference is visible in two places.
 
     A conditional carries no state-space reward, so its moments do not come from the moment engine: :attr:`var` and
     :meth:`moment` take the conditional's own transform on the atom and the derivative identity away from it. Its
@@ -1425,8 +1426,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         Variance of the conditional.
 
         On the atom (``value = 0``) this is the second cumulant of the conditional's own (exact, closed-form)
-        transform; :meth:`_raw_moments` cannot answer there. Away from the atom the nested transform's second
-        difference is biased low, so the variance comes from :meth:`_raw_moments` instead.
+        transform; ``_raw_moments()`` cannot answer there. Away from the atom the nested transform's second
+        difference is biased low, so the variance comes from ``_raw_moments()`` instead.
 
         Accurate to a percent or so away from the atom, and nothing cross-checks it: only the
         :attr:`~RewardDistribution.mean` has two independent routes.
@@ -1442,7 +1443,7 @@ class ConditionalRewardDistribution(RewardDistribution):
         r"""
         The :math:`k`-th raw moment :math:`\mathbb{E}[R_\text{other}^k \mid R_{on} = value]`.
 
-        Away from the atom any :math:`k` is available, from :meth:`_raw_moments`. On the atom only the first two are:
+        Away from the atom any :math:`k` is available, from ``_raw_moments()``. On the atom only the first two are:
         the
         identity cannot be evaluated there, and the higher cumulant differences of the transform are too noisy.
 

@@ -7,9 +7,13 @@ import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from .caching import cached_property
-from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence
+from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import msprime
+    from matplotlib import pyplot as plt
 
 logger = logging.getLogger('phasegen')
 
@@ -558,7 +562,7 @@ class Epoch:
 
     def to_string(self) -> str:
         """
-        Alias for :meth:`__str__`.
+        Alias for ``__str__()``.
 
         :return: String representation.
         """

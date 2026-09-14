@@ -51,19 +51,19 @@ class _SFSAggregateFunction:
 
 class SFSDensity(_SFSAggregateFunction, MarginalDensity):
     """Per-bin SFS densities, one curve per frequency class: each bin's ``pdf(t)`` is the derivative of its cosine
-    CDF grid. See :class:`_SFSAggregateFunction`."""
+    CDF grid. See ``_SFSAggregateFunction``."""
 
 
 class SFSCDF(_SFSAggregateFunction, MarginalCDF):
     """Per-bin SFS cumulative distribution functions, one curve per frequency class: each bin's ``cdf(t)``, the
     probability its branch length is at most ``t``, is read off that bin's cosine CDF grid.
-    See :class:`_SFSAggregateFunction`."""
+    See ``_SFSAggregateFunction``."""
 
 
 class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length): each
     bin's ``quantile(q)`` inverts that bin's cosine CDF grid, handing over to the de Hoog bisection above
-    :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`. See :class:`_SFSAggregateFunction`."""
+    :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`. See ``_SFSAggregateFunction``."""
 
 
 class SFSDistribution(PhaseTypeDistribution, ABC):
@@ -809,8 +809,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             \operatorname{Poisson}(k_i;\, \theta\, \ell_i) \right].
 
         This expectation is evaluated in closed form on the block-counting state space, via the single-epoch resolvent
-        (:meth:`_get_mutation_config_homogeneous`) for one epoch and the multi-epoch killed lattice process
-        (:meth:`_get_mutation_config_inhomogeneous`) for several.
+        (``_get_mutation_config_homogeneous()``) for one epoch and the multi-epoch killed lattice process
+        (``_get_mutation_config_inhomogeneous()``) for several.
 
         .. note::
             This supports piecewise time-homogeneous demography (any number of epochs). Recombination is not
@@ -1335,7 +1335,7 @@ class _JointSFSAggregateFunction:
 
 
 class JointSFSDensity(_JointSFSAggregateFunction, MarginalDensity):
-    """Per-bin joint-SFS densities (one per descendant configuration). See :class:`_JointSFSAggregateFunction`."""
+    """Per-bin joint-SFS densities (one per descendant configuration). See ``_JointSFSAggregateFunction``."""
 
 
 class JointSFSCDF(_JointSFSAggregateFunction, MarginalCDF):
@@ -1903,8 +1903,8 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
     second cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the expected product of the branch length subtending
     :math:`i` samples at locus 0 and :math:`j` samples at locus 1, computed from two per-locus SFS rewards on the
     two-locus block-counting state space. It reduces to
-    :attr:`~phasegen.distributions.spectra.SFSDistribution.cov` (plus the outer product of the marginal means) as
-    :math:`r \to 0` and to the outer product of the marginal SFS as :math:`r \to \infty`.
+    :attr:`UnfoldedSFSDistribution.cov <phasegen.distributions.UnfoldedSFSDistribution.cov>` (plus the outer product of
+    the marginal means) as :math:`r \to 0` and to the outer product of the marginal SFS as :math:`r \to \infty`.
 
     The :attr:`mean` is computed for the whole spectrum at once as a single two-point occupation contraction shared
     across all bin pairs rather than a cross-moment per pair.
@@ -1975,7 +1975,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         r"""
         Mean two-locus SFS, :math:`\mathbb{E}[L^0_i\, L^1_j]` for all polymorphic bins, symmetrized over the two loci.
         Computed for the whole spectrum at once as a single two-point occupation contraction shared across all bin
-        pairs (:meth:`_mean_batched`), falling back to a per-pair cross-moment when that closed form does not apply (a
+        pairs (``_mean_batched()``), falling back to a per-pair cross-moment when that closed form does not apply (a
         multi-epoch demography, an explicit end time, or absorption not almost sure).
         """
         batched = self._mean_batched()

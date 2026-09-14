@@ -53,7 +53,7 @@ class Settings(metaclass=_SettingsMeta):
     cache_epochs: bool = True
 
     #: Global switch for property/result memoization (the ``cached_property`` and ``cache`` decorators in
-    #: :mod:`phasegen.caching`). Set to ``False`` to force every cached property, moment and intermediate result to
+    #: ``phasegen.caching``). Set to ``False`` to force every cached property, moment and intermediate result to
     #: recompute on each access. This is meant for debugging (ruling out stale cached state, or profiling the true
     #: cost of a computation without cache hits masking it) and will be slower. Note this is distinct from
     #: :attr:`cache_epochs`, which toggles the separate per-epoch rate-matrix cache.
@@ -146,9 +146,10 @@ class Settings(metaclass=_SettingsMeta):
 
     #: Whether to emit a logged warning when a numerical inversion looks imprecise: a substantially negative density
     #: or a non-monotone CDF curve (Gibbs ringing), the residual cosine ripple, or a violated law of total expectation
-    #: in :meth:`~phasegen.distributions.reward.JointRewardDistribution.check_total_expectation`. These are cheap
-    #: self-consistency tripwires (the curve is still clipped / made monotone regardless); set ``False`` to silence
-    #: them in performance runs or known-rough regimes (e.g. extreme multiple-merger high-frequency bins).
+    #: in :meth:`JointRewardDistribution.check_total_expectation()
+    #: <phasegen.distributions.JointRewardDistribution.check_total_expectation>`. These are cheap self-consistency
+    #: tripwires (the curve is still clipped / made monotone regardless); set ``False`` to silence them in performance
+    #: runs or known-rough regimes (e.g. extreme multiple-merger high-frequency bins).
     check_inversions: bool = True
 
     @staticmethod

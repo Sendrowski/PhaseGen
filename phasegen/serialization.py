@@ -2,7 +2,12 @@
 Serialization mixin class.
 """
 
+from typing import TYPE_CHECKING
+
 import jsonpickle
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 class Serializable:

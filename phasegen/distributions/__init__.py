@@ -43,8 +43,10 @@ from .spectra import (
     TwoLocusSFSDistribution,
     SFSDensity,
     SFSCDF,
+    SFSQuantileFunction,
     JointSFSDensity,
     JointSFSCDF,
+    JointSFSQuantileFunction,
 )
 from .coalescent import (
     AbstractCoalescent,
@@ -96,8 +98,10 @@ __all__ = [
     "TwoLocusSFSDistribution",
     "SFSDensity",
     "SFSCDF",
+    "SFSQuantileFunction",
     "JointSFSDensity",
     "JointSFSCDF",
+    "JointSFSQuantileFunction",
     "AbstractCoalescent",
     "Coalescent",
     "EmpiricalJointSFSDistribution",

@@ -808,7 +808,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     density function. This is currently only possible with default rewards.
 
     The exact (matrix-exponential) cdf / pdf / quantile evaluation lives on the function objects
-    (:class:`_ExpmCumulativeDistributionFunction` / :class:`_ExpmDensityFunction` / :class:`_ExpmQuantileFunction`);
+    (``_ExpmCumulativeDistributionFunction`` / ``_ExpmDensityFunction`` / ``_ExpmQuantileFunction``);
     this distribution supplies the state space, demography, epoch machinery and the exit vector they reach into.
     """
     #: the exact matrix-exponential function-object flavours (selected over the inherited LST/COS ones, whose CDF is

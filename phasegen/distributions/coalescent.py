@@ -21,6 +21,7 @@ from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBran
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
 
 if TYPE_CHECKING:
+    from .reward import RewardDistribution, JointRewardDistribution
     from matplotlib import pyplot as plt
     from .empirical import MsprimeCoalescent, SampledCoalescent
 
@@ -372,7 +373,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def sfs2(self) -> TwoLocusSFSDistribution:
         """
-        Two-locus site-frequency spectrum under recombination, returned as a :class:`~phasegen.spectrum.TwoLocusSFS`.
+        Two-locus site-frequency spectrum under recombination, returned as a :class:`~sfsutils.spectrum.TwoLocusSFS`.
         Requires exactly two loci (``loci=2``) and a single population.
 
         .. note::
@@ -584,9 +585,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         Get the :math:`k`-th moment :math:`\mathbb{E}[R^k]` using the specified rewards and state space. By default
         (``center=True``) this is the central moment, so ``moment(2)`` is the variance; pass ``center=False`` for the
         raw (non-central) moment, matching the sample-based
-        :meth:`~phasegen.distributions.empirical.EmpiricalDistribution.moment` under the same default. For a
-        cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`, averaged over the
-        ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>` under the same
+        default. For a cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`,
+        averaged over the ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
 
         :param k: The order of the moment
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.

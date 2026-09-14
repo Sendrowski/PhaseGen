@@ -306,7 +306,7 @@ class StateSpace(ABC):
     def absorbing(self) -> np.ndarray:
         """
         Boolean mask over :attr:`states` marking the absorbing states, using the state-space absorption predicate
-        (:meth:`_is_absorbing`). Subclasses with a non-default condition, e.g. the two-locus space, where the
+        (``_is_absorbing()``). Subclasses with a non-default condition, e.g. the two-locus space, where the
         unlinked dual-MRCA state ``(n, 0) + (0, n)`` is absorbing although
         :meth:`~phasegen.state_space.State.is_absorbing` does not see it, are then classified consistently everywhere
         (moment paths, occupation times, sampling). Epoch-independent (depends only on the state topology), so it is
@@ -604,7 +604,7 @@ class StateSpace(ABC):
             ratio: float = 0.6,
             background_color: str = 'white',
             extension: str = 'png',
-            format_state: Callable[[np.array], str] = None,
+            format_state: Callable[[np.ndarray], str] = None,
             format_transition: Callable[['Transition'], str] = None
     ) -> None:
         """
@@ -767,7 +767,7 @@ class BlockCountingStateSpace(StateSpace):
     the number of integer partitions of :math:`n` (per deme and per locus). The absorbing state is
     :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are supplied by the
     :class:`~phasegen.coalescent_models.CoalescentModel`
-    (:meth:`~phasegen.coalescent_models.CoalescentModel.get_rate_block_counting`). Resolving these branch classes
+    (``CoalescentModel.get_rate_block_counting()``). Resolving these branch classes
     lets the space distinguish tree topologies, so it is used to compute statistics based on the SFS.
     """
 
@@ -983,7 +983,7 @@ class JointBlockCountingStateSpace(StateSpace):
     @cached_property
     def alpha(self) -> np.ndarray:
         """
-        Initial state vector. There is a single, origin-aware initial state (see :meth:`_get_initial`), so this is
+        Initial state vector. There is a single, origin-aware initial state (see ``_get_initial()``), so this is
         its indicator vector.
         """
         initial = self._get_initial()

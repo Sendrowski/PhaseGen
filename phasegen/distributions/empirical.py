@@ -351,10 +351,10 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         r"""
         The :math:`k`-th moment estimated from the realisations. By default (``center=True``) this is the central
         moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} (Y_m - \hat{\mu}_N)^k`, so ``moment(2)`` is the variance and matches
-        the analytic :meth:`~phasegen.distributions._moments.MomentEvaluator.moment` under the same default; pass
-        ``center=False`` for the raw (non-central) moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`. As with the
-        analytic moment, centering is a no-op for :math:`k = 1`, so ``moment(1)`` is the mean either way. Both are
-        Monte Carlo estimates over the :math:`N` sampled trajectories.
+        the analytic :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` under
+        the same default; pass ``center=False`` for the raw (non-central) moment
+        :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`. As with the analytic moment, centering is a no-op for :math:`k = 1`,
+        so ``moment(1)`` is the mean either way. Both are Monte Carlo estimates over the :math:`N` sampled trajectories.
 
         :param k: The order of the moment
         :param center: Whether to center the moment around the mean (central moment); by default the central moment.
@@ -635,7 +635,9 @@ class EmpiricalJointDistribution:  # pragma: no cover
     """
     Empirical counterpart of :class:`~phasegen.distributions.reward.JointRewardDistribution`: the sampled joint
     distribution of two accumulated rewards, built from the per-replicate samples and sliced into the 1D
-    :meth:`marginal` and :meth:`conditional` distributions.
+    :meth:`EmpiricalJointDistribution.marginal() <phasegen.distributions.EmpiricalJointDistribution.marginal>` and
+    :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`
+    distributions.
 
     .. warning::
         :meth:`marginal` is an ordinary sample estimate, but :meth:`conditional` is not. No replicate lands exactly
@@ -671,11 +673,11 @@ class EmpiricalJointDistribution:  # pragma: no cover
             raise ValueError("`which` must be 'a' or 'b'.")
         return EmpiricalDistribution(self._a if which == 'a' else self._b)
 
-    def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> '_WindowedConditional':
+    def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> EmpiricalDistribution:
         """
         The empirical conditional distribution of the *other* reward given ``R_{on}`` close to ``value``, estimated
         from the replicates whose conditioning reward falls in a window around ``value``. The sampled counterpart of
-        :meth:`~phasegen.distributions.reward.JointRewardDistribution.conditional`.
+        :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`.
 
         :param on: Which reward to condition on, ``'a'`` or ``'b'``.
         :param value: The conditioning value.
@@ -748,7 +750,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     SFS phase-type distribution based on realisations.
 
     The per-bin (2-D samples) cdf / pdf / quantile evaluation is handled by the inherited ``_Empirical*`` function
-    objects; the per-bin plotting is the bin-aware :meth:`_plot_per_bin`.
+    objects; the per-bin plotting is the bin-aware ``_plot_per_bin()``.
     """
 
     def _tajima_n(self) -> int:
@@ -926,7 +928,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         r"""
         Empirical cross-moment :math:`\mathbb{E}[L_i L_j]` of the branch lengths subtending ``i`` and ``j`` samples,
         from the per-replicate SFS branch-length samples, the simulated counterpart of
-        :meth:`~phasegen.distributions.reward.JointRewardDistribution.moment` ``(1, 1)``.
+        :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>` ``(1, 1)``.
 
         :param i: First frequency class.
         :param j: Second frequency class.
@@ -937,7 +939,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
         r"""
         Empirical joint CDF :math:`P(L_i \le x, L_j \le y)` of two SFS bins, from the per-replicate samples, the
-        simulated counterpart of :meth:`~phasegen.distributions.reward.JointRewardDistribution.cdf`.
+        simulated counterpart of :attr:`JointRewardDistribution.cdf
+        <phasegen.distributions.JointRewardDistribution.cdf>`.
 
         :param i: First frequency class.
         :param j: Second frequency class.
@@ -1018,9 +1021,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         The window is *the* thing being cached, and it is deliberately not corrected for. What a sample measures is
         the conditional averaged over the window, and the comparison averages the exact conditional over the same
-        window (:meth:`~phasegen.distributions.reward.JointRewardDistribution.window_average`) rather than evaluating
-        it at the centre, so the two sides are the same functional. That is what makes this the only ground truth the
-        nested conditional has away from the atom, and it is why no bandwidth correction is applied here.
+        window (:meth:`JointRewardDistribution.window_average()
+        <phasegen.distributions.JointRewardDistribution.window_average>`) rather than evaluating it at the centre, so
+        the two sides are the same functional. That is what makes this the only ground truth the nested conditional has
+        away from the atom, and it is why no bandwidth correction is applied here.
 
         The mean's standard error is cached because the mean has no other floor: both sides measure the same
         functional, so once the window bias is gone what separates them is the sampling noise of the window alone.
@@ -1069,7 +1073,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
         samples, the sampled counterpart of
-        :meth:`~phasegen.distributions.spectra.SFSDistribution.joint_distribution`, exposing the same
+        :meth:`UnfoldedSFSDistribution.joint_distribution()
+        <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>`, exposing the same
         :meth:`~EmpiricalJointDistribution.marginal` and :meth:`~EmpiricalJointDistribution.conditional`
         slices for a sanity check against the exact joint.
 
@@ -1173,7 +1178,7 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         r"""
         Empirical cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]` (the two-locus SFS entry) from the per-replicate locus
         branch lengths, the simulated counterpart of
-        :meth:`~phasegen.distributions.reward.JointRewardDistribution.moment` ``(1, 1)``.
+        :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>` ``(1, 1)``.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1184,7 +1189,8 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
         r"""
         Empirical joint CDF :math:`P(L^0_i \le x, L^1_j \le y)` from the per-replicate locus branch lengths, the
-        simulated counterpart of :meth:`~phasegen.distributions.reward.JointRewardDistribution.cdf`.
+        simulated counterpart of :attr:`JointRewardDistribution.cdf
+        <phasegen.distributions.JointRewardDistribution.cdf>`.
 
         :param i: Locus-0 frequency class.
         :param j: Locus-1 frequency class.
@@ -1934,11 +1940,11 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     r"""
     PhaseGen-sampled empirical coalescent: the same per-statistic distributions as
     :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own vectorized
-    trajectory sampler (:meth:`~phasegen.distributions.phase_type.PhaseTypeDistribution.sample`) rather than msprime.
-    All walkers are advanced through the continuous-time Markov chain in lockstep, one wave per jump, so after the
-    one-time setup each statistic is an unbiased Monte Carlo estimate whose cost scales with the number of samples
-    :math:`N` rather than the state-space size. Used by ``Comparison`` to validate the
-    sampler against the exact analytic :class:`~phasegen.distributions.coalescent.Coalescent`. The sampled realization
+    trajectory sampler (:meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`)
+    rather than msprime. All walkers are advanced through the continuous-time Markov chain in lockstep, one wave per
+    jump, so after the one-time setup each statistic is an unbiased Monte Carlo estimate whose cost scales with the
+    number of samples :math:`N` rather than the state-space size. Used by ``Comparison`` to validate the sampler
+    against the exact analytic :class:`~phasegen.distributions.coalescent.Coalescent`. The sampled realization
     is frozen into the comparison fixture at creation time; the per-statistic seeds make it reproducible and
     independent of access order.
 

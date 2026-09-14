@@ -207,11 +207,12 @@ class MomentEvaluator:
             \mathbb{E}\!\left[\tau_{\mathbf{r}_1} \cdots \tau_{\mathbf{r}_k}\right]
             = k!\; \boldsymbol{\alpha}\, \big[\exp(\mathbf{V}_k t)\big]_{[1,\,k+1]}\, \mathbf{e},
 
-        the top-right block of the Van Loan propagator (see :meth:`_van_loan_matrix`) contracted with the initial
+        the top-right block of the Van Loan propagator (see ``_van_loan_matrix()``) contracted with the initial
         distribution :math:`\boldsymbol{\alpha}` on the left and the exit vector :math:`\mathbf{e}` on
         the right; to absorption :math:`t \to \infty`. With all rewards equal and ``center=False`` this is the
         :math:`k`-th raw moment :math:`\mathbb{E}[Y^k]` of a single reward :math:`Y`. The sample-based counterpart
-        :meth:`~phasegen.distributions.empirical.EmpiricalDistribution.moment` shares this default.
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>` shares this
+        default.
 
         :param k: The order of the moment.
         :param rewards: Iterable of k rewards. By default, the reward of the underlying distribution.
@@ -379,7 +380,7 @@ class MomentEvaluator:
             the order of rewards.
         :param start_time: Time from which to start accumulation. When positive, the reward is accumulated over the
             window ``[start_time, t]`` for each end time ``t`` (the correct windowed moment for ``k >= 2``; see
-            :meth:`_accumulate_windowed`). By default, ``0`` (accumulation from the origin).
+            ``_accumulate_windowed()``). By default, ``0`` (accumulation from the origin).
         :return: The moment accumulated at the specified times or time.
         """
         k = int(k)

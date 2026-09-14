@@ -12,6 +12,7 @@ from ..rewards import DemeReward, LocusReward, CombinedReward
 from ..settings import Settings
 
 if TYPE_CHECKING:
+    from .reward import JointRewardDistribution
     from matplotlib import pyplot as plt
     from .phase_type import PhaseTypeDistribution
 
@@ -533,7 +534,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
     def __call__(self, t) -> 'np.ndarray | float':
         r"""
         CDF :math:`F(t) = \mathbb{P}(R \le t)`, for a scalar or an array of ``t``, interpolated on the shared CDF grid
-        (:meth:`_LSTFunction._cdf_grid`), so a whole array costs one fit.
+        (``_LSTFunction._cdf_grid()``), so a whole array costs one fit.
 
         :param t: Point(s) at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
@@ -564,7 +565,7 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
     def __call__(self, t, **kwargs) -> 'np.ndarray | float':
         """
         Density, for a scalar or an array of ``t``, by differentiating the shared CDF grid
-        (:meth:`_LSTFunction._cdf_grid`) -- which keeps it consistent with the CDF, free of the raw cosine sum's Gibbs
+        (``_LSTFunction._cdf_grid()``) -- which keeps it consistent with the CDF, free of the raw cosine sum's Gibbs
         negativity, and non-zero in the far tail, where the cosine window alone ends and its derivative is flat zero.
 
         :param t: Point(s) at which to evaluate the density.
@@ -597,7 +598,7 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         r"""
         The ``q``-quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, for a scalar or an array of ``q``.
 
-        The shared CDF grid (:meth:`_LSTFunction._cdf_grid`) is monotone, so the quantile is its inverse
+        The shared CDF grid (``_LSTFunction._cdf_grid()``) is monotone, so the quantile is its inverse
         *interpolation* -- a whole array in one vectorised pass. There is no Laplace inversion that returns a quantile
         directly (the transform gives ``F``, so a quantile is always a root of it), but reading the same piecewise
         linear ``F`` the CDF reads makes the two exact mutual inverses, :math:`F(F^{-1}(q)) = q`. At or below the
@@ -828,8 +829,9 @@ class ConditionalDensity(_LSTDensityFunction):
 
 
 class ConditionalCDF(_LSTCumulativeDistributionFunction):
-    """CDF of one reward conditional on another being held at a value (see :class:`ConditionalDensity` on why the
-    per-point route is prohibitive for a nested transform)."""
+    """CDF of one reward conditional on another being held at a value (see
+    :class:`~phasegen.distributions.ConditionalDensity` on why the per-point route is prohibitive for a nested
+    transform)."""
 
     #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
     #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
@@ -841,8 +843,9 @@ class ConditionalCDF(_LSTCumulativeDistributionFunction):
 
 
 class ConditionalQuantileFunction(_LSTQuantileFunction):
-    """Quantile function of one reward conditional on another being held at a value (see :class:`ConditionalDensity`
-    on why the per-point route is prohibitive for a nested transform)."""
+    """Quantile function of one reward conditional on another being held at a value (see
+    :class:`~phasegen.distributions.ConditionalDensity` on why the per-point route is prohibitive for a nested
+    transform)."""
 
     #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
     #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and

@@ -7,7 +7,7 @@ import copy
 import logging
 from collections import defaultdict
 from .caching import cached_property
-from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional
+from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional, TYPE_CHECKING
 
 import dill
 import numpy as np
@@ -21,6 +21,9 @@ from .distributions import Coalescent
 from .serialization import Serializable
 from .state_space import StateSpace
 from .utils import parallelize
+
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
 
 logger = logging.getLogger('phasegen')
 
