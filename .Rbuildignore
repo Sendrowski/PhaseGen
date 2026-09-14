@@ -36,7 +36,7 @@
 ^\.pytest_cache$
 ^\.ipynb_checkpoints$
 ^__pycache__$
-^CITATION\.md$
+^CITATION\.cff$
 
 # Cruft
 \.DS_Store$

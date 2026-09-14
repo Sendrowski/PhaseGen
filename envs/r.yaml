@@ -4,6 +4,8 @@ channels:
 dependencies:
   - r-base
   - r-reticulate
+  - r-ggplot2
+  - r-patchwork
   - r-devtools
   - r-irkernel
   - jupyterlab

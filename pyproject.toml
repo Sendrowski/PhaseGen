@@ -20,6 +20,7 @@ tqdm = "^4.66.2"
 scipy = "^1.13.0"
 sfsutils-popgen = ">=0.1.0b2"
 numba = ">=0.59"
+mpmath = "^1.3.0"
 
 # problems installing msprime with poetry
 [tool.poetry.group.dev.dependencies]
@@ -36,6 +37,7 @@ myst-nb = "^1.1.0"
 sphinx = "^7.3.7"
 pygments = "^2.15.1"
 autodocsumm = "^0.2.15"
+sphinx-design = "^0.6.1"
 
 [tool.pytest.ini_options]
 testpaths = ["testing"]

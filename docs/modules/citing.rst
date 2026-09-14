@@ -3,7 +3,7 @@
 Citing phasegen
 ===============
 
-If you use ``phasegen`` in your research, please cite the following article:
+If you use ``phasegen`` in your research, please cite the following `article <https://doi.org/10.1093/genetics/iyaf135>`__:
 
 .. code-block:: bibtex
 

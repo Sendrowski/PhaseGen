@@ -9,46 +9,22 @@ Motivation
 Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/intro.html>`_, while being very fast and flexible, provide stochastic solutions. This necessitates the use of Approximate Bayesian Computation (ABC) for parameter estimation, which can be computationally expensive. A set of tools that do, in principle, provide exact solutions are forward simulators, such as `dadi <https://dadi.readthedocs.io/en/latest>`_ and `moments <https://moments.readthedocs.io/en/latest/index.html>`_. However, forward simulators, while having the great advantage of being able to incorporate selection, have different caveats associated with model initialization, choice of run times, and they tend to be overall less efficient than backward simulations. ``phasegen`` is particularly useful in settings where exact solutions of the coalescent are required. The availability of exact solutions furthermore lends itself to gradient-based parameter estimation, such as maximum likelihood estimation (MLE), which can be more efficient than ABC in some cases.
 
 .. toctree::
-   :caption: Python Reference
+   :caption: User Guide
    :maxdepth: 2
    :hidden:
 
-   reference/Python/installation
-   reference/Python/quickstart
-   reference/Python/distribution_functions
-   reference/Python/spectra
-   reference/Python/multiple_merger_coalescents
-   reference/Python/rewards
-   reference/Python/demography
-   reference/Python/mutation_configs
-   reference/Python/empirical_distributions
-   reference/Python/inference
-   reference/Python/miscellaneous
-
-.. toctree::
-   :caption: R Reference
-   :maxdepth: 2
-   :hidden:
-
-   reference/R/installation
-   reference/R/quickstart
-   reference/R/distribution_functions
-   reference/R/spectra
-   reference/R/multiple_merger_coalescents
-   reference/R/rewards
-   reference/R/demography
-   reference/R/mutation_configs
-   reference/R/empirical_distributions
-   reference/R/inference
-   reference/R/miscellaneous
-
-.. toctree::
-   :caption: Runtime Performance
-   :maxdepth: 2
-   :hidden:
-
-   reference/performance/state_space
-   reference/performance/runtime
+   reference/installation
+   reference/quickstart
+   reference/distribution_functions
+   reference/spectra
+   reference/multiple_merger_coalescents
+   reference/rewards
+   reference/demography
+   reference/mutation_configs
+   reference/empirical_distributions
+   reference/inference
+   reference/performance
+   reference/miscellaneous
 
 .. toctree::
    :caption: API Reference
@@ -60,7 +36,6 @@ Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/in
    modules/demography
    modules/rewards
    modules/inference
-   modules/norms
    modules/config
    modules/state_space
    modules/spectrum

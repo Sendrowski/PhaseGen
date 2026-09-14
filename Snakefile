@@ -441,37 +441,93 @@ rule plot_transitions:
     script:
         "scripts/plot_transitions.py"
 
-# documentation notebooks to re-execute (embedding fresh cell outputs)
-python_notebooks = [p.stem for p in Path("docs/reference/Python").glob("*.ipynb")]
-r_notebooks = [p.stem for p in Path("docs/reference/R").glob("*.ipynb")]
+# User Guide pages, each written as one source (docs/source/{name}.md) holding the prose and the code of both languages
+doc_pages = [p.stem for p in Path("docs/source").glob("*.md")]
 
-# re-execute a Python documentation notebook in place
-rule reexecute_python_notebook:
+# split a User Guide source into its Python and R notebooks
+rule split_page:
     input:
-        "docs/reference/Python/{name}.ipynb"
+        "docs/source/{name}.md"
     output:
-        touch("results/notebooks/Python/{name}.executed")
+        python="results/docs/Python/{name}.ipynb",
+        r="results/docs/R/{name}.ipynb"
+    wildcard_constraints:
+        name="[^/.]+"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "docs/split_page.py"
+
+# execute the Python notebook of a page, collapsing the stored progress-bar frames
+rule execute_python_page:
+    input:
+        "results/docs/Python/{name}.ipynb"
+    output:
+        "results/docs/Python/{name}.executed.ipynb"
+    wildcard_constraints:
+        name="[^/.]+"
     conda:
         "envs/dev.yaml"
     shell:
-        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+        """
+        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
+            --output {wildcards.name}.executed.ipynb {input}
+        python docs/coalesce_streams.py {output}
+        """
 
-# re-execute an R documentation notebook in place (uses the r-irkernel kernel from the R env)
-rule reexecute_r_notebook:
+# install the repository's R package into the R env and register a kernel inside that env, which the notebooks run
+# on (a user-level "ir" kernelspec would otherwise take precedence)
+rule install_r_package:
     input:
-        "docs/reference/R/{name}.ipynb"
+        "DESCRIPTION",
+        "NAMESPACE",
+        [str(p) for p in Path("R").glob("*.R")]
     output:
-        touch("results/notebooks/R/{name}.executed")
+        touch("results/docs/R/phasegen.installed")
     conda:
         "envs/r.yaml"
     shell:
-        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+        """
+        R CMD INSTALL --no-docs . > /dev/null
+        Rscript -e 'IRkernel::installspec(name = "ir-phasegen", displayname = "R (phasegen)", user = FALSE, prefix = Sys.getenv("CONDA_PREFIX"))'
+        """
 
-# re-execute all documentation notebooks
-rule reexecute_notebooks:
+# execute the R notebook of a page, collapsing the stored stream frames
+rule execute_r_page:
     input:
-        expand("results/notebooks/Python/{name}.executed", name=python_notebooks),
-        expand("results/notebooks/R/{name}.executed", name=r_notebooks)
+        notebook="results/docs/R/{name}.ipynb",
+        installed="results/docs/R/phasegen.installed"
+    output:
+        "results/docs/R/{name}.executed.ipynb"
+    wildcard_constraints:
+        name="[^/.]+"
+    conda:
+        "envs/r.yaml"
+    shell:
+        """
+        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
+            --ExecutePreprocessor.kernel_name=ir-phasegen --output {wildcards.name}.executed.ipynb {input.notebook}
+        python docs/coalesce_streams.py {output}
+        """
+
+# merge the executed Python and R notebooks of a page into the User Guide page with language tabs
+rule merge_page:
+    input:
+        python="results/docs/Python/{name}.executed.ipynb",
+        r="results/docs/R/{name}.executed.ipynb"
+    output:
+        "docs/reference/{name}.ipynb"
+    wildcard_constraints:
+        name="[^/.]+"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "docs/merge_notebooks.py"
+
+# build all User Guide pages from their sources
+rule doc_pages:
+    input:
+        expand("docs/reference/{name}.ipynb", name=doc_pages)
 
 # update the documentation
 rule update_docs:

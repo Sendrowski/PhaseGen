@@ -95,13 +95,13 @@ def plot_heatmap(
     ax.set_box_aspect(1)
 
 
-fig, ax = plt.subplots(2, 2, figsize=(9, 8))
+fig, ax = plt.subplots(1, 4, figsize=(16, 4.2))
 
 # warm start
 _ = pg.Coalescent(n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0}).tree_height.to_empirical(1000).mean
 
 plot_heatmap(
-    ax=ax[0, 0],
+    ax=ax[0],
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.tree_height.to_empirical(N_SAMPLES).mean,
@@ -109,7 +109,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[0, 1],
+    ax=ax[1],
     N=np.arange(2, 11, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.sfs.to_empirical(N_SAMPLES).mean,
@@ -117,7 +117,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[1, 0],
+    ax=ax[2],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 3),
     callback=lambda coal: coal.tree_height.to_empirical(N_SAMPLES).mean,
@@ -127,7 +127,7 @@ plot_heatmap(
 
 # mean two-locus SFS (the recombination-aware 2-SFS); single population
 plot_heatmap(
-    ax=ax[1, 1],
+    ax=ax[3],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 2),
     callback=lambda coal: coal.sfs2.to_empirical(N_SAMPLES).mean,

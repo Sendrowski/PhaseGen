@@ -63,7 +63,7 @@ def plot_heatmap(
 
         return state_space(coal).k
 
-    data = parallelize(get_state_space, [(n, d) for n in N for d in D]).reshape(len(N), len(D))
+    data = parallelize(get_state_space, [(n, d) for n in N for d in D], parallelize=False).reshape(len(N), len(D))
 
     cache[title] = data
 
@@ -89,10 +89,10 @@ def plot_heatmap(
     return ax
 
 
-fig, ax = plt.subplots(2, 2, figsize=(9, 8))
+fig, ax = plt.subplots(1, 4, figsize=(16, 4.2))
 
 plot_heatmap(
-    ax=ax[0, 0],
+    ax=ax[0],
     N=np.arange(2, 18, 2),
     D=np.arange(1, 6),
     state_space=lambda coal: coal.lineage_counting_state_space,
@@ -101,7 +101,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[0, 1],
+    ax=ax[1],
     N=np.arange(2, 14, 2),
     D=np.arange(1, 4),
     state_space=lambda coal: coal.block_counting_state_space,
@@ -110,7 +110,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[1, 0],
+    ax=ax[2],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 4),
     state_space=lambda coal: coal.lineage_counting_state_space,
@@ -120,7 +120,7 @@ plot_heatmap(
 
 # two-locus block-counting state space (the recombination-aware 2-SFS state space); single population
 plot_heatmap(
-    ax=ax[1, 1],
+    ax=ax[3],
     N=np.arange(2, 8, 1),
     D=np.arange(1, 2),
     state_space=lambda coal: coal.two_locus_block_counting_state_space,

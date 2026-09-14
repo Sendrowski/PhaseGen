@@ -25,11 +25,13 @@ html[data-theme=light] .sig {
 }
  */
 
-/* center plot outputs in notebook cells */
+/* center plot outputs in notebook cells, scaling a figure wider than the column without distorting it */
 div.cell_output img {
     display: block;
+    height: auto;
     margin-left: auto;
     margin-right: auto;
+    max-width: 100%;
 }
 
 /* pydata-sphinx-theme >=0.17 highlights the entire heading of the section jumped to;
@@ -55,4 +57,92 @@ div.cell_output img {
 .toc-entry a.nav-link:hover > code,
 .toc-entry a.nav-link:active > code {
     color: var(--pst-color-link-hover);
+}
+
+/* User Guide language tabs (docs/merge_notebooks.py): muted labels, a primary-colour bar under the active label and a
+   hairline under the tab row, with the content unframed. */
+.bd-content .sd-tab-set.code-tabs > label,
+html[data-theme] .bd-content .sd-tab-set.code-tabs > label {
+    background-color: transparent;
+    border: none;
+    border-bottom: .125rem solid transparent;
+    border-radius: 0;
+    color: var(--pst-color-text-muted);
+    line-height: 1.6;
+    margin-inline-end: 0;
+    padding: .4em 1em;
+    transform: none;
+}
+
+.bd-content .sd-tab-set.code-tabs > input:checked + label {
+    background-color: transparent;
+    border-color: transparent;
+    border-radius: 0;
+    border-style: none none solid;
+    border-width: 0 0 .125rem;
+    color: var(--pst-color-primary);
+    transform: none;
+}
+
+/* The bar under the active label is one indicator per tab set, placed under the checked label by
+   docs/_static/language-tabs.js, so that it slides from one label to the other when the language changes. */
+.bd-content .sd-tab-set.code-tabs {
+    position: relative;
+}
+
+.bd-content .sd-tab-set.code-tabs::before {
+    background-color: var(--pst-color-primary);
+    content: "";
+    height: .125rem;
+    left: 0;
+    position: absolute;
+    top: calc(var(--code-tabs-indicator-bottom, 0px) - .125rem);
+    transform: translateX(var(--code-tabs-indicator-x, 0px));
+    width: var(--code-tabs-indicator-width, 0px);
+    z-index: 1;
+}
+
+.bd-content .sd-tab-set.code-tabs.code-tabs-animated::before {
+    transition: transform .225s ease, width .225s ease;
+}
+
+.bd-content .sd-tab-set.code-tabs > input:not(:checked) + label:hover {
+    color: var(--pst-color-primary);
+    text-decoration-line: none;
+}
+
+/* pydata-sphinx-theme frames a focused label with a border on all sides, which pushes the label content down while the
+   bar moves; the outline marks focus without changing the label's box */
+.bd-content .sd-tab-set.code-tabs > input:focus-visible + label {
+    background-color: transparent;
+    border-color: transparent;
+    border-radius: 0;
+    border-style: none none solid;
+    border-width: 0 0 .125rem;
+    outline: .125rem solid var(--pst-color-accent);
+    outline-offset: -.125rem;
+}
+
+.bd-content .sd-tab-set.code-tabs > .sd-tab-content {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    border-top: .0625rem solid var(--pst-color-border);
+    margin-top: -.0625rem;
+    padding: .75rem 0 0;
+}
+
+/* Subsection titles inside a language tab are rubrics, as Sphinx allows no section within a directive. Give them the
+   theme's second-level heading style. */
+.bd-content .sd-tab-set.code-tabs p.rubric {
+    border-bottom: none;
+    font-family: var(--pst-font-family-heading);
+    font-size: var(--pst-font-size-h2);
+    font-weight: 500;
+    line-height: 1.15;
+    margin: 2.75rem 0 1.05rem;
+}
+
+.bd-content .sd-tab-set.code-tabs > .sd-tab-content > p.rubric:first-child {
+    margin-top: 1rem;
 }

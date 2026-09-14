@@ -29,6 +29,7 @@ extensions = [
     'sphinx_copybutton',
     'autodocsumm',  # per-class method-summary table at the top of each class
     'myst_nb',
+    'sphinx_design',
     'sphinx_book_theme'
 ]
 
@@ -67,7 +68,8 @@ nb_merge_streams = True
 templates_path = ['_templates']
 # 'jupyter_execute' is a myst-nb build artifact; excluding it keeps Sphinx from scanning (and recursively
 # re-nesting) it as source, which otherwise floods the build with "not in any toctree" warnings.
-exclude_patterns = ['_build', 'jupyter_execute', 'Thumbs.db', '.DS_Store']
+# 'source' holds the User Guide sources, which docs/split_page.py and docs/merge_notebooks.py turn into the pages.
+exclude_patterns = ['_build', 'jupyter_execute', 'source', 'Thumbs.db', '.DS_Store']
 
 autodoc_default_options = {
     'members': True,
@@ -102,10 +104,12 @@ html_theme_options = {
     'repository_branch': 'master',
     'use_repository_button': True,
     'use_edit_page_button': False,
-    'use_issues_button': False
+    'use_issues_button': False,
+    'use_download_button': False
 }
 html_static_path = ['_static']
 html_css_files = ["custom.css"]
+html_js_files = ["language-tabs.js"]
 html_logo = "logo.png"
 html_favicon = "favicon.ico"
 
