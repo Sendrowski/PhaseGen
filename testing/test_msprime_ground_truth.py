@@ -91,8 +91,8 @@ class MsprimeGroundTruthTestCase(TestCase):
 class MsprimeSurfaceCachingTestCase(TestCase):
     """
     Drive the empirical pairwise-surface caching (the *only* joint ground-truth path serialized into the comparison
-    fixtures after the point-based pairwise comparison was retired). These exercise ``cache_joint_surface`` on each
-    empirical spectrum and ``cache_loci_joint_surface`` for the cross-locus joint, on tiny seeded simulations, and
+    fixtures after the point-based pairwise comparison was retired). These exercise ``_cache_joint_surface`` on each
+    empirical spectrum and ``_cache_loci_joint_surface`` for the cross-locus joint, on tiny seeded simulations, and
     assert the grid invariants the surface comparison relies on (shape, finiteness, a valid -- bounded, monotone --
     empirical CDF). Accuracy is validated by the slow scenario suite.
     """
@@ -117,7 +117,7 @@ class MsprimeSurfaceCachingTestCase(TestCase):
     def test_sfs_surface(self):
         """Within-tree SFS pairwise surface for a single population."""
         ms = self._ms(pg.Coalescent(n=4))
-        ms.sfs.cache_joint_surface([(1, 3)])
+        ms.sfs._cache_joint_surface([(1, 3)])
 
         assert len(ms.sfs._joint_surface) == 1
         i, j, xs, ys, cdf, pdf = ms.sfs._joint_surface[0]
@@ -131,7 +131,7 @@ class MsprimeSurfaceCachingTestCase(TestCase):
             migration_rates={('pop_0', 'pop_1'): 1.0, ('pop_1', 'pop_0'): 1.0}
         )
         ms = self._ms(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demography))
-        ms.jsfs.cache_joint_surface([((0, 1), (1, 0))])
+        ms.jsfs._cache_joint_surface([((0, 1), (1, 0))])
 
         ca, cb, xs, ys, cdf, pdf = ms.jsfs._joint_surface[0]
         assert (ca, cb) == ((0, 1), (1, 0))
@@ -140,7 +140,7 @@ class MsprimeSurfaceCachingTestCase(TestCase):
     def test_two_locus_surface(self):
         """Cross-locus two-locus SFS surface under recombination."""
         ms = self._ms(pg.Coalescent(n=3, loci=2, recombination_rate=1.0))
-        ms.sfs2.cache_joint_surface([(1, 2)])
+        ms.sfs2._cache_joint_surface([(1, 2)])
 
         i, j, xs, ys, cdf, pdf = ms.sfs2._joint_surface[0]
         assert (i, j) == (1, 2)
@@ -149,7 +149,7 @@ class MsprimeSurfaceCachingTestCase(TestCase):
     def test_loci_surface(self):
         """Cross-locus joint surface of the per-locus total branch length at the two loci."""
         ms = self._ms(pg.Coalescent(n=2, loci=2, recombination_rate=1.0))
-        ms.total_branch_length.cache_loci_joint_surface([(0, 1)])
+        ms.total_branch_length._cache_loci_joint_surface([(0, 1)])
 
         l1, l2, xs, ys, cdf, pdf = ms.total_branch_length._loci_joint_surface[0]
         assert (l1, l2) == (0, 1)
@@ -161,18 +161,18 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         raw moment, and the fourth central moment for the variance), which is why the estimator exists."""
         n, scale = 200_000, 2.0
         dist = EmpiricalDistribution(np.random.default_rng(0).exponential(scale, n))
-        dist.cache_standard_errors()
+        dist._cache_standard_errors()
 
         # for Exp(scale): E[X^k] = k! scale^k, so Var[m_k_hat] = (E[X^2k] - E[X^k]^2) / n
         moment = lambda k: float(math.factorial(k)) * scale ** k
 
         for k, name in [(1, 'mean'), (2, 'm2'), (3, 'm3'), (4, 'm4')]:
             exact = np.sqrt((moment(2 * k) - moment(k) ** 2) / n)
-            self.assertAlmostEqual(float(dist.standard_errors[name]) / exact, 1, delta=0.25)
+            self.assertAlmostEqual(float(dist._standard_errors[name]) / exact, 1, delta=0.25)
 
         # Var[var_hat] = (mu4 - mu2^2) / n, with the central moments mu2 = scale^2 and mu4 = 9 scale^4
         exact_var = np.sqrt((9 * scale ** 4 - scale ** 4) / n)
-        self.assertAlmostEqual(float(dist.standard_errors['var']) / exact_var, 1, delta=0.25)
+        self.assertAlmostEqual(float(dist._standard_errors['var']) / exact_var, 1, delta=0.25)
 
     def test_standard_errors_survive_the_drop(self):
         """The standard errors are cached by ``touch`` and outlive the samples, so a serialized comparison can still
@@ -184,11 +184,11 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         for dist in (ms.tree_height, ms.total_branch_length, ms.sfs):
             self.assertIsNone(dist.samples)
             for name in ('mean', 'var', 'm3', 'm4'):
-                self.assertTrue(np.all(np.isfinite(dist.standard_errors[name])))
-                self.assertTrue(np.all(np.asarray(dist.standard_errors[name]) >= 0))
+                self.assertTrue(np.all(np.isfinite(dist._standard_errors[name])))
+                self.assertTrue(np.all(np.asarray(dist._standard_errors[name]) >= 0))
 
         # the per-bin standard errors of a spectrum line up with its bins
-        self.assertEqual(np.shape(ms.sfs.standard_errors['mean']), np.shape(np.asarray(ms.sfs.mean)))
+        self.assertEqual(np.shape(ms.sfs._standard_errors['mean']), np.shape(np.asarray(ms.sfs.mean)))
 
     def test_standard_errors_cover_deme_and_locus_matrices(self):
         """The block estimator covers the deme-deme and locus-locus covariance / correlation matrices that
@@ -203,28 +203,28 @@ class MsprimeSurfaceCachingTestCase(TestCase):
         samples = np.array([[base + rng.normal(0, 0.2, base.size) for _ in range(3)],
                             [0.7 * base + rng.normal(0, 0.2, base.size) for _ in range(3)]])
         dist = EmpiricalPhaseTypeDistribution(pops=['p0', 'p1', 'p2'], samples=samples)
-        dist.cache_standard_errors()
+        dist._cache_standard_errors()
 
-        self.assertEqual(dist.standard_errors['demes.cov'].shape, (3, 3))
-        self.assertEqual(dist.standard_errors['loci.cov'].shape, (2, 2))
-        self.assertIn('demes.corr', dist.standard_errors)
-        self.assertIn('loci.corr', dist.standard_errors)
-        self.assertTrue(np.all(dist.standard_errors['demes.cov'] >= 0))
+        self.assertEqual(dist._standard_errors['demes.cov'].shape, (3, 3))
+        self.assertEqual(dist._standard_errors['loci.cov'].shape, (2, 2))
+        self.assertIn('demes.corr', dist._standard_errors)
+        self.assertIn('loci.corr', dist._standard_errors)
+        self.assertTrue(np.all(dist._standard_errors['demes.cov'] >= 0))
         # the 1-D total's scalar cov/corr are skipped
-        self.assertNotIn('cov', dist.standard_errors)
-        self.assertNotIn('corr', dist.standard_errors)
+        self.assertNotIn('cov', dist._standard_errors)
+        self.assertNotIn('corr', dist._standard_errors)
 
         # a single deme has no deme-deme matrix; a single locus no locus-locus matrix
         single = EmpiricalPhaseTypeDistribution(pops=['p0'], samples=samples[:, :1, :])
-        single.cache_standard_errors()
-        self.assertNotIn('demes.cov', single.standard_errors)
+        single._cache_standard_errors()
+        self.assertNotIn('demes.cov', single._standard_errors)
 
     def test_surface_survives_serialization(self):
         """The cached surface (numpy grids) round-trips through the jsonpickle serialization used for the fixtures
         (numpy handlers are registered on importing phasegen)."""
         ms = self._ms(pg.Coalescent(n=4))
         sfs = ms.sfs
-        sfs.cache_joint_surface([(1, 3)])
+        sfs._cache_joint_surface([(1, 3)])
         sfs.samples = None  # the fixture serializes after the raw per-replicate samples are dropped
 
         restored = jsonpickle.decode(jsonpickle.encode(sfs, keys=True), keys=True)

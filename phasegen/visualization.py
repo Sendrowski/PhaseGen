@@ -3,11 +3,74 @@ Visualization module.
 """
 
 import functools
-from typing import Callable, Dict, List
+from dataclasses import dataclass
+from typing import Callable, List, Optional
 
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
+
+
+@dataclass
+class _CurveData:
+    """
+    The curves of a line plot, sharing one grid. Returned by the ``_plot_data`` methods and drawn by the corresponding
+    ``plot`` methods.
+    """
+    #: Grid shared by all curves, of shape ``(n_points,)``.
+    x: np.ndarray
+
+    #: Curve values, of shape ``(n_series, n_points)``.
+    y: np.ndarray
+
+    #: Label of each curve, an empty string for an unlabelled one.
+    labels: List[str]
+
+    #: Label of the x-axis.
+    xlabel: str
+
+    #: Label of the y-axis.
+    ylabel: str
+
+    #: Plot title.
+    title: str
+
+    #: Title of the legend, ``None`` for none.
+    legend_title: Optional[str] = None
+
+
+@dataclass
+class _SurfaceData:
+    """
+    A bivariate function on a grid, drawn as a heatmap or a 3D surface. Returned by the ``_plot_data`` method of a
+    joint distribution function.
+    """
+    #: Grid of the first axis, of shape ``(n_x,)``.
+    x: np.ndarray
+
+    #: Grid of the second axis, of shape ``(n_y,)``.
+    y: np.ndarray
+
+    #: Values on the grid, of shape ``(n_x, n_y)``.
+    z: np.ndarray
+
+    #: Label of the first axis.
+    xlabel: str
+
+    #: Label of the second axis.
+    ylabel: str
+
+    #: Label of the values.
+    zlabel: str
+
+    #: Plot title.
+    title: str
+
+    #: Lower limit of the value scale, ``None`` for the smallest value.
+    vmin: Optional[float] = None
+
+    #: Upper limit of the value scale, ``None`` for the largest value.
+    vmax: Optional[float] = None
 
 
 class Visualization:
@@ -79,12 +142,9 @@ class Visualization:
 
     @staticmethod
     @clear_show_save
-    def plot(
+    def plot_curves(
             ax: 'plt.Axes',
-            x: np.ndarray,
-            y: np.ndarray,
-            xlabel: str = 'x',
-            ylabel: str = 'f(x)',
+            data: _CurveData,
             file: str = None,
             show: bool = None,
             clear: bool = True,
@@ -93,93 +153,73 @@ class Visualization:
             **kwargs
     ) -> 'plt.Axes':
         """
-        Plot function.
+        Draw the curves of a :class:`_CurveData`.
 
-        :param ax: Axes to plot on
-        :param x: x values
-        :param y: y values
-        :param xlabel: x label
-        :param ylabel: y label
-        :param file: File to save plot to
-        :param show: Whether to show plot
-        :param clear: Whether to clear current figure
-        :param label: Label for plot
-        :param title: Title for plot
+        :param ax: Axes to plot on.
+        :param data: The curves.
+        :param file: File to save the plot to.
+        :param show: Whether to show the plot.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label replacing the labels of the curves, ``None`` to keep them.
+        :param title: Title replacing the title of the curves, ``None`` to keep it.
         :param kwargs: Additional line styling forwarded to the underlying plot (e.g. ``alpha``, ``lw``, ``ls``).
-        :return: Axes
+        :return: Axes.
         """
-        sns.lineplot(x=x, y=y, ax=ax, label=label, **kwargs)
+        labels = data.labels if label is None else [label] * len(data.labels)
 
-        # set axis labels
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
+        for y, lab in zip(data.y, labels):
+            sns.lineplot(x=data.x, y=y, ax=ax, label=lab or None, **kwargs)
 
-        # add title
-        ax.set_title(title)
+        ax.set_xlabel(data.xlabel)
+        ax.set_ylabel(data.ylabel)
+        ax.set_title(data.title if title is None else title)
 
-        # remove margins
-        plt.margins(x=0)
-        plt.tight_layout()
+        if data.legend_title is not None and any(labels):
+            ax.legend(title=data.legend_title)
+
+        ax.margins(x=0)
 
         return ax
 
     @staticmethod
     def plot_surface(
-            xs: np.ndarray,
-            ys: np.ndarray,
-            Z: np.ndarray,
+            data: _SurfaceData,
             surface: bool = False,
             ax: 'plt.Axes' = None,
-            xlabel: str = '$R_a$',
-            ylabel: str = '$R_b$',
-            zlabel: str = 'f',
             title: str = None,
-            vmin: float = None,
-            vmax: float = None,
             file: str = None,
             show: bool = True
     ) -> 'plt.Axes':
         """
-        Draw a bivariate function ``Z`` over the grid ``xs x ys`` (shape ``(len(xs), len(ys))``) as either a 3D
-        surface (``surface=True``) or a 2D heatmap with colorbar.
+        Draw a :class:`_SurfaceData` as a 3D surface or as a 2D heatmap with colorbar.
 
-        :param xs: Grid coordinates along the first axis.
-        :param ys: Grid coordinates along the second axis.
-        :param Z: Values on the ``xs x ys`` grid.
+        :param data: The bivariate function on its grid.
         :param surface: Draw a 3D surface instead of a heatmap.
         :param ax: Axes to draw on (a 3D axes is created if needed for ``surface``).
-        :param xlabel: First-axis label.
-        :param ylabel: Second-axis label.
-        :param zlabel: Value-axis label (the z axis / colorbar quantity).
-        :param title: Plot title.
-        :param vmin: Lower colour/scale limit (e.g. ``0`` for a CDF).
-        :param vmax: Upper colour/scale limit (e.g. ``1`` for a CDF).
+        :param title: Title replacing the title of the data, ``None`` to keep it.
         :param file: File to save the plot to.
         :param show: Whether to show the plot.
         :return: Axes.
         """
-        zlim = {}
-        if vmin is not None:
-            zlim['vmin'] = vmin
-        if vmax is not None:
-            zlim['vmax'] = vmax
+        zlim = {key: value for key, value in dict(vmin=data.vmin, vmax=data.vmax).items() if value is not None}
+        z = np.asarray(data.z).T
 
         if surface:
             if ax is None:
                 ax = plt.figure().add_subplot(projection='3d')
-            ax.plot_surface(*np.meshgrid(xs, ys), np.asarray(Z).T, cmap='viridis', **zlim)
-            ax.set_zlabel(zlabel)
-            if vmax is not None:
-                ax.set_zlim(vmin if vmin is not None else 0.0, vmax)
+            ax.plot_surface(*np.meshgrid(data.x, data.y), z, cmap='viridis', **zlim)
+            ax.set_zlabel(data.zlabel)
+            if data.vmax is not None:
+                ax.set_zlim(data.vmin if data.vmin is not None else 0.0, data.vmax)
         else:
             if ax is None:
                 ax = plt.gca()
-            mesh = ax.pcolormesh(xs, ys, np.asarray(Z).T, shading='auto', cmap='viridis', **zlim)
+            mesh = ax.pcolormesh(data.x, data.y, z, shading='auto', cmap='viridis', **zlim)
             ax.figure.colorbar(mesh, ax=ax)
 
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_title(title)
+        ax.set_xlabel(data.xlabel)
+        ax.set_ylabel(data.ylabel)
+        ax.set_title(data.title if title is None else title)
         Visualization.show_and_save(file=file, show=show)
         return ax
 
@@ -187,49 +227,41 @@ class Visualization:
     @clear_show_save
     def plot_rates(
             ax: 'plt.Axes',
-            times: List[float],
-            rates: Dict[str, np.ndarray],
-            xlabel: str = 't',
-            ylabel: str = '$N_e(t)$',
+            data: _CurveData,
             file: str = None,
             show: bool = None,
             clear: bool = True,
-            title: str = 'rate trajectory',
+            title: str = None,
+            ylabel: str = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
-        Plot function.
+        Draw rate trajectories as step functions.
 
-        :param ax: Axes to plot on
-        :param times: Dictionary of times
-        :param rates: Dictionary of rates
-        :param xlabel: x label
-        :param ylabel: y label
-        :param file: File to save plot to
-        :param show: Whether to show plot
-        :param clear: Whether to clear current figure
-        :param title: Title for plot
-        :param kwargs: Keyword arguments passed to plot function
-        :return: Axes
+        :param ax: Axes to plot on.
+        :param data: The trajectories.
+        :param file: File to save the plot to.
+        :param show: Whether to show the plot.
+        :param clear: Whether to clear the current figure.
+        :param title: Title replacing the title of the data, ``None`` to keep it.
+        :param ylabel: Label replacing the y-axis label of the data, ``None`` to keep it.
+        :param kwargs: Keyword arguments passed to the plot function.
+        :return: Axes.
         """
         if kwargs is None:
             kwargs = {}
 
-        # plot
-        for key in rates:
-            ax.plot(times, rates[key], drawstyle='steps-post', label=key, **kwargs)
+        for label, y in zip(data.labels, data.y):
+            ax.plot(data.x, y, drawstyle='steps-post', label=label, **kwargs)
 
-        # set axis labels
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-
-        # add title
-        ax.set_title(title)
+        ax.set_xlabel(data.xlabel)
+        ax.set_ylabel(data.ylabel if ylabel is None else ylabel)
+        ax.set_title(data.title if title is None else title)
 
         # add legend if more than one rate
-        if len(rates) > 1:
+        if len(data.labels) > 1:
             ax.legend()
 
-        plt.margins(x=0)
+        ax.margins(x=0)
 
         return ax

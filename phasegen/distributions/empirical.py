@@ -18,13 +18,15 @@ from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
-from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, QuantileFunction
+from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, DistributionFunction, \
+    QuantileFunction
 from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
 from .coalescent import AbstractCoalescent, Coalescent
 
 if TYPE_CHECKING:
     import msprime
     import tskit
+    from ..visualization import _CurveData
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -45,8 +47,8 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         :param moments: Per-configuration (non-central) moments of orders ``1, 2, ...``, stacked along the first
             axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
         :param samples: Optional per-replicate joint SFS branch lengths, shape ``(n_replicates, n_0 + 1, ...)``, used
-            to pre-compute the within-tree joint surface ground truth (:meth:`cache_joint_surface`); dropped before
-            serialization. May be a capped subset of the replicates the moments were averaged over.
+            to pre-compute the within-tree joint surface ground truth and dropped before serialization. May be a capped
+            subset of the replicates the moments were averaged over.
         :param n_samples: The number of replicates the moments were averaged over. Defaults to the length of
             ``samples``; pass explicitly when ``samples`` is a capped subset so the tuner's noise floor reflects the
             true replicate count rather than the cap.
@@ -54,7 +56,9 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Non-central moments per descendant configuration, indexed by order minus one.
         self._moments: np.ndarray = np.asarray(moments)
 
-        #: Per-replicate joint SFS branch lengths (samples-free after :meth:`cache_joint_surface`).
+        #: Joint SFS branch lengths, one row per simulated replicate, of shape
+        #: ``(n_samples, n_0 + 1, ..., n_{P-1} + 1)``, possibly a capped subset of the replicates. ``None`` after
+        #: :meth:`drop`.
         self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
 
         #: Number of replicates the moments were averaged over (retained after :meth:`drop`, so it is recorded in a
@@ -65,10 +69,10 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface: list = []
 
-    def cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
+    def _cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
                             q_max: float = 0.95) -> None:
         """Pre-compute, for each config pair, the empirical joint CDF and density over a 2D grid (the full-grid
-        surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface` but
+        surface comparison ground truth). Mirrors ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` but
         indexed by descendant configuration."""
         s = self.samples
         n = s.shape[0]
@@ -121,7 +125,101 @@ class EmpiricalJointSFSDistribution:  # pragma: no cover
         return self._moments[0]
 
 
-class _EmpiricalCumulativeDistributionFunction(CumulativeDistributionFunction):  # pragma: no cover
+class _EmpiricalFunction:  # pragma: no cover
+    """Mixin building the plot data of an empirical function object: one curve for a sample vector (a scalar
+    distribution), one per polymorphic bin for a replicate-by-bin sample matrix (a spectrum)."""
+
+    def _empirical_curves(
+            self,
+            grid: np.ndarray | None,
+            bins: Sequence[int] | None,
+            n_points: int | None
+    ) -> '_CurveData':
+        """
+        The curves of this function over ``grid``, by default over :attr:`Settings.plot_n_grid` points up to the
+        largest :attr:`Settings.plot_endpoint_quantile` sample quantile of the included bins. The density is a cell
+        average, so its default cells are coarsened with the sample size, and its curves are drawn at the cell centres.
+
+        :param grid: Points to evaluate at (the left cell edges for a density), ``None`` for the default grid.
+        :param bins: Bins to include for a spectrum, ``None`` for all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves.
+        """
+        from ..visualization import _CurveData
+
+        samples = np.asarray(self._distribution.samples)
+        per_bin = samples.ndim == 2
+        columns = [int(i) for i in (range(1, samples.shape[1] - 1) if bins is None else np.atleast_1d(bins))] \
+            if per_bin else []
+
+        included = samples[:, columns] if per_bin else samples
+        x = DistributionFunction._default_grid(
+            self.kind, grid, n_points, lambda: np.quantile(included, Settings.plot_endpoint_quantile, axis=0).max()
+        )
+
+        if self.kind == 'pdf':
+            if grid is None:
+                # a cell holding a handful of replicates comes out as noise, so the cells grow with the sample size
+                x = np.linspace(x[0], x[-1], int(np.clip(np.sqrt(samples.shape[0]), 20, 100)))
+            values = np.asarray(self(x))
+            edges = np.append(x, 2 * x[-1] - x[-2])
+            x = edges[:-1] + np.diff(edges) / 2
+        else:
+            values = np.asarray(self(x))
+
+        # the per-bin quantiles come as (probabilities, bins), the other functions as (bins, points)
+        y = (values.T if self.kind == 'quantile' else values)[columns] if per_bin else values[None]
+        name = dict(pdf='PDF', cdf='CDF', quantile='quantile function')[self.kind]
+
+        return _CurveData(
+            x=x,
+            y=y,
+            labels=[str(i) for i in columns] if per_bin else [''],
+            xlabel='q' if self.kind == 'quantile' else 't',
+            ylabel=dict(pdf='f(t)', cdf='F(t)', quantile='quantile')[self.kind],
+            title=f'SFS bin {name}s' if per_bin else name[0].upper() + name[1:],
+            legend_title='bin' if per_bin else None
+        )
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            t: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the empirical function, one curve per polymorphic bin for a spectrum. The density is drawn at the cell
+        centres.
+
+        :param ax: Axes to plot on.
+        :param t: Points to evaluate at, the left cell edges for a density. By default,
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points (for a density between 20 and 100 cells, growing
+            with the square root of the sample size) up to the largest
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` sample quantile.
+        :param bins: Bins to plot for a spectrum. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid of a CDF.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, bins=bins, n_points=n_points), file=file,
+                                         show=show, clear=clear, label=label, title=title, **kwargs)
+
+
+class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDistributionFunction):  # pragma: no cover
     """The empirical CDF (interpolated step function of the sorted samples), read from the distribution's samples.
     Handles both a 1-D sample vector (a scalar distribution) and a 2-D per-bin matrix (a spectrum)."""
 
@@ -140,8 +238,20 @@ class _EmpiricalCumulativeDistributionFunction(CumulativeDistributionFunction): 
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
+    def _plot_data(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+        """
+        The empirical CDF curves :meth:`plot` draws, one per polymorphic bin for a spectrum.
 
-class _EmpiricalQuantileFunction(QuantileFunction):  # pragma: no cover
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the largest
+            :attr:`Settings.plot_endpoint_quantile` sample quantile.
+        :param bins: Bins to include for a spectrum, all polymorphic bins by default.
+        :param n_points: Number of points of the default grid.
+        :return: The curves.
+        """
+        return self._empirical_curves(t, bins, n_points)
+
+
+class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragma: no cover
     """The empirical quantile (sample quantile over the replicate axis; one column per bin for a spectrum)."""
 
     def __call__(self, q) -> 'np.ndarray':
@@ -149,8 +259,54 @@ class _EmpiricalQuantileFunction(QuantileFunction):  # pragma: no cover
         # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
         return np.quantile(self._distribution.samples, q=q, axis=0)
 
+    def _plot_data(self, q: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+        """
+        The empirical quantile curves :meth:`plot` draws, one per polymorphic bin for a spectrum.
 
-class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
+        :param q: Probabilities to evaluate at. By default, :attr:`Settings.plot_n_grid` points from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
+        :param bins: Bins to include for a spectrum, all polymorphic bins by default.
+        :param n_points: Number of points of the default grid.
+        :return: The curves.
+        """
+        return self._empirical_curves(q, bins, n_points)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the empirical quantile function (value versus probability), one curve per polymorphic bin for a spectrum.
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points
+            from ``1 - Settings.plot_endpoint_quantile`` to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param bins: Bins to plot for a spectrum. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, bins=bins, n_points=n_points), file=file,
+                                         show=show, clear=clear, label=label, title=title, **kwargs)
+
+
+class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma: no cover
     """
     The empirical density over a grid: the **cell-average** density of each cell of ``t``, that is, the fraction of
     replicates falling in the cell divided by the cell's width. The atom at 0 is excluded, so this estimates the
@@ -189,6 +345,18 @@ class _EmpiricalDensityFunction(DensityFunction):  # pragma: no cover
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
+    def _plot_data(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+        """
+        The cell-average density curves :meth:`plot` draws at the cell centres, one per polymorphic bin for a spectrum.
+
+        :param t: Left edges of the cells. By default, between 20 and 100 cells, growing with the square root of the
+            sample size, up to the largest :attr:`Settings.plot_endpoint_quantile` sample quantile.
+        :param bins: Bins to include for a spectrum, all polymorphic bins by default.
+        :param n_points: Unused, as the default cells follow the sample size.
+        :return: The curves.
+        """
+        return self._empirical_curves(t, bins, n_points)
+
     @staticmethod
     def _cell_density(samples: np.ndarray, edges: np.ndarray, widths: np.ndarray) -> np.ndarray:
         """The cell-average density of one sample vector. Normalised by the *total* replicate count, not by the
@@ -220,14 +388,15 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         self._cache = None
 
-        #: Samples
-        self.samples = np.array(samples, dtype=float)
+        #: Sampled values, one row per replicate, of shape ``(n_samples,)``, or ``(n_samples, n + 1)`` for a spectrum.
+        #: ``None`` after :meth:`drop`.
+        self.samples: np.ndarray | None = np.array(samples, dtype=float)
 
         #: Number of samples (retained after :meth:`drop`, so it is recorded in a serialized comparison).
         self.n_samples: int = self.samples.shape[0]
 
-        #: Standard error of each moment statistic (:meth:`cache_standard_errors`), retained after :meth:`drop`.
-        self.standard_errors: dict = {}
+        #: Standard error of each moment statistic, estimated from blocks of the samples, retained after :meth:`drop`.
+        self._standard_errors: dict = {}
 
     def touch(self, t: np.ndarray) -> None:
         """
@@ -249,12 +418,12 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             quantile=self.quantile(q)
         )
 
-        self.cache_standard_errors()
+        self._cache_standard_errors()
 
-    #: Statistics :meth:`cache_standard_errors` estimates a standard error for.
+    #: Statistics :meth:`_cache_standard_errors` estimates a standard error for.
     _STANDARD_ERROR_STATISTICS = ('mean', 'var', 'm2', 'm3', 'm4', 'cov', 'corr')
 
-    def cache_standard_errors(self, n_blocks: int = 100) -> None:
+    def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
         Estimate and cache the standard error of each moment statistic, so that it survives :meth:`drop` and a
         consumer of the (samples-free) distribution can tell how much of a discrepancy against it is the distribution's
@@ -282,12 +451,12 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         # the base class' statistics are plain numpy; the subclasses only wrap the identical numerics in an SFS type
         stats = [EmpiricalDistribution(block) for block in blocks]
 
-        self.standard_errors = {}
+        self._standard_errors = {}
         for name in self._STANDARD_ERROR_STATISTICS:
             if name in ('cov', 'corr') and self.samples.ndim == 1:
                 continue  # a 1-D sample has no covariance/correlation: corrcoef is the constant 1, SE a bogus 0
             values = np.array([np.asarray(getattr(s, name), dtype=float) for s in stats])
-            self.standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
+            self._standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
 
     def drop(self) -> None:
         """
@@ -349,16 +518,13 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def moment(self, k: int, center: bool = True) -> float | np.ndarray:
         r"""
-        The :math:`k`-th moment estimated from the realisations. By default (``center=True``) this is the central
-        moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} (Y_m - \hat{\mu}_N)^k`, so ``moment(2)`` is the variance and matches
-        the analytic :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` under
-        the same default; pass ``center=False`` for the raw (non-central) moment
-        :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`. As with the analytic moment, centering is a no-op for :math:`k = 1`,
-        so ``moment(1)`` is the mean either way. Both are Monte Carlo estimates over the :math:`N` sampled trajectories.
+        The :math:`k`-th moment estimated from the :math:`N` sampled realisations :math:`Y_1, \dots, Y_N`: by default
+        the central moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} (Y_m - \hat{\mu}_N)^k`, with :math:`\hat{\mu}_N` the
+        sample mean, and with ``center=False`` the raw moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`.
 
-        :param k: The order of the moment
-        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
-        :return: The kth moment
+        :param k: Order of the moment.
+        :param center: Whether to center the moment around the sample mean.
+        :return: The :math:`k`-th moment.
         """
         samples = self.samples - np.mean(self.samples, axis=0) if (center and k > 1) else self.samples
 
@@ -492,14 +658,14 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         [d.drop() for d in self.demes.values()]
         [l.drop() for l in self.loci.values()]
 
-    def cache_standard_errors(self, n_blocks: int = 100) -> None:
+    def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
         In addition to the scalar-total standard errors, block-estimate the standard error of the deme-deme and
         locus-locus covariance / correlation matrices that :attr:`demes` and :attr:`loci` expose (``demes.cov`` etc.),
         so the tolerance tuner has a real noise floor for those leaves rather than the scalar total's variance error.
         The matrices are keyed ``"demes.cov"`` / ``"demes.corr"`` / ``"loci.cov"`` / ``"loci.corr"``.
         """
-        super().cache_standard_errors(n_blocks)
+        super()._cache_standard_errors(n_blocks)
 
         if self._samples is None:
             return
@@ -512,12 +678,12 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         ):
             se = self._matrix_block_standard_error(data, fn, n_blocks)
             if se is not None:
-                self.standard_errors[key] = se
+                self._standard_errors[key] = se
 
     @staticmethod
     def _matrix_block_standard_error(data: np.ndarray, fn, n_blocks: int) -> Optional[np.ndarray]:
         """Standard error of a matrix statistic (``np.cov`` / ``np.corrcoef``) of ``data`` (shape ``(series, reps)``),
-        by the same block subsampling :meth:`EmpiricalDistribution.cache_standard_errors` uses: the spread of the
+        by the same block subsampling :meth:`EmpiricalDistribution._cache_standard_errors` uses: the spread of the
         per-block matrix divided by ``sqrt(n_blocks)``. Returns ``None`` when there is nothing to correlate (fewer
         than two series, e.g. a single deme or single locus) or too few replicates to block."""
         if data.ndim != 2 or data.shape[0] < 2:
@@ -572,9 +738,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         """Per-replicate accumulated reward at a single locus (summed over demes), matching :attr:`loci`."""
         return self._samples[locus].sum(axis=0)
 
-    def cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
+    def _cache_loci_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """Pre-compute, for each locus pair, the empirical cross-locus joint CDF and density over a 2D grid (the
-        full-grid surface comparison ground truth). Mirrors :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`
+        full-grid surface comparison ground truth). Mirrors ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``
         but indexed by locus."""
         self._loci_joint_surface = []
         for l1, l2 in pairs:
@@ -749,8 +915,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     """
     SFS phase-type distribution based on realisations.
 
-    The per-bin (2-D samples) cdf / pdf / quantile evaluation is handled by the inherited ``_Empirical*`` function
-    objects; the per-bin plotting is the bin-aware ``_plot_per_bin()``.
+    The per-bin (2-D samples) cdf / pdf / quantile evaluation and plot data are handled by the inherited
+    ``_Empirical*`` function objects.
     """
 
     def _tajima_n(self) -> int:
@@ -857,65 +1023,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return TwoSFS(super().corr)
 
-    def _plot_per_bin(self, kind: str, ax, grid, n_points, show, file, clear, title, bins) -> 'plt.Axes':
-        """
-        Plot the per-bin empirical pdf / cdf / quantile (one curve per polymorphic SFS bin), the empirical
-        counterpart of :meth:`SFSDistribution._plot_cdf` etc. The inherited (1D) plotters cannot be used because the
-        SFS samples are per-bin (2D), so we draw each bin's column separately.
-        """
-        from ..visualization import Visualization
-        import matplotlib.pyplot as plt
-
-        samples = np.asarray(self.samples)
-        if bins is None:
-            bins = range(1, samples.shape[1] - 1)  # polymorphic bins (drop the monomorphic edges)
-        per = [(i, EmpiricalDistribution(samples[:, i])) for i in bins]
-
-        if ax is None:
-            ax = plt.gca()
-            if clear:
-                ax.clear()
-
-        if grid is None:
-            qe = Settings.plot_endpoint_quantile
-            grid = np.linspace(1.0 - qe, qe, n_points) if kind == 'quantile' \
-                else np.linspace(0, max(d.quantile(qe) for _, d in per), n_points)
-
-        # the empirical density is a cell average, so the grid *is* the binning: a plotting grid as fine as the
-        # comparison's would leave a handful of replicates per cell and come out as noise. Coarsen it with the sample
-        # size, and plot the cell averages at the cell centres, which is where they are unbiased
-        grid_pdf = np.linspace(grid[0], grid[-1], int(np.clip(np.sqrt(samples.shape[0]), 20, 100)))
-        centres = grid_pdf + 0.5 * (grid_pdf[1] - grid_pdf[0])
-
-        ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
-        xlabel = 'q' if kind == 'quantile' else 't'
-        for k, (i, d) in enumerate(per):
-            x = grid
-            if kind == 'cdf':
-                y = d.cdf(grid)
-            elif kind == 'pdf':
-                x, y = centres, d.pdf(grid_pdf)
-            else:
-                y = np.array([d.quantile(float(q)) for q in grid])
-            Visualization.plot(ax=ax, x=x, y=y, xlabel=xlabel, ylabel=ylabel, label=str(i), file=file,
-                               show=(k == len(per) - 1 and show), clear=clear, title=title)
-        return ax
-
-    def _plot_cdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
-                  title='SFS bin CDFs') -> 'plt.Axes':
-        """Plot the empirical CDF of every (polymorphic) SFS bin at once."""
-        return self._plot_per_bin('cdf', ax, t, n_points, show, file, clear, title, bins)
-
-    def _plot_pdf(self, ax=None, t=None, bins=None, n_points=200, show=True, file=None, clear=True,
-                  title='SFS bin PDFs', **kwargs) -> 'plt.Axes':
-        """Plot the empirical PDF of every (polymorphic) SFS bin at once."""
-        return self._plot_per_bin('pdf', ax, t, n_points, show, file, clear, title, bins)
-
-    def _plot_quantile(self, ax=None, q=None, bins=None, n_points=99, show=True, file=None, clear=True,
-                       title='SFS bin quantile functions') -> 'plt.Axes':
-        """Plot the empirical quantile function of every (polymorphic) SFS bin at once."""
-        return self._plot_per_bin('quantile', ax, q, n_points, show, file, clear, title, bins)
-
     def drop(self) -> None:
         """
         Drop simulated samples.
@@ -950,7 +1057,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
 
-    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
+    def _cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """
         Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
         bin's support up to its ``q_max`` quantile), for the full-grid surface comparison. The density is the mixed
@@ -1200,10 +1307,10 @@ class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
         """
         return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
 
-    def cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
+    def _cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
         """Pre-compute, for each cross-locus bin pair ``(i, j)`` (locus-0 class i, locus-1 class j), the empirical
         joint CDF and density over a 2D grid (the full-grid surface comparison ground truth). Same structure as
-        :meth:`EmpiricalPhaseTypeSFSDistribution.cache_joint_surface`, indexed by the two loci's frequency classes."""
+        ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``, indexed by the two loci's frequency classes."""
         n = self._left.shape[0]
         self._joint_surface = []
         for i, j in pairs:
@@ -1422,7 +1529,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param end_time: Time when to end the simulation.
         :param num_replicates: Number of replicates.
         :param n_threads: Number of threads.
-        :param parallelize: Whether to parallelize.
+        :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
         :param seed: Random seed.
@@ -1674,7 +1781,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # configured pairwise surface pairs.
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
-                dist.cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
+                dist._cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
 
     def drop(self) -> None:
         """
@@ -1939,11 +2046,9 @@ class MsprimeCoalescent(AbstractCoalescent):
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     r"""
     PhaseGen-sampled empirical coalescent: the same per-statistic distributions as
-    :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own vectorized
-    trajectory sampler (:meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`)
-    rather than msprime. All walkers are advanced through the continuous-time Markov chain in lockstep, one wave per
-    jump, so after the one-time setup each statistic is an unbiased Monte Carlo estimate whose cost scales with the
-    number of samples :math:`N` rather than the state-space size. Used by ``Comparison`` to validate the sampler
+    :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own trajectory sampler
+    (:meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`) rather than
+    msprime, so each statistic is an unbiased Monte Carlo estimate. Used by ``Comparison`` to validate the sampler
     against the exact analytic :class:`~phasegen.distributions.coalescent.Coalescent`. The sampled realization
     is frozen into the comparison fixture at creation time; the per-statistic seeds make it reproducible and
     independent of access order.
@@ -2046,7 +2151,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         # the analytic two-locus block-counting state space)
         if self.locus_config.n == 2:
             for dist in (self.tree_height, self.total_branch_length):
-                dist.cache_loci_joint_surface([(0, 1)])
+                dist._cache_loci_joint_surface([(0, 1)])
             if len(self.lineage_config.pop_names) == 1:
                 _ = self.sfs2
 

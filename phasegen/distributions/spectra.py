@@ -22,6 +22,7 @@ from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
+    from ..visualization import _CurveData
     from .reward import JointRewardDistribution, RewardDistribution
     from .empirical import (
         EmpiricalPhaseTypeSFSDistribution,
@@ -48,6 +49,40 @@ class _SFSAggregateFunction:
             out[:, i] = getattr(d._bin_distribution(i), self.kind)(t_arr)
         return SFS(out[0]) if np.ndim(t) == 0 else out
 
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the function of every SFS bin at once, one curve per bin.
+
+        :param ax: Axes to plot on.
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+        :param bins: The bins (frequency classes) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, bins=bins, n_points=n_points), file=file,
+                                         show=show, clear=clear, label=label, title=title, **kwargs)
+
 
 class SFSDensity(_SFSAggregateFunction, MarginalDensity):
     """Per-bin SFS densities, one curve per frequency class: each bin's ``pdf(t)`` is the derivative of its cosine
@@ -64,6 +99,40 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin SFS quantile functions, one per frequency class (the inverse CDF of each bin's branch length): each
     bin's ``quantile(q)`` inverts that bin's cosine CDF grid, handing over to the de Hoog bisection above
     :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`. See ``_SFSAggregateFunction``."""
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            bins: Sequence[int] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function of every SFS bin at once (bin branch length versus probability ``q``).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points
+            from ``1 - Settings.plot_endpoint_quantile`` to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param bins: The bins (frequency classes) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, bins=bins, n_points=n_points), file=file,
+                                         show=show, clear=clear, label=label, title=title, **kwargs)
 
 
 class SFSDistribution(PhaseTypeDistribution, ABC):
@@ -384,85 +453,53 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         self._logger.debug("sfs accumulate (k=1): batched (shared occupation grid over %d bins)", len(indices))
         return (m_grid @ R).T  # (n_bins, len(t))
 
-    def plot_accumulation(
+    def _plot_accumulation_data(
             self,
             k: int = 1,
             end_times: Iterable[float] = None,
             rewards: Sequence[Reward] = None,
             center: bool = True,
-            permute: bool = True,
-            ax: 'plt.Axes' = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = None
-    ) -> 'plt.Axes':
+            permute: bool = True
+    ) -> '_CurveData':
         """
-        Plot accumulation of (non-central) SFS moments at different times.
-
-        .. note:: This is different from a CDF, as it shows the accumulation of moments rather than the probability
-            of having reached absorption at a certain time.
+        The accumulation of the SFS moments over time that :meth:`plot_accumulation` draws, one curve per polymorphic
+        bin.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param end_times: Times at which to evaluate the moment. By default, :attr:`Settings.plot_n_grid` points up to
+            the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :param ax: The axes to plot on.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :return: The curves, labelled by bin.
         """
-        import matplotlib.pyplot as plt
-        from ..visualization import Visualization
+        from ..visualization import _CurveData
 
         k = int(k)
+        end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
+        rewards = (self.reward,) * k if rewards is None else rewards
+        indices = self._get_indices()
 
-        if ax is None:
-            ax = plt.gca()
+        return _CurveData(
+            x=end_times,
+            y=self.accumulate(k, end_times, rewards, center, permute)[1:1 + len(indices)],
+            labels=[str(i) for i in indices],
+            xlabel='t',
+            ylabel='moment',
+            title=f"SFS Moment accumulation ({self._reward_names(rewards)})",
+            legend_title='bin'
+        )
 
-        if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
-                                    Settings.plot_n_grid)
+    def _bin_items(self, bins: Sequence[int] | None) -> List[Tuple[int, 'RewardDistribution']]:
+        """
+        The requested bins with their distributions.
 
-        if rewards is None:
-            rewards = (self.reward,) * k
+        :param bins: The bins, ``None`` for all polymorphic bins.
+        :return: Each bin and its distribution.
+        """
+        indices = self._get_indices() if bins is None else np.atleast_1d(bins)
 
-        if title is None:
-            title = (f"SFS Moment accumulation "
-                     f"({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})")
-
-        # get accumulation of moments
-        accumulation = self.accumulate(k, end_times, rewards, center, permute)
-
-        for i, acc in zip(self._get_indices(), accumulation[1: -1]):
-            Visualization.plot(
-                ax=ax,
-                x=end_times,
-                y=acc,
-                xlabel='t',
-                ylabel='moment',
-                label=f'{i}',
-                file=file,
-                show=i == self._get_indices()[-1] and show,
-                clear=clear,
-                title=title
-            )
-
-        return ax
-
-    def _bin_distribution_items(self, bins: Sequence[int]) -> List[Tuple[int, SFSReward]]:
-        """``(bin, reward)`` pairs for the requested bins (all polymorphic bins by default)."""
-        indices = list(self._get_indices()) if bins is None else [int(b) for b in np.atleast_1d(bins)]
-        return [(i, self._get_sfs_reward(i)) for i in indices]
+        return [(int(i), self._bin_distribution(i)) for i in indices]
 
     def bin(self, i: int) -> 'RewardDistribution':
         r"""The 1D distribution of bin ``i``'s branch length :math:`L_i`, a callable-and-plottable
@@ -489,86 +526,45 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         jd.label = f"SFS bins ({i}, {j})"
         return jd
 
-    def _plot_cdf(
+    def _plot_data_cdf(self, x: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
+
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by bin.
+        """
+        return self._reward_curves('cdf', self._bin_items(bins), x, n_points, 'SFS bin CDFs', 'bin')
+
+    def _plot_data_pdf(self, x: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
+
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by bin.
+        """
+        return self._reward_curves('pdf', self._bin_items(bins), x, n_points, 'SFS bin PDFs', 'bin')
+
+    def _plot_data_quantile(
             self,
-            ax: 'plt.Axes' = None,
-            x: np.ndarray = None,
-            bins: Sequence[int] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'SFS bin CDFs'
-    ) -> 'plt.Axes':
-        """
-        Plot the cumulative distribution function of every SFS bin at once.
-
-        :param ax: Axes to plot on.
-        :param x: Values to evaluate the CDFs at. By default, an evenly spaced grid up to the largest bin's support.
-        :param bins: The bins (frequency classes) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        return self._plot_reward_curves('cdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
-                                        clear, title)
-
-    def _plot_pdf(
-            self,
-            ax: 'plt.Axes' = None,
-            x: np.ndarray = None,
-            bins: Sequence[int] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'SFS bin PDFs',
-    ) -> 'plt.Axes':
-        """
-        Plot the probability density function of every SFS bin at once.
-
-        :param ax: Axes to plot on.
-        :param x: Values to evaluate the PDFs at. By default, an evenly spaced grid up to the largest bin's support.
-        :param bins: The bins (frequency classes) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        return self._plot_reward_curves('pdf', self._bin_distribution_items(bins), ax, x, n_points, show, file,
-                                        clear, title)
-
-    def _plot_quantile(
-            self,
-            ax: 'plt.Axes' = None,
             q: np.ndarray = None,
             bins: Sequence[int] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'SFS bin quantile functions',
-    ) -> 'plt.Axes':
+            n_points: int = None
+    ) -> '_CurveData':
         """
-        Plot the quantile function of every SFS bin at once (bin branch length versus probability ``q``).
+        The quantile curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param ax: Axes to plot on.
-        :param q: Probabilities to evaluate the quantiles at. By default, an evenly spaced grid in ``(0, 1)``.
-        :param bins: The bins (frequency classes) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
+        :param q: Probabilities to evaluate at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by bin.
         """
-        return self._plot_reward_curves('quantile', self._bin_distribution_items(bins), ax, q, n_points, show, file,
-                                        clear, title)
+        return self._reward_curves('quantile', self._bin_items(bins), q, n_points, 'SFS bin quantile functions', 'bin')
 
     def get_accumulation(
             self,
@@ -1333,6 +1329,40 @@ class _JointSFSAggregateFunction:
             out[(slice(None),) + config] = [getattr(bin_dist, self.kind)(float(v)) for v in t_arr]
         return JointSFS(out[0], pop_names=d.lineage_config.pop_names) if np.ndim(t) == 0 else out
 
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the function of every joint SFS bin at once, one curve per descendant configuration.
+
+        :param ax: Axes to plot on.
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, configs=configs, n_points=n_points),
+                                         file=file, show=show, clear=clear, label=label, title=title, **kwargs)
+
 
 class JointSFSDensity(_JointSFSAggregateFunction, MarginalDensity):
     """Per-bin joint-SFS densities (one per descendant configuration). See ``_JointSFSAggregateFunction``."""
@@ -1344,6 +1374,40 @@ class JointSFSCDF(_JointSFSAggregateFunction, MarginalCDF):
 
 class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin joint-SFS quantile functions (one per descendant configuration)."""
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function of every joint SFS bin at once (bin branch length versus probability ``q``).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points
+            from ``1 - Settings.plot_endpoint_quantile`` to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, configs=configs, n_points=n_points),
+                                         file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
 class JointSFSDistribution(PhaseTypeDistribution):
@@ -1568,10 +1632,19 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
-    def _config_distribution_items(self, configs: Sequence[Tuple[int, ...]]) -> List[Tuple[Tuple[int, ...], Reward]]:
-        """``(config, reward)`` pairs for the requested joint bins (all polymorphic bins by default)."""
-        cfgs = self._get_configs() if configs is None else list(configs)
-        return [(c, JointSFSReward(c)) for c in cfgs]
+    def _config_items(
+            self,
+            configs: Sequence[Tuple[int, ...]] | None
+    ) -> List[Tuple[Tuple[int, ...], 'RewardDistribution']]:
+        """
+        The requested joint bins with their distributions, under this spectrum's reward.
+
+        :param configs: The descendant configurations, ``None`` for all polymorphic bins.
+        :return: Each configuration and its distribution.
+        """
+        configs = self._get_configs() if configs is None else [tuple(c) for c in configs]
+
+        return [(c, self.distribution(reward=CombinedReward([self.reward, JointSFSReward(c)]))) for c in configs]
 
     def bin(self, *config: int) -> 'RewardDistribution':
         """The 1D branch-length distribution of the joint SFS bin with the given per-population descendant counts, a
@@ -1598,86 +1671,56 @@ class JointSFSDistribution(PhaseTypeDistribution):
         jd.label = f"jSFS bins {tuple(config_a)} x {tuple(config_b)}"
         return jd
 
-    def _plot_cdf(
+    def _plot_data_cdf(
             self,
-            ax: 'plt.Axes' = None,
             x: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'Joint SFS bin CDFs',
-    ) -> 'plt.Axes':
+            n_points: int = None
+    ) -> '_CurveData':
         """
-        Plot the cumulative distribution function of every joint SFS bin at once.
+        The CDF curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param ax: Axes to plot on.
-        :param x: Values to evaluate the CDFs at. By default, an evenly spaced grid up to the largest bin's support.
-        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param configs: The joint bins (descendant configurations) to include. By default, all of them.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by configuration.
         """
-        return self._plot_reward_curves('cdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
-                                        clear, title)
+        return self._reward_curves('cdf', self._config_items(configs), x, n_points, 'Joint SFS bin CDFs', 'config')
 
-    def _plot_pdf(
+    def _plot_data_pdf(
             self,
-            ax: 'plt.Axes' = None,
             x: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'Joint SFS bin PDFs',
-    ) -> 'plt.Axes':
+            n_points: int = None
+    ) -> '_CurveData':
         """
-        Plot the probability density function of every joint SFS bin at once.
+        The density curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param ax: Axes to plot on.
-        :param x: Values to evaluate the PDFs at. By default, an evenly spaced grid up to the largest bin's support.
-        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
+        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param configs: The joint bins (descendant configurations) to include. By default, all of them.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by configuration.
         """
-        return self._plot_reward_curves('pdf', self._config_distribution_items(configs), ax, x, n_points, show, file,
-                                        clear, title)
+        return self._reward_curves('pdf', self._config_items(configs), x, n_points, 'Joint SFS bin PDFs', 'config')
 
-    def _plot_quantile(
+    def _plot_data_quantile(
             self,
-            ax: 'plt.Axes' = None,
             q: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = 'Joint SFS bin quantile functions',
-    ) -> 'plt.Axes':
+            n_points: int = None
+    ) -> '_CurveData':
         """
-        Plot the quantile function of every joint SFS bin at once (bin branch length versus probability ``q``).
+        The quantile curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param ax: Axes to plot on.
-        :param q: Probabilities to evaluate the quantiles at. By default, an evenly spaced grid in ``(0, 1)``.
-        :param configs: The joint bins (descendant configurations) to plot. By default, all of them.
-        :param n_points: Number of evaluation points for the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
-        :return: Axes.
+        :param q: Probabilities to evaluate at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param configs: The joint bins (descendant configurations) to include. By default, all of them.
+        :param n_points: Number of points of the default grid.
+        :return: The curves, labelled by configuration.
         """
-        return self._plot_reward_curves('quantile', self._config_distribution_items(configs), ax, q, n_points, show,
-                                        file, clear, title)
+        return self._reward_curves('quantile', self._config_items(configs), q, n_points,
+                                   'Joint SFS bin quantile functions', 'config')
 
     def accumulate(
             self,
@@ -1729,6 +1772,41 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return out
 
+    def _plot_accumulation_data(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> '_CurveData':
+        """
+        The accumulation of the joint SFS moments over time that :meth:`plot_accumulation` draws, one curve per
+        polymorphic bin.
+
+        :param k: The order of the moment.
+        :param end_times: Times at which to evaluate the moment. By default, :attr:`Settings.plot_n_grid` points up to
+            the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :return: The curves, labelled by descendant configuration.
+        """
+        from ..visualization import _CurveData
+
+        k = int(k)
+        end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
+        configs = self._get_configs()
+        accumulation = self.accumulate(k, end_times, center=center, permute=permute)
+
+        return _CurveData(
+            x=end_times,
+            y=np.array([accumulation[config] for config in configs]).reshape(len(configs), len(end_times)),
+            labels=[str(config) for config in configs],
+            xlabel='t',
+            ylabel='moment',
+            title=f"Joint SFS moment accumulation (order {k})",
+            legend_title='config'
+        )
+
     def plot_accumulation(
             self,
             k: int = 1,
@@ -1742,55 +1820,24 @@ class JointSFSDistribution(PhaseTypeDistribution):
             title: str = None
     ) -> 'plt.Axes':
         """
-        Plot accumulation of joint SFS moments over time, one curve per (polymorphic) bin.
+        Plot accumulation of joint SFS moments over time, one curve per polymorphic bin.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. Defaults to :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param end_times: Times when to evaluate the moment. By default, :attr:`~phasegen.settings.Settings.plot_n_grid`
+            points up to the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the tree height.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
-        :param title: Title of the plot.
+        :param title: Plot title, ``None`` for the default title.
         :return: Axes.
         """
-        import matplotlib.pyplot as plt
         from ..visualization import Visualization
 
-        k = int(k)
-
-        if ax is None:
-            ax = plt.gca()
-
-        if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
-                                    Settings.plot_n_grid)
-
-        end_times = np.asarray(list(end_times))
-
-        if title is None:
-            title = f"Joint SFS moment accumulation (order {k})"
-
-        configs = self._get_configs()
-        accumulation = self.accumulate(k, end_times, center=center, permute=permute)
-
-        for i, config in enumerate(configs):
-            Visualization.plot(
-                ax=ax,
-                x=end_times,
-                y=accumulation[config],
-                xlabel='t',
-                ylabel='moment',
-                label=str(config),
-                file=file,
-                show=(i == len(configs) - 1) and show,
-                clear=clear,
-                title=title
-            )
-
-        return ax
+        return Visualization.plot_curves(ax=ax, data=self._plot_accumulation_data(k, end_times, center, permute),
+                                         file=file, show=show, clear=clear, title=title)
 
     @cached_property
     def mean(self) -> JointSFS:

@@ -135,7 +135,6 @@ plot_heatmap(
     locus_config=pg.LocusConfig(2, recombination_rate=1.0)
 )
 
-fig.suptitle(f"Vectorized sampling, {N_SAMPLES:,} samples")
 fig.tight_layout(pad=2)
 
 plt.savefig(out)

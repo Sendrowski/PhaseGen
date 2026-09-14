@@ -14,8 +14,8 @@ from ..settings import Settings
 from ..spectrum import SFS
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from .base import CallableDistributionFunctions, DensityAwareDistribution, MarginalDemeDistributions, \
-    MarginalLocusDistributions, MomentAwareDistribution, _HazardGrid, \
+from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
+    MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _HazardGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
 from ._moments import MomentEvaluator
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from matplotlib import pyplot as plt
     from .reward import RewardDistribution, JointRewardDistribution
     from .empirical import EmpiricalPhaseTypeDistribution
+    from ..visualization import _CurveData
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -206,95 +207,76 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return self._reward_distribution.quantile(q)
 
-    def _plot_cdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None,
-                  title: str = 'CDF') -> 'plt.Axes':
-        """Plot the CDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
-        return self._plot_reward_curves('cdf', [(label or 'cdf', self.reward)], ax, t, n_points, show, file, clear,
-                                        title)
+    def _plot_data_cdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve of the accumulated reward (see :meth:`_reward_curves`).
 
-    def _plot_pdf(self, ax: 'plt.Axes' = None, t: np.ndarray = None, n_points: int = None, show: bool = True,
-                  file: str = None, clear: bool = True, label: str = None,
-                  title: str = 'PDF') -> 'plt.Axes':
-        """Plot the PDF curve of the accumulated reward (see :meth:`_plot_reward_curves`)."""
-        return self._plot_reward_curves('pdf', [(label or 'pdf', self.reward)], ax, t, n_points, show, file, clear,
-                                        title)
+        :param t: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._reward_curves('cdf', [('cdf', self._reward_distribution)], t, n_points, 'CDF')
 
-    def _plot_quantile(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
-                       file: str = None, clear: bool = True, label: str = None,
-                       title: str = 'Quantile function') -> 'plt.Axes':
-        """Plot the quantile function (accumulated reward versus probability ``q``)."""
-        return self._plot_reward_curves('quantile', [(label or 'quantile', self.reward)], ax, q, n_points, show, file,
-                                        clear, title)
+    def _plot_data_pdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve of the accumulated reward (see :meth:`_reward_curves`).
 
-    def _plot_reward_curves(
-            self,
+        :param t: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._reward_curves('pdf', [('pdf', self._reward_distribution)], t, n_points, 'PDF')
+
+    def _plot_data_quantile(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The quantile curve of the accumulated reward (see :meth:`_reward_curves`).
+
+        :param q: Probabilities to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._reward_curves('quantile', [('quantile', self._reward_distribution)], q, n_points,
+                                   'Quantile function')
+
+    @staticmethod
+    def _reward_curves(
             kind: str,
-            items: Sequence[Tuple[object, Reward]],
-            ax: 'plt.Axes',
-            x: np.ndarray,
-            n_points: int,
-            show: bool,
-            file: str,
-            clear: bool,
-            title: str
-    ) -> 'plt.Axes':
+            items: Sequence[Tuple[object, 'RewardDistribution']],
+            grid: np.ndarray | None,
+            n_points: int | None,
+            title: str,
+            legend_title: str = None
+    ) -> '_CurveData':
         """
-        Plot the CDF, PDF or quantile curve of each ``(label, reward)`` in ``items`` on one axes, evaluating each
-        through that distribution's own ``cdf`` / ``pdf`` / ``quantile`` -- so a plotted curve is by construction the
-        function the caller gets when they evaluate it, and not a second approximation of it.
+        The CDF, density or quantile curve of each ``(label, distribution)`` in ``items``, each evaluated through that
+        distribution's own function. The default grid of a density or CDF ends at the largest
+        :attr:`Settings.plot_endpoint_quantile` quantile, read off each distribution's CDF on a coarse grid.
+
+        :param kind: The function kind, ``'pdf'``, ``'cdf'`` or ``'quantile'``.
+        :param items: Label and distribution of each curve.
+        :param grid: Points or probabilities to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid.
+        :param title: Plot title.
+        :param legend_title: Legend title.
+        :return: The curves.
         """
-        import matplotlib.pyplot as plt
-        from ..visualization import Visualization
+        from ..visualization import _CurveData
 
-        if ax is None:
-            ax = plt.gca()
-            if clear:
-                ax.clear()
-
-        dists = [(label, self.distribution(reward=reward)) for label, reward in items]
-
-        if x is None:
-            n_points = n_points or Settings.plot_n_grid
+        def end() -> float:
             q_end = Settings.plot_endpoint_quantile
-            if kind == 'quantile':
-                # the quantile function lives on the probability axis q in (0, 1)
-                x = np.linspace(1.0 - q_end, q_end, n_points)
-            else:
-                # right end = the configured upper quantile, so a heavy upper tail does not stretch the view (mean +
-                # many std can extend far past the mass). Derived cheaply from the COS CDF (one curve per bin) rather
-                # than the per-point de Hoog quantile.
-                end = max(
-                    float(np.interp(q_end, d.cdf(grid := np.linspace(0, d._range(), 256)), grid))
-                    for _, d in dists
-                )
-                x = np.linspace(0, end, n_points)
-        else:
-            x = np.asarray(x, dtype=float)
+            return max(float(np.interp(q_end, d.cdf(xs := np.linspace(0, d._range(), 256)), xs)) for _, d in items)
 
-        ylabel = {'cdf': 'F(x)', 'pdf': 'f(x)', 'quantile': 'quantile'}[kind]
-        xlabel = 'q' if kind == 'quantile' else 'accumulated branch length'
+        x = DistributionFunction._default_grid(kind, grid, n_points, end)
 
-        for k, (label, d) in enumerate(dists):
-            xk = x
-            # each curve is the distribution's own function evaluated over the grid, so the plotted quantile is the
-            # same function ``quantile(q)`` returns rather than a separately re-derived inversion
-            y = getattr(d, kind)(x)
-
-            Visualization.plot(
-                ax=ax,
-                x=xk,
-                y=y,
-                xlabel=xlabel,
-                ylabel=ylabel,
-                label=str(label),
-                file=file,
-                show=(k == len(dists) - 1 and show),
-                clear=clear,
-                title=title
-            )
-
-        return ax
+        return _CurveData(
+            x=x,
+            y=np.array([getattr(d, kind)(x) for _, d in items]).reshape(len(items), len(x)),
+            labels=[str(label) for label, _ in items],
+            xlabel='q' if kind == 'quantile' else 'accumulated branch length',
+            ylabel=dict(pdf='f(x)', cdf='F(x)', quantile='quantile')[kind],
+            title=title,
+            legend_title=legend_title
+        )
 
     @cached_property
     def demes(self) -> MarginalDemeDistributions:
@@ -313,18 +295,20 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
         r"""
         Draw samples of the accumulated reward :math:`R = \int_0^{\tau} r(X_u)\,\mathrm{d}u` by forward-simulating
-        trajectories of the underlying Markov jump process.
+        trajectories of the Markov jump process, with :math:`X_u` its state at time :math:`u`, :math:`\tau` its
+        absorption time and :math:`r` the reward.
 
-        Sampling uses a vectorized ensemble simulator: all walkers are advanced through the continuous-time Markov
-        chain in lockstep, one wave per jump. Each walker starts in a state drawn from the initial distribution
-        :math:`\boldsymbol{\alpha}` and carries a unit-rate hazard budget :math:`H \sim \mathrm{Exp}(1)`; in a state
-        with exit rate :math:`\lambda` the holding time is :math:`\mathrm{d}t = H/\lambda`, the reward increment
-        :math:`r(X)\,\mathrm{d}t` is accrued, and the next state is drawn from the embedded jump chain. The cost
-        therefore scales with the number of samples rather than the size of the state space; memory is bounded by
-        simulating in batches of :attr:`~phasegen.settings.Settings.sample_batch_size`. See :meth:`to_empirical` for
-        the sample-based distribution built on top of this.
+        All trajectories are advanced together, one jump at a time. Each starts in a state drawn from the initial
+        distribution :math:`\boldsymbol{\alpha}` and carries a hazard budget :math:`H \sim \mathrm{Exp}(1)`, redrawn
+        after every jump. In a state with exit rate :math:`\lambda` the holding time is :math:`H / \lambda`, over which
+        the reward :math:`r(X)` accrues, and the next state is drawn from the embedded jump chain. A trajectory whose
+        budget outlasts the current epoch moves to the epoch boundary and spends :math:`\lambda` times the remaining
+        epoch duration of its budget, so an epoch with :math:`\lambda = 0` adds reward without a jump. The cost scales
+        with the number of samples rather than the number of states, and the samples are simulated in batches of
+        :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`.
 
         :param n_samples: Number of samples to draw.
+        :param rng: Random number generator, ``None`` for a new default generator.
         :return: Array of sampled rewards of shape ``(n_samples,)``.
         """
         return self._sample(n_samples, rng=rng).reshape(n_samples)
@@ -370,10 +354,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             rng: np.random.Generator = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
-        Generate samples from the mean reward distribution by simulating CTMC trajectories with the vectorized
-        ensemble sampler. Its memory scales with the number of trajectories (not the state count), so requests
-        larger than :attr:`~phasegen.settings.Settings.sample_batch_size` are simulated in batches and concatenated
-        to bound peak memory.
+        Sample the given rewards in batches of ``Settings.sample_batch_size``, by the simulation described in
+        :meth:`sample`.
 
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from. Default is the tree height reward.
@@ -422,16 +404,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             record_visits: bool = False,
             rng: np.random.Generator = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        r"""
-        Vectorized trajectory sampler: advance all ``n_samples`` walkers through the CTMC in lockstep, one wave per
-        jump, instead of looping in Python.
-
-        Each walker carries a remaining hazard budget :math:`H \sim \mathrm{Exp}(1)`, resampled after every jump. The
-        time to its next event in the current epoch is :math:`H / \lambda` (:math:`\lambda` the exit rate); a walker
-        whose budget outlasts the epoch is advanced to the boundary (accruing reward and consuming
-        :math:`\lambda \cdot \mathrm{duration}` of hazard) and steps into the next epoch. This hazard-budget form
-        handles zero-rate epochs (temporarily isolated demes) uniformly: :math:`\lambda = 0` consumes no hazard, so
-        the walker simply waits out the epoch accruing reward.
+        """
+        Simulate one batch of trajectories, as described in :meth:`sample`.
 
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from.
@@ -574,6 +548,59 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return mass
 
+    def _default_end_times(self) -> np.ndarray:
+        """
+        Default times of moment accumulation plots: :attr:`Settings.plot_n_grid` points up to the
+        :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+
+        :return: The times.
+        """
+        return np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+
+    @staticmethod
+    def _reward_names(rewards: Sequence[Reward]) -> str:
+        """
+        Names of the reward classes, for plot titles.
+
+        :param rewards: The rewards.
+        :return: The comma-separated names without the ``Reward`` suffix.
+        """
+        return ', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)
+
+    def _plot_accumulation_data(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> '_CurveData':
+        """
+        The accumulation of a moment over time that :meth:`plot_accumulation` draws.
+
+        :param k: The order of the moment.
+        :param end_times: Times at which to evaluate the moment. By default, :attr:`Settings.plot_n_grid` points up to
+            the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :return: The curve, titled by the reward classes.
+        """
+        from ..visualization import _CurveData
+
+        k = int(k)
+        end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
+        rewards = (self.reward,) * k if rewards is None else rewards
+
+        return _CurveData(
+            x=end_times,
+            y=np.atleast_2d(self.accumulate(k, end_times, rewards, center, permute)),
+            labels=[''],
+            xlabel='t',
+            ylabel='moment',
+            title=f"Moment accumulation ({self._reward_names(rewards)})"
+        )
+
     def plot_accumulation(
             self,
             k: int = 1,
@@ -589,15 +616,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             title: str = None
     ) -> 'plt.Axes':
         """
-        Plot accumulation of (non-central) moments at different times.
+        Plot accumulation of moments at different times, one curve per polymorphic bin for a spectrum.
 
         .. note:: This is different from a CDF, as it shows the accumulation of moments rather than the probability
             of having reached absorption at a certain time.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param end_times: Times when to evaluate the moment. By default, :attr:`~phasegen.settings.Settings.plot_n_grid`
+            points up to the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the tree height.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
         :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
@@ -607,38 +633,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
         :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
         :return: Axes.
         """
-        k = int(k)
-
         from ..visualization import Visualization
 
-        if end_times is None:
-            end_times = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
-                                    Settings.plot_n_grid)
+        data = self._plot_accumulation_data(k, end_times, rewards, center, permute)
 
-        if rewards is None:
-            rewards = (self.reward,) * k
-
-        if title is None:
-            title = f"Moment accumulation ({', '.join(r.__class__.__name__.replace('Reward', '') for r in rewards)})"
-
-        y = self.accumulate(k, end_times, rewards, center, permute)
-
-        return Visualization.plot(
-            ax=ax,
-            x=end_times,
-            y=y,
-            xlabel='t',
-            ylabel='moment',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
+        return Visualization.plot_curves(ax=ax, data=data, file=file, show=show, clear=clear, label=label, title=title)
 
 
 class _ExpmFunction(_HazardGrid):
@@ -1125,8 +1128,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :return: Sorted array of sampled total rewards.
         """
         if t is None:
-            t = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
-                            Settings.plot_n_grid)
+            t = self._default_end_times()
 
         samples = self._sample(n_samples, [reward] if reward is not None else None).reshape(n_samples)
 
@@ -1165,26 +1167,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param title: Title of the plot.
         :return: Axes.
         """
-        from ..visualization import Visualization
+        from ..visualization import _CurveData, Visualization
 
         if t is None:
-            t = np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile),
-                            Settings.plot_n_grid)
+            t = self._default_end_times()
 
-        y = self._empirical_cdf(n_samples, reward, t)
+        data = _CurveData(x=np.asarray(t, dtype=float), y=np.atleast_2d(self._empirical_cdf(n_samples, reward, t)),
+                         labels=[''], xlabel='t', ylabel='F(t)', title=title)
 
-        return Visualization.plot(
-            ax=ax,
-            x=t,
-            y=y,
-            xlabel='t',
-            ylabel='F(t)',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
+        return Visualization.plot_curves(ax=ax, data=data, file=file, show=show, clear=clear, label=label)
 
 
 class TotalBranchLengthDistribution(PhaseTypeDistribution):

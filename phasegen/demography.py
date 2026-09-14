@@ -7,13 +7,16 @@ import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from .caching import cached_property
-from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Sequence, TYPE_CHECKING
+from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Literal, Sequence, TYPE_CHECKING
 
 import numpy as np
+
+from .settings import Settings
 
 if TYPE_CHECKING:
     import msprime
     from matplotlib import pyplot as plt
+    from .visualization import _CurveData
 
 logger = logging.getLogger('phasegen')
 
@@ -311,138 +314,153 @@ class Demography:
         """
         self.add_events([event])
 
+    def _plot_data(self, t: np.ndarray = None, kind: Literal['all', 'pop_sizes', 'migration'] = 'all') -> '_CurveData':
+        """
+        Trajectories of the population sizes and migration rates, as drawn by :meth:`plot`, :meth:`plot_pop_sizes`
+        and :meth:`plot_migration`.
+
+        :param t: Times at which to evaluate the trajectories. By default, :attr:`Settings.plot_demography_n_grid`
+            points from 0 to :attr:`Settings.plot_demography_end_time`.
+        :param kind: The trajectories to include: ``'pop_sizes'`` (one per population, named after it),
+            ``'migration'`` (one per ordered pair of distinct populations, named ``'<pop>-><pop>'``), or ``'all'``.
+        :return: The trajectories, one row of values per name.
+        :raises ValueError: If ``kind`` is unknown.
+        """
+        from .visualization import _CurveData
+
+        labels = dict(
+            all=('Demography', '$N_e, m_{ij}$'),
+            pop_sizes=('Population size trajectory', '$N_e$'),
+            migration=('Migration rate trajectory', '$m_{ij}$')
+        )
+
+        if kind not in labels:
+            raise ValueError(f"Unknown kind {kind!r}, must be one of {list(labels)}.")
+
+        if t is None:
+            t = np.linspace(0, Settings.plot_demography_end_time, Settings.plot_demography_n_grid)
+
+        t = np.asarray(t, dtype=float)
+        epochs = self.get_epochs(t)
+        pairs = [(p, q) for p in self.pop_names for q in self.pop_names if p != q]
+        names, values = [], []
+
+        if kind in ('all', 'pop_sizes'):
+            names += list(self.pop_names)
+            values += [[e.pop_sizes[p] for e in epochs] for p in self.pop_names]
+
+        if kind in ('all', 'migration'):
+            names += [f"{p}->{q}" for p, q in pairs]
+            values += [[e.migration_rates[pair] for e in epochs] for pair in pairs]
+
+        title, ylabel = labels[kind]
+
+        return _CurveData(
+            x=t,
+            y=np.array(values, dtype=float).reshape(len(names), len(t)),
+            labels=names,
+            xlabel='t',
+            ylabel=ylabel,
+            title=title
+        )
+
+    def _plot(self, kind: str, t: np.ndarray, show: bool, file: str, title: str, ylabel: str, ax: 'plt.Axes',
+              kwargs: dict) -> 'plt.Axes':
+        """
+        Plot the trajectories of :meth:`_plot_data`.
+
+        :param kind: The trajectories to include.
+        :param t: Times at which to evaluate the trajectories, ``None`` for the default times.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Title of the plot, ``None`` for the default title.
+        :param ylabel: Label of the y-axis, ``None`` for the default label.
+        :param ax: Axes object to plot to.
+        :param kwargs: Keyword arguments to pass to the plotting function.
+        :return: Axes object.
+        """
+        from .visualization import Visualization
+
+        return Visualization.plot_rates(ax=ax, data=self._plot_data(t, kind), file=file, show=show, title=title,
+                                        ylabel=ylabel, kwargs=kwargs)
+
     def plot_pop_sizes(
             self,
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            title: str = 'Population size trajectory',
-            ylabel: str = '$N_e$',
+            title: str = None,
+            ylabel: str = None,
             ax: 'plt.Axes' = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
         Plot the population size over time.
 
-        :param t: Times at which to plot the population sizes. By default, we use 1000 time points between
-            time 0 and 10.
+        :param t: Times at which to plot the population sizes. By default,
+            :attr:`~phasegen.settings.Settings.plot_demography_n_grid` points from 0 to
+            :attr:`~phasegen.settings.Settings.plot_demography_end_time`.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param title: Title of the plot.
-        :param ylabel: Label of the y-axis.
+        :param title: Title of the plot, ``None`` for the default title.
+        :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        from .visualization import Visualization
-
-        if t is None:
-            t = np.linspace(0, 10, 1000)
-
-        if kwargs is None:
-            kwargs = {}
-
-        return Visualization.plot_rates(
-            times=list(t),
-            rates=dict(zip(
-                self.pop_names,
-                np.array([[e.pop_sizes[p] for p in self.pop_names] for e in self.get_epochs(t)]).T
-            )),
-            show=show,
-            file=file,
-            title=title,
-            ylabel=ylabel,
-            kwargs=kwargs,
-            ax=ax
-        )
+        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, kwargs)
 
     def plot_migration(
             self,
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            title: str = 'Migration rate trajectory',
-            ylabel: str = '$m_{ij}$',
+            title: str = None,
+            ylabel: str = None,
             ax: 'plt.Axes' = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
-        Plot the migration over time.
+        Plot the migration rates over time.
 
-        :param t: Times at which to plot the migration rates. By default, we use 1000 time points between time 0 and 10.
+        :param t: Times at which to plot the migration rates. By default,
+            :attr:`~phasegen.settings.Settings.plot_demography_n_grid` points from 0 to
+            :attr:`~phasegen.settings.Settings.plot_demography_end_time`.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param title: Title of the plot.
-        :param ylabel: Label of the y-axis.
+        :param title: Title of the plot, ``None`` for the default title.
+        :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        from .visualization import Visualization
-
-        if t is None:
-            t = np.linspace(0, 10, 1000)
-
-        if kwargs is None:
-            kwargs = {}
-
-        # get all pairs of populations
-        pops = [(p, q) for p in self.pop_names for q in self.pop_names if p != q]
-
-        return Visualization.plot_rates(
-            times=list(t),
-            rates=dict(zip(
-                [f"{p[0]}->{p[1]}" for p in pops],
-                np.array([[e.migration_rates[p] for p in pops]
-                          for e in self.get_epochs(t)]).T
-            )),
-            show=show,
-            file=file,
-            title=title,
-            ylabel=ylabel,
-            kwargs=kwargs,
-            ax=ax
-        )
+        return self._plot('migration', t, show, file, title, ylabel, ax, kwargs)
 
     def plot(
             self,
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            ylabel: str = '$N_e, m_{ij}$',
+            ylabel: str = None,
             ax: 'plt.Axes' = None,
-            title: str = 'Demography',
+            title: str = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
-        Plot the demographic scenario.
+        Plot the population sizes and migration rates over time.
 
-        :param t: Times at which to plot the population sizes and migration rates. By default, we use 1000 time points
-            between time 0 and 10.
+        :param t: Times at which to plot the trajectories. By default,
+            :attr:`~phasegen.settings.Settings.plot_demography_n_grid` points from 0 to
+            :attr:`~phasegen.settings.Settings.plot_demography_end_time`.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param ylabel: Label of the y-axis.
+        :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
-        :param title: Title of the plot.
+        :param title: Title of the plot, ``None`` for the default title.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        from matplotlib import pyplot as plt
-
-        if t is None:
-            t = np.linspace(0, 10, 1000)
-
-        if kwargs is None:
-            kwargs = {}
-
-        if ax is None:
-            _, ax = plt.subplots()
-
-        self.plot_pop_sizes(t=t, show=False, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
-        self.plot_migration(t=t, show=show, file=file, ax=ax, title=title, ylabel=ylabel, kwargs=kwargs)
-
-        return ax
-
+        return self._plot('all', t, show, file, title, ylabel, ax, kwargs)
 
 class Epoch:
     r"""

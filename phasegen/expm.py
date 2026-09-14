@@ -14,15 +14,17 @@ import scipy
 
 class ExpmBackend(ABC):
     """
-    Base class for matrix exponentiation.
-
-    :meta private:
+    Base class for matrix exponentiation backends. A custom backend implements :meth:`compute` and is activated with
+    :meth:`Backend.register() <phasegen.expm.Backend.register>`.
     """
 
     @abstractmethod
     def compute(self, m: np.ndarray) -> np.ndarray:
         """
         Compute the matrix exponential :math:`\\exp(\\mathbf{A})`.
+
+        :param m: Square matrix.
+        :return: The matrix exponential of ``m``.
         """
         pass
 

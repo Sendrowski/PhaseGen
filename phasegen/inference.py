@@ -19,11 +19,13 @@ from tqdm import tqdm
 from .demography import Demography
 from .distributions import Coalescent
 from .serialization import Serializable
+from .settings import Settings
 from .state_space import StateSpace
 from .utils import parallelize
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
+    from .visualization import _CurveData
 
 logger = logging.getLogger('phasegen')
 
@@ -91,6 +93,7 @@ class Inference(Serializable):
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
         :param parallelize: Whether to parallelize the computations across available CPU cores.
+            ``Settings.parallelize = False`` overrides it.
 
             .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
                 It can also lead to hanging processes due to pickling issues, depending on how the
@@ -519,7 +522,7 @@ class Inference(Serializable):
         :return: Bootstrap replicates.
         """
         if not self.params_inferred:
-            raise RuntimeError('The main optimization must be run first (call :meth:`run`).')
+            raise RuntimeError('The main optimization must be run first (call run()).')
 
         x0 = self.params_inferred
         bounds = self.bounds
@@ -581,6 +584,51 @@ class Inference(Serializable):
                 if self.n_bootstraps > 1 else ''
             )
         )
+
+    @property
+    def _bootstrap_values(self) -> np.ndarray:
+        """
+        Bootstrapped parameter values, of shape ``(n_bootstraps, n_params)``, with columns in the order of
+        :attr:`param_names`.
+        """
+        return self.bootstraps[self.param_names].to_numpy(dtype=float)
+
+    @property
+    def _bootstrap_demographies(self) -> List[Demography]:
+        """
+        The demography of each bootstrap replicate.
+
+        :return: One demography per row of :attr:`_bootstrap_values`.
+        """
+        return [self.get_coal(**dict(zip(self.param_names, row))).demography for row in self._bootstrap_values]
+
+    def _plot_demography_data(
+            self,
+            t: np.ndarray = None,
+            kind: Literal['all', 'pop_sizes', 'migration'] = 'all',
+            include_bootstraps: bool = True
+    ) -> Tuple['_CurveData', List['_CurveData']]:
+        """
+        Trajectories of the inferred demography and of the demography of each bootstrap replicate, as drawn by
+        :meth:`plot_demography`, :meth:`plot_pop_sizes` and :meth:`plot_migration`.
+
+        :param t: Times at which to evaluate the trajectories. By default, :attr:`Settings.plot_inference_n_grid`
+            points up to the :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height.
+        :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
+        :param include_bootstraps: Whether to include the bootstrap replicates.
+        :return: The inferred trajectories, and the trajectories of each bootstrap replicate.
+        :raises RuntimeError: If the main optimization has not been run.
+        """
+        if self.dist_inferred is None:
+            raise RuntimeError('The main optimization must be run first (call run()).')
+
+        if t is None:
+            t = np.linspace(0, self.dist_inferred.tree_height.quantile(Settings.plot_inference_quantile),
+                            Settings.plot_inference_n_grid)
+
+        bootstraps = self._bootstrap_demographies if include_bootstraps else []
+
+        return self.dist_inferred.demography._plot_data(t, kind), [d._plot_data(t, kind) for d in bootstraps]
 
     def plot_bootstraps(
             self,
@@ -693,7 +741,7 @@ class Inference(Serializable):
             file=file,
             kwargs=kwargs,
             ax=ax,
-            kind='pop_size'
+            kind='pop_sizes'
         )
 
     def plot_migration(
@@ -733,18 +781,18 @@ class Inference(Serializable):
             show: bool,
             include_bootstraps: bool,
             ax: Optional['plt.Axes'],
-            kind: Literal['pop_size', 'migration', 'all'],
+            kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
-        Plot inferred population sizes, migration rates, or both.
+        Plot the trajectories of :meth:`_plot_demography_data`.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points, ``None`` for the default of :meth:`_plot_demography_data`.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param ax: Axes to plot on.
+        :param kind: The trajectories to include.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :return: Axes.
@@ -755,46 +803,16 @@ class Inference(Serializable):
         if kwargs is None:
             kwargs = {}
 
-        if self.dist_inferred is None:
-            raise RuntimeError('The main optimization must be run first (call :meth:`run`).')
-
-        if t is None:
-            t = np.linspace(0, self.dist_inferred.tree_height.quantile(0.99), 100)
-
-        # mapping of kind to plot function
-        funcs = dict(
-            all='plot',
-            pop_size='plot_pop_sizes',
-            migration='plot_migration'
-        )
+        inferred, bootstraps = self._plot_demography_data(t, kind, include_bootstraps)
 
         if ax is None:
             plt.close()
             ax = plt.gca()
 
-        def plot(d: Demography, kwargs2: dict) -> 'plt.Axes':
-            """
-            Plot inferred demography.
+        Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs={'color': 'C0'} | kwargs)
 
-            :param d: Demography.
-            :param kwargs2: Additional keyword arguments passed to the plot function.
-            :return: Axes.
-            """
-            getattr(d, funcs[kind])(
-                t=t,
-                ax=ax,
-                show=False,
-                kwargs=kwargs2 | kwargs
-            )
-
-            return ax
-
-        plot(self.dist_inferred.demography, {'color': 'C0'})
-
-        # plot bootstrapped demography
-        if include_bootstraps:
-            for i, row in self.bootstraps[self.param_names].iterrows():
-                plot(self.get_coal(**row.to_dict()).demography, {'color': 'C0', 'alpha': 0.3})
+        for data in bootstraps:
+            Visualization.plot_rates(ax=ax, data=data, show=False, kwargs={'color': 'C0', 'alpha': 0.3} | kwargs)
 
         Visualization.show_and_save(show=show, file=file)
 
@@ -836,7 +854,7 @@ class Inference(Serializable):
         :raises RuntimeError: If the main optimization has not been run yet.
         """
         if inference.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call :meth:`run`).')
+            raise RuntimeError('The provided Inference object must be run first (call run()).')
 
         # add the loss of the new run to the list of losses
         self.runs.loc[len(self.runs)] = (
@@ -883,7 +901,7 @@ class Inference(Serializable):
         :raises RuntimeError: If the main optimization has not been run yet.
         """
         if bootstrap.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call :meth:`run`).')
+            raise RuntimeError('The provided Inference object must be run first (call run()).')
 
         # a scipy OptimizeResult restored from a jsonpickle round-trip (e.g. a bootstrap reloaded from file on a
         # cluster) can come back empty, and its __repr__ then raises ("max() arg is an empty sequence"); fall back to

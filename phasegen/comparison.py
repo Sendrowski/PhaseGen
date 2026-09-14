@@ -100,7 +100,8 @@ class Comparison(Serializable):
         :param mass_threshold: Probability threshold above which to stop generating mutational configurations.
         :param end_time: End time of the computation.
         :param n_threads: Number of threads to use.
-        :param parallelize: Whether to parallelize the msprime simulations.
+        :param parallelize: Whether to parallelize the msprime simulations. ``Settings.parallelize = False``
+            overrides it.
         :param seed: Seed for the random number generator.
         :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
@@ -1656,7 +1657,7 @@ class Comparison(Serializable):
                 self._ms_statistics[(stat, tuple(args))] = self._eval_statistic(self.ms, stat, args)
 
             for dist, pairs in self._pairwise_surface_pairs(msprime_spec).items():
-                getattr(self.ms, dist).cache_joint_surface(pairs)
+                getattr(self.ms, dist)._cache_joint_surface(pairs)
             for dist, pairs in self._atom_conditional_pairs(msprime_spec).items():
                 getattr(self.ms, dist).cache_atom_conditional(pairs)
             for dist, specs in self._windowed_conditional_specs(msprime_spec).items():
@@ -1667,7 +1668,7 @@ class Comparison(Serializable):
                 raise ValueError("A 'tolerance.empirical' block requires 'n_samples' to be set in the config.")
             self.empirical.touch()
             for dist, pairs in self._pairwise_surface_pairs(empirical_spec).items():
-                getattr(self.empirical, dist).cache_joint_surface(pairs)
+                getattr(self.empirical, dist)._cache_joint_surface(pairs)
 
     def compare(self, title: str = '') -> None:
         """

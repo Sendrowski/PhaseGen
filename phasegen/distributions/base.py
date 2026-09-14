@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .reward import JointRewardDistribution
     from matplotlib import pyplot as plt
     from .phase_type import PhaseTypeDistribution
+    from ..visualization import _CurveData, _SurfaceData
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
@@ -30,15 +31,11 @@ class DistributionFunction:
 
     Each property returns one of the typed subclasses (:class:`DensityFunction` /
     :class:`CumulativeDistributionFunction` / :class:`QuantileFunction`, in plain, ``Marginal...``, ``Joint...`` and
-    ``Conditional...`` flavours), whose docstrings describe *what* that function is and *how* it is computed.
-
-    The function holds its owning ``distribution`` and dispatches by :attr:`kind` to the distribution's ``_<kind>``
-    (evaluate) and ``_plot_<kind>`` (plot).
+    ``Conditional...`` flavours), whose docstrings describe what that function is and how it is computed.
 
     :param distribution: The distribution this function belongs to.
     """
-    #: Short kind label (``'pdf'`` / ``'cdf'`` / ``'quantile'``), set by the kind subclasses; selects the
-    #: distribution's ``_<kind>`` / ``_plot_<kind>`` methods and is used in ``repr``.
+    #: Kind of the function: ``'pdf'``, ``'cdf'`` or ``'quantile'``.
     kind: str = ''
 
     def __init__(self, distribution: 'CallableDistributionFunctions') -> None:
@@ -48,14 +45,94 @@ class DistributionFunction:
         """Evaluate the distribution function at the given point(s) (the distribution's ``_<kind>``)."""
         return getattr(self._distribution, '_' + self.kind)(*args, **kwargs)
 
-    def plot(self, *args, **kwargs) -> 'plt.Axes':
+    def _plot_data(self, *args, **kwargs) -> '_CurveData':
         """
-        Plot the distribution function (the distribution's ``_plot_<kind>``) -- the same function :meth:`__call__`
-        evaluates, over a grid. Accepted arguments depend on the distribution; common ones are ``bins`` /
-        ``configs`` (select which spectrum bins to draw), ``n_points`` (grid resolution), ``ax`` / ``show`` /
-        ``file`` / ``title``.
+        The curves :meth:`plot` draws: this function evaluated over a grid, with labels and title, built by the
+        distribution's ``_plot_data_<kind>``. Also called by the R package.
+
+        :return: The curves, one per bin for a spectrum.
         """
-        return getattr(self._distribution, '_plot_' + self.kind)(*args, **kwargs)
+        return getattr(self._distribution, '_plot_data_' + self.kind)(*args, **kwargs)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            t: np.ndarray = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the function over a grid. The curve is ``self(t)``, the function the caller evaluates.
+
+        :param ax: Axes to plot on.
+        :param t: Points to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curve, ``None`` for none.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, n_points=n_points), file=file, show=show,
+                                         clear=clear, label=label, title=title, **kwargs)
+
+    def _curve(self, grid: np.ndarray | None, n_points: int | None, variable: str, title: str) -> '_CurveData':
+        """
+        One unlabelled curve of this function, over ``grid`` or by default over :attr:`Settings.plot_n_grid` points
+        up to the :attr:`Settings.plot_endpoint_quantile` quantile (the probability axis for a quantile function).
+
+        :param grid: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid, ``None`` for :attr:`Settings.plot_n_grid`.
+        :param variable: Name of the variable on the x-axis.
+        :param title: Plot title.
+        :return: The curve.
+        """
+        from ..visualization import _CurveData
+
+        grid = self._default_grid(self.kind, grid, n_points,
+                                  lambda: self._distribution.quantile(Settings.plot_endpoint_quantile))
+
+        return _CurveData(
+            x=grid,
+            y=np.atleast_2d(self(grid)),
+            labels=[''],
+            xlabel='q' if self.kind == 'quantile' else variable,
+            ylabel=dict(pdf=f'f({variable})', cdf=f'F({variable})', quantile='quantile')[self.kind],
+            title=title
+        )
+
+    @staticmethod
+    def _default_grid(kind: str, grid: np.ndarray | None, n_points: int | None, end: Callable[[], float]) -> np.ndarray:
+        """
+        The plotting grid: ``grid`` itself if given, otherwise :attr:`Settings.plot_n_grid` points from 0 to ``end()``,
+        or across the central :attr:`Settings.plot_endpoint_quantile` probability range for a quantile function.
+
+        :param kind: The function kind, ``'pdf'``, ``'cdf'`` or ``'quantile'``.
+        :param grid: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid, ``None`` for :attr:`Settings.plot_n_grid`.
+        :param end: Right end of the default grid of a density or CDF, called only when needed.
+        :return: The grid.
+        """
+        if grid is not None:
+            return np.asarray(grid, dtype=float)
+
+        n_points = n_points or Settings.plot_n_grid
+        q_end = Settings.plot_endpoint_quantile
+
+        if kind == 'quantile':
+            return np.linspace(1.0 - q_end, q_end, n_points)
+
+        return np.linspace(0, float(end()), n_points)
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
@@ -101,6 +178,39 @@ class QuantileFunction(DistributionFunction):
     sample quantile.
     """
     kind = 'quantile'
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function (value versus probability). The curve is ``self(q)``, the function the caller
+        evaluates.
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points
+            from ``1 - Settings.plot_endpoint_quantile`` to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curve, ``None`` for none.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, n_points=n_points), file=file, show=show,
+                                         clear=clear, label=label, title=title, **kwargs)
 
 
 # --- the shared CDF representation ----------------------------------------------------------------------------------
@@ -544,18 +654,49 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 
         return out if np.ndim(t) > 0 else float(out[0])
 
-    def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
-        """Plot the CDF up to the configured plot-endpoint quantile. The curve is ``self(x)``, i.e. exactly the
-        function the caller evaluates. Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
+    def _plot_data(self, x: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve :meth:`plot` draws.
+
+        :param x: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(x, n_points, 'x', self._distribution._titled('CDF'))
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            x: np.ndarray = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the function up to the configured plot-endpoint quantile. The curve is ``self(x)``, the function the
+        caller evaluates.
+
+        :param ax: Axes to plot on.
+        :param x: Points to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to clear the current figure.
+        :param label: Legend label of the curve, ``None`` for none.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
         from ..visualization import Visualization
-        d = self._distribution
-        if x is None:
-            x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-        y = self(x)
-        ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
-                                show=show, clear=clear, title=title or d._titled('CDF'), **kwargs)
-        return ax
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, n_points=n_points), file=file, show=show,
+                                         clear=clear, label=label, title=title, **kwargs)
 
 
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
@@ -576,18 +717,18 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
         out = d._warn_if_negative(out, d._titled('density'))
         return out if np.ndim(t) > 0 else float(out[0])
 
-    def plot(self, ax: 'plt.Axes' = None, x: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
-        """Plot the PDF up to the configured plot-endpoint quantile (the derivative of the cosine CDF grid). The curve
-        is ``self(x)``, i.e. exactly the function the caller evaluates. Extra keyword arguments (``alpha``, ``lw``,
-        ...) are forwarded to the line."""
-        from ..visualization import Visualization
-        d = self._distribution
-        if x is None:
-            x = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), n_points or Settings.plot_n_grid)
-        y = self(x)
-        return Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='f(x)', label=label, file=file,
-                                  show=show, clear=clear, title=title or d._titled('PDF'), **kwargs)
+    def _plot_data(self, x: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve :meth:`plot` draws.
+
+        :param x: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(x, n_points, 'x', self._distribution._titled('PDF'))
+
+    plot = _LSTCumulativeDistributionFunction.plot
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
@@ -620,62 +761,64 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
 
         return out if np.ndim(q) > 0 else float(out[0])
 
-    def plot(self, ax: 'plt.Axes' = None, q: np.ndarray = None, n_points: int = None, show: bool = True,
-             file: str = None, clear: bool = True, label: str = None, title: str = None, **kwargs) -> 'plt.Axes':
-        """Plot the quantile function (value versus probability). The curve is ``self(q)``, i.e. exactly the function
-        the caller evaluates. Extra keyword arguments (``alpha``, ``lw``, ...) are forwarded to the line."""
-        from ..visualization import Visualization
-        d = self._distribution
-        qe = Settings.plot_endpoint_quantile
-        if q is None:
-            q = np.linspace(1.0 - qe, qe, n_points or Settings.plot_n_grid)
-        y = self(q)
-        return Visualization.plot(ax=ax, x=q, y=y, xlabel='q', ylabel='quantile', label=label, file=file, show=show,
-                                  clear=clear, title=title or d._titled('quantile function'), **kwargs)
+    def _plot_data(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The quantile curve :meth:`plot` draws (value versus probability).
+
+        :param q: Probabilities to evaluate at. By default, :attr:`Settings.plot_n_grid` points from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(q, n_points, 'x', self._distribution._titled('quantile function'))
 
 
-# --- direct grid evaluation (matrix-exponential tree height, empirical samples) --------------------------------------
+# --- direct grid evaluation (matrix-exponential tree height) ---------------------------------------------------------
 
 class _GridCumulativeDistributionFunction(CumulativeDistributionFunction):
-    """CDF whose distribution computes ``P(R <= t)`` *directly* (the exact matrix-exponential tree height, the
-    empirical sample estimate) rather than by Laplace inversion. The evaluation lives in the subclass ``__call__``
-    (reaching into ``self._distribution`` for the state space / demography / samples); :meth:`plot` draws it on a
-    uniform grid up to the configured endpoint quantile, via :class:`Visualization`."""
+    """CDF whose distribution computes ``P(R <= t)`` *directly* (the exact matrix-exponential tree height) rather than
+    by Laplace inversion. The evaluation lives in the subclass ``__call__``."""
 
-    def plot(self, ax: 'plt.Axes' = None, t: np.ndarray = None, show: bool = True, file: str = None,
-             clear: bool = True, label: str = None, title: str = 'CDF') -> 'plt.Axes':
-        from ..visualization import Visualization
-        if t is None:
-            t = np.linspace(0, self._distribution.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
-        ax = Visualization.plot(ax=ax, x=t, y=self(t), xlabel='t', ylabel='F(t)', label=label, file=file,
-                                show=show, clear=clear, title=title)
-        return ax
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 't', 'CDF')
 
 
 class _GridDensityFunction(DensityFunction):
     """Density whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
 
-    def plot(self, ax: 'plt.Axes' = None, t: np.ndarray = None, show: bool = True, file: str = None,
-             clear: bool = True, label: str = None, title: str = 'PDF') -> 'plt.Axes':
-        from ..visualization import Visualization
-        d = self._distribution
-        if t is None:
-            t = np.linspace(0, d.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
-        return Visualization.plot(ax=ax, x=t, y=self(t), xlabel='t', ylabel='f(t)', label=label, file=file,
-                                  show=show, clear=clear, title=title)
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 't', 'PDF')
 
 
 class _GridQuantileFunction(QuantileFunction):
     """Quantile function whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
 
-    def plot(self, ax: 'plt.Axes' = None, q: np.ndarray = None, show: bool = True, file: str = None,
-             clear: bool = True, label: str = None, title: str = 'Quantile function') -> 'plt.Axes':
-        from ..visualization import Visualization
-        if q is None:
-            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile,
-                            Settings.plot_n_grid)
-        return Visualization.plot(ax=ax, x=q, y=self(q), xlabel='q', ylabel='quantile',
-                                  label=label, file=file, show=show, clear=clear, title=title)
+    def _plot_data(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The quantile curve :meth:`plot` draws (value versus probability).
+
+        :param q: Probabilities to evaluate at. By default, :attr:`Settings.plot_n_grid` points from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(q, n_points, 't', 'Quantile function')
 
 
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
@@ -704,49 +847,89 @@ class _JointFunction(_SurfacePlottable):
     nested inversion) lives on the :class:`~phasegen.distributions.reward.JointRewardDistribution` this hangs off; the
     subclasses own only the user-facing :meth:`__call__` and the plots."""
 
-    def _joint_grid(self, n_points: int) -> tuple:
-        """The plotting grid: each axis runs to the configured marginal quantile (like the 1D plots, so a heavy
-        upper tail does not stretch the view), clipped to the cosine window the representation was built on."""
-        d = self._distribution
-        st = d._cos2d
-        q = Settings.plot_endpoint_quantile
-        xs = np.linspace(0, min(d.marginal('a').quantile(q), st['ba']), n_points)
-        ys = np.linspace(0, min(d.marginal('b').quantile(q), st['bb']), n_points)
-        return xs, ys
-
     def _grid_values(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         """The joint kind evaluated on the grid ``xs x ys`` (implemented per kind)."""
         raise NotImplementedError
 
-    def _default_n_points(self, surface: bool) -> int:
-        """Default grid resolution (implemented per kind)."""
-        raise NotImplementedError
+    def _plot_data(self, n_points: int = None, surface: bool = False) -> '_SurfaceData':
+        """
+        The grid and values :meth:`plot` and :meth:`plot_surface` draw. Each axis runs from 0 to the marginal
+        :attr:`Settings.plot_endpoint_quantile` quantile. A CDF has its value scale fixed to ``[0, 1]``.
 
-    def _joint_title(self) -> str:
+        :param n_points: Number of grid points per axis. By default, :attr:`Settings.plot_joint_cdf_n_grid` for a
+            CDF, and :attr:`Settings.plot_joint_pdf_surface_n_grid` or :attr:`Settings.plot_joint_pdf_n_grid` for a
+            density drawn as a surface or a heatmap.
+        :param surface: Whether the default resolution is that of a surface rather than a heatmap.
+        :return: The grid and the values on it.
+        """
+        from ..visualization import _SurfaceData
+
         d = self._distribution
-        return f"Joint {self.kind.upper()} {d.label}" if d.label else f"Joint reward {self.kind.upper()}"
+        is_cdf = self.kind == 'cdf'
 
-    def _draw(self, surface: bool, ax, n_points, show, file, title) -> 'plt.Axes':
-        from ..visualization import Visualization
-        n_points = n_points or self._default_n_points(surface)
-        xs, ys = self._joint_grid(n_points)
-        Z = self._grid_values(xs, ys)
-        is_cdf = self.kind == 'cdf'  # a CDF is a probability -> fix its scale to [0, 1]
-        return Visualization.plot_surface(
-            xs, ys, Z, surface=surface, ax=ax, xlabel='$R_a$', ylabel='$R_b$',
-            zlabel='F(R_a, R_b)' if is_cdf else 'f(R_a, R_b)', title=title or self._joint_title(),
-            vmin=0.0 if is_cdf else None, vmax=1.0 if is_cdf else None, file=file, show=show,
+        if n_points is None:
+            if is_cdf:
+                n_points = Settings.plot_joint_cdf_n_grid
+            else:
+                n_points = Settings.plot_joint_pdf_surface_n_grid if surface else Settings.plot_joint_pdf_n_grid
+
+        # the axes are clipped to the cosine window the representation was built on
+        q = Settings.plot_endpoint_quantile
+        xs = np.linspace(0, min(d.marginal('a').quantile(q), d._cos2d['ba']), n_points)
+        ys = np.linspace(0, min(d.marginal('b').quantile(q), d._cos2d['bb']), n_points)
+        name = self.kind.upper()
+
+        return _SurfaceData(
+            x=xs,
+            y=ys,
+            z=self._grid_values(xs, ys),
+            xlabel='$R_a$',
+            ylabel='$R_b$',
+            zlabel='F(R_a, R_b)' if is_cdf else 'f(R_a, R_b)',
+            title=f"Joint {name} {d.label}" if d.label else f"Joint reward {name}",
+            vmin=0.0 if is_cdf else None,
+            vmax=1.0 if is_cdf else None
         )
 
     def plot(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
              title: str = None) -> 'plt.Axes':
-        """Heatmap of the joint function."""
-        return self._draw(False, ax, n_points, show, file, title)
+        """
+        Heatmap of the joint function. Each axis runs from 0 to the marginal
+        :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+
+        :param ax: Axes to plot on.
+        :param n_points: Number of grid points per axis. By default,
+            :attr:`~phasegen.settings.Settings.plot_joint_cdf_n_grid` for a CDF and
+            :attr:`~phasegen.settings.Settings.plot_joint_pdf_n_grid` for a density.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Plot title, ``None`` for the default title.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_surface(self._plot_data(n_points), surface=False, ax=ax, title=title, file=file,
+                                          show=show)
 
     def plot_surface(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
                      title: str = None) -> 'plt.Axes':
-        """3D surface of the joint function."""
-        return self._draw(True, ax, n_points, show, file, title)
+        """
+        3D surface of the joint function. Each axis runs from 0 to the marginal
+        :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+
+        :param ax: Axes to plot on.
+        :param n_points: Number of grid points per axis. By default,
+            :attr:`~phasegen.settings.Settings.plot_joint_cdf_n_grid` for a CDF and
+            :attr:`~phasegen.settings.Settings.plot_joint_pdf_surface_n_grid` for a density.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Plot title, ``None`` for the default title.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_surface(self._plot_data(n_points, surface=True), surface=True, ax=ax, title=title,
+                                          file=file, show=show)
 
 
 class JointDensity(_JointFunction, DensityFunction):
@@ -772,9 +955,6 @@ class JointDensity(_JointFunction, DensityFunction):
         d._warn_if_negative(raw, 'joint density (cosine)')
         return np.clip(raw, 0.0, None)
 
-    def _default_n_points(self, surface) -> int:
-        return 80 if surface else 120
-
 
 class JointCDF(_JointFunction, CumulativeDistributionFunction):
     """Joint CDF of two rewards / bins -- the probability both are at most their thresholds."""
@@ -798,9 +978,6 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
             return np.array([[float(d._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
                               for yy in ys] for xx in xs])
         return d._cdf_grid(xs, ys)
-
-    def _default_n_points(self, surface) -> int:
-        return 60
 
 
 # (a bivariate joint has no quantile flavour: a 2D quantile is not well-defined -- use a marginal or conditional)
@@ -857,8 +1034,9 @@ class ConditionalQuantileFunction(_LSTQuantileFunction):
 class CallableDistributionFunctions:
     """
     Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable distribution-function properties. Each
-    concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the plotters ``_plot_pdf`` /
-    ``_plot_cdf`` / ``_plot_quantile``; this mixin wires them together. Subclasses pick the *flavour* of the returned
+    concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the plot data
+    ``_plot_data_pdf`` / ``_plot_data_cdf`` / ``_plot_data_quantile``, unless its function objects provide them;
+    this mixin wires them together. Subclasses pick the *flavour* of the returned
     function objects by overriding :attr:`_pdf_function` / :attr:`_cdf_function` / :attr:`_quantile_function` (e.g. a
     spectrum returns the ``Marginal...`` flavours, a conditional the ``Conditional...`` flavours).
     """
@@ -1304,136 +1482,6 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
     """
     Abstract base class for probability distributions for which moments and densities can be calculated. The
     ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); the evaluation lives on those function objects (subclasses select the
-    flavour via :attr:`_cdf_function` / :attr:`_pdf_function` / :attr:`_quantile_function`). The generic grid
-    :meth:`_plot_cdf` / :meth:`_plot_pdf` / :meth:`_plot_quantile` below back the direct-evaluation flavours (the
-    empirical sample estimates) that do not bring their own plot.
+    :class:`CallableDistributionFunctions`); the evaluation and the plot data live on those function objects
+    (subclasses select the flavour via :attr:`_cdf_function` / :attr:`_pdf_function` / :attr:`_quantile_function`).
     """
-
-    def _plot_quantile(
-            self,
-            ax: 'plt.Axes' = None,
-            q: np.ndarray = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Quantile function'
-    ) -> 'plt.Axes':
-        """
-        Plot the quantile function (value versus probability ``q``).
-
-        :param ax: Axes to plot on.
-        :param q: Probabilities to evaluate the quantile at. Defaults to
-            :attr:`~phasegen.settings.Settings.plot_n_grid` evenly spaced values from
-            ``1 - Settings.plot_endpoint_quantile`` to ``Settings.plot_endpoint_quantile``.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        if q is None:
-            q = np.linspace(1.0 - Settings.plot_endpoint_quantile, Settings.plot_endpoint_quantile, Settings.plot_n_grid)
-
-        return Visualization.plot(
-            ax=ax,
-            x=q,
-            y=np.array([self.quantile(float(p)) for p in q]),
-            xlabel='q',
-            ylabel='quantile',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
-
-    def _plot_cdf(
-            self,
-            ax: 'plt.Axes' = None,
-            t: np.ndarray = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Tree height CDF'
-    ) -> 'plt.Axes':
-        """
-        Plot cumulative distribution function.
-
-        :param ax: Axes to plot on.
-        :param t: Values to evaluate the CDF at. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        if t is None:
-            t = np.linspace(0, self.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
-
-        ax = Visualization.plot(
-            ax=ax,
-            x=t,
-            y=self.cdf(t),
-            xlabel='t',
-            ylabel='F(t)',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
-        return ax
-
-    def _plot_pdf(
-            self,
-            ax: 'plt.Axes' = None,
-            t: np.ndarray = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Tree height PDF',
-    ) -> 'plt.Axes':
-        """
-        Plot density function.
-
-        :param ax: The axes to plot on.
-        :param t: Values to evaluate the density function at.
-            Defaults to a grid over :attr:`~phasegen.settings.Settings.plot_n_grid`
-            points up to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        if t is None:
-            t = np.linspace(0, self.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
-
-        return Visualization.plot(
-            ax=ax,
-            x=t,
-            y=self.pdf(t),
-            xlabel='t',
-            ylabel='f(t)',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
-

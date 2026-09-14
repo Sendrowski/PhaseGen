@@ -20,7 +20,6 @@ except NameError:
     out = "reports/manuscripts/merged/figures/state_space_size.png"
 
 import phasegen as pg
-from phasegen.utils import parallelize
 
 cache = {}
 
@@ -63,7 +62,7 @@ def plot_heatmap(
 
         return state_space(coal).k
 
-    data = parallelize(get_state_space, [(n, d) for n in N for d in D], parallelize=False).reshape(len(N), len(D))
+    data = np.array([get_state_space((n, d)) for n in N for d in D]).reshape(len(N), len(D))
 
     cache[title] = data
 

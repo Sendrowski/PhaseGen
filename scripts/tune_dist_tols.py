@@ -72,8 +72,8 @@ def noise_floor(comp, path: list) -> float:
     measured on. A tolerance is never set below :attr:`SIGMA_FLOOR` times this.
 
     The moment statistics read the standard errors the reference cached before dropping its samples
-    (:meth:`~phasegen.distributions.empirical.EmpiricalDistribution.cache_standard_errors`) and divide by the value, as
-    the metric itself does (``rel_diff`` is the worst *relative* difference over the bins, so the worst *relative*
+    (``EmpiricalDistribution._cache_standard_errors``) and divide by the value, as the metric itself
+    does (``rel_diff`` is the worst *relative* difference over the bins, so the worst *relative*
     standard error over the bins is the matching scale). The remaining metrics get an analytic scale: a CDF is compared
     absolutely, and its binomial standard error peaks at ``0.5 / sqrt(n)``.
 
@@ -106,7 +106,7 @@ def noise_floor(comp, path: list) -> float:
     if kind == 'std':
         kind, factor = 'var', 0.5  # SE[std] / std is half the relative error of the variance
 
-    errors = getattr(ref, 'standard_errors', None) or {}
+    errors = getattr(ref, '_standard_errors', None) or {}
 
     # a deme/locus cov/corr leaf (e.g. tree_height/loci/cov) compares a *matrix*, so its noise floor is the block SE
     # of that matrix (keyed "demes.cov" etc.) over the matrix itself, not the scalar total's variance error
@@ -163,7 +163,7 @@ def atom_noise_floor(ref, path: list) -> float:
         if dist is None or not dist.n_samples:
             continue
 
-        errors = getattr(dist, 'standard_errors', None) or {}
+        errors = getattr(dist, '_standard_errors', None) or {}
         if kind in errors:
             value = abs(float(np.asarray(getattr(dist, kind), dtype=float)))
             floors.append(float(errors[kind]) / value if value > 0 else 0.0)

@@ -804,7 +804,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param num_replicates: Number of replicates.
         :param n_threads: Number of threads.
-        :param parallelize: Whether to parallelize.
+        :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
         :param mutation_rate: Mutation rate.

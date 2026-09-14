@@ -37,10 +37,8 @@ class Settings(metaclass=_SettingsMeta):
     The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``). Assigning a name that is
     not declared here raises :class:`AttributeError`.
     """
-    #: Whether to flatten the block-counting state space when possible.
-    #: In certain cases, this can be achieved by computing block probabilities
-    #: and adjusting the rewards of the lineage-counting state space accordingly.
-    #: This can substantially speed up computations.
+    #: Whether to flatten the block-counting state space onto the lineage-counting one with adjusted rewards where
+    #: possible, which can substantially speed up computations.
     flatten_block_counting: bool = True
 
     #: Whether to show a progress bar for long-running operations.
@@ -56,104 +54,76 @@ class Settings(metaclass=_SettingsMeta):
     #: Whether to cache the rate matrix for different epochs which increases performance.
     cache_epochs: bool = True
 
-    #: Global switch for property/result memoization (the ``cached_property`` and ``cache`` decorators in
-    #: ``phasegen.caching``). Set to ``False`` to force every cached property, moment and intermediate result to
-    #: recompute on each access. This is meant for debugging (ruling out stale cached state, or profiling the true
-    #: cost of a computation without cache hits masking it) and will be slower. Note this is distinct from
-    #: :attr:`cache_epochs`, which toggles the separate per-epoch rate-matrix cache.
+    #: Whether to memoize cached properties and results. Set to ``False`` to recompute on every access when debugging.
+    #: Distinct from :attr:`cache_epochs`.
     cache: bool = True
 
     #: Whether to use the numba-accelerated state-space construction when numba is available. Set to ``False`` to
     #: force the pure-Python construction path.
     use_numba: bool = True
 
-    #: Van Loan matrix dimension (``(k + 1) * n_states``) at or above which moments are computed via the sparse
-    #: matrix-exponential action (Krylov/Taylor) instead of forming the dense propagator. The action exploits the
-    #: sparsity of the rate matrix and is much faster for large state spaces, but slower for small ones. Set to a
-    #: very large value to always use the dense path, or to 0 to always use the action.
+    #: Van Loan matrix dimension at or above which moments use the sparse matrix-exponential action instead of the
+    #: dense propagator. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
-    #: Whether to evaluate the final (unbounded) epoch of a moment-to-absorption in closed form (a linear solve with
-    #: the transient sub-generator) instead of exponentiating the Van Loan matrix over the estimated absorption time.
-    #: The closed form is exact and faster (it never forms the dense matrix exponential, avoids the absorption-time
-    #: heuristic, and enables the batched spectrum paths that share one solve across all bins). It applies only when
-    #: absorption is almost sure; otherwise the code falls back to the matrix-exponential path. Enabled by default.
-    #: Gates the moment-to-absorption path (``moment`` / ``_accumulate`` / ``_accumulate_closed_form``), the mean
-    #: spectrum (``_occupation_times``) and the single-epoch covariance spectrum (``_two_point_occupation``); the
-    #: independent dense/sparse crossovers (:attr:`expm_action_min_dim`, :attr:`closed_form_sparse_min_states`) sit
-    #: below it and change only how, not what, is computed. The off switch mainly exists to validate against the
-    #: matrix-exponential path.
+    #: Whether to evaluate the unbounded last epoch of a moment in closed form, by a linear solve with the transient
+    #: sub-generator. Falls back to the matrix exponential when absorption is not almost sure. Set to ``False`` to
+    #: validate against that path.
     closed_form_last_epoch: bool = True
 
-    #: Transient-state count at or above which the closed-form last-epoch path (see
-    #: :attr:`closed_form_last_epoch`) factors the transient sub-generator with a sparse LU (and applies
-    #: the sparse matrix-exponential action for its finite-epoch / occupation steps) instead of a dense LU. This is
-    #: the closed-form analogue of :attr:`expm_action_min_dim` and, like it, only changes how the result is
-    #: computed, never the result. The crossover is on the transient-state count alone (independent of the moment
-    #: order). The sparse LU reorders ``-T`` into block-triangular form via its strongly-connected-component
-    #: condensation (no coalescent transition raises the lineage/block count, so the blocks are the small migration /
-    #: recombination cycles) and factors it with ``NATURAL`` column ordering — near-zero-fill block back-substitution
-    #: — which moves the dense/sparse crossover down to a few hundred transient states across single-deme (acyclic),
-    #: migration, and two-locus spaces. Set to a very large value to always use the dense path, or to 0 to always use
-    #: the sparse path.
+    #: Transient-state count at or above which the closed-form last epoch uses a sparse LU instead of a dense one,
+    #: changing cost but not result. Set to 0 to always use the sparse path, or very large to always use the dense path.
     closed_form_sparse_min_states: int = 256
 
-    #: State count at or above which the constructed rate matrix is kept sparse instead of dense. The moment code
-    #: works with either, so this is purely a memory/speed tradeoff: a dense matrix is faster where it fits but costs
-    #: ``n_states**2`` memory, which becomes prohibitive for large state spaces. The default keeps the dense matrix under ~0.5 GB. Set to a very large value to always build dense, or to 0 to always build sparse.
+    #: State count at or above which the rate matrix is stored sparse. A dense matrix is faster but needs
+    #: ``n_states**2`` memory, about 0.5 GB at the default.
     dense_rate_matrix_max_states: int = 8000
 
-    #: Maximum number of states the construction will build before aborting with a :class:`MemoryError`. This guards
-    #: against a prohibitively large state space (which grows steeply with the sample size; e.g. the single-deme
-    #: Raise it if you have the memory for a larger space.
+    #: Maximum number of states to construct before raising :class:`MemoryError`. Raise it if memory permits.
     max_state_space_size: int = 1_000_000
 
-    #: Maximum number of trajectories the vectorized sampler
-    #: (:meth:`~phasegen.distributions.PhaseTypeDistribution.sample`) simulates in a
-    #: single ensemble pass. Its peak memory scales with the number of trajectories (chiefly the
-    #: ``n_samples * n_rewards`` reward array), not the state count, so larger requests are split into batches of
-    #: this size and concatenated, bounding peak memory at no cost to the result. The default (1e6) keeps every
-    #: normal request a single batch; lower it on a memory-constrained machine, or set it to ``None`` to disable
-    #: batching entirely.
+    #: Maximum number of trajectories :meth:`PhaseTypeDistribution.sample()
+    #: <phasegen.distributions.PhaseTypeDistribution.sample>` simulates per batch, bounding peak memory without
+    #: changing the result. Set to ``None`` to disable batching.
     sample_batch_size: Optional[int] = 1_000_000
 
-    #: Upper quantile used as the default right end of CDF/PDF/quantile plots. The plot grid runs from 0 to this
-    #: quantile so the view is not stretched by a heavy upper tail (mean + many standard deviations can extend far
-    #: past where the mass is, especially for skewed distributions). Lower it to zoom in on the bulk, raise it
-    #: (towards 1) to show more of the tail.
+    #: Upper quantile used as the default right end of distribution-function plots.
     plot_endpoint_quantile: float = 0.9
 
-    #: Default number of grid points for the 1D distribution-function plots (cdf / pdf / quantile curves). Raise it
-    #: for smoother curves, lower it for faster plotting. The 2D joint heatmaps/surfaces keep their own (coarser)
-    #: per-axis resolution for performance.
+    #: Default number of grid points for 1D distribution-function plots.
     plot_n_grid: int = 200
 
-    #: Degree of the de Hoog numerical Laplace inversion used by the exact per-point CDF / density (the
-    #: far-tail quantile, the conditional support bracket, the joint wiggle check). The inversion evaluates the transform at ``2 * degree + 1`` contour nodes (each a linear
-    #: solve), so the cost is linear in the degree. Accuracy is *non-monotonic*: it improves up to ~15 (near machine
-    #: precision) and then degrades as the ill-conditioned QD recurrence amplifies roundoff at fixed precision. The
-    #: default of 15 is the sweet spot -- both more accurate and faster than mpmath's own default (20). Lower it
-    #: (e.g. 8-10) for a further speed-up at still-excellent accuracy (~1e-9 to 1e-11).
+    #: Default number of grid points per axis for the heatmap of a joint density.
+    plot_joint_pdf_n_grid: int = 120
+
+    #: Default number of grid points per axis for the 3D surface of a joint density.
+    plot_joint_pdf_surface_n_grid: int = 80
+
+    #: Default number of grid points per axis for the heatmap and 3D surface of a joint CDF.
+    plot_joint_cdf_n_grid: int = 60
+
+    #: Default right end of the time axis of demography plots.
+    plot_demography_end_time: float = 10.0
+
+    #: Default number of time points of demography plots.
+    plot_demography_n_grid: int = 1000
+
+    #: Quantile of the inferred tree height used as the default right end of the time axis of inference plots.
+    plot_inference_quantile: float = 0.99
+
+    #: Default number of time points of inference plots.
+    plot_inference_n_grid: int = 100
+
+    #: Degree of the de Hoog Laplace inversion behind the exact CDF and density. The cost is linear in the degree.
+    #: Accuracy peaks near the default and degrades above it.
     dehoog_degree: int = 15
 
-    #: Quantile above which the CDF grid of an accumulated-reward distribution (1D, and the 1D conditionals of a joint)
-    #: stops being the Fourier-cosine fit and becomes exact de Hoog nodes -- read by the ``cdf``, ``pdf`` and
-    #: ``quantile`` alike, which all interpolate that one grid. The cosine fit is fast and vectorised but it
-    #: force-normalises to 1 at the end of its support window, so it loses the far tail outright: on a bottleneck it
-    #: reports ``1 - cdf = 0`` from ``y ~ 8`` on, where de Hoog and a 60M-replicate sampler both still find 1.5e-3 of
-    #: mass. Where the density is low, that missing mass is a *large* quantile error: at ``q = 0.99`` the cosine
-    #: quantile is already 2.8% off for an SFS bin and 8.5% off for a conditional (whose law is more skewed, so the
-    #: same truncation costs more). By ``q = 0.98`` the worst case across single-epoch / bottleneck / expansion / Beta,
-    #: marginal and conditional alike, is 0.6%. The nodes are materialised lazily, on the first query that reaches past
-    #: the cut. Set to ``None`` to disable the extension and read the cosine fit throughout.
+    #: Quantile above which the CDF grid of an accumulated-reward distribution switches from the cosine fit to exact
+    #: de Hoog nodes, which resolve the far tail. Set to ``None`` to use the cosine fit throughout.
     dehoog_tail_quantile: Optional[float] = 0.98
 
-    #: Whether to emit a logged warning when a numerical inversion looks imprecise: a substantially negative density
-    #: or a non-monotone CDF curve (Gibbs ringing), the residual cosine ripple, or a violated law of total expectation
-    #: in :meth:`JointRewardDistribution.check_total_expectation()
-    #: <phasegen.distributions.JointRewardDistribution.check_total_expectation>`. These are cheap self-consistency
-    #: tripwires (the curve is still clipped / made monotone regardless); set ``False`` to silence them in performance
-    #: runs or known-rough regimes (e.g. extreme multiple-merger high-frequency bins).
+    #: Whether to log a warning when a numerical inversion looks imprecise: a negative density, a non-monotone CDF, or
+    #: a violated law of total expectation. Set to ``False`` to silence these checks.
     check_inversions: bool = True
 
     @staticmethod
@@ -161,6 +131,8 @@ class Settings(metaclass=_SettingsMeta):
     def set_pbar(enabled: bool = True) -> Iterator[None]:
         """
         Context manager to temporarily enable or disable the progress bar.
+
+        :param enabled: Whether to show the progress bar within the context.
         """
         prev = Settings.use_pbar
         Settings.use_pbar = enabled

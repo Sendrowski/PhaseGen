@@ -35,7 +35,7 @@ _ = c.ms.sfs2
 # cache the full-grid joint *surface* ground truth for any configured pairwise surface pairs (cross-locus bin-pair
 # keys like ``(1, 2)`` under ``sfs2: pairwise: cosine``), before the raw per-replicate samples are dropped below
 for dist, pairs in c._pairwise_surface_pairs().items():
-    getattr(c.ms, dist).cache_joint_surface(pairs)
+    getattr(c.ms, dist)._cache_joint_surface(pairs)
 c.ms.sfs2.drop()
 
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'demography'):

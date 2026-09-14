@@ -57,7 +57,7 @@ msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 # the samples, leaving ``_joint_surface`` intact)
 if msprime_spec:
     for dist, pairs in c._pairwise_surface_pairs(msprime_spec).items():
-        getattr(c.ms, dist).cache_joint_surface(pairs)
+        getattr(c.ms, dist)._cache_joint_surface(pairs)
     c.ms.jsfs.drop()
     for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples', 'demography'):
         setattr(c.ms, attr, None)
@@ -74,7 +74,7 @@ if msprime_spec:
 if empirical_spec:
     c.empirical.touch()
     for dist, pairs in c._pairwise_surface_pairs(empirical_spec).items():
-        getattr(c.empirical, dist).cache_joint_surface(pairs)
+        getattr(c.empirical, dist)._cache_joint_surface(pairs)
     c.empirical.drop()
 
 # drop the cached analytical coalescent so only the small msprime ground truth is serialized (otherwise the joint
