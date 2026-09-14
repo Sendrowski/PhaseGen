@@ -9,6 +9,8 @@ import multiprocess as mp
 import numpy as np
 from tqdm import tqdm
 
+from .settings import Settings
+
 
 def parallelize(
         func: Callable,
@@ -34,7 +36,7 @@ def parallelize(
 
     :param func: Function to parallelize
     :param data: Data to parallelize over
-    :param parallelize: Whether to parallelize
+    :param parallelize: Whether to parallelize, overridden by ``Settings.parallelize = False``
     :param pbar: Whether to show a progress bar
     :param batch_size: Number of units to show in the pbar per function
     :param desc: Description for tqdm progress bar
@@ -49,7 +51,7 @@ def parallelize(
 
         return it
 
-    if parallelize and len(data) > 1:
+    if parallelize and Settings.parallelize and len(data) > 1:
         # spawn on macOS (fork there deadlocks once numba/Accelerate are loaded); platform default elsewhere
         ctx = mp.get_context('spawn') if sys.platform == 'darwin' else mp.get_context()
         try:

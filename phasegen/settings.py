@@ -46,6 +46,10 @@ class Settings(metaclass=_SettingsMeta):
     #: Whether to show a progress bar for long-running operations.
     use_pbar: bool = False
 
+    #: Whether to allow parallel computation over worker processes. Set to ``False`` to run everything sequentially,
+    #: e.g. for a complete stack trace when debugging.
+    parallelize: bool = True
+
     #: Whether to regularize the intensity matrix for numerical stability.
     regularize: bool = True
 

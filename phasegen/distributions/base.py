@@ -555,7 +555,6 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
         y = self(x)
         ax = Visualization.plot(ax=ax, x=x, y=y, xlabel='x', ylabel='F(x)', label=label, file=file,
                                 show=show, clear=clear, title=title or d._titled('CDF'), **kwargs)
-        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
         return ax
 
 
@@ -650,7 +649,6 @@ class _GridCumulativeDistributionFunction(CumulativeDistributionFunction):
             t = np.linspace(0, self._distribution.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
         ax = Visualization.plot(ax=ax, x=t, y=self(t), xlabel='t', ylabel='F(t)', label=label, file=file,
                                 show=show, clear=clear, title=title)
-        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
         return ax
 
 
@@ -1395,7 +1393,6 @@ class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistrib
             clear=clear,
             title=title
         )
-        ax.set_ylim(0.0, 1.02)  # a CDF spans [0, 1]
         return ax
 
     def _plot_pdf(
