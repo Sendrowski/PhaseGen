@@ -1,0 +1,4 @@
+                           exact   sampled
+tree height (mean)         4.794     4.775
+tree height (var)          8.442     8.301
+branch length (mean)      14.033    13.995

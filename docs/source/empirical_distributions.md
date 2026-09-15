@@ -45,7 +45,7 @@ matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1,
 import matplotlib.pyplot as plt
 
 # the sampled mean joint SFS reproduces the exact surface from 50,000 genealogies
-sampled = coal.jsfs.to_empirical(50_000)
+sampled = coal.jsfs.to_empirical(50_000, seed=42)
 
 _, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
 coal.jsfs.mean.plot_surface(ax=axs[0], show=False, title='Exact')
@@ -86,7 +86,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```{code-cell} r
 :tags: [full-width]
 # the sampled mean joint SFS reproduces the exact surface from 50,000 genealogies
-sampled <- coal$jsfs$to_empirical(50000L)
+sampled <- coal$jsfs$to_empirical(50000L, seed = 42L)
 
 par(mfrow = c(1, 2))
 persp(coal$jsfs$mean, title = "Exact")
@@ -102,8 +102,8 @@ stopifnot(abs(sum(sampled$mean$data) - sum(coal$jsfs$mean$data)) < 4 * sqrt(coal
 Because the empirical object exposes the same interface as the exact distribution, scalar summaries compare directly. A hundred thousand genealogies closely recover the exact tree height and total branch length.
 
 ```{code-cell} python
-th = coal.tree_height.to_empirical(100_000)
-tbl = coal.total_branch_length.to_empirical(100_000)
+th = coal.tree_height.to_empirical(100_000, seed=42)
+tbl = coal.total_branch_length.to_empirical(100_000, seed=42)
 
 print(f"{'':<22}{'exact':>10}{'sampled':>10}")
 print(f"{'tree height (mean)':<22}{coal.tree_height.mean:>10.3f}{th.mean:>10.3f}")
@@ -119,8 +119,8 @@ assert abs(th.var - coal.tree_height.var) < 0.05 * coal.tree_height.var
 ```
 
 ```{code-cell} r
-th <- coal$tree_height$to_empirical(100000L)
-tbl <- coal$total_branch_length$to_empirical(100000L)
+th <- coal$tree_height$to_empirical(100000L, seed = 42L)
+tbl <- coal$total_branch_length$to_empirical(100000L, seed = 42L)
 
 cat(sprintf("%-22s%10s%10s\n", "", "exact", "sampled"))
 cat(sprintf("%-22s%10.3f%10.3f\n", "tree height (mean)", coal$tree_height$mean, th$mean))

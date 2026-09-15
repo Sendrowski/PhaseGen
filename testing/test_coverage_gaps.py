@@ -55,7 +55,7 @@ class CoverageGapsTestCase(TestCase):
         full time to absorption."""
         windowed = pg.Coalescent(n=4, end_time=1.0)
         exact = float(windowed.total_branch_length.mean)
-        sampled = float(windowed.total_branch_length.to_empirical(40000, rng=np.random.default_rng(0)).mean)
+        sampled = float(windowed.total_branch_length.to_empirical(40000, seed=0).mean)
         self.assertAlmostEqual(exact, sampled, delta=0.1)  # windowed sampler matches windowed exact
         # and differs clearly from the full to-absorption value (the pre-fix behaviour)
         self.assertGreater(abs(float(pg.Coalescent(n=4).total_branch_length.mean) - exact), 0.5)

@@ -285,7 +285,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return MarginalLocusDistributions(self)
 
-    def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
+    def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         r"""
         Draw samples of the accumulated reward :math:`R = \int_0^{\tau} r(X_u)\,\mathrm{d}u` by forward-simulating
         trajectories of the Markov jump process, with :math:`X_u` its state at time :math:`u`, :math:`\tau` its
@@ -301,10 +301,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`.
 
         :param n_samples: Number of samples to draw.
-        :param rng: Random number generator, ``None`` for a new default generator.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: Array of sampled rewards of shape ``(n_samples,)``.
         """
-        return self._sample(n_samples, rng=rng).reshape(n_samples)
+        return self._sample(n_samples, rng=np.random.default_rng(seed)).reshape(n_samples)
 
     @staticmethod
     def _empirical_locus_agg(x: np.ndarray) -> np.ndarray:
@@ -312,7 +312,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         height overrides this with the maximum). Mirrors :class:`~phasegen.distributions.empirical.MsprimeCoalescent`."""
         return x.sum(axis=0)
 
-    def to_empirical(self, n_samples: int, rng: np.random.Generator = None) -> 'EmpiricalPhaseTypeDistribution':
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeDistribution':
         """
         Build an empirical (sample-based) counterpart of this distribution by simulating ``n_samples`` trajectories.
         The returned object exposes the same statistic interface (``mean``/``var``/``pdf``/``cdf``/...) computed from
@@ -321,6 +321,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         rewards (``DemeReward``/``LocusReward``), exactly the rewards the analytic marginals use.
 
         :param n_samples: Number of trajectories to simulate.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: An :class:`~phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution`.
 
         .. versionadded:: 2.0
@@ -332,7 +333,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         # stacked rewards over (locus, deme); one sampling pass yields the full (loci, demes) breakdown
         rewards = [self.loci[locus].demes[pop].reward for locus in range(n_loci) for pop in pops]
-        sampled = self._sample(n_samples, rewards=rewards, rng=rng)  # (n_samples, n_loci * n_demes)
+        sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))  # (n_samples, n_loci * n_demes)
 
         # (n_samples, n_loci, n_demes) -> (n_loci, n_demes, n_samples), the layout the empirical container expects
         samples = sampled.reshape(n_samples, n_loci, len(pops)).transpose(1, 2, 0)

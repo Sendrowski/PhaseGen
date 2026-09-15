@@ -24,6 +24,10 @@ import struct
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+from notebook_outputs import displayed_outputs, mask_text, tags
+
 ROOT = Path(__file__).parent.parent
 
 GLUE_PREFIX = "application/papermill.record/"
@@ -41,10 +45,6 @@ FULL_WIDTH_TAG = "full-width"
 
 # display scale of the figures of code cells not tagged FULL_WIDTH_TAG
 SINGLE_FIGURE_SCALE = 0.8
-
-
-def tags(cell: dict) -> list:
-    return cell.get("metadata", {}).get("tags", [])
 
 
 def text(cell: dict) -> str:
@@ -105,27 +105,24 @@ def display_metadata(data: dict, metadata: dict, dpi: int, full_width: bool) -> 
 
 def carrier_outputs(cell: dict, key_prefix: str, dpi: int) -> tuple[list, list]:
     """
-    Convert a code cell's outputs into hidden glue outputs.
+    Convert the displayed outputs of a code cell into hidden glue outputs.
 
     :return: The glue outputs and their keys, in display order.
     """
     outputs, keys = [], []
 
-    if "remove-output" in tags(cell):
-        return outputs, keys
+    for data, metadata in displayed_outputs(cell):
+        # the PDF rendering of a figure is written to docs/outputs only
+        data = {k: v for k, v in data.items() if k != "application/pdf"}
 
-    for output in cell.get("outputs", []):
-        if output["output_type"] == "stream":
-            if not "".join(output["text"]).strip():
-                continue
-            data = {"text/plain": "".join(output["text"])}
-        elif output["output_type"] in ("display_data", "execute_result"):
-            data = copy.deepcopy(output["data"])
-            # values are shown as plain text in both languages, without the HTML, Markdown and LaTeX renderings
-            if "text/plain" in data and not any(k.startswith("image/") for k in data):
-                data = {"text/plain": data["text/plain"]}
-        else:
-            continue
+        # the carrier is committed with the page, so the timings of this run must not reach it
+        if "text/plain" in data:
+            text = mask_text("".join(data["text/plain"]))
+
+            if isinstance(data["text/plain"], list):
+                text = text.splitlines(keepends=True)
+
+            data = dict(data, **{"text/plain": text})
 
         key = f"{key_prefix}-{len(keys)}"
         keys.append(key)
@@ -133,7 +130,7 @@ def carrier_outputs(cell: dict, key_prefix: str, dpi: int) -> tuple[list, list]:
             output_type="display_data",
             data={GLUE_PREFIX + k: v for k, v in data.items()},
             metadata=dict(
-                display_metadata(data, output.get("metadata", {}), dpi, FULL_WIDTH_TAG in tags(cell)),
+                display_metadata(data, metadata, dpi, FULL_WIDTH_TAG in tags(cell)),
                 scrapbook=dict(name=key, mime_prefix=GLUE_PREFIX),
             ),
         ))

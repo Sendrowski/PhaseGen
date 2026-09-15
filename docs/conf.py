@@ -71,7 +71,8 @@ templates_path = ['_templates']
 # 'jupyter_execute' is a myst-nb build artifact; excluding it keeps Sphinx from scanning (and recursively
 # re-nesting) it as source, which otherwise floods the build with "not in any toctree" warnings.
 # 'source' holds the User Guide sources, which docs/split_page.py and docs/merge_notebooks.py turn into the pages.
-exclude_patterns = ['_build', 'jupyter_execute', 'source', 'Thumbs.db', '.DS_Store']
+# 'outputs' holds the outputs of the pages, which docs/extract_outputs.py writes for version control.
+exclude_patterns = ['_build', 'jupyter_execute', 'outputs', 'source', 'Thumbs.db', '.DS_Store']
 
 autodoc_default_options = {
     'members': True,

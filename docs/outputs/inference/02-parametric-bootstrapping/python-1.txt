@@ -1,0 +1,4 @@
+Optimizing: 100%|██████████| 10/10 [--:--<--:--, --it/s]
+INFO:Inference: Inferred parameters: (t=0.1455, Ne=0.4814)
+Bootstrapping: 100%|██████████| 20/20 [--:--<--:--, --it/s]
+INFO:Inference: Bootstrapped parameters: mean: (t=0.1505, Ne=0.4756), std: (t=0.0501, Ne=0.0560)

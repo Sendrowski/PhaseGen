@@ -5,7 +5,7 @@ import itertools
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, TYPE_CHECKING
+from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, Union, TYPE_CHECKING
 import numpy as np
 import scipy.sparse as sp
 from ..demography import Demography
@@ -346,30 +346,32 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             permute=permute
         )
 
-    def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
+    def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         """
         Draw samples of the site-frequency spectrum by
         :meth:`simulating trajectories <phasegen.distributions.PhaseTypeDistribution.sample>`. Each sampled trajectory
         yields the branch lengths subtending every (polymorphic) frequency class; the monomorphic edge bins are zero.
 
         :param n_samples: Number of spectra to sample.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: Array of shape ``(n_samples, n + 1)`` whose per-sample mean equals :attr:`mean`.
         """
         indices = self._get_indices()
         rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices]
-        sampled = self._sample(n_samples, rewards=rewards, rng=rng)
+        sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))
 
         out = np.zeros((n_samples, self.lineage_config.n + 1))
         out[:, 1:1 + len(indices)] = sampled
 
         return out
 
-    def to_empirical(self, n_samples: int, rng: np.random.Generator = None) -> 'EmpiricalPhaseTypeSFSDistribution':
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeSFSDistribution':
         """
         Build an empirical (sample-based) SFS counterpart by simulating ``n_samples`` trajectories, broken down per
         deme. Single-locus only (``LocusReward`` is unsupported on the block-counting state space).
 
         :param n_samples: Number of trajectories to simulate.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: An :class:`~phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution`.
         """
         from .empirical import EmpiricalPhaseTypeSFSDistribution
@@ -383,7 +385,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         # stacked rewards over (deme, polymorphic bin); one sampling pass yields the full per-deme spectrum
         rewards = [CombinedReward([self.demes[pop].reward, self._get_sfs_reward(i)]) for pop in pops for i in indices]
-        sampled = self._sample(n_samples, rewards=rewards, rng=rng).reshape(n_samples, len(pops), len(indices))
+        sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed)).reshape(n_samples, len(pops), len(indices))
 
         # (loci=1, demes, samples, n + 1); the polymorphic bins scatter into their index positions
         branch_lengths = np.zeros((1, len(pops), n_samples, n + 1))
@@ -1485,18 +1487,19 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return [c for c in self.state_space.block_configs if c != full]
 
-    def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
+    def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         """
         Draw samples of the joint site-frequency spectrum, as
         :meth:`SFSDistribution.sample() <phasegen.distributions.SFSDistribution.sample>` does per frequency class.
         Each sample is indexed by descendant configuration.
 
         :param n_samples: Number of joint spectra to sample.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: Array of shape ``(n_samples, *shape)`` whose per-sample mean equals :meth:`moment` (k=1).
         """
         configs = self._get_configs()
         rewards = [CombinedReward([self.reward, JointSFSReward(c)]) for c in configs]
-        sampled = self._sample(n_samples, rewards=rewards, rng=rng)
+        sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))
 
         out = np.zeros((n_samples,) + self.shape)
         for j, config in enumerate(configs):
@@ -1504,16 +1507,17 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return out
 
-    def to_empirical(self, n_samples: int, rng: np.random.Generator = None) -> 'EmpiricalJointSFSDistribution':
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalJointSFSDistribution':
         """
         Build an empirical (sample-based) joint SFS counterpart by simulating ``n_samples`` trajectories.
 
         :param n_samples: Number of trajectories to simulate.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: An :class:`~phasegen.distributions.empirical.EmpiricalJointSFSDistribution`.
         """
         from .empirical import EmpiricalJointSFSDistribution, MsprimeCoalescent
 
-        samples = self.sample(n_samples, rng=rng)  # (n_samples, *shape)
+        samples = self.sample(n_samples, seed=seed)  # (n_samples, *shape)
 
         # non-central moments of orders 1 .. max (matching the msprime joint-SFS ground truth)
         max_order = MsprimeCoalescent._jsfs_max_order
@@ -2107,13 +2111,14 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         # symmetrize over the two (exchangeable) loci, as the per-pair path does
         return TwoLocusSFS((out + out.T) / 2)
 
-    def sample_per_locus(self, n_samples: int, rng: np.random.Generator = None) -> Tuple[np.ndarray, np.ndarray]:
+    def sample_per_locus(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> Tuple[np.ndarray, np.ndarray]:
         r"""
         Draw the per-locus branch-length vectors ``(L^0, L^1)`` from the *same* trajectories. The two-locus SFS entry
         :math:`(i, j)` is the cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, so both loci must come from one
         trajectory.
 
         :param n_samples: Number of trajectories to sample.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: A pair of arrays, each of shape ``(n_samples, n + 1)`` (locus-0 and locus-1 branch lengths).
         """
         indices = self._get_indices()
@@ -2121,7 +2126,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             [CombinedReward([self.reward, TwoLocusSFSReward(0, i)]) for i in indices] +
             [CombinedReward([self.reward, TwoLocusSFSReward(1, j)]) for j in indices]
         )
-        sampled = self._sample(n_samples, rewards=rewards, rng=rng)
+        sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))
         n_bins = len(indices)
 
         left = np.zeros((n_samples, self.lineage_config.n + 1))
@@ -2131,30 +2136,32 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
         return left, right
 
-    def sample(self, n_samples: int, rng: np.random.Generator = None) -> np.ndarray:
+    def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         """
         Draw samples of the two-locus site-frequency spectrum. Each sample is the (symmetrized) outer product of the
         two per-locus branch-length vectors of one trajectory, so its per-sample mean equals :attr:`mean`.
 
         :param n_samples: Number of two-locus spectra to sample.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: Array of shape ``(n_samples, n + 1, n + 1)``.
         """
-        left, right = self.sample_per_locus(n_samples, rng=rng)
+        left, right = self.sample_per_locus(n_samples, seed=seed)
         out = np.einsum('ni,nj->nij', left, right)
 
         return (out + out.transpose(0, 2, 1)) / 2
 
-    def to_empirical(self, n_samples: int, rng: np.random.Generator = None) -> 'EmpiricalTwoLocusSFSDistribution':
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalTwoLocusSFSDistribution':
         """
         Build an empirical (sample-based) two-locus SFS counterpart by simulating ``n_samples`` trajectories. The
         per-locus branch-length vectors come from the same trajectory, so cross-moments and joint surfaces are exact.
 
         :param n_samples: Number of trajectories to simulate.
+        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
         :return: An :class:`~phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution`.
         """
         from .empirical import EmpiricalTwoLocusSFSDistribution
 
-        left, right = self.sample_per_locus(n_samples, rng=rng)
+        left, right = self.sample_per_locus(n_samples, seed=seed)
         mean = np.einsum('ni,nj->ij', left, right) / n_samples  # non-symmetrized, as in the msprime path
 
         return EmpiricalTwoLocusSFSDistribution(mean, left=left, right=right)

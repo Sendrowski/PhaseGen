@@ -14,7 +14,8 @@ format. Markdown cells are separated by ``+++`` lines, which may carry cell meta
 The Python notebook receives every markdown cell except those tagged ``r-only`` and every ``python`` code cell; the R
 notebook receives every markdown cell except those tagged ``python-only`` and every ``r`` code cell. Both notebooks
 therefore share the same prose cells, which ``docs/merge_notebooks.py`` pairs into language tabs after execution. Each
-notebook opens with a hidden setup cell common to all pages, which renders figures as PNG at the given resolution.
+notebook opens with a hidden setup cell common to all pages, which renders figures as PNG at the given resolution and
+as PDF.
 
 The Snakemake rule ``split_page`` writes ``results/docs/Python/{name}.ipynb`` and ``results/docs/R/{name}.ipynb``,
 with the resolution ``DOCS_FIGURE_DPI`` of the Snakefile. Run directly, ``python docs/split_page.py <dpi> <name> ...``
@@ -37,13 +38,16 @@ KERNELS = {
 # source of the hidden setup cell that opens every notebook of a language, formatted with the figure resolution
 SETUP = {
     "python": (
-        "%config InlineBackend.figure_format = 'png'\n"
+        "# the PDF renderings of the figures are written to docs/outputs by docs/extract_outputs.py\n"
+        "%config InlineBackend.figure_formats = ['png', 'pdf']\n"
         "# pad the saved figure, as its tight bounding box leaves out the axis labels of 3D plots\n"
         "%config InlineBackend.print_figure_kwargs = {{'bbox_inches': 'tight', 'pad_inches': 0.3, 'dpi': {dpi}}}\n"
         "%precision %.7g"
     ),
     "r": (
         "options(repr.plot.res = {dpi})\n"
+        "# the PDF renderings of the figures are written to docs/outputs by docs/extract_outputs.py\n"
+        "options(jupyter.plot_mimetypes = c('text/plain', 'image/png', 'application/pdf'))\n"
         "# the ggplot2 theme of the R figures, padded like the Python figures\n"
         "ggplot2::theme_set(ggplot2::theme_bw() + ggplot2::theme(plot.margin = ggplot2::margin(12, 12, 12, 12)))"
     ),

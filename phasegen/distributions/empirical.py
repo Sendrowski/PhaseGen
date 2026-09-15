@@ -2087,8 +2087,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
-        rng = None if self.seed is None else np.random.default_rng(self.seed + self._seed_offsets[name])
-        return getattr(self._coalescent, name).to_empirical(self.n_samples, rng=rng)
+        seed = None if self.seed is None else self.seed + self._seed_offsets[name]
+        return getattr(self._coalescent, name).to_empirical(self.n_samples, seed=seed)
 
     @cached_property
     def tree_height(self) -> EmpiricalPhaseTypeDistribution:

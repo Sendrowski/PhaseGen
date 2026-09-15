@@ -539,10 +539,22 @@ rule merge_page:
     script:
         "docs/merge_notebooks.py"
 
-# build all User Guide pages from their sources
+# write the outputs displayed from the executed notebook of a page in one language to docs/outputs/{page}
+rule extract_page_outputs:
+    input:
+        "results/docs/{language}/{page}.executed.ipynb"
+    output:
+        touch("results/docs/{language}/{page}.outputs.written")
+    conda:
+        "envs/docs.yaml"
+    script:
+        "docs/extract_outputs.py"
+
+# build all User Guide pages from their sources and write their outputs
 rule doc_pages:
     input:
-        expand("docs/reference/{page}.ipynb", page=doc_pages)
+        expand("docs/reference/{page}.ipynb", page=doc_pages),
+        expand("results/docs/{language}/{page}.outputs.written", language=["Python", "R"], page=doc_pages)
 
 # update the documentation
 rule update_docs:

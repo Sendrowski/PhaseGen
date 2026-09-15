@@ -37,7 +37,8 @@ inf = pg.Inference(
     loss=lambda coal, _: pg.PoissonLikelihood().compute(
         observed=observation.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
-    )
+    ),
+    seed=42
 )
 ```
 
@@ -63,7 +64,8 @@ inf <- pg$Inference(
     loss = function(coal, ...) pg$PoissonLikelihood()$compute(
         observed = observation$normalize()$polymorphic,
         modelled = coal$sfs$mean$normalize()$polymorphic
-    )
+    ),
+    seed = 42L
 )
 ```
 
@@ -116,9 +118,10 @@ inf = pg.Inference(
         observed=obs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     ),
-    resample=lambda sfs, rng: sfs.resample(seed=int(rng.integers(1_000_000_000))),
+    resample=lambda sfs, rng: sfs.resample(seed=rng),
     do_bootstrap=True,
-    n_bootstraps=20
+    n_bootstraps=20,
+    seed=42
 )
 ```
 
@@ -141,9 +144,10 @@ inf <- pg$Inference(
         observed = obs$normalize()$polymorphic,
         modelled = coal$sfs$mean$normalize()$polymorphic
     ),
-    resample = function(sfs, rng) sfs$resample(seed = as.integer(rng$integers(1e9))),
+    resample = function(sfs, rng) sfs$resample(seed = rng),
     do_bootstrap = TRUE,
-    n_bootstraps = 20L
+    n_bootstraps = 20L,
+    seed = 42L
 )
 ```
 
@@ -268,8 +272,9 @@ inf = pg.Inference(
         observed=obs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     ),
-    resample=lambda sfs, _: sfs.resample(),
-    do_bootstrap=False
+    resample=lambda sfs, rng: sfs.resample(seed=rng),
+    do_bootstrap=False,
+    seed=42
 )
 
 inf.run()
@@ -340,7 +345,7 @@ def loss(coal, obs):
     )
 
 def resample(sfs, rng):
-    return sfs.resample(seed=int(rng.integers(1_000_000_000)))
+    return sfs.resample(seed=rng)
 ')
 ```
 
@@ -354,7 +359,8 @@ inf <- pg$Inference(
     coal = py$coal,
     loss = py$loss,
     resample = py$resample,
-    do_bootstrap = FALSE
+    do_bootstrap = FALSE,
+    seed = 42L
 )
 
 inf$run()
