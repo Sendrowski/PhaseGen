@@ -3427,6 +3427,21 @@ theme-rtd = ["sphinx-rtd-theme (>=2.0,<3.0)"]
 theme-sbt = ["sphinx-book-theme (>=1.1,<2.0)"]
 
 [[package]]
+name = "sphinx-paramlinks"
+version = "0.6.0"
+description = "Allows param links in Sphinx function/method descriptions to be linkable"
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "sphinx-paramlinks-0.6.0.tar.gz", hash = "sha256:746a0816860aa3fff5d8d746efcbec4deead421f152687411db1d613d29f915e"},
+]
+
+[package.dependencies]
+docutils = "*"
+Sphinx = ">=4.0.0"
+
+[[package]]
 name = "sphinxcontrib-applehelp"
 version = "2.0.0"
 description = "sphinxcontrib-applehelp is a Sphinx extension which outputs Apple help books"
@@ -3850,4 +3865,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "eba598144a550f81e3d2ff52556c74f7b6aafe3c026a636290e0c1848bc624d2"
+content-hash = "80a450990d57b57a0af0b26555375f4c0a0511b6893d76b0b7e09d5ac677314f"
