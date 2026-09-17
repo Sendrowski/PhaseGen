@@ -35,7 +35,7 @@ class LNorm(Norm):
         \\|\\mathbf{a} - \\mathbf{b}\\|_p = \\left( \\sum_i |a_i - b_i|^p \\right)^{1/p},
 
     with the inputs flattened first, so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise
-    vector distance rather than an induced matrix norm.
+    vector distance and not an induced matrix norm.
     """
 
     def __init__(self, p: int) -> None:

@@ -37,8 +37,9 @@ class Settings(metaclass=_SettingsMeta):
     The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``). Assigning a name that is
     not declared here raises :class:`AttributeError`.
     """
-    #: Whether to flatten the block-counting state space onto the lineage-counting one with adjusted rewards where
-    #: possible, which can substantially speed up computations.
+    #: Whether to evaluate the mean site-frequency spectrum of a single population and locus under the standard
+    #: coalescent on the lineage-counting state space, see :meth:`PhaseTypeDistribution.moment()
+    #: <phasegen.distributions.PhaseTypeDistribution.moment>`.
     flatten_block_counting: bool = True
 
     #: Whether to show a progress bar for long-running operations.
@@ -48,7 +49,8 @@ class Settings(metaclass=_SettingsMeta):
     #: e.g. for a complete stack trace when debugging.
     parallelize: bool = True
 
-    #: Whether to regularize the intensity matrix for numerical stability.
+    #: Whether to balance the Van Loan matrix by a diagonal similarity before exponentiation, see
+    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
     regularize: bool = True
 
     #: Whether to cache the rate matrix for different epochs which increases performance.
@@ -62,17 +64,23 @@ class Settings(metaclass=_SettingsMeta):
     #: force the pure-Python construction path.
     use_numba: bool = True
 
-    #: Van Loan matrix dimension at or above which moments use the sparse matrix-exponential action instead of the
-    #: dense propagator. Set to 0 or very large to force either path.
+    #: Matrix dimension at or above which a matrix exponential is applied to a vector by the sparse action algorithm
+    #: and not formed densely. It is compared against the Van Loan dimension for moments (see
+    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), against the
+    #: number of states for the tree-height distribution functions, and against the number of transient states for
+    #: the multi-epoch mutational configurations. The result is unchanged. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
-    #: Whether to evaluate the unbounded last epoch of a moment in closed form, by a linear solve with the transient
-    #: sub-generator. Falls back to the matrix exponential when absorption is not almost sure. Set to ``False`` to
-    #: validate against that path.
+    #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see
+    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. Set to ``False``
+    #: to use the matrix exponential up to the estimated absorption time.
     closed_form_last_epoch: bool = True
 
-    #: Transient-state count at or above which the closed-form last epoch uses a sparse LU instead of a dense one,
-    #: changing cost but not result. Set to 0 to always use the sparse path, or very large to always use the dense path.
+    #: Number of transient states at or above which linear solves with the transient block of the last epoch use a
+    #: sparse block-triangular LU factorization and not a dense one. It applies to the closed-form moments (see
+    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), the last-epoch
+    #: solve of the Laplace transform and the multi-epoch mutational configurations. The result is unchanged. Set to 0
+    #: to always use the sparse path, or very large to always use the dense path.
     closed_form_sparse_min_states: int = 256
 
     #: State count at or above which the rate matrix is stored sparse. A dense matrix is faster but needs
@@ -83,8 +91,9 @@ class Settings(metaclass=_SettingsMeta):
     max_state_space_size: int = 1_000_000
 
     #: Maximum number of trajectories :meth:`PhaseTypeDistribution.sample()
-    #: <phasegen.distributions.PhaseTypeDistribution.sample>` simulates per batch, bounding peak memory without
-    #: changing the result. Set to ``None`` to disable batching.
+    #: <phasegen.distributions.PhaseTypeDistribution.sample>` simulates per batch, bounding peak memory. A fixed seed
+    #: yields different draws for different batch sizes, all from the same distribution. Set to ``None`` to disable
+    #: batching.
     sample_batch_size: Optional[int] = 1_000_000
 
     #: Upper quantile used as the default right end of distribution-function plots.
@@ -114,16 +123,17 @@ class Settings(metaclass=_SettingsMeta):
     #: Default number of time points of inference plots.
     plot_inference_n_grid: int = 100
 
-    #: Degree of the de Hoog Laplace inversion behind the exact CDF and density. The cost is linear in the degree.
-    #: Accuracy peaks near the default and degrades above it.
+    #: Degree :math:`D` of the de Hoog Laplace inversion, which evaluates the transform at :math:`2D + 1` points, as
+    #: described at :class:`~phasegen.distributions.RewardDistribution`. The cost is linear in the degree.
     dehoog_degree: int = 15
 
-    #: Quantile above which the CDF grid of an accumulated-reward distribution switches from the cosine fit to exact
-    #: de Hoog nodes, which resolve the far tail. Set to ``None`` to use the cosine fit throughout.
+    #: CDF level above which the grid of an accumulated-reward distribution carries exact de Hoog values in place of
+    #: the cosine expansion, as described at :class:`~phasegen.distributions.RewardDistribution`. Set to ``None`` to
+    #: use the cosine expansion throughout.
     dehoog_tail_quantile: Optional[float] = 0.98
 
-    #: Whether to log a warning when a numerical inversion looks imprecise: a negative density, a non-monotone CDF, or
-    #: a violated law of total expectation. Set to ``False`` to silence these checks.
+    #: Whether to log a warning when a numerical inversion looks imprecise, such as a non-monotone cosine CDF (see
+    #: :class:`~phasegen.distributions.RewardDistribution`). Set to ``False`` to silence these checks.
     check_inversions: bool = True
 
     @staticmethod

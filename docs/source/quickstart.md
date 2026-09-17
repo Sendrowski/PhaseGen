@@ -1,5 +1,5 @@
 # Quickstart
-## Obtaining statistics
+## Defining the coalescent
 In order to obtain statistics from coalescent distributions, we first need to define such a distribution. This is done by creating a {class}`~phasegen.distributions.Coalescent` object which serves as an entry point from which all statistics can be obtained. Below is an example of a simple Kingman coalescent distribution with 10 lineages, and a single population of constant size 1.
 
 ```{code-cell} python
@@ -38,6 +38,7 @@ coal <- pg$Coalescent(
 ```
 
 +++
+## Moments and distribution functions
 We can now access various statistics from this distribution, which are made available as cached properties of the component distributions of the {class}`~phasegen.distributions.Coalescent` object. The mean coalescence time, or tree height:
 
 ```{code-cell} python
@@ -124,7 +125,7 @@ stopifnot(isTRUE(all.equal(as.numeric(coal$sfs$mean$data[2:10]), 2 / (1:9))))
 ```
 
 +++
-In fact, ``tree_height``, ``total_branch_length`` and ``sfs`` are all {class}`~phasegen.distributions.PhaseTypeDistribution` objects which can be accessed to obtain statistics on these distributions. In the API reference, these are {class}`~phasegen.distributions.TreeHeightDistribution`, {class}`~phasegen.distributions.PhaseTypeDistribution`, and {class}`~phasegen.distributions.UnfoldedSFSDistribution`, respectively. {class}`~phasegen.distributions.PhaseTypeDistribution` instances support the computation of moments and cross-moments of arbitrary order, which is only limited by the computational burden associated with higher-order moments. {class}`~phasegen.distributions.TreeHeightDistribution` extends {class}`~phasegen.distributions.PhaseTypeDistribution` and offers additional information through the PDF, CDF and quantile function.
+In fact, ``tree_height``, ``total_branch_length`` and ``sfs`` are all {class}`~phasegen.distributions.PhaseTypeDistribution` objects which can be accessed to obtain statistics on these distributions. In the API reference, these are {class}`~phasegen.distributions.TreeHeightDistribution`, {class}`~phasegen.distributions.TotalBranchLengthDistribution`, and {class}`~phasegen.distributions.UnfoldedSFSDistribution`, respectively. {class}`~phasegen.distributions.PhaseTypeDistribution` instances support the computation of moments and cross-moments of arbitrary order, which is only limited by the computational burden associated with higher-order moments. Every one of them also offers the PDF, CDF and quantile function.
 
 ```{code-cell} python
 coal.tree_height.quantile(0.95)
@@ -153,6 +154,7 @@ plot(coal$tree_height$pdf)
 ```
 
 +++
+## Demography and coalescent models
 Before we discuss how to obtain more complex statistics, we first define a more complex coalescent distribution. Here, we define a two-population coalescent using the {class}`~phasegen.coalescent_models.BetaCoalescent` model, where the population sizes and migration rates are time-dependent. The nested mappings passed as ``pop_sizes`` and ``migration_rates`` define the population name and times at which the population sizes and migration rates change.
 
 ```{code-cell} python
@@ -245,4 +247,47 @@ stopifnot(isTRUE(all.equal(demes_sum, coal$sfs$mean$data)))
 ```
 
 +++
-The {doc}`rewards` section describes how to obtain more complex moments by specifying rewards. Parameter inference from observed summary statistics is described in the {doc}`inference` section.
+## Joint distributions
+Any two rewards also have a joint distribution, obtained from {meth}`Coalescent.joint_distribution() <phasegen.distributions.Coalescent.joint_distribution>`. Returning to the Kingman coalescent with 10 lineages, the tree height and the total branch length are strongly positively correlated, since a tall tree also tends to have long branches overall.
+
+```{code-cell} python
+coal = pg.Coalescent(n=10)
+
+joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+joint.corr()
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert np.allclose(joint.mean, [coal.tree_height.mean, coal.total_branch_length.mean])
+assert joint.corr() > 0.9
+```
+
+```{code-cell} r
+coal <- pg$Coalescent(n = 10)
+
+joint <- coal$joint_distribution(pg$TreeHeightReward(), pg$TotalBranchLengthReward())
+
+joint$corr()
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(isTRUE(all.equal(as.numeric(joint$mean), c(coal$tree_height$mean, coal$total_branch_length$mean))))
+stopifnot(joint$corr() > 0.9)
+```
+
++++
+The joint density, with the tree height on the horizontal and the total branch length on the vertical axis:
+
+```{code-cell} python
+joint.pdf.plot();
+```
+
+```{code-cell} r
+plot(joint$pdf)
+```
+
++++
+The {doc}`distribution_functions` section describes joint, marginal and conditional distributions in detail. The {doc}`rewards` section describes how to obtain more complex moments by specifying rewards. Parameter inference from observed summary statistics is described in the {doc}`inference` section.

@@ -91,22 +91,22 @@ stopifnot(
 If necessary, we can also compute much higher order (cross)-moments.
 
 ```{code-cell} python
-# 5th non-central moment of tree height
+# 5th central moment of tree height
 coal.moment(5, (pg.TreeHeightReward(),) * 5)
 ```
 
 ```{code-cell} python
-# 3rd non-central moment of 2nd, 3rd and 4th unfolded SFS entries
+# 3rd central cross-moment of 2nd, 3rd and 4th unfolded SFS entries
 coal.moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(4)))
 ```
 
 ```{code-cell} r
-# 5th non-central moment of tree height
+# 5th central moment of tree height
 coal$moment(5L, lapply(1:5, function(x) pg$TreeHeightReward()))
 ```
 
 ```{code-cell} r
-# 3rd non-central moment of 2nd, 3rd and 4th unfolded SFS entries
+# 3rd central cross-moment of 2nd, 3rd and 4th unfolded SFS entries
 coal$moment(3L, c(pg$UnfoldedSFSReward(2L), pg$UnfoldedSFSReward(3L), pg$UnfoldedSFSReward(4L)))
 ```
 

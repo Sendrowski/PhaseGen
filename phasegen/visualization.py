@@ -153,7 +153,7 @@ class Visualization:
             **kwargs
     ) -> 'plt.Axes':
         """
-        Draw the curves of a :class:`_CurveData`.
+        Draw a set of labelled curves sharing one axis.
 
         :param ax: Axes to plot on.
         :param data: The curves.
@@ -191,10 +191,10 @@ class Visualization:
             show: bool = True
     ) -> 'plt.Axes':
         """
-        Draw a :class:`_SurfaceData` as a 3D surface or as a 2D heatmap with colorbar.
+        Draw a bivariate function on its grid as a 3D surface or as a 2D heatmap with colorbar.
 
         :param data: The bivariate function on its grid.
-        :param surface: Draw a 3D surface instead of a heatmap.
+        :param surface: Whether to draw a 3D surface. Otherwise a heatmap is drawn.
         :param ax: Axes to draw on (a 3D axes is created if needed for ``surface``).
         :param title: Title replacing the title of the data, ``None`` to keep it.
         :param file: File to save the plot to.

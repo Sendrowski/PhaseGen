@@ -878,8 +878,8 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param ancestral: Ancestral population to which all lineages move.
         :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population is
             set to :math:`m = c\,N`, the population size :math:`N` of the derived population times the multiplier
-            :math:`c`. This value should be chosen large enough to ensure that the lineages move to the ancestral
-            population *fast enough*.
+            :math:`c`. It should be large enough that the lineages move to the ancestral population within a time that
+            is negligible on the coalescent time scale.
         """
         if isinstance(derived, str):
             derived = [derived]

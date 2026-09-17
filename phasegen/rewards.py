@@ -148,10 +148,9 @@ class JointBlockCountingReward(Reward, ABC):
 class TwoLocusBlockCountingReward(Reward, ABC):
     """
     Base class for rewards that are compatible with
-    :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`. This is deliberately *not* a
-    :class:`JointBlockCountingReward`: although the two-locus state space subclasses the joint one, its block axis
-    encodes loci rather than populations, so generic joint-SFS rewards must not silently evaluate on it (and vice
-    versa).
+    :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`. It is not a :class:`JointBlockCountingReward`.
+    Although the two-locus state space subclasses the joint one, its block axis encodes loci and not populations, so
+    joint-SFS rewards do not evaluate on it, and two-locus rewards do not evaluate on the joint state space.
     """
     pass
 
@@ -463,7 +462,7 @@ class StateReward(Reward):
 class LineageReward(LineageCountingReward, JointBlockCountingReward):
     """
     Reward for a specific number of lineages present across all demes and loci.
-    This reward can be used to, for example, track the individual coalescent times.
+    It tracks, for example, the individual coalescence times.
     """
 
     def __init__(self, n: int) -> None:
@@ -603,7 +602,7 @@ class UnitReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
 class BlockCountingUnitReward(BlockCountingReward):
     """
     Reward all states with 1 (including absorbing states), and only support block-counting state spaces.
-    This reward can be used to force usage of the block-counting state space.
+    Passing it forces the block-counting state space.
     """
 
     def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:

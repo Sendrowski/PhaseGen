@@ -311,6 +311,54 @@ def test_jsfs_cdf_is_per_bin_matrix():
     assert np.allclose(arr[0], np.asarray(F.data))
 
 
+def test_sfs_bin_combines_spectrum_reward_and_is_cached():
+    """``sfs.bin(i)`` accumulated the bin reward alone, so on a marginal view such as ``sfs.demes['pop_0']`` it
+    returned the all-deme bin while the per-bin ``cdf`` and the moments of that view were deme-restricted, and every
+    call built a new distribution and cosine fit. The bin combines the reward of the spectrum, agrees with the per-bin
+    functions of the view, differs from the all-deme bin and is cached per bin."""
+    dem = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1})
+    sfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).sfs
+    deme = sfs.demes['pop_0']
+    x, q, i = np.array([0.3, 1.0, 2.5]), np.array([0.2, 0.5, 0.9]), 1
+
+    b = deme.bin(i)
+    assert deme.bin(i) is b
+
+    np.testing.assert_allclose(b.cdf(x), np.asarray(deme.cdf(x))[:, i], atol=1e-12)
+    np.testing.assert_allclose(b.quantile(q), np.asarray(deme.quantile(q))[:, i], atol=1e-12)
+    assert b.mean == pytest.approx(float(deme.mean.data[i]), rel=1e-8)
+
+    full = sfs.bin(i)
+    assert abs(b.mean - full.mean) > 1e-2
+    assert np.abs(b.cdf(x) - full.cdf(x)).max() > 1e-2
+
+
+def test_jsfs_functions_cache_bin_distributions_and_vectorise():
+    """The per-bin ``cdf``, ``pdf`` and ``quantile`` of the joint SFS built a new distribution for every bin on every
+    call, so each call refitted every cosine expansion, and they evaluated an array point by point. The per-bin
+    distributions are cached on the spectrum and shared with ``bin()``, and an array evaluation equals the pointwise
+    evaluation on a fresh spectrum."""
+    mig = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1})
+    make = lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=mig).jsfs
+    jsfs = make()
+    x, q = [0.5, 1.5], [0.2, 0.8]
+
+    F = np.asarray(jsfs.cdf(x))
+    cached = dict(jsfs.__dict__['_bin_distributions'])
+    assert set(cached) == {tuple(int(v) for v in c) for c in jsfs._get_configs()}
+
+    Q = np.asarray(jsfs.quantile(q))
+    jsfs.pdf(x)
+    assert all(jsfs.__dict__['_bin_distributions'][c] is d for c, d in cached.items())
+    assert all(jsfs.bin(*c) is d for c, d in cached.items())
+
+    fresh = make()
+    np.testing.assert_allclose(F, [np.asarray(fresh.cdf(v).data) for v in x], atol=1e-10)
+    np.testing.assert_allclose(Q, [np.asarray(fresh.quantile(v).data) for v in q], atol=1e-10)
+
+
 def test_two_locus_sfs_has_no_univariate_distribution():
     """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
@@ -1154,10 +1202,163 @@ def test_conditional_moments_live_on_the_conditional():
 
     assert float(cond.mean) == pytest.approx(cond._raw_moments(k=1)[0], rel=1e-3)
 
-    # the variance has only the identity behind it, so pin its consistency with the raw moments it comes from
     m1, m2 = cond._raw_moments(k=2)
-    assert float(cond.var) == pytest.approx(m2 - m1 ** 2, rel=1e-9)
     assert float(cond.moment(2)) == pytest.approx(m2, rel=1e-9)
+
+
+def test_conditional_variance_uses_the_mean_it_reports():
+    """``ConditionalRewardDistribution.var`` subtracted the squared first moment of the derivative identity while
+    ``mean`` and ``moment(1)`` reported the cumulant of the nested transform, so ``var`` differed from
+    ``moment(2) - moment(1) ** 2`` by the gap between the two first-moment routes. The invariant must hold on a value
+    and on the atom."""
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
+
+    for cond in (jd.conditional('a', v), jd.conditional('a', 0.0)):
+        assert float(cond.moment(1)) == float(cond.mean)
+        assert float(cond.var) == pytest.approx(cond.moment(2) - cond.moment(1) ** 2, rel=1e-12, abs=1e-15)
+
+
+def test_joint_cdf_vanishes_below_the_origin():
+    """``JointCDF`` integrated the cosine box at negative thresholds, whose antiderivatives are negative there, so
+    ``pg.Coalescent(n=4).sfs.joint_distribution(1, 2).cdf(-1.0, 1.0)`` returned -0.147. For identical rewards the
+    reduced CDF returned the atom ``P(R = 0)`` at every threshold at or below zero. The CDF is zero wherever either
+    threshold is negative, on both paths, and the density is zero there too."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    grid = np.asarray(jd.cdf([-1.0, -1e-9, 0.5, 2.0], [-0.5, 0.5, 2.0]))
+
+    assert np.all(grid[:2, :] == 0.0)
+    assert np.all(grid[:, 0] == 0.0)
+    assert np.all(grid[2:, 1:] > 0.0)
+    assert np.all(np.asarray(jd.pdf([-1.0, 0.5], [-1.0, 0.5]))[0, :] == 0.0)
+
+    # identical rewards, with a substantial atom P(R_3 = 0) for n = 5
+    diag = pg.Coalescent(n=5).sfs.joint_distribution(3, 3)
+    assert diag._atoms['both0'] > 0.05
+    assert diag.cdf(-1.0, 1.0) == 0.0
+    assert diag.cdf(1.0, -1.0) == 0.0
+    assert diag.cdf(0.0, 1.0) == pytest.approx(diag._atoms['both0'])
+
+
+def test_joint_marginal_rejects_unknown_reward():
+    """``JointRewardDistribution.marginal`` returned the marginal of ``R_b`` for any argument other than ``'a'``, so
+    ``marginal('c')`` succeeded silently, unlike ``conditional`` and the empirical ``marginal``."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+
+    with pytest.raises(ValueError):
+        jd.marginal('c')
+
+    assert jd.marginal('b').mean == pytest.approx(jd.mean[1])
+
+
+def test_joint_distribution_members_honour_the_cache_setting():
+    """``reward.py`` used ``functools.cached_property``, which stores every value, so ``Settings.cache = False`` did not
+    stop the joint's atoms, cosine coefficients or the conditional variance from being memoised."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+
+    prev = Settings.cache
+    Settings.cache = False
+    try:
+        _ = jd._atoms
+        _ = jd.mean
+        assert '_atoms' not in jd.__dict__
+        assert 'mean' not in jd.__dict__
+    finally:
+        Settings.cache = prev
+
+    _ = jd._atoms
+    assert '_atoms' in jd.__dict__
+
+
+@pytest.mark.parametrize('window', [dict(start_time=0.5), dict(end_time=0.5)])
+def test_joint_and_conditional_distribution_functions_raise_on_a_windowed_coalescent(window):
+    """The joint transform ignored the accumulation window, so ``Coalescent(n=4, end_time=0.5).sfs.joint_distribution(1,
+    2)`` returned the to-absorption CDF, density and conditionals next to windowed mixed moments. Every transform,
+    distribution function and conditional of a joint raises on a windowed coalescent, while the moments keep the
+    window."""
+    jd = pg.Coalescent(n=4, **window).sfs.joint_distribution(1, 2)
+
+    for call in (lambda: jd.lst(0.1, 0.2), lambda: jd.lst_batch([0.1], [0.2]), lambda: jd.lst_taylor(0.1),
+                 lambda: jd.cdf(1.0, 1.0), lambda: jd.pdf(1.0, 1.0), lambda: jd.conditional('a', 1.0),
+                 lambda: jd.conditional('a', 0.0)):
+        with pytest.raises(NotImplementedError):
+            call()
+
+    assert jd.moment(1, 1) < pg.Coalescent(n=4).sfs.joint_distribution(1, 2).moment(1, 1)
+
+
+def _refusing_joint(threshold_level: float):
+    """A joint distribution whose conditionals refuse, with ``ValueError``, every conditioning value above the given
+    level of the continuous part of the conditioning reward, standing in for values below inversion resolution."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    build = jd.conditional
+
+    thresholds = {}
+    for on in ('a', 'b'):
+        p0 = float(jd._atoms['a0' if on == 'a' else 'b0'])
+        thresholds[on] = float(jd.marginal(on).quantile(p0 + (1.0 - p0) * threshold_level))
+
+    def conditional(on='a', value=0.0):
+        if value > thresholds[on]:
+            raise ValueError("The density is below the resolution of the inversion.")
+        return build(on, value)
+
+    jd.conditional = conditional
+    return jd
+
+
+def test_conditional_checks_skip_levels_that_cannot_be_constructed(caplog):
+    """The conditional checks handled a conditional that could not be constructed in two ways. The two moment checks
+    returned ``inf`` as soon as a single level refused, while the two tower checks dropped the node from the quadrature
+    without renormalising, so its weight turned into a spurious deficit. All four skip the level, warn once naming it,
+    and compute their error over the remaining levels, and only a check without any constructed level is infinite."""
+    import logging
+
+    jd = _refusing_joint(0.6)
+
+    # the package logger does not propagate to root, where caplog listens, so capture it directly
+    pg_logger = logging.getLogger('phasegen')
+    pg_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.WARNING, logger='phasegen')
+    try:
+        moments = jd.check_conditional_moments(quantiles=[0.3, 0.9], tol=1.0)
+    finally:
+        pg_logger.removeHandler(caplog.handler)
+    assert np.isfinite(list(moments.values())).all()
+    assert any("could not be constructed" in r.getMessage() and "0.9" in r.getMessage() for r in caplog.records)
+
+    reference = _refusing_joint(1.0).check_conditional_moments(quantiles=[0.3], tol=1.0)
+    assert moments == pytest.approx(reference, rel=1e-12)
+
+    grid = jd.check_conditional_grid_moments(quantiles=[0.3, 0.9], tol=1.0)
+    assert grid == pytest.approx(_refusing_joint(1.0).check_conditional_grid_moments(quantiles=[0.3], tol=1.0))
+
+    # a renormalised quadrature over the remaining nodes stays close to the full one, a dropped weight would not
+    full = _refusing_joint(1.0).check_total_expectation(n_points=6, tol=1.0)
+    skipped = _refusing_joint(0.9).check_total_expectation(n_points=6, tol=1.0)
+    assert all(skipped[on] < 0.05 for on in skipped) and all(np.isfinite(list(full.values())))
+
+    assert np.isfinite(list(_refusing_joint(0.9).check_total_probability(n_points=3, n_y=3, tol=1.0).values())).all()
+
+    # nothing constructed: infinite
+    none = _refusing_joint(0.0)
+    assert all(np.isinf(none.check_conditional_moments(n_points=2, tol=1.0)[on]) for on in ('a', 'b'))
+    assert all(np.isinf(none.check_total_expectation(n_points=3, tol=1.0)[on]) for on in ('a', 'b'))
+
+
+def test_window_average_has_the_shape_of_the_statistic():
+    """``JointRewardDistribution.window_average`` wrapped every statistic in ``np.atleast_1d``, so a scalar statistic
+    such as the conditional mean came back as a length-one array and callers had to index ``[0]``. A scalar statistic
+    returns a float, an array-valued one an array of its shape."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    ys = np.array([0.5, 1.0, 2.0])
+
+    mean = jd.window_average(lambda c: c.mean, 'a', 1.0, 0.05, n_nodes=2)
+    cdf = jd.window_average(lambda c: c.cdf(ys), 'a', 1.0, 0.05, n_nodes=2)
+
+    assert isinstance(mean, float)
+    assert mean == pytest.approx(float(jd.conditional('a', 1.0).mean), rel=0.05)
+    assert isinstance(cdf, np.ndarray) and cdf.shape == ys.shape
 
 
 def _round_trip_cases() -> list:
@@ -1344,3 +1545,39 @@ def test_windowed_reward_distribution_functions_raise():
             d.pdf(1.0)
         with pytest.raises(NotImplementedError):
             d.quantile(0.5)
+
+
+@pytest.mark.parametrize('window', [dict(start_time=0.5), dict(end_time=0.5)])
+def test_windowed_coalescent_distribution_functions_raise_on_every_host(window):
+    """On a windowed coalescent the window lives on the tree-height distribution, not on the host of a reward
+    distribution. The guard read it from the host, which carries no window for ``total_branch_length``,
+    ``Coalescent.distribution()`` or an SFS bin, so ``Coalescent(n=4, end_time=0.5).total_branch_length.cdf(1.0)``
+    returned the to-absorption law next to a windowed mean. The tree-height quantile grid stopped at ``end_time``, so
+    ``tree_height.quantile(0.99)`` returned 0.5 while ``tree_height.cdf(0.5)`` stayed far below 0.99. Every 1D pdf,
+    cdf and quantile raises on a windowed coalescent, while the moments keep honouring the window."""
+    coal = pg.Coalescent(n=4, **window)
+
+    hosts = [
+        coal.tree_height,
+        coal.total_branch_length,
+        coal.distribution(),
+        coal.distribution(pg.TotalBranchLengthReward()),
+        coal.sfs.bin(1),
+        coal.sfs,
+        coal.tree_height.demes['pop_0'],
+    ]
+
+    for host in hosts:
+        with pytest.raises(NotImplementedError):
+            host.cdf(1.0)
+        with pytest.raises(NotImplementedError):
+            host.pdf(1.0)
+        with pytest.raises(NotImplementedError):
+            host.quantile(0.5)
+
+    # the moments keep the window
+    assert coal.total_branch_length.mean < pg.Coalescent(n=4).total_branch_length.mean
+    assert coal.tree_height.mean < pg.Coalescent(n=4).tree_height.mean
+
+    # the default moment-accumulation grid does not depend on a quantile function
+    assert len(coal.tree_height._default_end_times()) == Settings.plot_n_grid

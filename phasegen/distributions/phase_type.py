@@ -30,8 +30,48 @@ logger = logging.getLogger('phasegen')
 
 
 class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, MomentAwareDistribution):
-    """
-    Phase-type distribution for a piecewise time-homogeneous process.
+    r"""
+    Phase-type distribution of rewards accumulated by a piecewise time-homogeneous Markov jump process. The notation
+    introduced here is shared by the method descriptions throughout the API reference.
+
+    The process :math:`\{X_u\}_{u \ge 0}` is in state :math:`X_u` at time :math:`u \ge 0` and moves on the finite
+    state set :math:`E` of the :class:`~phasegen.state_space.StateSpace`, which has :math:`|E|` states. The absorbing
+    states form a closed set :math:`B \subset E`. The :math:`n_T` states in :math:`E \setminus B` are transient, and
+    :math:`\tau = \inf\{u \ge 0 : X_u \in B\}` is the absorption time.
+
+    The :class:`~phasegen.demography.Demography` divides time into :math:`M` epochs with boundaries
+    :math:`0 = t_0 < t_1 < \dots < t_M = \infty`. Epoch :math:`i \in \{1, \dots, M\}` spans :math:`[t_{i-1}, t_i)`
+    and has duration :math:`\Delta_i = t_i - t_{i-1}`. Within epoch :math:`i` the process is time-homogeneous with
+    intensity matrix :math:`\mathbf{S}_i \in \mathbb{R}^{|E| \times |E|}`, whose off-diagonal entries are transition
+    rates and whose rows sum to zero. Its restriction to the transient states is the sub-intensity matrix
+    :math:`\mathbf{T}_i`, and :math:`\mathbf{q}_i = -\mathbf{T}_i \mathbf{e}_T` is the vector of absorption rates,
+    where :math:`\mathbf{e}` and :math:`\mathbf{e}_T` denote the all-ones column vectors on :math:`E` and on the
+    transient states. The initial distribution is the row vector :math:`\boldsymbol{\alpha}` on :math:`E`, and
+    :math:`\boldsymbol{\alpha}_T` is its restriction to the transient states.
+
+    A :class:`~phasegen.rewards.Reward` assigns the non-negative reward vector :math:`\mathbf{r}`, which is zero on
+    :math:`B` and has entry :math:`r(x)` at state :math:`x \in E`, and :math:`\operatorname{diag}(\mathbf{r})` is the
+    diagonal matrix with diagonal :math:`\mathbf{r}`. The reward accumulated over the window
+    :math:`[t_\mathrm{start}, t_\mathrm{end}]` is
+
+    .. math::
+
+        R = \int_{t_\mathrm{start}}^{t_\mathrm{end}} r(X_u)\, \mathrm{d}u,
+
+    where the start time :math:`t_\mathrm{start} \ge 0` and the end time :math:`t_\mathrm{end} \le \infty` default to
+    :math:`t_\mathrm{start} = 0` and :math:`t_\mathrm{end} = \infty`, the accumulation until absorption. Several
+    accumulated rewards are written
+    :math:`R_1, \dots, R_k` for a moment of order :math:`k \ge 1`, and :math:`R_a, R_b` for a joint distribution. The
+    number of sampled lineages is :math:`n`.
+
+    The distribution of :math:`R` is characterized by its Laplace transform :math:`\varphi(s) = \mathbb{E}[e^{-sR}]`
+    with complex argument :math:`s`, and a pair of accumulated rewards by the joint transform
+    :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a R_a - s_b R_b}]`. The atom :math:`p_0 = \mathbb{P}(R = 0)` is the
+    probability that no reward accumulates. Distribution functions are evaluated at :math:`x`, and a quantile at the
+    probability level :math:`q \in (0, 1)`.
+
+    Moments are evaluated by
+    :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
     """
 
     def __init__(
@@ -105,10 +145,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         r"""
-        The distribution of the accumulated reward :math:`Y = \int_0^\tau r(X_s)\,\mathrm{d}s` to absorption, as a
-        callable and plottable :class:`~phasegen.distributions.reward.RewardDistribution` (see there for how its
-        CDF / PDF / quantiles are computed). The reward must be scalar (one value per state); for a spectrum, pass a
-        single bin's reward.
+        The distribution of the accumulated reward :math:`R`, as a :class:`~phasegen.distributions.RewardDistribution`
+        whose evaluation is described there. The reward must assign one value per state, so a spectrum takes the
+        reward of a single bin. The ``cdf``, ``pdf`` and ``quantile`` of this distribution are those of the
+        distribution of its own reward, except for :class:`~phasegen.distributions.TreeHeightDistribution`.
 
         :param reward: The reward whose accumulation is distributed. Defaults to this distribution's own reward.
         :return: The accumulated-reward distribution.
@@ -119,19 +159,41 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
-        Joint distribution of two accumulated rewards (e.g. a pair of SFS bins within a tree, or a two-locus SFS
-        entry across loci), as a callable :class:`~phasegen.distributions.reward.JointRewardDistribution` (see there
-        for the joint transform, marginals, cross-moments and joint CDF / PDF).
+        Joint distribution of two accumulated rewards, as a :class:`~phasegen.distributions.JointRewardDistribution`.
 
-        :param reward_a: The first reward.
-        :param reward_b: The second reward.
-        :return: The joint accumulated-reward distribution.
+        :param reward_a: The reward of :math:`R_a`.
+        :param reward_b: The reward of :math:`R_b`.
+        :return: The joint distribution.
 
         .. versionadded:: 2.0
         """
         from .reward import JointRewardDistribution
 
         return JointRewardDistribution(self, reward_a, reward_b)
+
+    @property
+    def _windowed(self) -> bool:
+        """Whether the coalescent accumulates over a bounded window, ``start_time > 0`` or a finite ``end_time``. The
+        window is stored on ``tree_height`` and bounds the moments and the sampler only."""
+        end = self.tree_height.end_time
+
+        return self.tree_height.start_time > 0 or (end is not None and end < np.inf)
+
+    def _assert_not_windowed(self) -> None:
+        """
+        Raise if the coalescent accumulates over a bounded window (see ``_windowed``). Every pdf, cdf and quantile
+        describes the reward accumulated from time 0 to absorption, so the distribution functions of the tree height,
+        of a 1D reward and of a joint or conditional reward call this before evaluating.
+
+        :raises NotImplementedError: If ``start_time > 0`` or ``end_time`` is finite.
+        """
+        if self._windowed:
+            start, end = self.tree_height.start_time, self.tree_height.end_time
+            raise NotImplementedError(
+                "pdf, cdf and quantile are not implemented for a coalescent with a bounded accumulation window "
+                f"(start_time={start}, end_time={end}). The window applies to the moments and the sampler, while the "
+                "distribution functions describe the reward accumulated from time 0 to absorption."
+            )
 
     @cached_property
     def _reward_distribution(self) -> 'RewardDistribution':
@@ -287,22 +349,50 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         r"""
-        Draw samples of the accumulated reward :math:`R = \int_0^{\tau} r(X_u)\,\mathrm{d}u` by forward-simulating
-        trajectories of the Markov jump process, with :math:`X_u` its state at time :math:`u`, :math:`\tau` its
-        absorption time and :math:`r` the reward.
+        Draw independent samples :math:`R^{(1)}, \dots, R^{(N)}` of the accumulated reward :math:`R` by simulating
+        trajectories of the Markov jump process, with the notation of
+        :class:`~phasegen.distributions.PhaseTypeDistribution`.
 
-        All trajectories are advanced together, one jump at a time. Each starts in a state drawn from the initial
-        distribution :math:`\boldsymbol{\alpha}` and carries a hazard budget :math:`H \sim \mathrm{Exp}(1)`, redrawn
-        after every jump. In a state with exit rate :math:`\lambda` the holding time is :math:`H / \lambda`, over which
-        the reward :math:`r(X)` accrues, and the next state is drawn from the embedded jump chain. A trajectory whose
-        budget outlasts the current epoch moves to the epoch boundary and spends :math:`\lambda` times the remaining
-        epoch duration of its budget, so an epoch with :math:`\lambda = 0` adds reward without a jump. The cost scales
-        with the number of samples rather than the number of states, and the samples are simulated in batches of
-        :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`.
+        A trajectory starts in a state drawn from :math:`\boldsymbol{\alpha}`. In state :math:`x` during epoch
+        :math:`i` the exit rate is :math:`\lambda_i(x) = -(\mathbf{S}_i)_{xx} \ge 0`, and a jump leads to the state
+        :math:`y \ne x` with probability :math:`(\mathbf{S}_i)_{xy} / \lambda_i(x)`. A trajectory entering :math:`x` at
+        time :math:`u_0` draws a hazard budget :math:`H \sim \mathrm{Exp}(1)` and leaves :math:`x` at the time
+        :math:`u_0 + D` that exhausts it,
 
-        :param n_samples: Number of samples to draw.
-        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
-        :return: Array of sampled rewards of shape ``(n_samples,)``.
+        .. math::
+
+            \int_{u_0}^{u_0 + D} \lambda_{i(u)}(x)\, \mathrm{d}u = H,
+
+        where :math:`i(u)` is the epoch containing :math:`u`. The holding time :math:`D` then has the survival function
+        :math:`\exp\bigl(-\int_{u_0}^{u_0 + d} \lambda_{i(u)}(x)\, \mathrm{d}u\bigr)` of the time-inhomogeneous
+        process. As the rates are piecewise constant, the budget is spent one epoch at a time. While
+        :math:`H > \lambda_i(x)\,(t_i - u_0)`, the trajectory moves to the boundary :math:`t_i`, keeps the remaining
+        budget :math:`H - \lambda_i(x)\,(t_i - u_0)` and continues in epoch :math:`i + 1`. Otherwise it jumps after
+        :math:`H / \lambda_i(x)` to a state drawn from the jump probabilities of epoch :math:`i` and draws a new
+        budget. A state with zero exit rate is thereby carried across an epoch without a jump. Every interval
+        :math:`[u_0, u_1)` spent in state :math:`x` adds
+
+        .. math::
+
+            r(x)\, \max\bigl(0,\ \min(u_1, t_\mathrm{end}) - \max(u_0, t_\mathrm{start})\bigr)
+
+        to the sample, which restricts the accumulation to the window :math:`[t_\mathrm{start}, t_\mathrm{end}]`. A
+        trajectory ends on absorption or once its time passes :math:`t_\mathrm{end}`. A transient state with zero exit
+        rate in the last epoch is never left: its reward accrues up to :math:`t_\mathrm{end}`, and the sample is
+        infinite for :math:`t_\mathrm{end} = \infty` and :math:`r(x) > 0`.
+
+        All trajectories advance together, one jump per step. The jump probabilities of all epochs are stored as
+        sparse rows of cumulative probabilities, so a single sorted search draws the next state of every trajectory,
+        at a cost logarithmic in the number of nonzero rates. The state space and the intensity matrix of every epoch
+        are built as for the exact computation. Trajectories are simulated in batches of at most
+        :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`. With more than one batch,
+        each batch draws from its own generator spawned from ``seed``, so a fixed seed yields different draws for
+        different batch sizes, all from the same distribution.
+
+        :param n_samples: Number of samples :math:`N`.
+        :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
+            entropy.
+        :return: The samples, of shape ``(n_samples,)``.
         """
         return self._sample(n_samples, rng=np.random.default_rng(seed)).reshape(n_samples)
 
@@ -313,16 +403,29 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return x.sum(axis=0)
 
     def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeDistribution':
-        """
-        Build an empirical (sample-based) counterpart of this distribution by simulating ``n_samples`` trajectories.
-        The returned object exposes the same statistic interface (``mean``/``var``/``pdf``/``cdf``/...) computed from
-        the samples, broken down per deme (:attr:`demes`) and per locus (:attr:`loci`), and is directly comparable to
-        the analytic distribution. The per-(locus, deme) breakdown is obtained by sampling the matching marginal
-        rewards (``DemeReward``/``LocusReward``), exactly the rewards the analytic marginals use.
+        r"""
+        Build an empirical counterpart of this distribution from :math:`N` trajectories simulated as in
+        :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, with the
+        notation of :class:`~phasegen.distributions.PhaseTypeDistribution`.
 
-        :param n_samples: Number of trajectories to simulate.
-        :param seed: Random seed, or a random number generator to draw from. ``None`` draws fresh entropy.
-        :return: An :class:`~phasegen.distributions.empirical.EmpiricalPhaseTypeDistribution`.
+        Every trajectory :math:`m = 1, \dots, N` accumulates, for each of the :math:`n_L` loci :math:`\ell` and each of
+        the :math:`n_D` demes :math:`d`, the reward :math:`R_{\ell d}^{(m)}` of the marginal distribution in
+        :attr:`loci` and :attr:`demes`, which restricts this distribution's reward to that locus and deme. The returned
+        distribution holds the totals
+
+        .. math::
+
+            R^{(m)} = \sum_{d=1}^{n_D} A\bigl(R_{1 d}^{(m)}, \dots, R_{n_L d}^{(m)}\bigr),
+
+        where the locus aggregate :math:`A` is the sum, or the maximum for the tree height. Its per-deme and per-locus
+        marginals hold :math:`\sum_\ell R_{\ell d}^{(m)}` and :math:`\sum_d R_{\ell d}^{(m)}`. All breakdowns come from
+        the same trajectories, so their covariances are estimated jointly. The statistics are the estimators of
+        :class:`~phasegen.distributions.EmpiricalDistribution`.
+
+        :param n_samples: Number of trajectories :math:`N`.
+        :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
+            entropy.
+        :return: The empirical distribution.
 
         .. versionadded:: 2.0
         """
@@ -348,14 +451,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             rng: np.random.Generator = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
-        Sample the given rewards in batches of ``Settings.sample_batch_size``, by the simulation described in
-        :meth:`sample`.
+        Sample the given rewards from shared trajectories, in batches with spawned child generators, as described in
+        ``PhaseTypeDistribution.sample``.
 
         :param n_samples: Number of trajectories to simulate.
-        :param rewards: Rewards to sample from. Default is the tree height reward.
-        :param record_visits: Whether to record which states were visited during the sampling.
-        :return: Array of sampled rewards of size (n_samples, len(rewards)),
-                 and optionally an array of probabilities of visiting each state.
+        :param rewards: Rewards to sample from. Default is this distribution's reward.
+        :param record_visits: Whether to also return the mean number of visits per trajectory to each state.
+        :param rng: Generator to draw from, ``None`` for fresh entropy.
+        :return: Array of sampled rewards of shape ``(n_samples, len(rewards))``, and optionally the visit counts.
         """
         if rewards is None:
             rewards = [self.reward]
@@ -545,11 +648,17 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     def _default_end_times(self) -> np.ndarray:
         """
         Default times of moment accumulation plots: :attr:`Settings.plot_n_grid` points up to the
-        :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+        :attr:`Settings.plot_endpoint_quantile` quantile of the tree height, or up to ``tree_height.t_max`` on a
+        windowed coalescent, whose tree height has no quantile function.
 
         :return: The times.
         """
-        return np.linspace(0, self.tree_height.quantile(Settings.plot_endpoint_quantile), Settings.plot_n_grid)
+        if self._windowed:
+            end = self.tree_height.t_max
+        else:
+            end = self.tree_height.quantile(Settings.plot_endpoint_quantile)
+
+        return np.linspace(0, end, Settings.plot_n_grid)
 
     @staticmethod
     def _reward_names(rewards: Sequence[Reward]) -> str:
@@ -577,7 +686,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards.
+        :param permute: Whether to average over the orderings of the rewards.
         :return: The curve, titled by the reward classes.
         """
         from ..visualization import _CurveData
@@ -612,17 +721,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         Plot accumulation of moments at different times, one curve per polymorphic bin for a spectrum.
 
-        .. note:: This is different from a CDF, as it shows the accumulation of moments rather than the probability
-            of having reached absorption at a certain time.
+        .. note:: This differs from a CDF: it shows the accumulation of moments, not the probability of having reached
+            absorption at a certain time.
 
         :param k: The order of the moment.
         :param end_times: Times when to evaluate the moment. By default, :attr:`~phasegen.settings.Settings.plot_n_grid`
             points up to the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the tree height.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -639,52 +747,29 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
 
 class _ExpmFunction(_HazardGrid):
-    r"""
-    Mixin owning the tree-height's matrix-exponential machinery for its function objects. The point evaluator is
-    ``d._sweep`` (see :meth:`~phasegen.distributions.phase_type.TreeHeightDistribution._sweep`), which propagates
-    :math:`\mathbf{w} = \boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)` through the epochs and reads off both
-    :math:`F(t) = 1 - \mathbf{w}\,\mathbf{e}` and :math:`f(t) = -\mathbf{w}\,\mathbf{S}\,\mathbf{e}`, the CDF *and*
-    its exact derivative, so nothing here differences the CDF numerically.
-
-    An expm point is orders of magnitude cheaper than the de Hoog inversion of an LST distribution
-    (:class:`~.base._LSTFunction`), so the cdf and pdf simply evaluate it and are exact at every point asked for. The
-    quantile is the one function the transform cannot hand back directly, and it reads the shared
-    :class:`~.base._HazardGrid` -- whose nodes are exact expm values throughout -- by inverse interpolation, in one
-    vectorised pass.
     """
-    #: Nodes of the grid the quantile inverts. Matches the LST grid's :attr:`~.base._LSTFunction._cos_n_grid`, and
-    #: like it costs only an evaluation each (here a matrix-vector product) against the exponentials behind it.
+    Grid of the tree-height quantile, described at ``TreeHeightDistribution``. The cdf and pdf evaluate
+    ``TreeHeightDistribution._sweep`` pointwise and do not read the grid.
+    """
+    #: Number of grid nodes :math:`K`.
     _n_grid: int = 8192
 
-    #: Octaves the locating pass spans below ``t_max``, and its nodes per octave. Doubling down from ``t_max``, rather
-    #: than stepping uniformly, is what makes the pass indifferent to *where* the mass sits: ``t_max`` is fixed by the
-    #: slowest rate in the demography and the bulk by the fastest, so on a bottleneck the two are orders of magnitude
-    #: apart.
+    #: Number of octaves :math:`J` of the locating pass below ``t_max``, and its nodes per octave.
     _n_probe_octaves: int = 30
     _n_probe_per_octave: int = 16
 
-    #: Cumulative hazard per segment of the resolving pass. The segments are the level sets of the locating pass's
-    #: hazard, so the nodes end up graded *by the curve*: dense where it turns, sparse through the long flat tail.
+    #: Cumulative-hazard step between the segment bounds of the second pass.
     _segment_hazard_step: float = 1.0
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
-        """The grid, built once and spanning the whole support (unlike the LST grid, there is no expensive far tail
-        to extend into lazily: the nodes are exact everywhere and cost a matrix-vector product each)."""
+        """The grid over ``[0, t_max]``, built once. The arguments are ignored, the grid always spans the support."""
         return self._shared('expm_cdf_grid', self._build_cdf_grid)
 
     def _build_cdf_grid(self) -> tuple:
         """
-        The grid, in **two passes**, mirroring the two-pass cosine fit of an LST distribution: a coarse pass over
-        octaves doubling down from ``t_max`` locates where the CDF actually rises, then the nodes are laid down
-        uniformly *within* segments of equal cumulative hazard, read off that pass.
+        Build the two-pass grid described at ``TreeHeightDistribution``.
 
-        Grading the nodes by the hazard rather than spreading them along the axis is what makes this accurate. A
-        uniform grid over ``[0, t_max]`` spends its nodes where nothing happens: ``t_max`` is set by the slowest rate
-        in the demography and the bulk by the fastest, so under a bottleneck almost every node lands in the empty tail
-        and the few left across the bulk leave cells straddling percents of the mass.
-
-        The epoch boundaries are forced in as segment bounds: the rates change there, so the CDF has a kink, and a
-        node on the kink is what keeps the piecewise-linear hazard from cutting the corner.
+        :return: The nodes and the cumulative hazard on them.
         """
         d = self._distribution
         t_max = float(d.t_max)
@@ -706,19 +791,19 @@ class _ExpmFunction(_HazardGrid):
 
 
 class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistributionFunction):
-    r"""The tree-height CDF by direct matrix exponentiation,
-    :math:`\mathbb{P}(\tau \le t) = 1 - \boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)\,\mathbf{e}`, exact at
-    every point asked for."""
+    """The tree-height CDF, evaluated pointwise by ``TreeHeightDistribution._sweep``."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         """
-        CDF ``P(R <= t)``, for a scalar or an array of ``t``.
+        The CDF of the tree height, described at :class:`~phasegen.distributions.TreeHeightDistribution`.
 
-        :param t: Point(s) at which to evaluate the CDF.
+        :param t: Point or array of points at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
-        :raises NotImplementedError: If the distribution's reward is not the tree height.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If any ``t`` is negative.
         """
         d = self._distribution
+        d._assert_not_windowed()
 
         if not isinstance(d.reward, TreeHeightReward):
             raise NotImplementedError("CDF not implemented for non-default rewards.")
@@ -740,20 +825,20 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
 
 
 class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
-    """The tree-height quantile by inverse interpolation of the shared hazard grid (``_ExpmFunction._cdf_grid``),
-    whose nodes carry exact matrix-exponential CDF values."""
+    """The tree-height quantile, read from the grid of ``_ExpmFunction._cdf_grid``."""
 
     def __call__(self, q) -> 'np.ndarray | float':
         """
-        The ``q``-quantile ``inf{t : F(t) >= q}``, for a scalar or an array of ``q``, in one vectorised pass.
+        The quantile function of the tree height, described at
+        :class:`~phasegen.distributions.TreeHeightDistribution`.
 
-        Levels beyond the grid's last node clamp to it: that node is the time of almost-sure absorption (or the
-        user-supplied end time), so there is nothing above it to resolve.
-
-        :param q: Probability level(s) in ``[0, 1]``.
-        :return: The quantile(s), of the same shape as ``q``.
-        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        :param q: Probability level or array of levels in :math:`[0, 1]`.
+        :return: The quantiles, of the same shape as ``q``.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
         """
+        self._distribution._assert_not_windowed()
+
         qa = np.atleast_1d(np.asarray(q, dtype=float))
 
         if np.any((qa < 0) | (qa > 1)):
@@ -765,21 +850,19 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
 
 
 class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
-    r"""The tree-height density by direct matrix exponentiation,
-    :math:`f(t) = -\boldsymbol{\alpha} \prod_e \exp(\mathbf{S}_e \tau_e)\,\mathbf{S}\,\mathbf{e}`, the exit-rate
-    reading of the same propagated vector the CDF is read off. Exact, and in particular not a finite difference of
-    the CDF: subtracting CDF values a step ``quantile(0.99) / 1e10`` apart would throw away most of their
-    significant digits."""
+    """The tree-height density, evaluated pointwise by ``TreeHeightDistribution._sweep``."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         """
-        Density, for a scalar or an array of ``t``.
+        The density of the tree height, described at :class:`~phasegen.distributions.TreeHeightDistribution`.
 
-        :param t: Point(s) at which to evaluate the density.
+        :param t: Point or array of points at which to evaluate the density.
         :return: The density at ``t``, of the same shape.
-        :raises NotImplementedError: If the distribution's reward is not the tree height.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If any ``t`` is negative.
         """
         d = self._distribution
+        d._assert_not_windowed()
 
         if not isinstance(d.reward, TreeHeightReward):
             raise NotImplementedError("PDF not implemented for non-default rewards.")
@@ -797,16 +880,60 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
-    """
-    Phase-type distribution for a piecewise time-homogeneous process that allows the computation of the
-    density function. This is currently only possible with default rewards.
+    r"""
+    Distribution of the tree height, the absorption time :math:`\tau`, with the notation of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. Its moments are those of any phase-type distribution. Its
+    ``cdf``, ``pdf`` and ``quantile`` are evaluated by matrix exponentiation of the intensity matrices.
 
-    The exact (matrix-exponential) cdf / pdf / quantile evaluation lives on the function objects
-    (``_ExpmCumulativeDistributionFunction`` / ``_ExpmDensityFunction`` / ``_ExpmQuantileFunction``);
-    this distribution supplies the state space, demography, epoch machinery and the exit vector they reach into.
+    For :math:`x \ge 0` in epoch :math:`\ell`, that is :math:`t_{\ell - 1} \le x < t_\ell`, the distribution of
+    :math:`X_x` over :math:`E` is the row vector
+
+    .. math::
+
+        \mathbf{p}(x) = \boldsymbol{\alpha} \Big[\prod_{i=1}^{\ell - 1} \exp(\mathbf{S}_i \Delta_i)\Big]
+        \exp\big(\mathbf{S}_\ell (x - t_{\ell - 1})\big),
+
+    and with :math:`\mathbf{1}_{E \setminus B}` the column vector that is one on the transient states and zero on
+    :math:`B`, the CDF and the density of :math:`\tau` are
+
+    .. math::
+
+        F(x) = \mathbb{P}(\tau \le x) = 1 - \mathbf{p}(x)\,\mathbf{1}_{E \setminus B}, \qquad
+        f(x) = \mathbf{p}(x)\,\big(-\mathbf{S}_\ell\,\mathbf{1}_{E \setminus B}\big).
+
+    The vector :math:`-\mathbf{S}_\ell\,\mathbf{1}_{E \setminus B}` holds the rate of absorption from each state, so
+    the density is read off the same vector as the CDF and involves no differencing (Bladt and Nielsen, 2017). An
+    array of points is evaluated in ascending order, each point advancing :math:`\mathbf{p}` from the previous one.
+    For state spaces with fewer states than
+    :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, the exponential is formed
+    densely by the active :class:`~phasegen.expm.Backend`. For larger ones, its action on :math:`\mathbf{p}` is
+    computed from the sparse intensity matrix (Al-Mohy and Higham, 2011).
+
+    The quantile :math:`F^{-1}(q)` of a level :math:`q \in [0, 1]` is read from the cumulative-hazard grid described
+    at :class:`~phasegen.distributions.QuantileFunction`, whose nodes carry exact values of :math:`F` on
+    :math:`[0, x_\mathrm{max}]`, with :math:`x_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
+    <phasegen.distributions.TreeHeightDistribution.t_max>`. That time doubles a starting value proportional to the
+    mean population size at time 0 until :math:`F` reaches
+    :attr:`TreeHeightDistribution.p_absorption <phasegen.distributions.TreeHeightDistribution.p_absorption>`, for at
+    most :attr:`TreeHeightDistribution.max_iter <phasegen.distributions.TreeHeightDistribution.max_iter>` doublings.
+    The nodes are placed in two passes. The first evaluates :math:`F` uniformly within
+    :math:`[0, x_\mathrm{max} 2^{-J}]` and within each octave :math:`[x_\mathrm{max} 2^{-j-1}, x_\mathrm{max} 2^{-j}]`
+    for :math:`j = 0, \dots, J - 1`, which locates the rise of the CDF wherever it lies. The second divides
+    :math:`[0, x_\mathrm{max}]` into segments at equal steps of the cumulative hazard :math:`-\log(1 - F)` of the first
+    pass and at the epoch boundaries :math:`t_i`, where :math:`F` has a kink, and places :math:`K` nodes, an equal
+    number uniformly within each segment. Levels above
+    :math:`F(x_\mathrm{max})` return :math:`x_\mathrm{max}`.
+
+    The distribution functions describe the absorption time from time 0 and raise :class:`NotImplementedError` on a
+    coalescent with a start time above 0 or a finite end time.
+
+    .. rubric:: References
+
+    Al-Mohy, A. H. and Higham, N. J. (2011). Computing the action of the matrix exponential, with an application to
+    exponential integrators. SIAM Journal on Scientific Computing 33(2), 488-511.
+
+    Bladt, M. and Nielsen, B. F. (2017). Matrix-Exponential Distributions in Applied Probability. Springer, New York.
     """
-    #: the exact matrix-exponential function-object flavours (selected over the inherited LST/COS ones, whose CDF is
-    #: itself a de Hoog inversion -- the expm path stays robust on ill-conditioned demographies)
     _cdf_function = _ExpmCumulativeDistributionFunction
     _pdf_function = _ExpmDensityFunction
     _quantile_function = _ExpmQuantileFunction
@@ -880,17 +1007,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.end_time: float | None = end_time
 
     def _propagate(self, w: np.ndarray, tau: float) -> np.ndarray:
-        r"""
-        Advance the row vector :math:`\mathbf{w} = \boldsymbol{\alpha} \prod \exp(\mathbf{S}\tau)` by ``tau`` in the
-        *current* epoch: :math:`\mathbf{w} \mapsto \mathbf{w}\,\exp(\mathbf{S}\tau)`.
-
-        Only :math:`\boldsymbol{\alpha}\,\mathbf{T}\,\mathbf{e}` is ever read off the propagator, so the row vector
-        is carried rather than the :math:`k \times k` matrix, and the choice of how to apply the exponential follows
-        the same configuration as the moment engine
-        (:meth:`~._moments.MomentEvaluator._accumulate`): above :attr:`~phasegen.settings.Settings.expm_action_min_dim`
-        the (sparse) matrix-exponential *action* is applied to the vector, below it the dense exponential is formed.
-        A dense ``k x k`` exponential of a state space this machinery is asked for at large ``n`` is precisely what
-        :attr:`~phasegen.settings.Settings.dense_rate_matrix_max_states` exists to avoid.
+        """
+        Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
+        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it.
 
         :param w: The row vector to advance.
         :param tau: Time to advance by, within the current epoch.
@@ -910,15 +1029,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     @cached_property
     def _e(self) -> np.ndarray:
         """
-        Exit vector.
+        Indicator of the transient states, one there and zero on the absorbing states.
         """
         return self.reward._get(self.state_space)
 
     def _cum(self, w: np.ndarray) -> float:
-        r"""
-        The cumulative probability carried by a propagated row vector: :math:`F(t) = 1 - \mathbf{w}\,\mathbf{e}`.
+        """
+        The CDF carried by the propagated state distribution ``w``, see ``_sweep``.
 
-        :param w: The propagated row vector :math:`\boldsymbol{\alpha}\,\mathbf{T}`.
+        :param w: The propagated row vector.
         :return: Cumulative probability.
         """
         return float(1 - w @ self._e)
@@ -950,19 +1069,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return self._propagate(w, u - u_prev)
 
     def _exit_rates(self) -> np.ndarray:
-        r"""The exit-rate vector :math:`-\mathbf{S}\,\mathbf{e}` of the *current* epoch: the density is
-        :math:`f(t) = \mathbf{w}\,(-\mathbf{S}\,\mathbf{e})` for the propagated :math:`\mathbf{w}`, since
-        :math:`F = 1 - \mathbf{w}\,\mathbf{e}` and
-        :math:`\frac{\mathrm{d}}{\mathrm{d}t}(\mathbf{w}\,\mathbf{e}) = \mathbf{w}\,\mathbf{S}\,\mathbf{e}`."""
+        """The per-state absorption rates of the current epoch, see ``_sweep``."""
         return -(self.state_space.S @ self._e)
 
     def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         r"""
-        The exact CDF *and* density at the ascending times ``t``, in one pass: propagate
-        :math:`\mathbf{w} = \boldsymbol{\alpha}\,\mathbf{T}(u)` through the epochs, reading off
-        :math:`F = 1 - \mathbf{w}\,\mathbf{e}` and :math:`f = \mathbf{w}\,(-\mathbf{S}\,\mathbf{e})` at each. The
-        density is the exit-rate reading of the very same vector, so it costs one matrix-vector product and needs no
-        finite difference.
+        The exact CDF and density at the ascending times ``t``, in one pass. The state distribution
+        :math:`\mathbf{p}(x)` is propagated through the epochs, and at each time :math:`F = 1 - \mathbf{p}\,\mathbf{h}`
+        and :math:`f = \mathbf{p}\,(-\mathbf{S}_\ell\,\mathbf{h})` are read off, with :math:`\mathbf{h}` the indicator
+        of the transient states (``_e``) and :math:`\ell` the current epoch (``TreeHeightDistribution``).
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.
@@ -1130,7 +1245,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         y = np.arange(1, n_samples + 1) / n_samples
 
         if x.ndim == 1:
-            return np.interp(t, x, y)
+            return np.interp(t, x, y, left=0.0)
 
     def _plot_empirical_cdf(
             self,
@@ -1174,11 +1289,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
 class TotalBranchLengthDistribution(PhaseTypeDistribution):
     """
-    Distribution of the total branch length of the coalescent tree -- the accumulated lineage-counting reward (the
-    sum of all branch lengths) to absorption. An explicitly named, thin container around
-    :class:`PhaseTypeDistribution` carrying the total-branch-length reward, returned by
-    :attr:`~phasegen.distributions.Coalescent.total_branch_length`; its moments and its callable-and-plottable
-    ``cdf`` / ``pdf`` / ``quantile`` work like any accumulated-reward distribution.
+    Distribution of the total branch length of the coalescent tree, the accumulated reward that counts the lineages
+    in each state, returned by :attr:`Coalescent.total_branch_length
+    <phasegen.distributions.Coalescent.total_branch_length>`. Its moments are those of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`, and its ``cdf``, ``pdf`` and ``quantile`` are those of
+    the :class:`~phasegen.distributions.RewardDistribution` of the same reward.
     """
 
     def __init__(
@@ -1194,9 +1309,8 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
         :param state_space: The state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
-        :param reward: The reward. Defaults to the total-branch-length reward; an explicit reward (e.g. the
-            total branch length restricted to one locus / deme, as built by the marginal-distribution views) is
-            accepted so generic ``cls(reward=...)`` construction works.
+        :param reward: The reward. Defaults to the total-branch-length reward. The marginal views pass the total
+            branch length restricted to one locus or deme.
         """
         super().__init__(
             state_space=state_space,

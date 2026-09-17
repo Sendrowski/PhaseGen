@@ -91,12 +91,12 @@ class Comparison(Serializable):
         :param recombination_rate: Recombination rate.
         :param num_replicates: Number of replicates to use.
         :param n_samples: If set, the ``ms`` operand is PhaseGen's own trajectory sampler
-            (:class:`~phasegen.distributions.SampledCoalescent`) drawing ``n_samples`` trajectories, instead of
-            msprime. The comparison then validates PhaseGen's sampler against its exact analytic distributions.
+            (:class:`~phasegen.distributions.SampledCoalescent`) drawing ``n_samples`` trajectories, not msprime. The
+            comparison then validates PhaseGen's sampler against its exact analytic distributions.
         :param mutation_rate: Mutation rate. Only used if simulate_mutations is True.
         :param record_migration: Whether to record migrations.
-        :param simulate_mutations: Whether to simulate mutations. This is used for comparing mutational configurations
-            rather than branch lengths.
+        :param simulate_mutations: Whether to simulate mutations, for comparing mutational configurations in place of
+            branch lengths.
         :param mass_threshold: Probability threshold above which to stop generating mutational configurations.
         :param end_time: End time of the computation.
         :param n_threads: Number of threads to use.
@@ -222,7 +222,7 @@ class Comparison(Serializable):
     def empirical(self) -> 'SampledCoalescent':
         """
         The self-consistency candidate operand: PhaseGen's own trajectory sampler (``n_samples`` draws), validated
-        against the exact analytic :attr:`ph` rather than an external tool. Drives the nested ``tolerance.empirical``
+        against the exact analytic :attr:`ph`, not an external tool. Drives the nested ``tolerance.empirical``
         sub-spec, a different kind of check than :attr:`ms`.
         """
         # a fresh analytic coalescent (not self.ph, which must stay out of the serialized fixture); it is dropped
@@ -1196,7 +1196,7 @@ class Comparison(Serializable):
 
         for _, _, on, v, h, n_win, mean, mean_se, ys, cdf in cached:
             if 'mean' in worst:
-                got = float(jd.window_average(lambda c: c.mean, on, v, h, n_nodes=nodes)[0])
+                got = jd.window_average(lambda c: c.mean, on, v, h, n_nodes=nodes)
                 worst['mean'] = max(worst['mean'], abs(got - mean) / max(mean_se, 1e-300))
             if 'cdf' in worst and on in cdf_axes:
                 got = np.asarray(jd.window_average(lambda c: c.cdf(ys), on, v, h, n_nodes=nodes), dtype=float)
@@ -1657,9 +1657,9 @@ class Comparison(Serializable):
             for dist, pairs in self._pairwise_surface_pairs(msprime_spec).items():
                 getattr(self.ms, dist)._cache_joint_surface(pairs)
             for dist, pairs in self._atom_conditional_pairs(msprime_spec).items():
-                getattr(self.ms, dist).cache_atom_conditional(pairs)
+                getattr(self.ms, dist)._cache_atom_conditional(pairs)
             for dist, specs in self._windowed_conditional_specs(msprime_spec).items():
-                getattr(self.ms, dist).cache_windowed_conditional(specs)
+                getattr(self.ms, dist)._cache_windowed_conditional(specs)
 
         if empirical_spec:
             if self.n_samples is None:

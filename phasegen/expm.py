@@ -1,9 +1,12 @@
 """
-Matrix exponentiation backends, used when computing the moments of phase-type distributions.
+Matrix exponentiation backends for the Van Loan evaluation of moments, the tree-height distribution functions and the
+mutational configurations. The Laplace transform of an accumulated reward and the batched occupation times of spectra
+call SciPy directly and are not affected by a registered backend.
 
-Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})` (``ExpmBackend.compute()``)
-and the exponential action :math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
-(``ExpmBackend.compute_action()``), the latter evaluated without forming the dense exponential.
+Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})`
+(:meth:`ExpmBackend.compute() <phasegen.expm.ExpmBackend.compute>`) and its action
+:math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
+(:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`).
 """
 from abc import ABC, abstractmethod
 from typing import Literal
@@ -34,9 +37,9 @@ class ExpmBackend(ABC):
         :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``).
 
         The default implementation densifies ``a`` and forms the dense exponential via :meth:`compute`, so the action
-        uses the backend's own exponentiation. :class:`SciPyExpmBackend` overrides this with scipy's sparse
-        Krylov/Taylor ``expm_multiply``, which exploits the sparsity of :math:`\\mathbf{A}` without forming the dense
-        exponential; other backends may likewise override it (e.g. with a GPU Krylov method).
+        uses the backend's own exponentiation. :class:`SciPyExpmBackend` overrides it with the truncated Taylor
+        algorithm of Al-Mohy and Higham (2011) in :func:`scipy.sparse.linalg.expm_multiply`, which exploits the
+        sparsity of :math:`\\mathbf{A}` without forming the dense exponential. Other backends may override it likewise.
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.
@@ -96,8 +99,9 @@ class SciPyExpmBackend(ExpmBackend):
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``) using scipy's sparse Krylov/Taylor
-        ``expm_multiply``, which exploits the sparsity of :math:`\\mathbf{A}` without forming the dense exponential.
+        Compute the action :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``) with the truncated Taylor algorithm
+        of Al-Mohy and Higham (2011) in :func:`scipy.sparse.linalg.expm_multiply`, which exploits the sparsity of
+        :math:`\\mathbf{A}` without forming the dense exponential.
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.

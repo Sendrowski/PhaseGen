@@ -1,11 +1,11 @@
 # Empirical distributions
 
-Every exact distribution `phasegen` computes can also be sampled. {meth}`~phasegen.distributions.PhaseTypeDistribution.to_empirical` draws genealogies from the same phase-type generator and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, only estimated by Monte Carlo rather than the exact matrix computation.
+Every exact phase-type distribution `phasegen` computes can also be sampled. {meth}`~phasegen.distributions.PhaseTypeDistribution.to_empirical` simulates trajectories of the same Markov jump process, as described at {meth}`PhaseTypeDistribution.sample <phasegen.distributions.PhaseTypeDistribution.sample>`, and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, estimated by Monte Carlo.
 
 ```{versionadded} 2.0
 ```
 
-This serves two purposes. First, it provides a fast, independent check of the exact results. Second, because the sampler is fully vectorised, it provides a fallback for state spaces too large for the exact computation to remain tractable.
+This serves two purposes. First, it provides a fast, independent check of the exact results. Second, it provides a fallback where the exact moments or distribution functions are too costly to evaluate.
 
 ```{code-cell} python
 import phasegen as pg
@@ -20,7 +20,7 @@ pg <- load_phasegen()
 +++
 ## Sampling a spectrum
 
-Consider a two-population demography with a size change and asymmetric migration. {meth}`~phasegen.distributions.JointSFSDistribution.to_empirical` draws genealogies from this model and bins each one's branch lengths into the joint SFS. Its `mean` is the sampled counterpart of the exact {meth}`~phasegen.distributions.Coalescent.jsfs`.
+Consider a two-population demography with a size change and asymmetric migration. {meth}`~phasegen.distributions.JointSFSDistribution.to_empirical` draws genealogies from this model and bins each one's branch lengths into the joint SFS. Its `mean` is the sampled counterpart of the exact {attr}`~phasegen.distributions.Coalescent.jsfs`.
 
 ```{code-cell} python
 coal = pg.Coalescent(

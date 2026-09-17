@@ -19,7 +19,7 @@ class CoalescentModel(ABC):
     :math:`\mathbf{S}` of the coalescent state space (:class:`~phasegen.state_space.StateSpace`). The diagonal of
     :math:`\mathbf{S}` is fixed by the zero-row-sum convention :math:`s_{ii} = -\sum_{j \ne i} s_{ij}`, so only the
     positive rates :math:`q_{ij}` returned here are model-specific. A model defines the rate of a :math:`k`-fold
-    merger of :math:`b` lineages; the concrete subclasses are :class:`StandardCoalescent`, :class:`BetaCoalescent`,
+    merger of :math:`b` lineages. The concrete subclasses are :class:`StandardCoalescent`, :class:`BetaCoalescent`,
     and :class:`DiracCoalescent`.
     """
 
@@ -290,7 +290,7 @@ class BetaCoalescent(MultipleMergerCoalescent):
         \lambda_{b,k} = \binom{b}{k}\,\frac{B(k - \alpha,\; b - k + \alpha)}{B(\alpha,\; 2 - \alpha)},
 
     where :math:`B(\cdot, \cdot)` is the Euler beta function. Smaller :math:`\alpha` gives heavier-tailed offspring
-    distributions and hence more frequent large mergers; the Kingman coalescent is recovered as
+    distributions and hence more frequent large mergers. The Kingman coalescent is recovered as
     :math:`\alpha \to 2`. See :class:`msprime.BetaCoalescent` for more information.
     """
 

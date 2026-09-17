@@ -142,7 +142,7 @@ def test_empirical_plot_data_per_bin():
     cdf = d.cdf._plot_data(bins=[2], n_points=9)
     assert cdf.labels == ['2']
     np.testing.assert_allclose(cdf.x[-1], np.quantile(samples[:, 2], 0.9))
-    np.testing.assert_allclose(cdf.y[0], np.interp(cdf.x, np.sort(samples[:, 2]), np.arange(1, 501) / 500))
+    np.testing.assert_allclose(cdf.y[0], np.interp(cdf.x, np.sort(samples[:, 2]), np.arange(1, 501) / 500, left=0))
 
 
 def test_joint_plot_data_resolution_from_settings_and_drawn_values():

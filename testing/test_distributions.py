@@ -488,6 +488,38 @@ class DistributionTestCase(TestCase):
         with self.assertRaises(ValueError) as context:
             pg.Coalescent(n=5).sfs.get_mutation_config(config=[1, 1, 1], theta=1)
 
+    def test_get_mutation_config_invalid_entries_raise_value_error(self):
+        """
+        Negative or non-integer configuration entries raise ``ValueError`` on both the single-epoch and the multi-epoch
+        path. Regression: a negative entry was treated as zero on the single-epoch path, so ``[-1, 0, 0]`` returned the
+        probability of ``[0, 0, 0]``, and raised ``KeyError`` on the multi-epoch path, while ``[1.7, 0, 0]`` was
+        silently truncated to ``[1, 0, 0]``.
+        """
+        demographies = [None, pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}})]
+
+        for dem in demographies:
+            sfs = pg.Coalescent(n=4, demography=dem).sfs
+
+            for config in ([-1, 0, 0], [1.7, 0, 0], [0, 0.5, 0]):
+                with self.subTest(epochs=dem is not None, config=config):
+                    with self.assertRaises(ValueError):
+                        sfs.get_mutation_config(config=config, theta=1)
+
+    def test_get_mutation_config_integral_floats_accepted(self):
+        """
+        Integral floats, as passed by R, give the same probability as the integer configuration on both paths.
+        """
+        demographies = [None, pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}})]
+
+        for dem in demographies:
+            sfs = pg.Coalescent(n=4, demography=dem).sfs
+
+            with self.subTest(epochs=dem is not None):
+                self.assertEqual(
+                    sfs.get_mutation_config(config=[1.0, 1.0, 0.0], theta=1),
+                    sfs.get_mutation_config(config=[1, 1, 0], theta=1)
+                )
+
     def test_unfold_folded_config_odd_number_of_lineages(self):
         """
         Test unfolding folded block configurations for odd number of lineages.

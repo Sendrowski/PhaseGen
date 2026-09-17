@@ -1,17 +1,17 @@
 r"""
 State space classes and utilities. All state spaces derive from
-:class:`~phasegen.state_space.StateSpace`; the concrete variants are
+:class:`~phasegen.state_space.StateSpace`. The concrete variants are
 :class:`~phasegen.state_space.LineageCountingStateSpace`,
 :class:`~phasegen.state_space.BlockCountingStateSpace`,
 :class:`~phasegen.state_space.JointBlockCountingStateSpace`, and
 :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`.
 
 Each state space enumerates the states of a coalescent Markov jump process and assembles its intensity matrix
-:math:`\mathbf{S}`, whose off-diagonal entry :math:`s_{ij}` is the rate of the coalescence, migration, or
-recombination event taking state :math:`i` to state :math:`j`, and whose diagonal is fixed by the zero-row-sum
-convention :math:`s_{ii} = -\sum_{j \ne i} s_{ij}`. The exit-rate (absorption) vector of the transient block is then
-:math:`-\mathbf{S}\mathbf{e}`, with :math:`\mathbf{e}` the all-ones column vector. The positive rates
-are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
+:math:`\mathbf{S}`, with the notation of :class:`~phasegen.distributions.PhaseTypeDistribution`. The off-diagonal
+entry :math:`s_{xy}` is the rate of the coalescence, migration, or recombination event taking state :math:`x` to
+state :math:`y`, and the diagonal is fixed by the zero-row-sum convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`.
+The absorption-rate vector is :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block
+:math:`\mathbf{T}`. The positive rates are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
 """
 
 import logging
@@ -55,8 +55,10 @@ class StateSpace(ABC):
 
     Each state is an integer array indexed by locus, deme, and lineage block. Transitions are enumerated by
     breadth-first search from the initial state, and the intensity matrix :math:`\mathbf{S}` is assembled with
-    off-diagonal rates :math:`s_{ij}` and the zero-row-sum diagonal :math:`s_{ii} = -\sum_{j \ne i} s_{ij}`, so that
-    the exit vector is :math:`-\mathbf{S}\mathbf{e}`. The initial distribution over states is
+    off-diagonal rates :math:`s_{xy}` and the zero-row-sum diagonal :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`. The
+    absorbing states form a closed set, between whose members lineages may still migrate, and the absorption rates
+    are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`, with the notation of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. The initial distribution over states is
     :math:`\boldsymbol{\alpha}` (:attr:`alpha`). Concrete subclasses differ in what a lineage block records: the
     lineage-counting space (:class:`LineageCountingStateSpace`) tracks only the number of ancestral lineages per deme,
     whereas the block-counting spaces (:class:`BlockCountingStateSpace`, :class:`JointBlockCountingStateSpace`,
@@ -263,18 +265,18 @@ class StateSpace(ABC):
     @cached_property
     def e(self) -> np.ndarray:
         r"""
-        The all-ones column vector :math:`\mathbf{e}` of length :attr:`k` (number of states). Contracting with it on
-        the right sums a row; the exit-rate vector is :math:`-\mathbf{S}\mathbf{e}`.
+        The all-ones column vector :math:`\mathbf{e}` of length :attr:`k`, the number of states. Contracting with it on
+        the right sums a row, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`.
         """
         return np.ones(self.k)
 
     @cached_property
     def S(self) -> np.ndarray:
         r"""
-        Intensity matrix (generator) :math:`\mathbf{S}` for the current epoch. Off-diagonal entry :math:`s_{ij}` is
-        the rate of the event taking state :math:`i` to state :math:`j`; the diagonal follows the zero-row-sum
-        convention :math:`s_{ii} = -\sum_{j \ne i} s_{ij}`, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}` over the full
-        generator and the transient exit vector is :math:`-\mathbf{S}\mathbf{e}`.
+        Intensity matrix (generator) :math:`\mathbf{S}` for the current epoch. Off-diagonal entry :math:`s_{xy}` is
+        the rate of the event taking state :math:`x` to state :math:`y`. The diagonal follows the zero-row-sum
+        convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`, and the
+        absorption rates are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`.
         """
         return self._get_rate_matrix()
 
@@ -305,8 +307,8 @@ class StateSpace(ABC):
     @cached_property
     def absorbing(self) -> np.ndarray:
         """
-        Boolean mask over :attr:`states` marking the absorbing states, using the state-space absorption predicate
-        (``_is_absorbing()``). Subclasses with a non-default condition, e.g. the two-locus space, where the
+        Boolean mask over :attr:`states` marking the absorbing states, using the absorption predicate of the state
+        space. Subclasses with a non-default condition, e.g. the two-locus space, where the
         unlinked dual-MRCA state ``(n, 0) + (0, n)`` is absorbing although
         :meth:`~phasegen.state_space.State.is_absorbing` does not see it, are then classified consistently everywhere
         (moment paths, occupation times, sampling). Epoch-independent (depends only on the state topology), so it is
@@ -768,7 +770,7 @@ class BlockCountingStateSpace(StateSpace):
     :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are supplied by the
     :class:`~phasegen.coalescent_models.CoalescentModel`
     (``CoalescentModel.get_rate_block_counting()``). Resolving these branch classes
-    lets the space distinguish tree topologies, so it is used to compute statistics based on the SFS.
+    lets the space distinguish tree topologies, so it underlies the statistics based on the SFS.
     """
 
     def __init__(
@@ -880,15 +882,15 @@ class JointBlockCountingStateSpace(StateSpace):
     Rate matrix for the joint (multi-population) site-frequency spectrum.
 
     This is a generalization of :class:`BlockCountingStateSpace`. In the block-counting state space a block is a
-    single *size class* ``i`` (the number of sampled lineages a lineage subtends), which discards the information of
-    *which* population those descendants came from. The joint SFS bins mutations by their allele frequency in each
-    population simultaneously, so each block must instead be the **descendant vector**
+    single size class ``i`` (the number of sampled lineages a lineage subtends), which discards the population those
+    descendants came from. The joint SFS bins mutations by their allele frequency in each population simultaneously,
+    so each block here is the descendant vector
 
         .. math::
             v = (v_0, \dots, v_{P-1}), \quad 0 \le v_p \le n_p, \quad 1 \le \sum_p v_p \le n,
 
     i.e. the number of descendants a lineage subtends from each population ``p`` (its "deme of origin"
-    composition). A state then counts, per locus and per *current* deme of residence, how many lineages carry each
+    composition). A state then counts, per locus and per current deme of residence, how many lineages carry each
     descendant vector.
 
     .. note::
@@ -983,8 +985,8 @@ class JointBlockCountingStateSpace(StateSpace):
     @cached_property
     def alpha(self) -> np.ndarray:
         """
-        Initial state vector. There is a single, origin-aware initial state (see ``_get_initial()``), so this is
-        its indicator vector.
+        Initial state vector. There is a single initial state, in which every sampled lineage resides in its
+        population of origin, so this is its indicator vector.
         """
         initial = self._get_initial()
 
@@ -993,18 +995,18 @@ class JointBlockCountingStateSpace(StateSpace):
 
 class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
     r"""
-    Block-counting state space for two loci separated by recombination, used to compute the two-locus SFS.
+    Block-counting state space for two loci separated by recombination, underlying the two-locus SFS.
 
     Each physical ancestral lineage is described by a vector ``(a_0, a_1)`` giving the number of sampled lineages it
     subtends at locus 0 and locus 1 (``a_l = 0`` meaning it is not ancestral at locus ``l``). This is the same
-    representation as the joint (multi-population) state space, with **locus** playing the role of **population**, so
-    coalescence is again vector addition (and reuses the model-agnostic merger rates, supporting Beta/Dirac too).
-    The new ingredient is **recombination**: a linked lineage ``(a_0, a_1)`` with ``a_0 > 0`` and ``a_1 > 0`` splits
-    into ``(a_0, 0)`` and ``(0, a_1)`` at rate ``r`` per linked lineage. The process is absorbed once both loci have
-    reached their MRCA.
+    representation as the joint (multi-population) state space, with the locus in the role of the population, so
+    coalescence is again vector addition with the model-agnostic merger rates, which supports the Beta and Dirac
+    coalescents. In addition, a linked lineage ``(a_0, a_1)`` with ``a_0 > 0`` and ``a_1 > 0`` recombines into
+    ``(a_0, 0)`` and ``(0, a_1)`` at rate ``r`` per linked lineage, the recombination rate of the locus configuration.
+    The process is absorbed once both loci have reached their MRCA.
 
-    A single population is currently supported (no migration), so the state shape collapses to ``(1, 1, n_blocks)``;
-    linkage is encoded in the block vector itself, so the ``linked`` array is unused.
+    Only a single population is supported (no migration), so the state shape collapses to ``(1, 1, n_blocks)``.
+    Linkage is encoded in the block vector itself, so the ``linked`` array is unused.
 
     .. note::
         ``n_blocks = (n + 1)^2 - 1`` and the number of reachable states grows quickly, so this is only practical for
@@ -1021,8 +1023,8 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
         """
         Create the two-locus block-counting state space.
 
-        :param lineage_config: Population configuration (a single population is currently supported).
-        :param locus_config: Locus configuration; must specify exactly two loci.
+        :param lineage_config: Population configuration with a single population.
+        :param locus_config: Locus configuration with exactly two loci.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
         """

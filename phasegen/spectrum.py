@@ -2,7 +2,7 @@
 Site-frequency spectra and their higher-dimensional generalizations (the joint multi-population SFS and the
 two-locus SFS).
 
-The container classes now live in :mod:`sfsutils` and are re-exported here so that ``phasegen`` code, and jsonpickle
+The container classes are defined in :mod:`sfsutils` and re-exported here so that ``phasegen`` code, and jsonpickle
 fixtures serialized against this module path, can reach them.
 """
 

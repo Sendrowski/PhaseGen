@@ -250,11 +250,12 @@ class Coalescent(AbstractCoalescent, Serializable):
     def tree_height(self) -> TreeHeightDistribution:
         r"""
         Tree height distribution, i.e. the time to the most recent common ancestor. This is the phase-type absorption
-        time :math:`\tau = \inf\{t \ge 0 : X_t \in B\}` of the underlying Markov jump process, equivalently the
-        accumulated reward under the unit tree-height reward :math:`r_{\text{height}}(i) = \mathbb{1}\{i \notin B\}`.
-        With multiple loci this is the time until *all* loci have reached their MRCA (absorption of the two-locus
-        ancestral process), so it equals the single-locus height when fully linked (:math:`r = 0`) and grows towards
-        the maximum of the per-locus heights as the loci decouple (:math:`r \to \infty`).
+        time :math:`\tau` of the underlying Markov jump process, with the notation of
+        :class:`~phasegen.distributions.PhaseTypeDistribution`, equivalently the reward accumulated under the reward
+        :math:`r(x) = \mathbb{1}\{x \notin B\}`. With multiple loci this is the time until every locus has reached its
+        MRCA (absorption of the two-locus ancestral process), so it equals the single-locus height when fully linked
+        (:math:`\rho = 0`, with :math:`\rho` the recombination rate) and grows towards the maximum of the per-locus
+        heights as the loci decouple (:math:`\rho \to \infty`).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,
@@ -293,10 +294,10 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def sfs(self) -> UnfoldedSFSDistribution:
         r"""
-        Unfolded site-frequency spectrum distribution. Bin :math:`k` is the accumulated length of all branches
-        subtending exactly :math:`k` samples, the reward :math:`r_{\text{SFS},k}(i) = a_k(i)` counting the
-        :math:`k`-subtending lineage blocks in state :math:`i`. Defined for a single locus; for two loci under
-        recombination use :attr:`sfs2`.
+        Unfolded site-frequency spectrum distribution. Bin :math:`j` is the accumulated length of all branches
+        subtending exactly :math:`j` of the :math:`n` samples, the reward :math:`r_j(x) = a_j(x)` counting the lineages
+        in state :math:`x` that subtend :math:`j` samples. It is defined for a single locus. For two loci under
+        recombination, use :attr:`sfs2`.
         """
         self._require_single_locus('sfs')
 
@@ -309,8 +310,8 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fsfs(self) -> FoldedSFSDistribution:
         """
-        Folded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
-        use :attr:`sfs2`.
+        Folded site-frequency spectrum distribution. It is defined for a single locus. For two loci under
+        recombination, use :attr:`sfs2`.
         """
         self._require_single_locus('fsfs')
 
@@ -330,8 +331,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             The joint state space grows combinatorially with the per-population sample sizes, so this is only
             practical for small samples.
 
-        :raises ValueError: If fewer than two populations are configured (the joint SFS is across populations; use
-            :attr:`sfs` for a single population).
+        :raises ValueError: If fewer than two populations are configured. For a single population, use :attr:`sfs`.
         """
         if self.lineage_config.n_pops < 2:
             raise ValueError(
@@ -388,14 +388,17 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fst(self) -> float:
         r"""
-        Hudson's fixation index :math:`F_{ST} = 1 - \mathbb{E}[T_S] / \mathbb{E}[T_B]`, based on pairwise
-        coalescence times: :math:`T_S` is the coalescence time of two lineages sampled within the same population
-        (averaged over populations) and :math:`T_B` of two lineages from different populations (averaged over
-        population pairs). Requires at least two populations.
+        Hudson's fixation index
 
-        Since :math:`F_{ST}` is a pairwise, single-locus quantity, it is computed from two-lineage sub-coalescents
-        under the same (possibly time-varying, migrating) demography and coalescent model, and so does not depend on
-        the configured sample sizes or number of loci.
+        .. math::
+
+            F_{ST} = 1 - \frac{\overline{\mathbb{E}[T_{PP}]}}{\overline{\mathbb{E}[T_{PP'}]}},
+
+        where :math:`T_{PP'}` is the coalescence time of one lineage sampled in population :math:`P` and one in
+        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over all populations and the
+        denominator averages :math:`\mathbb{E}[T_{PP'}]` over all unordered pairs :math:`P \ne P'`. Each expectation
+        is the mean tree height of a two-lineage coalescent with the same demography and coalescent model, so the
+        result does not depend on the configured sample sizes or number of loci.
 
         :return: Hudson's :math:`F_{ST}`.
         :raises ValueError: if fewer than two populations are configured.
@@ -446,9 +449,16 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def f2(self, pop_0: str, pop_1: str) -> float:
         r"""
-        Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, the branch (coalescence-time) version
-        :math:`f_2 = 2 T_{AB} - T_{AA} - T_{BB}` in terms of pairwise coalescence times (matching ``tskit``'s
-        branch-mode ``f2``). Measures the amount of drift separating the two populations.
+        Branch form of Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, where :math:`p_A` and :math:`p_B`
+        are the allele frequencies in populations :math:`A` and :math:`B`,
+
+        .. math::
+
+            f_2(A, B) = 2\, \mathbb{E}[T_{AB}] - \mathbb{E}[T_{AA}] - \mathbb{E}[T_{BB}],
+
+        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in
+        population :math:`Y`, matching the branch mode of ``tskit``. It measures the drift separating the two
+        populations.
 
         :param pop_0: Name of population ``A``.
         :param pop_1: Name of population ``B``.
@@ -459,9 +469,16 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
         r"""
-        Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, in branch (coalescence-time) form
-        :math:`f_3 = T_{CA} + T_{CB} - T_{AB} - T_{CC}` (matching ``tskit``'s branch-mode ``f3``). A significantly
-        negative value is evidence that the target population ``C`` is admixed between ``A`` and ``B``.
+        Branch form of Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_3(C; A, B) = \mathbb{E}[T_{CA}] + \mathbb{E}[T_{CB}] - \mathbb{E}[T_{AB}] - \mathbb{E}[T_{CC}],
+
+        matching the branch mode of ``tskit``. A negative value indicates that the target population :math:`C` is
+        admixed between :math:`A` and :math:`B`.
 
         :param pop_target: Name of the (potentially admixed) target population ``C``.
         :param pop_0: Name of source population ``A``.
@@ -473,9 +490,16 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
         r"""
-        Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, in branch (coalescence-time) form
-        :math:`f_4 = T_{AD} + T_{BC} - T_{AC} - T_{BD}` (matching ``tskit``'s branch-mode ``f4``). Used to test
-        treeness and detect gene flow between the two population pairs.
+        Branch form of Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_4(A, B; C, D) = \mathbb{E}[T_{AD}] + \mathbb{E}[T_{BC}] - \mathbb{E}[T_{AC}] - \mathbb{E}[T_{BD}],
+
+        matching the branch mode of ``tskit``. It tests treeness and detects gene flow between the two population
+        pairs.
 
         :param pop_0: Name of population ``A``.
         :param pop_1: Name of population ``B``.
@@ -542,10 +566,11 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cache
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         r"""
-        The full 1D distribution of an accumulated reward :math:`R = \int_0^{\tau} r(X_s)\,\mathrm{d}s` to
-        absorption, as a callable :class:`~phasegen.distributions.reward.RewardDistribution` (see there for the
-        mean / variance, the CDF / PDF and the quantile). The state space is inferred from the reward (as for
-        :meth:`moment`); cached per reward.
+        The distribution of the accumulated reward :math:`R`, as a
+        :class:`~phasegen.distributions.RewardDistribution` whose evaluation is described there. The state space is
+        the smallest one that supports the reward, and the result is cached per reward. For the default tree-height
+        reward it describes the same law as :attr:`Coalescent.tree_height
+        <phasegen.distributions.Coalescent.tree_height>`, evaluated by transform inversion.
 
         :param reward: The reward whose accumulation is distributed. Defaults to the tree-height reward.
         :return: The 1D accumulated-reward distribution.
@@ -557,13 +582,12 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cache
     def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
-        The joint 2D distribution of two accumulated rewards to absorption, as a callable
-        :class:`~phasegen.distributions.reward.JointRewardDistribution`. State-space inference and caching follow
-        :meth:`Coalescent.distribution() <phasegen.Coalescent.distribution>`, per pair of rewards.
+        Joint distribution of two accumulated rewards, as a :class:`~phasegen.distributions.JointRewardDistribution`,
+        on the smallest state space supporting both rewards and cached per pair of rewards.
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.
-        :return: The joint 2D accumulated-reward distribution.
+        :return: The joint distribution.
 
         .. versionadded:: 2.0
         """
@@ -581,24 +605,18 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute: bool = True
     ) -> float:
         r"""
-        Get the :math:`k`-th moment :math:`\mathbb{E}[R^k]` using the specified rewards and state space. By default
-        (``center=True``) this is the central moment, so ``moment(2)`` is the variance; pass ``center=False`` for the
-        raw (non-central) moment, matching the sample-based
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>` under the same
-        default. For a cross-moment of rewards :math:`R_1, \dots, R_k` this is :math:`\mathbb{E}[R_1 \cdots R_k]`,
-        averaged over the ``k!`` reward permutations when ``permute`` is set. Evaluated exactly via Van Loan's method.
+        The :math:`k`-th moment of the accumulated rewards, evaluated on the smallest state space supporting all
+        ``rewards`` as described in
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
-        :param k: The order of the moment
-        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment around the mean (central moment); by default the central moment.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :return: The kth moment
+        :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the coalescent.
+        :param end_time: The end time :math:`t_\mathrm{end}`. By default, the end time of the coalescent, or absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :return: The :math:`k`-th moment.
         """
         return self._get_dist(k, rewards).moment(
             k=k,
@@ -665,17 +683,17 @@ class Coalescent(AbstractCoalescent, Serializable):
             center: bool = True,
             permute: bool = True
     ) -> np.ndarray:
-        """
-        Accumulate moments at different times.
+        r"""
+        The :math:`k`-th moment accumulated up to each end time :math:`t_\mathrm{end}` in ``end_times``, as described in
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
-        :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment.
-        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
-        :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :return: Accumulation of moments.
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :return: The moment at each end time.
         """
         return self._get_dist(k, rewards).accumulate(
             k=k,
@@ -708,9 +726,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -743,9 +760,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def drop_cache(self) -> None:
         """
-        Drop the cache of every state space that has been built. Only already-built spaces are touched: accessing a
-        space's property would otherwise construct it, which for a multi-locus coalescent raises (the single-locus
-        block-counting space does not exist there) and broke :meth:`to_json` / :meth:`to_file`.
+        Drop the cache of every state space that has been built. Spaces that have not been built are left unbuilt.
         """
         for name in self._STATE_SPACE_CACHES:
             if name in self.__dict__:
@@ -832,11 +847,10 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def to_empirical(self, n_samples: int = 100000, seed: int = None) -> 'SampledCoalescent':
         """
-        Convert to an empirical coalescent sampled with PhaseGen's own vectorised trajectory sampler, exposing the
-        same per-statistic distributions estimated from ``n_samples`` genealogies rather than computed exactly.
+        Estimate every statistic by simulation, see :class:`~phasegen.distributions.SampledCoalescent`.
 
         :param n_samples: Number of trajectories to sample per statistic.
-        :param seed: Random seed.
+        :param seed: Integer seed, ``None`` for fresh entropy.
         :return: The sampled coalescent.
 
         .. versionadded:: 2.0

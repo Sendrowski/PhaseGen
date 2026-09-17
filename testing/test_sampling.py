@@ -14,16 +14,14 @@ from phasegen.distributions.empirical import MsprimeCoalescent
 
 N_SAMPLES = 50000
 
-
-@pytest.fixture(autouse=True)
-def _seed():
-    np.random.seed(42)
+#: Seed passed explicitly to every sampler call, which draws from its own ``numpy.random.Generator``.
+SEED = 42
 
 
 def test_sample_scalar_stat_shapes_and_mean():
     """Sampling a scalar statistic returns ``(n_samples,)`` and reproduces the analytic mean."""
     for dist in (pg.Coalescent(n=6).tree_height, pg.Coalescent(n=6).total_branch_length):
-        s = dist.sample(N_SAMPLES)
+        s = dist.sample(N_SAMPLES, seed=SEED)
         assert s.shape == (N_SAMPLES,)
         assert s.mean() == pytest.approx(dist.mean, rel=0.02)
 
@@ -31,7 +29,7 @@ def test_sample_scalar_stat_shapes_and_mean():
 def test_sample_sfs_shape_and_mean():
     """SFS ``sample`` returns ``(n_samples, n + 1)`` whose mean matches the analytic SFS."""
     sfs = pg.Coalescent(n=6).sfs
-    s = sfs.sample(N_SAMPLES)
+    s = sfs.sample(N_SAMPLES, seed=SEED)
     assert s.shape == (N_SAMPLES, 7)
     np.testing.assert_allclose(s.mean(axis=0), np.asarray(sfs.mean.data), atol=0.05)
 
@@ -41,7 +39,7 @@ def test_sample_jsfs_shape_and_mean():
     dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1.5},
                         migration_rates={('p0', 'p1'): 0.75, ('p1', 'p0'): 0.75})
     jsfs = pg.Coalescent(n={'p0': 3, 'p1': 3}, demography=dem).jsfs
-    s = jsfs.sample(N_SAMPLES)
+    s = jsfs.sample(N_SAMPLES, seed=SEED)
     assert s.shape == (N_SAMPLES,) + jsfs.shape
     np.testing.assert_allclose(s.mean(axis=0), np.asarray(jsfs.mean.data), atol=0.05)
 
@@ -49,7 +47,7 @@ def test_sample_jsfs_shape_and_mean():
 def test_sample_sfs2_outer_product_mean():
     """Two-locus SFS ``sample`` returns ``(n_samples, n+1, n+1)`` matching the (symmetrized) cross-moment mean."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
-    s = sfs2.sample(N_SAMPLES)
+    s = sfs2.sample(N_SAMPLES, seed=SEED)
     assert s.shape == (N_SAMPLES, 5, 5)
     np.testing.assert_allclose(s.mean(axis=0), np.asarray(sfs2.mean.data), atol=0.15)
 
@@ -59,7 +57,7 @@ def test_to_empirical_per_deme_and_locus_match_analytic():
     dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1.5},
                         migration_rates={('p0', 'p1'): 0.75, ('p1', 'p0'): 0.75})
     th = pg.Coalescent(n={'p0': 3, 'p1': 3}, demography=dem).tree_height
-    e = th.to_empirical(N_SAMPLES)
+    e = th.to_empirical(N_SAMPLES, seed=SEED)
 
     assert e.mean == pytest.approx(th.mean, rel=0.02)
     for p in ('p0', 'p1'):
@@ -67,7 +65,7 @@ def test_to_empirical_per_deme_and_locus_match_analytic():
 
     # per-locus breakdown on a two-locus tree height
     th2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).tree_height
-    e2 = th2.to_empirical(N_SAMPLES)
+    e2 = th2.to_empirical(N_SAMPLES, seed=SEED)
     for locus in (0, 1):
         assert e2.loci[locus].mean == pytest.approx(th2.loci[locus].mean, rel=0.03)
 
@@ -75,7 +73,7 @@ def test_to_empirical_per_deme_and_locus_match_analytic():
 def test_to_empirical_sfs2_cross_moment():
     """The empirical two-locus cross-moment reproduces the analytic two-locus SFS entry."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
-    e = sfs2.to_empirical(N_SAMPLES)
+    e = sfs2.to_empirical(N_SAMPLES, seed=SEED)
     assert e.cross_moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
 
 
@@ -85,7 +83,7 @@ def test_empirical_joint_marginal_conditional_match_analytic():
     :class:`~phasegen.distributions.EmpiricalJointDistribution` enables."""
     coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
     ana = coal.sfs.joint_distribution(1, 2)
-    emp = coal.sfs.to_empirical(200000).joint_distribution(1, 2)
+    emp = coal.sfs.to_empirical(200000, seed=SEED).joint_distribution(1, 2)
 
     assert emp.corr() == pytest.approx(ana.corr(), abs=0.03)
     np.testing.assert_allclose(emp.mean, ana.mean, rtol=0.03)
@@ -121,7 +119,7 @@ def test_coalescent_to_empirical_returns_sampled_coalescent():
 
 def test_to_empirical_exposes_n_samples():
     """``to_empirical`` records the sample count on the empirical object, surviving ``_drop``."""
-    e = pg.Coalescent(n=5).tree_height.to_empirical(12345)
+    e = pg.Coalescent(n=5).tree_height.to_empirical(12345, seed=SEED)
     assert e.n_samples == 12345
     e._touch(np.linspace(0, 5, 20))
     e._drop()
@@ -129,8 +127,8 @@ def test_to_empirical_exposes_n_samples():
 
     dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1},
                         migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
-    assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).jsfs.to_empirical(9999).n_samples == 9999
-    assert pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2.to_empirical(8888).n_samples == 8888
+    assert pg.Coalescent(n={'p0': 2, 'p1': 2}, demography=dem).jsfs.to_empirical(9999, seed=SEED).n_samples == 9999
+    assert pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2.to_empirical(8888, seed=SEED).n_samples == 8888
 
 
 def test_tree_height_per_deme_gated_for_multiple_loci():
@@ -160,12 +158,10 @@ def test_batched_sampling_matches_single_pass():
     try:
         for c in (pg.Coalescent(n=8), pg.Coalescent(n=8, demography=dem)):
             d = c.tree_height
-            np.random.seed(7)
             Settings.sample_batch_size = None
-            single = d.sample(20000)
-            np.random.seed(7)
+            single = d.sample(20000, seed=7)
             Settings.sample_batch_size = 2500  # several batches incl. a short final one
-            batched = d.sample(20000)
+            batched = d.sample(20000, seed=7)
             assert batched.shape == single.shape == (20000,)
             assert stats.ks_2samp(single, batched).pvalue > 0.01
             assert batched.mean() == pytest.approx(d.mean, rel=0.02)
@@ -186,7 +182,7 @@ def test_sampled_coalescent_matches_analytic():
 def test_sampled_and_msprime_share_facade():
     """``SampledCoalescent`` and ``MsprimeCoalescent`` implement the same ``AbstractCoalescent`` facade, so the
     comparison framework can use them interchangeably as the empirical (candidate) operand."""
-    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=6), n_samples=100)
+    sampled = SampledCoalescent(coalescent=pg.Coalescent(n=6), n_samples=100, seed=SEED)
     ms = MsprimeCoalescent(n=6)  # cheap: msprime simulation is lazy (triggered on stat access, not construction)
 
     assert isinstance(sampled, AbstractCoalescent) and isinstance(ms, AbstractCoalescent)
@@ -349,3 +345,94 @@ def test_sampled_and_msprime_agree_across_a_zero_rate_epoch():
     ms = MsprimeCoalescent(n=n, demography=dem, num_replicates=reps, seed=3, parallelize=False)
 
     _assert_same_law(sampled, ms)
+
+
+def test_empirical_cdf_is_zero_below_the_smallest_sample():
+    """The empirical CDF interpolated between ``(Y_(m), m / N)`` and was clamped to ``1 / N`` below the smallest
+    sample, so it reported positive probability for values no realisation reached. It must be zero there, for scalar
+    and per-bin samples, and keep the post-jump value at an atom."""
+    e = pg.distributions.EmpiricalDistribution([1.0, 2.0, 3.0, 4.0])
+    assert e.cdf(0.5) == 0.0
+    assert e.cdf(-10.0) == 0.0
+    assert e.cdf(1.0) == pytest.approx(0.25)
+
+    spectrum = pg.distributions.EmpiricalSFSDistribution([[0.0, 1.0, 0.0], [0.0, 2.0, 0.5], [0.0, 3.0, 1.0]])
+    np.testing.assert_array_equal(spectrum.cdf(-1.0), np.zeros(3))
+    assert spectrum.cdf(0.0)[2] == pytest.approx(1 / 3)  # the atom at zero holds one of three realisations
+
+
+def test_empirical_var_is_diagonal_of_cov():
+    """``var`` normalised by ``1 / N`` while ``cov`` normalised by ``1 / (N - 1)``, so the variance of a bin
+    disagreed with the diagonal of the covariance matrix. Every empirical covariance uses ``1 / N``."""
+    rng = np.random.default_rng(0)
+    samples = rng.exponential(size=(50, 4))
+
+    e = pg.distributions.EmpiricalDistribution(samples)
+    np.testing.assert_allclose(np.diag(e.cov), e.var, rtol=1e-12)
+    np.testing.assert_allclose(e.var, e.moment(2), rtol=1e-12)
+
+    spectrum = pg.distributions.EmpiricalSFSDistribution(samples)
+    np.testing.assert_allclose(np.diag(np.asarray(spectrum.cov.data)), np.asarray(spectrum.var.data), rtol=1e-12)
+
+    joint = pg.distributions.EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
+    assert joint.cov() == pytest.approx(e.cov[0, 1], rel=1e-12)
+
+    per_deme = pg.distributions.EmpiricalPhaseTypeDistribution(samples.T.reshape(1, 4, 50), pops=list('abcd'))
+    np.testing.assert_allclose(np.diag(per_deme.demes.cov), [per_deme.demes[p].var for p in 'abcd'], rtol=1e-12)
+
+
+def test_sampled_sfs_has_no_mutation_configs():
+    """``SFSDistribution.to_empirical`` stored all-zero mutation counts, so ``mutation_configs`` reported mass one on
+    the configuration without mutations. A spectrum sampled from branch lengths carries no mutation counts, so the
+    configuration accessors raise, while touching and dropping it for a comparison still works."""
+    sfs = pg.Coalescent(n=4).sfs.to_empirical(500, seed=0)
+
+    with pytest.raises(ValueError, match="no mutation counts"):
+        _ = sfs.mutation_configs
+    with pytest.raises(ValueError, match="no mutation counts"):
+        sfs.get_mutation_config([0, 0, 0])
+    with pytest.raises(ValueError, match="no mutation counts"):
+        next(sfs.get_mutation_configs())
+
+    sfs._touch(np.linspace(0, 2, 5))
+    sfs._drop()
+    with pytest.raises(ValueError, match="no mutation counts"):
+        _ = sfs.mutation_configs
+
+
+def test_msprime_mutation_configs_survive_drop_and_serialization():
+    """The configuration frequencies of a spectrum with mutation counts are persisted by ``_touch``, remain available
+    after ``_drop`` frees the counts, and are restored by jsonpickle under the serialized key ``mutation_configs``."""
+    import jsonpickle
+
+    ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False, simulate_mutations=True,
+                           mutation_rate=1.0, seed=1)
+    sfs = ms.sfs
+    expected = dict(sfs.mutation_configs)
+    assert sum(expected.values()) == pytest.approx(1.0)
+
+    sfs._touch(np.linspace(0, 2, 5))
+    sfs._drop()
+    assert dict(sfs.mutation_configs) == expected
+
+    restored = jsonpickle.decode(jsonpickle.encode(sfs, keys=True), keys=True)
+    assert 'mutation_configs' in jsonpickle.encode(sfs, keys=True)
+    assert restored.get_mutation_config(next(iter(expected))) == pytest.approx(expected[next(iter(expected))])
+
+
+def test_msprime_sfs_without_simulated_mutations_has_no_mutation_configs():
+    """``MsprimeCoalescent`` with ``simulate_mutations=False`` filled its spectra with all-zero mutation counts, so
+    ``mutation_configs`` reported mass one on the configuration without mutations. Its unfolded and folded spectra
+    carry no mutation counts, so the configuration accessors raise, while touching and dropping still works."""
+    ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False, seed=1)
+
+    for sfs in (ms.sfs, ms.fsfs):
+        with pytest.raises(ValueError, match="no mutation counts"):
+            _ = sfs.mutation_configs
+        with pytest.raises(ValueError, match="no mutation counts"):
+            sfs.get_mutation_config([0, 0, 0])
+
+    ms._touch()
+    ms._drop()
+    with pytest.raises(ValueError, match="no mutation counts"):
+        _ = ms.sfs.mutation_configs

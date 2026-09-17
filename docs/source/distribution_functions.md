@@ -1,6 +1,6 @@
 # Distribution functions
 
-`phasegen` exposes the full distribution of any accumulated coalescent reward (tree height, total branch length, an individual SFS bin's branch length, or any {doc}`custom reward <rewards>`) as callable, plottable distribution-function objects (`pdf`, `cdf`, `quantile`). They are analytically exact, obtained by numerically inverting the reward's Laplace transform rather than by sampling, though the inversion can lose precision for extreme demographies.
+`phasegen` exposes the full distribution of any accumulated coalescent reward (tree height, total branch length, an individual SFS bin's branch length, or any {doc}`custom reward <rewards>`) as callable, plottable distribution-function objects (`pdf`, `cdf`, `quantile`). They are computed from the model without sampling. The tree height is evaluated by matrix exponentiation, as described at {class}`~phasegen.distributions.TreeHeightDistribution`, and every other reward by numerical inversion of its Laplace transform, as described at {class}`~phasegen.distributions.RewardDistribution`. The inversion can lose precision for extreme demographies.
 
 ```{versionadded} 2.0
 ```
@@ -115,7 +115,7 @@ The `quantile` is the inverse of the `cdf`. Thus `quantile(0.5)` is the median, 
 +++
 ## Joint distributions
 
-Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint_distribution <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
+Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint_distribution <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf`, computed as described at {class}`JointDensity <phasegen.distributions.JointDensity>` and {class}`JointCDF <phasegen.distributions.JointCDF>` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
 
 ```{code-cell} python
 joint = coal.sfs.joint_distribution(1, 2)  # singleton and doubleton branch lengths
@@ -219,7 +219,7 @@ stopifnot(abs(marg$mean - coal$sfs$bin(1L)$mean) < 1e-6 * coal$sfs$bin(1L)$mean)
 +++
 ## Conditional distributions
 
-{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. Conditioning on a short singleton branch leaves the doubleton length bimodal, reflecting whether lineages coalesced during or after the bottleneck. Conditioning on a long one collapses it to a single mode.
+{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value, obtained by a nested inversion of the joint Laplace transform as described at {class}`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>`. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. Conditioning on a short singleton branch leaves the doubleton length bimodal, reflecting whether lineages coalesced during or after the bottleneck. Conditioning on a long one collapses it to a single mode.
 
 ```{code-cell} python
 print("E[R_b | R_a = v]:")

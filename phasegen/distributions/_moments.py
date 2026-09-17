@@ -32,15 +32,14 @@ if TYPE_CHECKING:
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
-#: Sentinel for :meth:`MomentEvaluator._lu_solver`'s ``perm`` argument meaning "compute the block-triangular ordering
-#: from ``A``". Callers that solve the *same* sparsity pattern repeatedly (e.g. the de Hoog inversion, which factorizes
-#: ``diag(s_k r) - T`` at ~40 shifts per point) precompute the ordering once and pass it in to skip the redundant SCC
-#: analysis (the dominant cost of the sparse factorization).
+#: Sentinel for the ``perm`` argument of ``MomentEvaluator._lu_solver`` meaning "compute the block-triangular ordering
+#: from ``A``". Callers factorizing one sparsity pattern at many diagonal shifts precompute the ordering once.
 _AUTO_PERM = object()
 
 
 class MomentEvaluator:
-    """Moment-evaluation methods operating on a phase-type distribution (``self``)."""
+    """Moment-evaluation methods of :class:`~phasegen.distributions.PhaseTypeDistribution`, described in its
+    ``moment``."""
 
     # attributes provided by the host PhaseTypeDistribution this mixin is mixed into
     state_space: 'StateSpace'
@@ -54,24 +53,8 @@ class MomentEvaluator:
 
     @staticmethod
     def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
-        r"""
-        Block upper-bidiagonal Van Loan matrix carrying the intensity matrix :math:`\mathbf{S}` on the :math:`k + 1`
-        diagonal blocks and the reward diagonals :math:`\mathbf{R}_i = \triangle(\mathbf{r}_i)` on the super-diagonal:
-
-        .. math::
-
-            \mathbf{V}_k(\mathbf{S};\, \mathbf{R}_1, \dots, \mathbf{R}_k) =
-            \begin{pmatrix}
-                \mathbf{S} & \mathbf{R}_1 &        &              \\
-                           & \mathbf{S}   & \ddots &              \\
-                           &              & \ddots & \mathbf{R}_k \\
-                           &              &        & \mathbf{S}
-            \end{pmatrix}.
-
-        The matrix exponential :math:`\exp(\mathbf{V}_k t)` inherits this block structure and its top-right block
-        holds the accumulated :math:`k`-fold reward. ``R`` is a list of reward *vectors* (the reward diagonals).
-        Returns a sparse CSR matrix when ``sparse`` (assembled directly, never densifying the :math:`(k + 1)\,|E|`
-        block matrix), else a dense array.
+        """
+        The Van Loan matrix of ``PhaseTypeDistribution.moment``, assembled directly as sparse CSR when ``sparse``.
 
         :param R: List of length k of reward vectors.
         :param S: Intensity matrix (dense or sparse, matching ``sparse``).
@@ -94,17 +77,14 @@ class MomentEvaluator:
 
     @staticmethod
     def _block_triangular_order(A) -> Optional[np.ndarray]:
-        r"""
-        Permutation reordering ``A`` into block-triangular form via its strongly-connected-component condensation
-        (a DAG for any matrix). Applied to the transient sub-generator :math:`-\mathbf{T}` this exposes the
-        coalescent grading —
-        no transition raises the lineage/block count, so the SCCs are the small within-level cycles (migration,
-        recombination) and most states are singleton SCCs — letting a ``NATURAL``-ordered LU back-substitute over
-        the blocks with near-zero fill instead of paying a general fill-reducing factorization. Derived purely from
-        the sparsity pattern, so it is model- and state-space-agnostic.
+        """
+        Permutation reordering ``A`` into block-triangular form by a topological sort (Kahn) of the condensation of
+        its strongly connected components, derived from the sparsity pattern alone. On coalescent transient blocks
+        most components are single states, since only migration and recombination create cycles, so a
+        ``NATURAL``-ordered LU back-substitutes over the components with little fill.
 
-        Returns ``None`` when the structure offers no benefit (a single SCC, or one SCC spanning more than half the
-        states), so the caller keeps the default fill-reducing ordering.
+        Returns ``None`` when a single component spans more than half of the states, so the caller keeps the default
+        fill-reducing ordering.
 
         :param A: Square matrix (sparse or dense).
         :return: A permutation array, or ``None`` to fall back to the default ordering.
@@ -152,23 +132,15 @@ class MomentEvaluator:
 
     @staticmethod
     def _lu_solver(A, sparse: bool, perm=_AUTO_PERM) -> 'Callable':
-        r"""
-        Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``, reusable across
-        right-hand sides (the closed form back-substitutes against the same transient sub-generator repeatedly).
-
-        For the sparse path we first reorder ``A`` into block-triangular form (see :meth:`_block_triangular_order`)
-        and factor it with ``NATURAL`` column ordering, turning the factorization into cheap block back-substitution
-        over the SCCs. The returned callable permutes the right-hand side in and out transparently.
-
-        The block-triangular ordering depends only on ``A``'s sparsity pattern, which is the dominant cost of the
-        sparse factorization yet identical whenever only the diagonal changes (the de Hoog inversion factorizes
-        :math:`s_k\,\triangle(\mathbf{r}) - \mathbf{T}` at many shifts :math:`s_k`). Such callers precompute
-        it once and pass it as ``perm`` to skip
-        the per-solve SCC analysis (~5-10x faster at large state spaces); ``perm=None`` forces the default ordering.
+        """
+        Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``. The sparse path
+        applies the ordering of ``_block_triangular_order`` with ``NATURAL`` column ordering and permutes the
+        right-hand side in and out. The ordering depends only on the sparsity pattern, so callers factorizing at many
+        diagonal shifts pass it as ``perm``, and ``perm=None`` forces the default ordering.
 
         :param A: The matrix to factorize (sparse or dense, matching ``sparse``).
         :param sparse: Whether to use the sparse factorization.
-        :param perm: The block-triangular permutation, or ``None`` for the default ordering, or :data:`_AUTO_PERM`
+        :param perm: The block-triangular permutation, or ``None`` for the default ordering, or ``_AUTO_PERM``
             (default) to compute it from ``A``.
         :return: Callable ``b -> x`` solving ``A x = b``.
         """
@@ -198,33 +170,201 @@ class MomentEvaluator:
             permute: bool = True
     ) -> float:
         r"""
-        Get the kth (cross-)moment of the accumulated reward(s). By default (``center=True``) this is the *central*
-        moment, so ``moment(2)`` is the variance; pass ``center=False`` for the raw (non-central) moment. Evaluated by
-        Van Loan's method as
+        The :math:`k`-th cross-moment of the accumulated rewards :math:`R_1, \dots, R_k`, with the notation of
+        :class:`~phasegen.distributions.PhaseTypeDistribution`. By default the moment is central,
 
         .. math::
 
-            \mathbb{E}\!\left[\tau_{\mathbf{r}_1} \cdots \tau_{\mathbf{r}_k}\right]
-            = k!\; \boldsymbol{\alpha}\, \big[\exp(\mathbf{V}_k t)\big]_{[1,\,k+1]}\, \mathbf{e},
+            \mathbb{E}\Big[\prod_{j=1}^{k} \big(R_j - \mathbb{E}[R_j]\big)\Big]
+            = \sum_{I \subseteq \{1, \dots, k\}} (-1)^{k - |I|}\,
+            \mathbb{E}\Big[\prod_{j \in I} R_j\Big] \prod_{j \notin I} \mathbb{E}[R_j],
 
-        the top-right block of the Van Loan propagator (see ``_van_loan_matrix()``) contracted with the initial
-        distribution :math:`\boldsymbol{\alpha}` on the left and the exit vector :math:`\mathbf{e}` on
-        the right; to absorption :math:`t \to \infty`. With all rewards equal and ``center=False`` this is the
-        :math:`k`-th raw moment :math:`\mathbb{E}[Y^k]` of a single reward :math:`Y`. The sample-based counterpart
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>` shares this
-        default.
+        where :math:`I` runs over the subsets of reward indices, :math:`|I|` is its size and an empty product equals
+        one. Hence ``moment(2)`` is the variance. With ``center=False`` the raw moment
+        :math:`\mathbb{E}[R_1 \cdots R_k]` is returned, which for equal rewards is :math:`\mathbb{E}[R^k]`.
 
-        :param k: The order of the moment.
-        :param rewards: Iterable of k rewards. By default, the reward of the underlying distribution.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :return: The kth moment
+        .. rubric:: Van Loan's method
+
+        For the reward vectors :math:`\mathbf{r}_1, \dots, \mathbf{r}_k` of :math:`R_1, \dots, R_k`, the Van Loan
+        matrix of epoch :math:`i` is the block upper-bidiagonal matrix of dimension :math:`(k + 1)|E|`
+
+        .. math::
+
+            \mathbf{V}_i =
+            \begin{pmatrix}
+                \mathbf{S}_i & \operatorname{diag}(\mathbf{r}_1) &        &                                   \\
+                             & \mathbf{S}_i                      & \ddots &                                   \\
+                             &                                   & \ddots & \operatorname{diag}(\mathbf{r}_k) \\
+                             &                                   &        & \mathbf{S}_i
+            \end{pmatrix}.
+
+        Following Van Loan (1978), the top-right :math:`|E| \times |E|` block of its exponential over a duration
+        :math:`h \ge 0` is the time-ordered integral
+
+        .. math::
+
+            \big[\exp(\mathbf{V}_i h)\big]_{1, k+1}
+            = \int_{0 < u_1 < \dots < u_k < h}
+            e^{\mathbf{S}_i u_1} \operatorname{diag}(\mathbf{r}_1)\, e^{\mathbf{S}_i (u_2 - u_1)} \cdots
+            \operatorname{diag}(\mathbf{r}_k)\, e^{\mathbf{S}_i (h - u_k)}\, \mathrm{d}u_1 \cdots \mathrm{d}u_k.
+
+        Let :math:`g_i` and :math:`h_i` be the lengths of :math:`[0, t_\mathrm{start}] \cap [t_{i-1}, t_i)` and
+        :math:`[t_\mathrm{start}, t_\mathrm{end}] \cap [t_{i-1}, t_i)` for a finite end time :math:`t_\mathrm{end}`. The
+        state distribution at the start time is :math:`\boldsymbol{\alpha}_\mathrm{start} = \boldsymbol{\alpha}
+        \prod_{i=1}^{M} \exp(\mathbf{S}_i g_i)`, and threading the Van Loan matrices through the epochs gives
+
+        .. math::
+
+            k!\; \boldsymbol{\alpha}_\mathrm{start} \Big[\prod_{i=1}^{M} \exp(\mathbf{V}_i h_i)\Big]_{1, k+1} \mathbf{e}
+            = k! \int_{t_\mathrm{start} < u_1 < \dots < u_k < t_\mathrm{end}}
+            \mathbb{E}\Big[\prod_{j=1}^{k} r_j(X_{u_j})\Big]\, \mathrm{d}u_1 \cdots \mathrm{d}u_k,
+
+        with both products ordered by increasing :math:`i`. Averaging this quantity over the :math:`k!` orderings of
+        the rewards gives :math:`\mathbb{E}[R_1 \cdots R_k]`, because the ordered simplices partition
+        :math:`[t_\mathrm{start}, t_\mathrm{end}]^k`. For :math:`k = 1` and :math:`t_\mathrm{start} > 0` the mean is the
+        difference of the means accumulated over :math:`[0, t_\mathrm{end}]` and :math:`[0, t_\mathrm{start}]`. All end
+        times passed to :meth:`PhaseTypeDistribution.accumulate()
+        <phasegen.distributions.PhaseTypeDistribution.accumulate>` share one pass through the epochs.
+
+        The exponentials are formed densely when :math:`(k + 1)|E|` is below
+        :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. At or above it, only
+        their action on the propagated row vector is computed with the algorithm of Al-Mohy and Higham (2011), which
+        exploits the sparsity of :math:`\mathbf{S}_i`. With :attr:`Settings.regularize
+        <phasegen.settings.Settings.regularize>` enabled, both variants exponentiate the balanced matrix
+        :math:`\mathbf{D} \mathbf{V}_i \mathbf{D}^{-1}`, where :math:`\mathbf{D}` is block diagonal with blocks
+        :math:`\mathbf{I}, \gamma \mathbf{I}, \dots, \gamma^k \mathbf{I}`, :math:`\mathbf{I}` is the
+        :math:`|E| \times |E|` identity and :math:`\gamma > 0` is the reciprocal geometric mean of the positive entries
+        of the intensity matrix of the epoch containing :math:`t_\mathrm{start}`. The balancing scales the top-right
+        block by :math:`\gamma^{-k}`, which is corrected exactly.
+
+        .. rubric:: Moments to absorption
+
+        When no end time is set on the call or on the distribution, :math:`t_\mathrm{start} = 0`,
+        :attr:`Settings.closed_form_last_epoch <phasegen.settings.Settings.closed_form_last_epoch>` is enabled and every
+        transient state of epoch :math:`M` can reach :math:`B`, the unbounded last epoch is evaluated exactly with the
+        Green's matrix :math:`\mathbf{U} = (-\mathbf{T}_M)^{-1}`. Its entry :math:`U_{yy'}` is the expected time spent
+        in the transient state :math:`y'` when starting in the transient state :math:`y`. With the reward vectors
+        restricted to the transient states, the backward recursion
+
+        .. math::
+
+            \boldsymbol{\nu}_{k+1} = \mathbf{e}_T, \qquad
+            \boldsymbol{\nu}_j = \mathbf{U} \operatorname{diag}(\mathbf{r}_j)\, \boldsymbol{\nu}_{j+1},
+            \quad j = k, \dots, 1,
+
+        gives the moment of a single ordering for :math:`M = 1` as
+        :math:`k!\, \boldsymbol{\alpha}_T \boldsymbol{\nu}_1 = k!\, \boldsymbol{\alpha}_T \mathbf{U}
+        \operatorname{diag}(\mathbf{r}_1) \mathbf{U} \cdots \mathbf{U} \operatorname{diag}(\mathbf{r}_k)\,
+        \mathbf{e}_T` (Hobolth et al., 2019). For :math:`M > 1` the vector
+        :math:`\mathbf{z} \in \mathbb{R}^{(k + 1)|E|}` holds :math:`\boldsymbol{\nu}_j` on the transient states of
+        block :math:`j`, zeros on :math:`B` in blocks :math:`1, \dots, k`, and :math:`\mathbf{e}` in block
+        :math:`k + 1`. It is propagated backwards through the finite epochs by
+        :math:`\mathbf{z} \leftarrow \exp(\mathbf{V}_i \Delta_i)\, \mathbf{z}` for :math:`i = M - 1, \dots, 1`, and the
+        moment is :math:`k!` times the product of :math:`\mathbf{z}` with the row vector holding
+        :math:`\boldsymbol{\alpha}` in block 1.
+
+        A single LU factorization of :math:`-\mathbf{T}_M` serves all :math:`k` solves. At or above
+        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
+        transient states, the factorization is sparse and the finite epochs use the sparse exponential action. Before
+        a sparse factorization, :math:`-\mathbf{T}_M` is permuted symmetrically into block-triangular form by ordering
+        the strongly connected components of its sparsity graph topologically, which reduces the factorization to
+        back-substitution over the components. When the conditions of the closed form do not hold, an unset or
+        infinite end time is replaced by :attr:`TreeHeightDistribution.t_max
+        <phasegen.distributions.TreeHeightDistribution.t_max>`.
+
+        .. rubric:: Spectra
+
+        The bins of a site-frequency spectrum differ only in their reward vectors
+        :math:`\mathbf{w}_1, \dots, \mathbf{w}_J`, with accumulated rewards :math:`R_1, \dots, R_J` for :math:`J`
+        bins. The spectrum-wide accessors contract bin-independent quantities with these vectors, restricted to the
+        transient states, and evaluate one moment per bin or per pair of bins when the conditions below do not hold.
+
+        The expected occupation times of the transient states until absorption form the row vector
+        :math:`\mathbf{m}`. With :math:`\mathbf{p}_1 = \boldsymbol{\alpha}_T`, each finite epoch contributes the
+        occupation :math:`\mathbf{m}_i` and carries the distribution :math:`\mathbf{p}_{i+1}` forward,
+
+        .. math::
+
+            \big[\mathbf{p}_{i+1},\ \mathbf{m}_i\big] = \big[\mathbf{p}_i,\ \mathbf{0}\big]
+            \exp\!\left(\begin{pmatrix} \mathbf{T}_i & \mathbf{I}_T \\ \mathbf{0} & \mathbf{0} \end{pmatrix}
+            \Delta_i\right), \qquad i = 1, \dots, M - 1,
+
+        with :math:`\mathbf{I}_T` the :math:`n_T \times n_T` identity, so that
+        :math:`\mathbf{m} = \sum_{i < M} \mathbf{m}_i + \mathbf{p}_M \mathbf{U}`. With the closed form enabled and no
+        end time set, the mean of bin :math:`j` is :math:`\mathbf{m} \mathbf{w}_j`, and a start time
+        :math:`t_\mathrm{start} > 0` subtracts the occupation accumulated up to :math:`t_\mathrm{start}`. The means
+        accumulated up to the end times of
+        :meth:`PhaseTypeDistribution.accumulate() <phasegen.distributions.PhaseTypeDistribution.accumulate>` use the
+        occupation :math:`\boldsymbol{\alpha} \int_0^b \mathbf{P}(u)\, \mathrm{d}u` of all states in the same way,
+        where :math:`\mathbf{P}(u)` is the transition matrix from time :math:`0` to time :math:`u`.
+
+        For :math:`M = 1`, :math:`t_\mathrm{start} = 0` and no end time, the two-point occupation of the transient
+        states
+        :math:`y, y'`,
+
+        .. math::
+
+            K_{yy'} = \int_0^\infty \int_0^{u'} \mathbb{P}(X_u = y,\, X_{u'} = y')\, \mathrm{d}u\, \mathrm{d}u'
+            = m_y U_{yy'},
+
+        gives :math:`\mathbf{K} = \operatorname{diag}(\mathbf{m}) \mathbf{U}` and all covariances of the spectrum at
+        once,
+
+        .. math::
+
+            \operatorname{Cov}(R_j, R_{j'}) = \mathbf{w}_j^\top (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{w}_{j'}
+            - \mathbb{E}[R_j]\, \mathbb{E}[R_{j'}].
+
+        Under the same conditions the two-locus spectrum of the locus-specific bin rewards
+        :math:`\mathbf{w}^0_j` and :math:`\mathbf{w}^1_{j'}`, with accumulated rewards :math:`R^0_j` and
+        :math:`R^1_{j'}`, is evaluated without forming :math:`\mathbf{K}`,
+
+        .. math::
+
+            \mathbb{E}[R^0_j R^1_{j'}] = (\mathbf{m}^\top \odot \mathbf{w}^0_j)^\top \mathbf{U}\, \mathbf{w}^1_{j'}
+            + (\mathbf{U} \mathbf{w}^0_j)^\top (\mathbf{m}^\top \odot \mathbf{w}^1_{j'}),
+
+        where :math:`\odot` is the elementwise product. This requires one factorization each of :math:`-\mathbf{T}_1`
+        and its transpose and one solve per bin reward, and the result is averaged with its transpose over the two
+        loci.
+
+        For a single population, a single locus and the
+        :class:`~phasegen.coalescent_models.StandardCoalescent`, the first moment of a spectrum bin is computed on the
+        lineage-counting state space when :attr:`Settings.flatten_block_counting
+        <phasegen.settings.Settings.flatten_block_counting>` is enabled, which takes precedence over the contraction
+        above. Bin :math:`j` then accumulates the reward
+
+        .. math::
+
+            w_\ell(j) = \ell \binom{n - j - 1}{\ell - 2} \Big/ \binom{n - 1}{\ell - 1}
+
+        in the state with :math:`\ell \ge 2` lineages, the expected number of lineages subtending :math:`j` of the
+        :math:`n` samples given :math:`\ell` lineages. The weights hold in every epoch because the sequence of mergers
+        does not depend on the population sizes. Rewards without this closed form are weighted with the state
+        probabilities of the embedded jump chain of the block-counting state space.
+
+        .. rubric:: References
+
+        Al-Mohy, A. H. and Higham, N. J. (2011). Computing the action of the matrix exponential, with an application
+        to exponential integrators. SIAM Journal on Scientific Computing 33(2), 488-511.
+
+        Hobolth, A., Siri-Jégousse, A. and Bladt, M. (2019). Phase-type distributions in population genetics.
+        Theoretical Population Biology 127, 16-32.
+
+        Van Loan, C. F. (1978). Computing integrals involving the matrix exponential. IEEE Transactions on Automatic
+        Control 23(3), 395-404.
+
+        :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
+        :param end_time: The end time :math:`t_\mathrm{end}`. By default, the end time of the distribution, or
+            absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :return: The :math:`k`-th moment.
+        :raises ValueError: If the population sizes and migration rates are too far apart for a reliable evaluation,
+            or if the moment is not a number.
         """
         if start_time is None:
             start_time = self.tree_height.start_time
@@ -297,13 +437,10 @@ class MomentEvaluator:
 
     @staticmethod
     def _get_regularization_factor(S: np.ndarray) -> float:
-        r"""
-        Get the regularization factor for the given intensity matrix. We multiply the intensity matrix by this
-        factor to improve numerical stability when computing the matrix exponential of the Van Loan matrix. The
-        factor rescales the rates to be of order one, :math:`\lambda = 10^{-\overline{\log_{10} s_{ij}}}` (the
-        inverse geometric mean of the positive rates :math:`s_{ij}`); the reward diagonals are already of order
-        one, so the result is corrected by :math:`\lambda^k` after exponentiation. If regularization is disabled,
-        this factor is 1.
+        """
+        The balancing factor of the Van Loan matrix, the reciprocal geometric mean of the positive rates of ``S``, or
+        1 when ``Settings.regularize`` is disabled. Scaling ``S`` by it and the step by its inverse divides the reward
+        blocks by the factor, which the callers undo by multiplying the moment by its ``k``-th power.
 
         :param S: Intensity matrix.
         :return: Regularization factor.
@@ -319,12 +456,9 @@ class MomentEvaluator:
 
     def _check_demography_conditioning(self) -> None:
         """
-        Fail fast on extreme demographies whose population sizes or migration rates differ by more than ~double
-        precision. Such demographies make the moment computation numerically unreliable, whether via the
-        matrix-exponential absorption-time estimate (where scipy's ``expm`` one-norm power iteration becomes
-        intermittently prohibitively slow) or the closed-form transient solve (where the rate matrix is
-        ill-conditioned). Detected up front from the demography (not the rate matrix, whose range can also be
-        widened by the coalescent model, e.g. multiple-merger models).
+        Fail fast when the population sizes and migration rates of the first epoch span more than double precision,
+        which makes both the absorption-time search and the closed-form solve unreliable. Keyed on the demography, not
+        the rate matrix, whose range multiple-merger models widen legitimately.
 
         :raises ValueError: if the population sizes and migration rates differ by a factor of more than ``1e16``.
         """
@@ -368,20 +502,18 @@ class MomentEvaluator:
             permute: bool = True,
             start_time: float = 0.0
     ) -> np.ndarray:
-        """
-        Evaluate the kth moment at different end times.
+        r""" The :math:`k`-th moment accumulated from the start time :math:`t_\mathrm{start}` to each end time
+        :math:`t_\mathrm{end}` in ``end_times``, as described in :meth:`PhaseTypeDistribution.moment()
+        <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
-        :param k: The order of the moment.
-        :param end_times: List of ends times or end time when to evaluate the moment.
-        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
-        :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :param start_time: Time from which to start accumulation. When positive, the reward is accumulated over the
-            window ``[start_time, t]`` for each end time ``t`` (the correct windowed moment for ``k >= 2``; see
-            ``_accumulate_windowed()``). By default, ``0`` (accumulation from the origin).
-        :return: The moment accumulated at the specified times or time.
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, ``0``.
+        :return: The moment at each end time.
         """
         k = int(k)
 
@@ -503,19 +635,10 @@ class MomentEvaluator:
         return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
 
     def _flattened_sfs_weights(self, reward: Reward, n: int) -> Optional[np.ndarray]:
-        r"""
-        Per-lineage-level weights :math:`\mathbb{E}[r \mid k \text{ lineages}]` (indexed by :math:`n - k`) for the
-        flattened SFS, in closed form from the Kingman conditional block-size distribution (block sizes given
-        :math:`k` lineages are uniform over compositions of :math:`n` into :math:`k` parts):
-
-        .. math::
-
-            \mathbb{E}[\#\ \text{size-}b\ \text{blocks} \mid k]
-            = k\, \binom{n - b - 1}{k - 2} \Big/ \binom{n - 1}{k - 1}.
-
-        This never builds the :math:`p(n)`-state block-counting space. Returns ``None`` for any reward that is not
-        (a unit multiple of) an unfolded/folded SFS bin reward, in which case the caller falls back to the
-        block-counting state-probability traversal.
+        """
+        Flattening weights of ``PhaseTypeDistribution.moment`` per lineage count (indexed by ``n - k``), from the
+        uniform distribution of Kingman block sizes over compositions, without building the block-counting space.
+        Returns ``None`` for a reward that is not a unit multiple of an unfolded or folded SFS bin reward.
 
         :param reward: The reward whose flattened weights to compute.
         :param n: The number of lineages.
@@ -578,7 +701,7 @@ class MomentEvaluator:
         :param end_times: Sequence of ends times or end time when to evaluate the moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param start_time: Time from which to start accumulation. When positive, delegates to
-            :meth:`_accumulate_windowed`, which accumulates the reward over the window ``[start_time, t]`` directly.
+            ``_accumulate_windowed``, which accumulates the reward over the window ``[start_time, t]`` directly.
             By default, ``0`` (accumulation from the origin).
         :return: The moment accumulated at the specified times or time.
         """
@@ -708,15 +831,10 @@ class MomentEvaluator:
             t_sorted: np.ndarray,
             rewards: Sequence[Reward]
     ) -> np.ndarray:
-        r"""
-        Sparse-action variant of :meth:`_accumulate` for large state spaces. Instead of forming the dense Van Loan
-        propagator :math:`\mathbf{Q} = \prod_i \exp(\mathbf{V}_i \tau_i)` and reading off its top-right block
-        contraction (see :meth:`moment`), this threads the extended
-        vector :math:`\mathbf{w}` (with :math:`\boldsymbol{\alpha}` in its first block) through the epochs by the
-        action of the transposed Van Loan matrix, :math:`\mathbf{w} \mapsto \exp(\mathbf{V}^\top \tau)\,\mathbf{w}`
-        (:func:`scipy.sparse.linalg.expm_multiply`), reading off :math:`\mathbf{w}^\top \mathbf{e}_{\text{ext}}`
-        (with the exit vector :math:`\mathbf{e}` in its last block) at each end time. This is exact (a product
-        applied to a vector is a sequence of matrix-vector actions) and exploits the rate matrix sparsity.
+        """
+        Sparse-action variant of ``_accumulate``: threads the row vector holding ``alpha`` in its first block through
+        the epochs by the action of the transposed Van Loan matrix and reads off its product with ``e`` in the last
+        block at each end time.
 
         :param k: The order of the moment.
         :param end_times: The (unsorted) end times, used to restore the original order.
@@ -806,16 +924,10 @@ class MomentEvaluator:
             end_times: np.ndarray,
             rewards: Sequence[Reward]
     ) -> np.ndarray:
-        r"""
-        Windowed non-central moment for a single reward ordering,
-        :math:`\mathbb{E}\big[(\int_{t_a}^{t} r(X_u)\,\mathrm{d}u)^k\big]` for each ``t`` in ``end_times`` (with the
-        window start :math:`t_a` = ``start_time``). The entry distribution is first propagated to :math:`t_a`
-        through the plain generator, :math:`\boldsymbol{\alpha}_a = \boldsymbol{\alpha} \prod_i \exp(\mathbf{S}_i
-        \tau_i)` (yielding the sub-distribution over states at the window start), and the Van Loan :math:`k`-th-moment
-        accumulation is then run over the window :math:`[t_a, t]` from :math:`\boldsymbol{\alpha}_a` in place of
-        :math:`\boldsymbol{\alpha}`. For :math:`k \ge 2` this is the correct windowed moment
-        :math:`\mathbb{E}[(Y_b - Y_a)^k]`: the naive difference of two cumulative-from-0 moments :math:`m_b - m_a`
-        omits the cross terms and is valid only for the (additive) mean.
+        """
+        Raw moment of a single reward ordering over the window ``[start_time, t]`` for each ``t`` in ``end_times``:
+        propagates ``alpha`` to ``start_time`` with the plain generator, then runs the Van Loan accumulation from
+        there. For ``k >= 2`` the difference of two moments accumulated from 0 would omit the cross terms.
 
         :param k: The order of the moment.
         :param start_time: The (positive) window start time.
@@ -938,12 +1050,10 @@ class MomentEvaluator:
         return epochs
 
     def _absorption_certain_in_last_epoch(self) -> bool:
-        r"""
-        Structural check on the final (unbounded) epoch: whether every transient state can reach an absorbing
-        state, i.e. the transient sub-generator :math:`\mathbf{T}` is non-singular and the moment-to-absorption can
-        be evaluated in closed form. When this is ``False`` (e.g. disconnected demes or a migration barrier in the last epoch) the
-        moment may still be finite if absorption occurs in earlier epochs, so callers fall back to the
-        matrix-exponential path rather than relying on the closed form.
+        """
+        Whether every transient state of the final epoch can reach an absorbing state, so that ``-T`` is non-singular
+        and the closed form applies. When ``False``, for example for a migration barrier in the last epoch, absorption
+        may still happen in earlier epochs, and callers use the matrix exponential up to the absorption-time estimate.
 
         :return: Whether absorption is certain from every transient state of the last epoch.
         """
@@ -959,12 +1069,10 @@ class MomentEvaluator:
         return self._absorption_certain_cache
 
     def _reaches_absorption(self) -> Tuple[np.ndarray, np.ndarray]:
-        r"""
-        Backward reachability over the *current* epoch's rate graph: which states can reach an absorbing state.
-        A state can reach absorption iff it is absorbing or has an outgoing edge (rate :math:`s_{ij} > 0`) to a
-        state that can; this is propagated backwards with a sparse adjacency, so each pass is O(nnz). Used both to decide
-        whether the closed form applies (:meth:`_absorption_certain_in_last_epoch`) and to guard against demographies
-        that never absorb (:meth:`_get_absorption_time`).
+        """
+        Backward reachability over the rate graph of the current epoch: a state reaches absorption if it is absorbing
+        or has a positive rate to a state that does, propagated with a sparse adjacency matrix. Used by
+        ``_absorption_certain_in_last_epoch`` and ``_assert_absorbs``.
 
         :return: ``(absorbing, reach)`` boolean masks over the states; ``reach`` includes the absorbing states.
         """
@@ -988,17 +1096,12 @@ class MomentEvaluator:
         return absorbing, reach
 
     def _assert_absorbs(self, w: np.ndarray) -> None:
-        r"""
-        Raise if the demography can never absorb. Distinguishes a *structural* barrier (an isolated deme or a
-        one-way/blocked migration in the final, unbounded epoch, leaving lineages that can never coalesce) from a
-        merely slow or numerically imprecise computation. :math:`\mathbf{w} = \boldsymbol{\alpha}\,\mathbf{T}` is the
-        occupation distribution at a large time, so its support is exactly the mass still in play; the final epoch's
-        rate graph (``state_space`` is expected to be updated to it) tells us which states can structurally reach
-        absorption. Residual mass parked on states that cannot is permanent. Called by the absorption-time search,
-        which otherwise silently runs to its iteration ceiling.
+        """
+        Raise if the demography can never absorb, for example for an isolated deme or one-way migration in the final
+        epoch. Mass of the propagated distribution ``w`` on states that cannot reach absorption in the final epoch
+        (``state_space`` updated to it) is permanent. Called by the absorption-time search.
 
-        :param w: Occupation distribution :math:`\boldsymbol{\alpha}\,\mathbf{T}` at a large time in the final,
-            unbounded epoch.
+        :param w: State distribution at a large time in the final, unbounded epoch.
         :raises ValueError: if a non-negligible fraction of the mass can never reach a common ancestor.
         """
         _, reach = self._reaches_absorption()
@@ -1014,25 +1117,10 @@ class MomentEvaluator:
             )
 
     def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward]) -> float:
-        r"""
-        Evaluate the kth (non-central) moment accumulated until absorption, evaluating the final unbounded epoch in
-        closed form. The final epoch's contribution as :math:`t \to \infty` is the limit
-        :math:`\mathbf{z} = \lim_{t} \exp(\mathbf{V} t)\,\mathbf{e}_{\text{ext}}` of the Van Loan propagator, whose
-        transient part is the back-substitution
-
-        .. math::
-
-            \boldsymbol{\nu}_k = \mathbf{e}_t,
-            \qquad
-            \boldsymbol{\nu}_j = (-\mathbf{T})^{-1}\big(\mathbf{r}_j \odot \boldsymbol{\nu}_{j+1}\big),
-            \quad j = k - 1, \dots, 0,
-
-        (with :math:`\mathbf{e}_t` the exit vector restricted to the transient states) and whose absorbing part is
-        the exit vector in the last block. A single LU factorization of :math:`-\mathbf{T}` (in block-triangular
-        order, see :meth:`_lu_solver`) is reused across the substitution, and the preceding finite epochs are
-        applied to :math:`\mathbf{z}` via the (well-conditioned, finite-interval) matrix exponential of the full
-        Van Loan matrix. This is for a single reward ordering; permutation averaging is handled by
-        :meth:`accumulate`.
+        """
+        Raw moment of a single reward ordering to absorption with the closed-form last epoch of
+        ``PhaseTypeDistribution.moment``: the backward recursion with one LU of ``-T`` (``_lu_solver``), then the
+        finite epochs applied backwards to the extended vector.
 
         :param k: The order of the moment.
         :param rewards: Sequence of k rewards (a single ordering).
@@ -1108,10 +1196,9 @@ class MomentEvaluator:
 
     def _flattening_applies(self, k: int) -> bool:
         """
-        Whether the block-counting state space can be flattened to the (much smaller) lineage-counting state space
-        for this moment: the first moment of the standard coalescent on a single population and a single locus. When
-        it applies it takes precedence over the closed form / batched occupation, because reducing the state space
-        (e.g. thousands of block states to ``n`` lineage states) dominates the per-solve cost.
+        Whether the block-counting state space can be flattened onto the lineage-counting state space for this
+        moment: the first moment of the standard coalescent on a single population and a single locus. Takes
+        precedence over the closed form and the batched occupation.
         """
         return (
                 Settings.flatten_block_counting and
@@ -1123,10 +1210,9 @@ class MomentEvaluator:
         )
 
     def _transient_block(self, idx_t: np.ndarray, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
-        r"""
-        The transient sub-generator :math:`\mathbf{T} = \mathbf{S}[\mathrm{idx}_t, \mathrm{idx}_t]` extracted from
-        the (dense or sparse) rate matrix, returned as a dense array (default) or a sparse CSC matrix
-        (``sparse=True``, for the large-state-space LU / exp-action paths, which never materialise the dense block).
+        """
+        The transient block ``S[idx_t, idx_t]`` of the rate matrix, as a dense array or, with ``sparse=True``, a
+        sparse CSC matrix.
         """
         S = self.state_space.S
         if sp.issparse(S):
@@ -1144,19 +1230,10 @@ class MomentEvaluator:
         return np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
 
     def _mean_occupation_grid(self, end_times: Sequence[float]) -> np.ndarray:
-        r"""
-        Expected time spent in each state up to each time in ``end_times``,
-        :math:`\mathbf{m}(t) = \boldsymbol{\alpha} \int_0^t \exp(\mathbf{S} u)\,\mathrm{d}u`, threaded across epochs.
-        This is the bin-independent quantity shared by every bin of a *mean accumulation* (:meth:`accumulate` with
-        :math:`k = 1`): each bin's accumulation is :math:`\mathbf{m}(t) \cdot \mathbf{r}_{\text{bin}}`, so the whole
-        spectrum's accumulation is one contraction :math:`\mathbf{m}_{\text{grid}} \mathbf{R}` over the stacked bin
-        rewards instead of a per-bin solve.
-
-        Read off the augmented generator :math:`\left(\begin{smallmatrix} \mathbf{S} & \mathbf{I} \\ \mathbf{0} &
-        \mathbf{0} \end{smallmatrix}\right)`: the row action
-        :math:`[\mathbf{p}, \mathbf{m}]\, \exp(\mathbf{A}_{\text{aug}} \tau) = [\mathbf{p}\,\exp(\mathbf{S} \tau),\;
-        \mathbf{m} + \mathbf{p}\,\mathbf{A}]` with :math:`\mathbf{A} = \int_0^\tau \exp(\mathbf{S} u)\,\mathrm{d}u`
-        propagates the entry distribution :math:`\mathbf{p}` and accrues the occupation :math:`\mathbf{m}`.
+        """
+        Expected time spent in each state of ``E`` up to each end time, threaded across epochs with the augmented
+        generator ``[[S, I], [0, 0]]`` of ``PhaseTypeDistribution.moment``, for the batched mean accumulation of a
+        spectrum.
 
         :param end_times: Times at which to evaluate the occupation.
         :return: Array of shape ``(len(end_times), n_states)``.
@@ -1214,19 +1291,11 @@ class MomentEvaluator:
         return out[np.argsort(order)]
 
     def _occupation_times(self, cap: float = None) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        r"""
-        Expected total time spent in each transient state until absorption. This is the bin-independent quantity
-        shared by every bin of a *mean* spectrum: the mean of a reward :math:`\mathbf{r}` is simply
-        :math:`\mathbf{m} \cdot \mathbf{r}`, so a whole SFS / joint SFS mean is one contraction
-        :math:`\mathbf{m}\,\mathbf{R}` over the stacked bin rewards instead of a separate solve per bin. Finite
-        epochs contribute :math:`\mathbf{p}_i (\exp(\mathbf{S}_i \tau_i) - \mathbf{I})\,\mathbf{S}_i^{-1}` (entered
-        with distribution :math:`\mathbf{p}_i`); the final unbounded epoch contributes
-        :math:`\mathbf{p}\,(-\mathbf{T})^{-1}`.
-
-        Occupation is additive in time, so a windowed mean with a non-zero start time reuses this directly,
-        :math:`\mathbf{m}(t_a, \infty) = \mathbf{m}(0, \infty) - \mathbf{m}(0, t_a)`, the second term obtained by
-        passing ``cap`` = :math:`t_a`. The capped accumulation treats the epoch containing ``cap`` (the final,
-        unbounded epoch included) as a finite Van Loan block ending at ``cap`` and stops there.
+        """
+        Expected occupation times of the transient states until absorption (the vector ``m`` of
+        ``PhaseTypeDistribution.moment``). Finite epochs use the augmented generator ``[[T_i, I], [0, 0]]`` on the
+        transient block, and the final epoch contributes ``p (-T)^{-1}``. With ``cap`` the accumulation stops at that
+        time, and the epoch containing it is treated as finite, so a windowed mean subtracts the capped occupation.
 
         :param cap: If given, accumulate occupation only up to this absolute time instead of to absorption.
         :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
@@ -1296,21 +1365,9 @@ class MomentEvaluator:
         return m, idx_t
 
     def _two_point_occupation(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        r"""
-        Two-point occupation matrix
-        :math:`\mathbf{K}_{a,b} = \int_{s < u} \mathbb{P}(X_s = a, X_u = b)\,\mathrm{d}s\,\mathrm{d}u` — the
-        bin-independent quantity shared by every *pair* of a second-moment spectrum: the uncentered cross-moment of
-        two rewards :math:`\mathbf{r}, \mathbf{r}'` is
-        :math:`\mathbf{r}^\top (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{r}'`, so the whole 2-SFS covariance is a
-        single contraction over the stacked bin rewards.
-
-        Restricted to a **single (unbounded) epoch**, where it is the exact closed form
-        :math:`\mathbf{K} = \triangle(\mathbf{m})\,(-\mathbf{T})^{-1}` (with occupation times
-        :math:`\mathbf{m} = \boldsymbol{\alpha}\,(-\mathbf{T})^{-1}`) and needs no numerical integration. The
-        multi-epoch version requires integrating the :math:`O(|E|^2)` matrix ODE
-        :math:`\mathrm{d}\mathbf{J}/\mathrm{d}u = \mathbf{J}\,\mathbf{S} + \triangle(\mathbf{f}(u))`, whose explicit
-        integrator degenerates (very many tiny steps) on stiff demographies, so it is deliberately not used: the
-        caller falls back to the per-pair matrix-exponential path instead.
+        """
+        Dense two-point occupation matrix ``K = diag(m) (-T)^{-1}`` of ``PhaseTypeDistribution.moment``, defined for a
+        single epoch without an accumulation window. Other cases return ``None`` and callers evaluate per pair.
 
         :return: ``(K, idx_t)`` over the transient states, or ``None`` when not applicable (caller falls back).
         """

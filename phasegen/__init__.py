@@ -88,9 +88,9 @@ class ColoredFormatter(logging.Formatter):
 
 class DeduplicatingFilter(logging.Filter):
     """
-    Collapse identical log records (same logger, level and rendered message) within a single *coalescent
-    computation* into one record. The per-bin / per-pair spectrum computations would otherwise repeat the same
-    strategy/debug message once per iteration; this keeps one of each per computation. Deduplication is scoped to a
+    Collapse identical log records (same logger, level and rendered message) within a single coalescent
+    computation into one record. The per-bin and per-pair spectrum computations emit the same strategy or debug
+    message once per iteration, and this filter keeps one of each per computation. Deduplication is scoped to a
     computation (not a time or record window, neither of which can robustly bound an arbitrarily slow per-pair
     loop): the caching layer bumps :data:`phasegen.caching.computation_epoch` at each outermost cached/memoised
     computation, and this filter resets its seen-set whenever that epoch changes — so a later computation logs

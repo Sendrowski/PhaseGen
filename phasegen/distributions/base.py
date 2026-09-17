@@ -23,15 +23,18 @@ logger = logging.getLogger('phasegen')
 
 class DistributionFunction:
     """
-    A distribution function -- callable (evaluate) and plottable -- returned by a distribution's ``pdf`` / ``cdf`` /
-    ``quantile`` property.
+    Distribution function returned by the ``pdf``, ``cdf`` and ``quantile`` properties of a distribution.
 
-    Calling it evaluates the function (e.g. ``coal.sfs.pdf(t)`` returns the per-bin densities at ``t``), while
-    :meth:`plot` draws it (e.g. ``coal.sfs.pdf.plot()`` overlays every bin's density curve).
+    Calling the object evaluates the function, so that ``coal.sfs.pdf(x)`` returns the density of every bin at ``x``,
+    and :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws it, so that
+    ``coal.sfs.pdf.plot()`` draws the density curve of every bin. A joint function also draws its surface with
+    ``plot_surface()``.
 
-    Each property returns one of the typed subclasses (:class:`DensityFunction` /
-    :class:`CumulativeDistributionFunction` / :class:`QuantileFunction`, in plain, ``Marginal...``, ``Joint...`` and
-    ``Conditional...`` flavours), whose docstrings describe what that function is and how it is computed.
+    The properties return the subclasses :class:`~phasegen.distributions.DensityFunction`,
+    :class:`~phasegen.distributions.CumulativeDistributionFunction` and
+    :class:`~phasegen.distributions.QuantileFunction` in plain, marginal (one function per spectrum bin), joint and
+    conditional variants. The methods by which they are evaluated are listed at
+    :class:`~phasegen.distributions.CumulativeDistributionFunction`.
 
     :param distribution: The distribution this function belongs to.
     """
@@ -42,7 +45,7 @@ class DistributionFunction:
         self._distribution = distribution
 
     def __call__(self, *args, **kwargs) -> 'Any':
-        """Evaluate the distribution function at the given point(s) (the distribution's ``_<kind>``)."""
+        """Evaluate the function at a point or an array of points, with the arguments of the concrete subclass."""
         return getattr(self._distribution, '_' + self.kind)(*args, **kwargs)
 
     def _plot_data(self, *args, **kwargs) -> '_CurveData':
@@ -143,39 +146,60 @@ class _SurfacePlottable:
     2D heatmap drawn by :meth:`plot`). Univariate function classes deliberately lack it."""
 
     def plot_surface(self, *args, **kwargs) -> 'plt.Axes':
-        """Plot the joint distribution function as a 3D surface (the distribution's ``_plot_<kind>_surface``)."""
+        """Plot the joint distribution function as a 3D surface, with the arguments of the concrete subclass."""
         return getattr(self._distribution, '_plot_' + self.kind + '_surface')(*args, **kwargs)
 
 
 # --- function kinds -------------------------------------------------------------------------------------------------
 
 class DensityFunction(DistributionFunction):
-    r"""Probability density function :math:`f(x) = F'(x)`.
+    r"""Probability density function :math:`f(x) = F'(x)` of a distribution with CDF :math:`F`.
 
-    Calling ``pdf(x)`` returns the density at ``x`` (scalar or array). It follows the evaluation route of the
-    :class:`CumulativeDistributionFunction`, differentiated for an accumulated reward and replaced by a histogram for
-    an empirical distribution.
+    Calling ``pdf(x)`` returns the density at ``x``, for a scalar or an array, evaluated as listed at
+    :class:`~phasegen.distributions.CumulativeDistributionFunction`.
     """
     kind = 'pdf'
 
 
 class CumulativeDistributionFunction(DistributionFunction):
-    r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)`, the probability of being at most ``x``.
+    r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)` of the random variable :math:`Y` of a
+    distribution.
 
-    Calling ``cdf(x)`` returns the probability at ``x`` (scalar or array). For an accumulated reward this is the
-    Fourier-cosine inversion; the tree height uses the exact :mod:`matrix exponential <phasegen.expm>`, and an
-    :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution the empirical CDF.
+    Calling ``cdf(x)`` returns the probability at ``x``, for a scalar or an array. The evaluation is described at
+    :class:`~phasegen.distributions.TreeHeightDistribution` for the tree height, at
+    :class:`~phasegen.distributions.RewardDistribution` for any other accumulated reward and at
+    :class:`~phasegen.distributions.EmpiricalDistribution` for a sample.
     """
     kind = 'cdf'
 
 
 class QuantileFunction(DistributionFunction):
-    r"""Quantile function :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, the inverse CDF.
+    r"""Quantile function :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}` of a distribution with CDF :math:`F`, for a
+    probability level :math:`q \in [0, 1]`.
 
-    Calling ``quantile(q)`` returns the value at which the CDF reaches ``q`` (scalar or array). For an accumulated
-    reward this inverts the very CDF grid the :class:`CumulativeDistributionFunction` reads, so the two are exact
-    mutual inverses; an :class:`empirical <phasegen.distributions.EmpiricalDistribution>` distribution uses the
-    sample quantile.
+    Calling ``quantile(q)`` returns the quantile at ``q``, for a scalar or an array. An
+    :class:`~phasegen.distributions.EmpiricalDistribution` uses the sample quantile. The analytic distributions
+    read their quantile from a grid of nodes :math:`0 = x_0 < x_1 < \dots < x_G` that carries the cumulative hazard
+    :math:`H_g = -\log(1 - F(x_g))`, made non-decreasing, for :math:`g = 0, \dots, G`. With :math:`\hat H` the
+    piecewise-linear interpolant of the pairs :math:`(x_g, H_g)`, extended by 0 below :math:`x_0`,
+
+    .. math::
+
+        F^{-1}(q) = \hat H^{-1}\big(-\log(1 - q)\big),
+
+    clamped to :math:`[x_0, x_G]`. Interpolating in :math:`H` is exact for an exponential tail, on which :math:`H` is
+    linear. The nodes of the tree height carry exact values of its CDF and are placed as described at
+    :class:`~phasegen.distributions.TreeHeightDistribution`, whose CDF and density are evaluated pointwise. The
+    nodes of any other accumulated reward are described at :class:`~phasegen.distributions.RewardDistribution`, and
+    its CDF and density are read from the same grid,
+
+    .. math::
+
+        F(x) = 1 - e^{-\hat H(x)}, \qquad f(x) = e^{-\hat H(x)}\, \hat h(x),
+
+    where :math:`\hat h` is the piecewise-linear interpolant of finite-difference estimates of
+    :math:`H'(x_g)` at the nodes. The quantile and the CDF are then exact inverses of each other, and the density is
+    non-negative.
     """
     kind = 'quantile'
 
@@ -216,25 +240,10 @@ class QuantileFunction(DistributionFunction):
 # --- the shared CDF representation ----------------------------------------------------------------------------------
 
 class _HazardGrid:
-    r"""
-    The one representation the cdf, pdf and quantile of a continuous distribution are read off: a grid of nodes and
-    the **cumulative hazard** :math:`H(x) = -\log(1 - F(x))` on them, interpolated linearly in ``x``.
-
-    The map is the whole definition: :math:`F(x) = 1 - e^{-H(x)}`, so the cdf reads it forwards
-    (:meth:`_interp_cdf`), the quantile backwards (:meth:`_interp_quantile`) and the pdf differentiates it
-    (:meth:`_interp_pdf`). No root-find, no finite difference, and the three are exact mutual inverses of one
-    another rather than agreeing to a tolerance.
-
-    ``H`` is the coordinate because it is the one in which both halves of the curve are near-straight: near the
-    origin :math:`H \approx F`, so a chord in ``H`` is the obvious linear interpolation of the CDF; out in the tail
-    ``H`` is :math:`-\log S` (the survival :math:`S = 1 - F`), which an (asymptotically exponential) survival traces
-    almost exactly. Linear in ``H`` is a piecewise-constant *hazard*, the natural interpolant of a survival function.
-
-    Where the nodes come from is the subclass's business, and the two sources differ because their point evaluators
-    do: :class:`_LSTFunction` inverts the Laplace transform, which is dear enough (by some three orders of magnitude)
-    that it fits a cosine series for the body and pays for exact nodes only in the tail, while the tree height's
-    :class:`~phasegen.distributions.phase_type._ExpmFunction` exponentiates the rate matrix, cheap enough that every
-    node is exact.
+    """
+    The cumulative-hazard grid described at ``QuantileFunction``. ``_interp_cdf``, ``_interp_quantile`` and
+    ``_interp_pdf`` read it, and the subclasses ``_LSTFunction`` and ``_ExpmFunction`` supply the nodes through
+    ``_cdf_grid``.
     """
 
     def _shared(self, key: str, build) -> 'Any':
@@ -320,83 +329,32 @@ class _HazardGrid:
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
 
 class _LSTFunction(_HazardGrid):
-    r"""
-    Mixin owning the 1D accumulated-reward inversion machinery for the function objects of an LST distribution
-    (:class:`~phasegen.distributions.reward.RewardDistribution` and its conditional flavours; a bare
-    :class:`~phasegen.distributions.PhaseTypeDistribution` such as ``total_branch_length``). It pulls the transform
-    and scale *primitives* (``lst`` / ``_invert`` / ``_cumulants`` / ``_range`` / ``_time_scale`` / ``_titled`` /
-    the inversion guards) from ``self._distribution`` and turns them into the cdf / pdf / quantile.
-
-    The distribution is defined by the Laplace-Stieltjes transform of its accumulated reward
-    :math:`R`, :math:`\varphi(s) = \mathbb{E}[e^{-sR}]`; the CDF transform is :math:`\varphi(s)/s` and the atom at the
-    origin is :math:`\varphi(\infty) = \mathbb{P}(R = 0)`. Two routes invert it. The **Fourier-cosine (COS)** series
-    reconstructs a whole curve on a truncated support :math:`[0, b]` from the characteristic function
-    :math:`\chi(\omega) = (\varphi(-i\omega) - p_0)/(1 - p_0)` sampled on :math:`\omega_j = j\pi/b`,
-
-    .. math::
-        F(x) = p_0 + (1 - p_0)\Big[ f_0\,x + \sum_{j \ge 1} \frac{f_j}{\omega_j}\sin(\omega_j x) \Big],
-        \qquad f_j = \tfrac{2}{b}\,\mathrm{Re}\,\chi(\omega_j),
-
-    with :math:`p_0 = \varphi(\infty)` the atom (:math:`f_0` halved); **de Hoog's** accelerated per-point inversion is
-    the exact but costly reference used above the tail quantile.
-
-    One representation serves the cdf / pdf / quantile: the **CDF grid** of ``_cdf_grid``, a two-pass
-    Fourier-cosine fit carrying exact de Hoog nodes above :attr:`~phasegen.settings.Settings.dehoog_tail_quantile`,
-    where the fit force-normalises to 1 and so loses the tail outright. A single fit answers a whole array, and the
-    grid is cached on the *distribution* (the one object the cdf / pdf / quantile of a distribution hang off, see
-    :meth:`~CallableDistributionFunctions._function`), so all three read it and are mutually consistent by
-    construction: the pdf is its derivative and the quantile its inverse interpolation, making
-    :math:`F(F^{-1}(q)) = q` exact.
-
-    The **per-point de Hoog inversion** (:meth:`_cdf_point` / :meth:`_pdf_point`) is exact but costs one Laplace
-    inversion (~19 ms) per point, so it is never a route the caller selects -- there is no ``exact=`` switch, and every
-    plotted curve is the very function the caller evaluates. It is memoised per distribution and used to build:
-
-    - the grid's own **far-tail nodes**, materialised on first use and only as far as the query reaches, so a plot
-      (whose endpoint quantile sits below the cut) never pays for them;
-    - a **conditional's support window** (:meth:`~phasegen.distributions.reward.ConditionalRewardDistribution._range_via_cdf`),
-      which brackets the exact CDF because the nested transform's finite-difference variance is unusable;
-    - the **joint's near-origin wiggle check**
-      (:meth:`~phasegen.distributions.reward.JointRewardDistribution._cos2d_wiggle_check`), cached per joint;
-    - the exactness pins of the test suite, which need a reference the grid cannot be its own judge of.
     """
-    #: Cosine terms for the coarse support-locating pass and the fine accuracy pass of the two-pass COS fit.
+    The inversion of an accumulated-reward transform, described at ``RewardDistribution``, for the function objects
+    of a ``RewardDistribution`` and its conditional subclasses. The transform and its scales come from
+    ``self._distribution`` (``lst``, ``_invert``, ``_range``, ``_s_inf``). ``_cdf_point`` is the per-point de Hoog CDF
+    behind the tail nodes and the conditional support bracket.
+    """
+    #: Cosine terms :math:`K` of the first (locating) and second pass.
     _cos_terms_rough: int = 128
     _cos_terms: int = 384
 
-    #: Nodes the fit is sampled on to become the grid's body. The fit is analytic, so these cost only its evaluation
-    #: (~6 ms) against the hundreds of ms of transform evaluations behind it, and the interpolation error between them
-    #: falls as their spacing squared. At 2048 that error reached 9.4e-4 on a heavy-tailed bin, whose density spikes
-    #: in a window stretched long by its tail -- *larger* than the fit's own ~3e-4, so the grid, not the fit, was the
-    #: dominant error in the body. 8192 puts it at 5.9e-5, comfortably back under the fit's.
+    #: Equispaced nodes :math:`N` on which the second expansion is evaluated.
     _cos_n_grid: int = 8192
 
-    #: Support scale (``mean + scale * std``) of the coarse pass, which bounds where the fine pass may put its window.
-    #: At 12 the coarse window can fall *short* of :attr:`_cos_tail_target` for a heavy-tailed bin, and the fine window
-    #: is then pinned to a support end that is too small however tight the target is (an n = 10 mid-frequency bin
-    #: saturates at a 0.6% error in the mean and 4.4% in the second moment).
+    #: Scale factor :math:`\kappa` of the first-pass window :math:`[0, \hat\mu + \kappa \hat\sigma]`.
     _cos_rough_scale: float = 20.0
 
-    #: CDF mass the fine pass's window must contain. Everything above it is discarded: the fit force-normalises to 1
-    #: at the window end, so the target *is* the tail that the grid keeps. The window trades against near-origin
-    #: resolution (``b / n_terms``), but only weakly, and the tail is by far the more expensive side to get wrong: at
-    #: the old 0.9995 the cut cost 0.05-0.6% of the mean, 0.3-4.4% of the second moment, and put a systematic 2.5e-4
-    #: error in the CDF itself, all of which this removes at no cost in terms or transform evaluations.
+    #: CDF level :math:`1 - \delta` at which the second-pass window ends. The expansion discards the mass above it.
     _cos_tail_target: float = 1.0 - 1e-5
 
-    #: Spacing of the exact (de Hoog) nodes, as a decrement of the cumulative hazard :math:`H = -\log(1 - F)` -- the
-    #: coordinate the whole grid is interpolated in (see :meth:`_interp_cdf`). One spacing resolves body and tail
-    #: alike because ``H`` is both: near the origin :math:`H \approx F`, so a step in ``H`` is a step in probability;
-    #: near :math:`F \to 1` it is :math:`-\log S`, so a step is a fixed factor of survival. A ladder in ``F`` alone
-    #: cannot resolve a survival of 1e-6, and one in :math:`\log S` alone takes enormous steps through the body, where
-    #: the survival ``S`` barely moves.
+    #: Step :math:`\eta_H` of the exact nodes in cumulative hazard.
     _hazard_step: float = 0.25
 
-    #: Probability spacing of the exact nodes, applied alongside :attr:`_hazard_step`. Redundant at the default cut
-    #: (in the far tail ``H`` is the finer of the two), it is what resolves the body when the cut is set low.
+    #: Step :math:`\eta_F` of the exact nodes in probability, which resolves the body when the tail level is low.
     _cdf_step: float = 0.01
 
-    #: Survival the exact nodes are carried down to (unless a query asks for more), and the node budget bounding them.
+    #: CDF level :math:`1 - \epsilon` the exact nodes reach unless a query reaches further, and their maximum number.
     _tail_target: float = 1.0 - 1e-6
     _max_exact_nodes: int = 512
 
@@ -405,10 +363,8 @@ class _LSTFunction(_HazardGrid):
         return self._distribution._range(scale)
 
     def _cdf_point(self, t: float) -> float:
-        r"""Per-point de Hoog CDF :math:`\mathbb{P}(R \le t)` (transform :math:`\mathcal{L}[F] = \varphi(s)/s`) -- the
-        exact reference the cosine grid is checked against, the nodes of its far-tail extension, the conditional
-        support bracket and the joint wiggle check. Memoised per distribution: one inversion costs ~19 ms, so it is the
-        *points* that are worth caching, not any grid assembled from them."""
+        """Per-point de Hoog CDF at ``t``, the atom at ``t = 0`` and 0 below it. Memoised per distribution. It supplies
+        the tail nodes of the grid, the conditional support bracket and the exact reference of the tests."""
         if t < 0:
             return 0.0
         d = self._distribution
@@ -438,13 +394,8 @@ class _LSTFunction(_HazardGrid):
         return self._shared('cos_cdf_grid', self._build_cos_cdf_grid)
 
     def _build_cos_coeffs(self) -> dict:
-        """
-        COS coefficients, fit in **two passes**: a coarse pass over a generous window
-        (:attr:`_cos_rough_scale` standard deviations) locates the effective support, then the fit is redone over a
-        window tightened to the support that holds :attr:`_cos_tail_target` of the mass. Matching the window to where
-        the mass actually is -- rather than ``mean + scale*std``, which a heavy tail blows far past the bulk -- lets a
-        few hundred cosine terms resolve the curve accurately, removing the ringing at the source.
-        """
+        """The two-pass cosine expansion described at ``RewardDistribution``, with the window scale
+        ``_cos_rough_scale`` and the tail level ``_cos_tail_target``."""
         rough = self._fit_cos(self._range(self._cos_rough_scale), self._cos_terms_rough)
         xs = np.linspace(0.0, rough['b'], 1024)
         cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
@@ -452,13 +403,13 @@ class _LSTFunction(_HazardGrid):
         return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
 
     def _fit_cos(self, b: float, n_terms: int) -> dict:
-        r"""
-        Fit the COS (Fourier-cosine) inversion over ``[0, b]``: evaluate the characteristic function
-        :math:`\chi(\omega) = \varphi(-i\omega)` on a fixed frequency grid :math:`\omega_j = j\pi/b` and return the
-        cosine coefficients :math:`f_j = \tfrac{2}{b}\,\mathrm{Re}\,\chi(\omega_j)` (:math:`f_0` halved). An atom at
-        :math:`R = 0` (:math:`p_0 = \varphi(\infty)`) is split off so the series sees only the smooth continuous part.
-        Warns if a substantial CDF ripple remains (a sharp feature/atom the cosine series cannot resolve at this
-        window/resolution).
+        """
+        One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``. The atom is
+        split off above ``1e-9``, and ``_warn_if_nonmonotone`` checks the raw continuous CDF for ringing.
+
+        :param b: The window end.
+        :param n_terms: The number of cosine terms.
+        :return: The window end, frequencies, coefficients and atom.
         """
         d = self._distribution
         p0 = d.lst(d._s_inf).real
@@ -516,19 +467,11 @@ class _LSTFunction(_HazardGrid):
         return cdf
 
     def _exact_step(self, nodes: list) -> float:
-        r"""
-        The distance from the last exact node to the next: whichever of a step in the cumulative hazard and a step in
-        the probability is the *finer* there, converted to a distance by the local density
-        (:math:`\mathrm{d}x = \mathrm{d}F / f`, and :math:`\mathrm{d}x = \mathrm{d}H\,S / f` since
-        :math:`\mathrm{d}H/\mathrm{d}x = f / S`).
-
-        Neither spacing suffices alone. A ladder in ``F`` cannot reach a survival of 1e-6 -- it would need a million
-        steps -- while a ladder in ``H`` takes enormous strides through the body, where the survival barely moves; on
-        a rapid decline the second put a 4.5e-3 error in the CDF. Taking the finer of the two makes one rule resolve
-        the whole curve, so the cut is free to sit anywhere, including 0.
-
-        The step is set by the exact values already in hand (and, for the first, by the fit's density), never by what
-        was queried, so the nodes land in the same places however the caller arrives at them.
+        """
+        The step to the next exact node described at ``RewardDistribution``, the finer of ``_hazard_step`` in
+        cumulative hazard and ``_cdf_step`` in probability divided by the local density. The density is the slope of the
+        cosine grid for the first step and the secant of the last two nodes afterwards, so the nodes do not depend on
+        the queries.
 
         :param nodes: The ``(x, F)`` nodes so far, ascending.
         :return: The step to the next node.
@@ -550,19 +493,10 @@ class _LSTFunction(_HazardGrid):
 
     def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
         """
-        The ``(x, F)`` nodes whose values come from the exact inversion, marching outward from the cut. Cached on the
-        distribution and *extended* when a query reaches past their end -- never rebuilt, and never trimmed to the
-        span that happens to be asked for. Every node ever computed stays in the grid, so an answer cannot change
-        because a later call asked for something further out, and the ~19 ms an exact node costs is paid once.
-
-        The march only *starts* when a query enters this half of the curve. A plot, whose endpoint quantile sits below
-        the default cut, therefore leaves the ladder at its anchor and pays nothing.
-
-        The nodes cannot be placed by the fit's own quantile, tempting as that is: the fit force-normalises to 1 at
-        the end of its window, so its quantile saturates there and a node asked for at a far level lands where the
-        *fit* believes that level is -- inside the window, at a point whose true CDF is far lower. The ladder then
-        tops out below the level being asked for and the quantile runs off the end of it. Marching outward on the
-        exact values instead, the nodes go wherever the distribution actually is, including past the fit's window.
+        The ``(x, F)`` de Hoog nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
+        They are cached on the distribution and extended when a query reaches past their end, never trimmed, so an
+        answer does not depend on later queries. The march advances on exact values, because the cosine quantile
+        saturates at the end of its window.
 
         :param x_cut: Where the CDF reaches the cut.
         :param cut: CDF value at or above which the exact inversion supplies the grid.
@@ -599,19 +533,9 @@ class _LSTFunction(_HazardGrid):
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """
-        The :class:`_HazardGrid` of an LST distribution: one grid of nodes, carrying the cosine fit's values below
-        :attr:`~phasegen.settings.Settings.dehoog_tail_quantile` and the exact de Hoog inversion's above it. The cut
-        is a plain probability, so it is a knob over the whole range: at 1 the grid is entirely the (cheap,
-        vectorised) fit, at 0 entirely the (exact, ~19 ms a node) inversion, and in between each node takes the value
-        of whichever is trusted at its own level. Nothing else about the grid depends on it -- in particular not the
-        interpolation rule, which is :meth:`~_HazardGrid._interp_cdf`'s hazard rule everywhere.
-
-        The cosine fit has to be corrected above *some* level because it force-normalises to 1 at the end of its
-        window, so beyond that an interpolation of it reports a survival of exactly zero: the CDF came back as exactly
-        1.0 and the density as exactly 0 for a bin whose true survival there is 1e-3.
-
-        The exact nodes are far too expensive to build eagerly, so they are materialised on first use and only as far
-        as the query reaches. A plot, whose endpoint quantile sits below the default cut, never builds one.
+        The grid described at ``RewardDistribution``: the cosine nodes below ``Settings.dehoog_tail_quantile``, whose
+        saturated nodes are dropped, joined to the de Hoog nodes of ``_exact_nodes`` above it. A cut of 1 or ``None``
+        uses the cosine nodes only, and a cut of 0 the de Hoog nodes only.
 
         :param x_max: Largest point the caller will evaluate.
         :param q_max: Largest probability level the caller will invert.
@@ -639,15 +563,15 @@ class _LSTFunction(_HazardGrid):
 
 
 class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):
-    """The CDF of a 1D accumulated-reward distribution, on top of the shared :class:`_LSTFunction` machinery."""
+    """The CDF of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
 
     def __call__(self, t) -> 'np.ndarray | float':
         r"""
-        CDF :math:`F(t) = \mathbb{P}(R \le t)`, for a scalar or an array of ``t``, interpolated on the CDF grid the
-        density and quantile function share, so a whole array costs one fit.
+        The CDF :math:`F(x) = \mathbb{P}(R \le x)`, see :class:`~phasegen.distributions.RewardDistribution`.
 
-        :param t: Point(s) at which to evaluate the CDF.
+        :param t: Point or array of points :math:`x` at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         ta = np.atleast_1d(np.asarray(t, dtype=float))
         out = self._interp_cdf(ta, *self._cdf_grid(x_max=float(ta.max(initial=0.0))))
@@ -700,16 +624,16 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 
 
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
-    """The density of a 1D accumulated-reward distribution."""
+    """The density of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
 
     def __call__(self, t, **kwargs) -> 'np.ndarray | float':
-        """
-        Density, for a scalar or an array of ``t``, by differentiating the CDF grid shared with the CDF, which keeps it
-        consistent with the CDF, free of the raw cosine sum's Gibbs
-        negativity, and non-zero in the far tail, where the cosine window alone ends and its derivative is flat zero.
+        r"""
+        The density :math:`f(x)` of the continuous part of :math:`R`, see
+        :class:`~phasegen.distributions.RewardDistribution`.
 
-        :param t: Point(s) at which to evaluate the density.
+        :param t: Point or array of points :math:`x` at which to evaluate the density.
         :return: The density at ``t``, of the same shape.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         d = self._distribution
         ta = np.atleast_1d(np.asarray(t, dtype=float))
@@ -732,26 +656,18 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
-    """The quantile function of a 1D accumulated-reward distribution: inverse interpolation of the shared CDF grid."""
+    """The quantile function of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
 
     def __call__(self, q) -> 'np.ndarray | float':
         r"""
-        The ``q``-quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}`, for a scalar or an array of ``q``.
+        The quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}` of the accumulated reward :math:`R` with CDF
+        :math:`F`, evaluated as described at :class:`~phasegen.distributions.RewardDistribution`. Levels at or below
+        the atom :math:`p_0` return 0.
 
-        The CDF grid shared with the CDF is monotone, so the quantile is its inverse
-        *interpolation* -- a whole array in one vectorised pass. There is no Laplace inversion that returns a quantile
-        directly (the transform gives ``F``, so a quantile is always a root of it), but reading the same piecewise
-        linear ``F`` the CDF reads makes the two exact mutual inverses, :math:`F(F^{-1}(q)) = q`. At or below the
-        atom mass :math:`\mathbb{P}(R = 0)` the quantile is exactly 0.
-
-        Just *above* a large atom the quantile is accurate in absolute terms but loses relative precision, because it
-        is itself near zero there: for a bin empty with probability 0.44, ``q = 0.5`` lands at 0.041 against the exact
-        0.036 (16% relative, but 0.006 absolute against a 0.95-quantile of 13.3). This is the cosine series' Gibbs
-        artifact at the jump, and it decays away from the atom (4% at ``q = 0.6``, 0.04% at ``q = 0.95``).
-
-        :param q: Probability level(s) in ``[0, 1]``.
-        :return: The quantile(s), of the same shape as ``q``.
-        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        :param q: Probability level or array of levels :math:`q \in [0, 1]`.
+        :return: The quantiles, of the same shape as ``q``.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
         """
         qa = np.atleast_1d(np.asarray(q, dtype=float))
         if np.any((qa < 0) | (qa > 1)):
@@ -824,27 +740,23 @@ class _GridQuantileFunction(QuantileFunction):
 # --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
 
 class MarginalDensity(DensityFunction):
-    """Per-bin marginal densities of a spectrum, the derivatives of the per-bin CDFs of :class:`MarginalCDF`."""
+    """Per-bin densities of a spectrum, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
 
 
 class MarginalCDF(CumulativeDistributionFunction):
-    """Per-bin marginal CDFs of a spectrum (one per SFS / jSFS bin). Calling ``cdf(x)`` returns every bin's
-    probability, read off that bin's cosine CDF grid."""
+    """Per-bin CDFs of a spectrum, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
 
 
 class MarginalQuantileFunction(QuantileFunction):
-    """Per-bin marginal quantile functions of a spectrum, the inverse interpolations of the per-bin CDF grids of
-    :class:`MarginalCDF`."""
+    """Per-bin quantile functions of a spectrum, each that of the bin's
+    :class:`~phasegen.distributions.RewardDistribution`."""
 
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
 
 class _JointFunction(_SurfacePlottable):
-    """Shared machinery for the bivariate joint function objects (:class:`JointCDF` / :class:`JointDensity`): builds
-    the plotting grid, evaluates the joint kind on it, and hands the heatmap / 3D surface to :class:`Visualization`.
-    The bivariate *representation* (the joint LST grid, the 2D Fourier-cosine expansion, the axis/origin atoms, the
-    nested inversion) lives on the :class:`~phasegen.distributions.reward.JointRewardDistribution` this hangs off; the
-    subclasses own only the user-facing :meth:`__call__` and the plots."""
+    """Plotting grid, heatmap and surface shared by ``JointCDF`` and ``JointDensity``. The 2D representation lives on
+    the ``JointRewardDistribution`` the function belongs to."""
 
     def _grid_values(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         """The joint kind evaluated on the grid ``xs x ys`` (implemented per kind)."""
@@ -932,20 +844,48 @@ class _JointFunction(_SurfacePlottable):
 
 
 class JointDensity(_JointFunction, DensityFunction):
-    """Joint density of two rewards / bins (the within-tree pair of branch lengths)."""
+    r"""
+    Joint density :math:`f(x, y) = \partial^2 F(x, y) / \partial x\,\partial y` of a
+    :class:`~phasegen.distributions.JointRewardDistribution` for :math:`x, y > 0`, the density of the continuous part of
+    the law, with :math:`F` the joint CDF of :class:`~phasegen.distributions.JointCDF`. The atom at the origin and the
+    mass on the axes described there have no density, and the density is zero where either argument is negative.
+
+    The density is the mixed central difference of the box probability :math:`C` of
+    :class:`~phasegen.distributions.JointCDF` on the uniform grid :math:`x_j = j h_x`, :math:`y_l = l h_y`,
+    :math:`j, l = 0, \ldots, m - 1`, whose :math:`m` nodes per axis span slightly more than the queried range, so that
+    the steps :math:`h_x` and :math:`h_y` are proportional to the largest queried coordinates,
+
+    .. math::
+
+        \hat{f}_{jl} = \frac{C(x_{j+1}, y_{l+1}) - C(x_{j+1}, y_{l-1}) - C(x_{j-1}, y_{l+1}) + C(x_{j-1}, y_{l-1})}
+        {4\,h_x h_y}, \qquad 1 \le j, l \le m - 2.
+
+    Each :math:`\hat{f}_{jl}` is the probability of the cell :math:`[x_{j-1}, x_{j+1}] \times [y_{l-1}, y_{l+1}]`
+    divided by its area, the density averaged over that cell. The coarse cell average smooths the residual oscillation
+    of the cosine expansion near the origin, which a derivative of the series itself would amplify. A bicubic
+    interpolating spline through the values :math:`\hat{f}_{jl}` gives the density at the queried points, and negative
+    values are set to zero, with a warning under :attr:`Settings.check_inversions
+    <phasegen.settings.Settings.check_inversions>`. Because the grid spans the queried range, the value at a point
+    depends slightly on the other points of the same call.
+    """
 
     def __call__(self, x, y) -> 'np.ndarray | float':
-        r"""Joint probability density :math:`f(x, y)` of :math:`(R_a, R_b)` (the continuous, both-positive part). The
-        distribution also has atom mass on the axes where a reward is zero (a non-empty SFS bin pair has none
-        there)."""
+        r"""
+        Evaluate the joint density :math:`f(x_j, y_l)` on the outer grid of the arguments.
+
+        :param x: Value(s) :math:`x_j` of :math:`R_a`, a scalar or a 1D array.
+        :param y: Value(s) :math:`y_l` of :math:`R_b`, a scalar or a 1D array.
+        :return: An array of shape ``(len(x), len(y))``, or a float for a single pair.
+        :raises NotImplementedError: If both rewards agree on every transient state, so that the law has no density on
+            the plane, or if the coalescent has a bounded accumulation window.
+        """
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         f = self._grid_values(xs, ys)
         return float(f.ravel()[0]) if f.size == 1 else f
 
     def _grid_values(self, xs, ys) -> 'np.ndarray':
         d = self._distribution
-        # the guard lives here, not in __call__, so plot() / plot_surface() (which reach _grid_values directly) also
-        # refuse a diagonal-singular law rather than drawing a 2D surface for a distribution that has no 2D density
+        # guarded here so that plot() and plot_surface(), which call _grid_values directly, refuse as well
         if d._is_diagonal:
             raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
                                       "almost surely): the law lives on the diagonal and has no 2D density. Use "
@@ -956,26 +896,102 @@ class JointDensity(_JointFunction, DensityFunction):
 
 
 class JointCDF(_JointFunction, CumulativeDistributionFunction):
-    """Joint CDF of two rewards / bins -- the probability both are at most their thresholds."""
+    r"""
+    Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x,\ R_b \le y)` of a
+    :class:`~phasegen.distributions.JointRewardDistribution` with thresholds :math:`x, y \in \mathbb{R}`, zero when
+    either threshold is negative, and with :math:`\Phi`, :math:`p_a`, :math:`p_b` and :math:`p_{00}` as defined there.
+    For :math:`x, y \ge 0` the law splits into the atom at the origin, the mass on each axis and a continuous part,
+
+    .. math::
+
+        F(x, y) = g_b(x) + g_a(y) - p_{00} + C(x, y),
+
+    where :math:`g_b(x) = \mathbb{P}(R_a \le x,\ R_b = 0)` and :math:`g_a(y) = \mathbb{P}(R_a = 0,\ R_b \le y)` are the
+    axis sub-distributions and :math:`C(x, y) = \mathbb{P}(0 < R_a \le x,\ 0 < R_b \le y)` is the box probability.
+
+    The continuous part is a two-dimensional Fourier-cosine expansion (Ruijter and Oosterlee, 2012) on the window
+    :math:`[0, L_a] \times [0, L_b]`, where :math:`L_a = \mu_a + \kappa \sigma_a` for the mean :math:`\mu_a` and
+    standard deviation :math:`\sigma_a` of :math:`R_a`, :math:`L_b` is defined alike, and :math:`\kappa > 0` is a fixed
+    scale. Removing the atom and the axes from :math:`\Phi` by inclusion-exclusion gives, for real frequencies
+    :math:`\omega_a` and :math:`\omega_b`,
+
+    .. math::
+
+        \chi(\omega_a, \omega_b) = \mathbb{E}\big[e^{\mathrm{i}\omega_a R_a + \mathrm{i}\omega_b R_b};\ R_a > 0,\
+        R_b > 0\big] = \Phi(-\mathrm{i}\omega_a, -\mathrm{i}\omega_b) - \Phi(-\mathrm{i}\omega_a, \infty)
+        - \Phi(\infty, -\mathrm{i}\omega_b) + p_{00}.
+
+    With :math:`N` terms per axis and frequencies :math:`u_j = j\pi/L_a` and :math:`v_l = l\pi/L_b` for
+    :math:`j, l = 0, \ldots, N - 1`,
+
+    .. math::
+
+        A_{jl} = \frac{2\,\beta_j \beta_l\,\lambda_j \lambda_l}{L_a L_b}\,
+        \operatorname{Re}\big[\chi(u_j, v_l) + \chi(u_j, -v_l)\big],
+        \qquad
+        C(x, y) = \sum_{j=0}^{N-1} \sum_{l=0}^{N-1} A_{jl}\, I_j(\min(x, L_a))\, J_l(\min(y, L_b)),
+
+    where :math:`\beta_0 = 1/2` and :math:`\beta_j = 1` for :math:`j \ge 1`, the Lanczos factors
+    :math:`\lambda_j = \sin(\pi j/N)/(\pi j/N)` with :math:`\lambda_0 = 1` damp the Gibbs oscillation at the window
+    edges, and :math:`I_j(x) = \sin(u_j x)/u_j` and :math:`J_l(y) = \sin(v_l y)/v_l`, with :math:`I_0(x) = x` and
+    :math:`J_0(y) = y`, integrate the cosine series in closed form. Half the bracket equals
+    :math:`\mathbb{E}[\cos(u_j R_a)\cos(v_l R_b);\ R_a > 0,\ R_b > 0]`. Since :math:`I_j(L_a) = 0` for :math:`j \ge 1`,
+    the Lanczos factors leave the continuous mass :math:`C(L_a, L_b)` unchanged. For a single epoch on a dense state
+    space, the transform values of one frequency share the matrix pencil
+    :math:`(\operatorname{diag}(s_a \mathbf{r}_a) - \mathbf{T}_1,\ \operatorname{diag}(\mathbf{r}_b))`, so one
+    generalized Schur (QZ) decomposition per frequency of one axis gives all frequencies of the other axis by
+    triangular back-substitution.
+
+    Each axis sub-distribution is a one-dimensional Fourier-cosine series of a defective transform with the atom
+    :math:`p_{00}` removed,
+
+    .. math::
+
+        g_b(x) = p_{00} + (p_b - p_{00}) \operatorname{clip}_{[0, 1]}\Big( c_0 \bar{x} + \sum_{j=1}^{K-1}
+        \frac{c_j}{w_j} \sin(w_j \bar{x}) \Big),
+        \qquad
+        c_j = \frac{2\beta_j}{L'_a} \operatorname{Re} \frac{\Phi(-\mathrm{i} w_j, \infty) - p_{00}}{p_b - p_{00}},
+
+    with the window end :math:`L'_a = \mu_a + \kappa' \sigma_a` for a wider fixed scale :math:`\kappa' > \kappa`, the
+    frequencies :math:`w_j = j\pi/L'_a`, :math:`\bar{x} = \min(x, L'_a)`, and the term count :math:`K` of the
+    marginal CDF of :class:`~phasegen.distributions.RewardDistribution`. The function :math:`g_a` is defined
+    symmetrically, and :math:`\infty` stands for the large finite argument of the atoms.
+
+    When both reward vectors agree on every transient state, :math:`R_a = R_b` almost surely, the law has no density on
+    the plane, and :math:`F(x, y) = F_R(\min(x, y))` with :math:`F_R` the marginal CDF.
+
+    Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>` the first evaluation compares
+    :math:`F(x, \infty)` near the origin with the marginal CDF of :math:`R_a` and logs a warning when they differ
+    materially, which indicates that the expansion under-resolves a steep rise near the axes.
+
+    .. rubric:: References
+
+    Ruijter, M. J. and Oosterlee, C. W. (2012). Two-dimensional Fourier cosine series expansion method for pricing
+    financial options. SIAM Journal on Scientific Computing 34(5), B642-B671.
+    """
 
     def __call__(self, x, y) -> 'np.ndarray | float':
-        r"""Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x, R_b \le y)`: the axis atoms plus the continuous box
-        integral. When both rewards are identical the law is singular on the diagonal and the CDF reduces to
-        :math:`\mathbb{P}(R \le \min(x, y))`."""
+        r"""
+        Evaluate the joint CDF :math:`F(x_j, y_l)` on the outer grid of the thresholds.
+
+        :param x: Threshold(s) :math:`x_j` for :math:`R_a`, a scalar or a 1D array.
+        :param y: Threshold(s) :math:`y_l` for :math:`R_b`, a scalar or a 1D array.
+        :return: An array of shape ``(len(x), len(y))``, or a float for a single pair.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         G = self._grid_values(xs, ys)
         return float(G.ravel()[0]) if G.size == 1 else G
 
     def _grid_values(self, xs, ys) -> 'np.ndarray':
-        # the diagonal reduction lives here, not in __call__, so plot() / plot_surface() (which reach _grid_values
-        # directly) draw the same singular-on-the-diagonal CDF the callable returns rather than the 2D cosine box
-        # expansion of a measure that has no 2D density
+        # reduced here so that plot() and plot_surface(), which call _grid_values directly, draw the same CDF
         d = self._distribution
         if d._is_diagonal:
             m = d.marginal('a')
-            # at t = 0 the marginal CDF is the atom P(R = 0) (the de Hoog inversion misses the jump there)
-            return np.array([[float(d._atoms['both0'] if min(xx, yy) <= 0.0 else m.cdf(min(xx, yy)))
-                              for yy in ys] for xx in xs])
+            t = np.minimum.outer(xs, ys)
+            # the CDF vanishes below 0 and equals the atom P(R = 0) at 0
+            p0 = float(d._atoms['both0'])
+            return np.array([[0.0 if tt < 0.0 else p0 if tt == 0.0 else float(m.cdf(tt)) for tt in row] for row in t])
         return d._cdf_grid(xs, ys)
 
 
@@ -985,38 +1001,26 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
 class ConditionalDensity(_LSTDensityFunction):
-    r"""Density :math:`f(x \mid R_b = v)` of one reward conditional on another being held at a value (e.g. one bin's
-    length given another's).
+    """Density of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
 
-    The conditional transform is itself a *nested* inversion (an inner inversion along the conditioned axis, then the
-    outer one), so a single de Hoog node costs an entire inner inversion and the per-point route is ~1e4x dearer here
-    than for a marginal (293 s against a shared cosine grid on a 3-epoch bottleneck) while agreeing with it to 2e-4.
-    """
-
-    #: COS terms for the conditionals. Fewer than the marginals' 384: for a *nested* inversion each cosine frequency
-    #: costs an entire inner inversion, so the fit is ~145x dearer and the count is re-tuned. 192 costs 1.5x less and
-    #: shifts the CDF by <=1e-4 (against a 0.5-1.9% method error); 128 is too few -- it degrades sawtooth measurably.
+    #: Cosine terms of the conditionals, fewer than for a marginal because every frequency costs an inner inversion.
     _cos_terms: int = 192
     _cos_terms_rough: int = 96
-
-
 
 
 class ConditionalCDF(_LSTCumulativeDistributionFunction):
-    """CDF of one reward conditional on another being held at a value, evaluated by the nested inversion described in
-    :class:`ConditionalDensity`."""
+    """CDF of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
 
-    #: COS terms for the conditionals, tuned as described at ``ConditionalDensity._cos_terms``.
+    #: Cosine terms of the conditionals, see ``ConditionalDensity._cos_terms``.
     _cos_terms: int = 192
     _cos_terms_rough: int = 96
 
 
-
-
 class ConditionalQuantileFunction(_LSTQuantileFunction):
-    """Quantile function of a conditional reward, the inverse of :class:`ConditionalCDF`."""
+    """Quantile function of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described
+    there."""
 
-    #: COS terms for the conditionals, tuned as described at ``ConditionalDensity._cos_terms``.
+    #: Cosine terms of the conditionals, see ``ConditionalDensity._cos_terms``.
     _cos_terms: int = 192
     _cos_terms_rough: int = 96
 
@@ -1026,11 +1030,9 @@ class ConditionalQuantileFunction(_LSTQuantileFunction):
 class CallableDistributionFunctions:
     """
     Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable distribution-function properties. Each
-    concrete distribution supplies the evaluators ``_pdf`` / ``_cdf`` / ``_quantile`` and the plot data
-    ``_plot_data_pdf`` / ``_plot_data_cdf`` / ``_plot_data_quantile``, unless its function objects provide them;
-    this mixin wires them together. Subclasses pick the *flavour* of the returned
-    function objects by overriding :attr:`_pdf_function` / :attr:`_cdf_function` / :attr:`_quantile_function` (e.g. a
-    spectrum returns the ``Marginal...`` flavours, a conditional the ``Conditional...`` flavours).
+    concrete distribution supplies the evaluation and plot data of these functions, or its function objects provide
+    them. The class of the returned function objects depends on the distribution, for example the ``Marginal...``
+    classes for a spectrum and the ``Conditional...`` classes for a conditional distribution.
     """
     #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
     #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
@@ -1077,7 +1079,7 @@ class CallableDistributionFunctions:
         Plot the CDF curve.
 
         .. deprecated:: 2.0.0
-            Use :attr:`cdf`.plot() instead; ``plot_cdf`` will be removed in a future release.
+            Use ``cdf.plot()``. ``plot_cdf`` will be removed in a future release.
         """
         warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
                       "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
@@ -1088,7 +1090,7 @@ class CallableDistributionFunctions:
         Plot the density curve.
 
         .. deprecated:: 2.0.0
-            Use :attr:`pdf`.plot() instead; ``plot_pdf`` will be removed in a future release.
+            Use ``pdf.plot()``. ``plot_pdf`` will be removed in a future release.
         """
         warnings.warn("plot_pdf() is deprecated since 2.0.0 and will be removed in a future release; "
                       "use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
@@ -1337,16 +1339,14 @@ class MarginalLocusDistributions(MarginalDistributions):
 
     def joint_distribution(self, locus1: int, locus2: int) -> 'JointRewardDistribution':
         """
-        Joint distribution of the accumulated reward at ``locus1`` and at ``locus2`` — e.g. the per-locus tree height
-        or total branch length at two loci separated by recombination. This is the distributional object behind the
-        cross-locus covariance :meth:`get_cov`/:meth:`get_corr`: it is built from the host distribution's own reward
-        restricted to each locus (``CombinedReward([reward, LocusReward(locus)])``, exactly the cross-moment reward
-        pair used there), so its marginals are the per-locus distributions :attr:`loci` and it shares the joint LST /
-        2D inversion machinery with the within-tree SFS pairwise joint.
+        Joint distribution of the distribution's reward accumulated at ``locus1`` and at ``locus2``, the pair behind
+        :meth:`MarginalLocusDistributions.get_cov() <phasegen.distributions.MarginalLocusDistributions.get_cov>`, as a
+        :class:`~phasegen.distributions.JointRewardDistribution`.
 
         :param locus1: The first locus.
         :param locus2: The second locus.
-        :return: The joint accumulated-reward distribution across the two loci.
+        :return: The joint distribution across the two loci.
+        :raises ValueError: If either locus does not exist.
         """
         locus1, locus2 = int(locus1), int(locus2)
 
@@ -1471,7 +1471,7 @@ class MarginalDemeDistributions(MarginalDistributions):
 class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistribution, ABC):
     """
     Abstract base class for probability distributions for which moments and densities can be calculated. The
-    ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable :class:`DistributionFunction`s (see
-    :class:`CallableDistributionFunctions`); the evaluation and the plot data live on those function objects
-    (subclasses select the flavour via :attr:`_cdf_function` / :attr:`_pdf_function` / :attr:`_quantile_function`).
+    ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable
+    :class:`~phasegen.distributions.DistributionFunction` objects, whose class depends on the distribution and which
+    carry the evaluation and the plot data.
     """

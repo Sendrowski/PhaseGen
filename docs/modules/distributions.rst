@@ -74,10 +74,10 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.RewardDistribution
 
 .. autoclass:: phasegen.distributions.ConditionalRewardDistribution
+   :exclude-members: __init__
 
 .. autoclass:: phasegen.distributions.JointRewardDistribution
-
-The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plottable distribution-function objects (call to evaluate, ``.plot()`` to draw, and -- for a bivariate joint -- ``.plot_surface()``), in plain, marginal (per-bin spectrum), joint (bivariate) and conditional flavours. Their public methods are documented as members below (the inversion machinery itself lives on these objects for the analytic / Laplace-transform distributions).
+   :exclude-members: quantile
 
 .. autoclass:: phasegen.distributions.DistributionFunction
    :members:
@@ -150,8 +150,6 @@ The ``pdf`` / ``cdf`` / ``quantile`` properties return these callable-and-plotta
 .. autoclass:: phasegen.distributions.ConditionalQuantileFunction
    :members:
    :special-members: __call__
-
-The same statistics can be estimated empirically from simulated genealogies -- via msprime (:class:`~phasegen.distributions.MsprimeCoalescent`) or ``phasegen``'s own trajectory sampler (:class:`~phasegen.distributions.SampledCoalescent`) -- with the containers below computing the statistics from the sampled realisations.
 
 .. autoclass:: phasegen.distributions.MsprimeCoalescent
 

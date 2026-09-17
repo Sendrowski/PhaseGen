@@ -1,7 +1,7 @@
 # Mutation count probabilities
 So far, we have only looked at statistics based on branch lengths of the coalescent tree. However, when dealing with short sequences, we may not have enough mutations to compute stable branch-length-based summary statistics. Instead, we may obtain the distribution of mutational counts. It is particularly informative to consider the SFS computed over small non-recombining blocks.
 
-In the following example we obtain the first 8 unfolded mutational configuration probabilities under a three-epoch size-change demography using a mutation rate of 1. {meth}`~phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs` returns a generator that yields the mutational configurations in descending order of probability, so a target probability mass is reached after evaluating comparatively few of them. Each configuration is a vector of length `n-1` where the `i`th entry denotes the number of mutations with multiplicities `i+1`, and `n` is the number of lineages. For example, `[1, 1, 0]` means that there is one singleton, one doubleton, and no tripleton mutations.
+In the following example we obtain the first 8 unfolded mutational configurations and their probabilities under a three-epoch size-change demography, with a mutation rate of 1 per unit of branch length. Configurations, their probabilities and the order in which {meth}`UnfoldedSFSDistribution.get_mutation_configs() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` yields them are described in {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -48,7 +48,7 @@ do.call(rbind, reticulate::iterate(
 ```
 
 +++
-The number of mutational configurations is infinite since we may have arbitrarily many mutations, albeit with increasingly lower probabilities depending on the mutation rate and coalescent distribution. We may also wish to obtain probabilities until we have reached a certain probability mass threshold. We can do this by consuming the generator while keeping track of the {attr}`~phasegen.distributions.UnfoldedSFSDistribution.generated_mass` attribute. In the following example, we obtain mutational configurations until the generated mass is above 0.8.
+The iterator does not terminate, so we consume it until the yielded probability mass, {attr}`UnfoldedSFSDistribution.generated_mass <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>`, exceeds 0.8.
 
 ```{code-cell} python
 it = coal.sfs.get_mutation_configs(theta=1)
@@ -79,7 +79,7 @@ stopifnot(coal$sfs$generated_mass >= 0.8)
 ```
 
 +++
-Alternatively, we can obtain the probability of a specific mutational configuration (cf. {meth}`~phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config`).
+The probability of a single configuration is returned by {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
 
 ```{code-cell} python
 coal.sfs.get_mutation_config([1, 1, 0], theta=1)
@@ -101,7 +101,7 @@ stopifnot(p > 0, p < 1)
 ```
 
 +++
-We can also do the same for folded configurations. In this case, the configurations are vectors of length `n // 2`. For example, configuration `[1, 1]` denotes one singleton or tripleton and one doubleton mutation.
+Folded configurations are obtained in the same way from {attr}`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`.
 
 ```{code-cell} python
 df = pd.DataFrame(islice(coal.fsfs.get_mutation_configs(theta=1), 30))

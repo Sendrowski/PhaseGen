@@ -33,25 +33,31 @@ logger = logging.getLogger('phasegen')
 
 
 class EmpiricalJointSFSDistribution:  # pragma: no cover
-    """
-    Empirical (msprime-based) joint site-frequency spectrum, exposing the same ``mean``/``var``/``m2``/``m3``
-    interface as :class:`~phasegen.distributions.spectra.JointSFSDistribution` so that the two can be compared by
-    ``Comparison``. The moments are pre-computed arrays (so the object can be serialized
-    as cached ground truth).
+    r"""
+    Empirical joint site-frequency spectrum, built by
+    :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
+    :class:`~phasegen.distributions.MsprimeCoalescent`. It holds the raw sample moments
+
+    .. math::
+
+        \hat M_o(\mathbf{c}) = \frac{1}{N} \sum_{m=1}^{N} L_{m\mathbf{c}}^o, \qquad o = 1, 2, 3,
+
+    where :math:`L_{m\mathbf{c}}` is the branch length of replicate :math:`m = 1, \dots, N` whose descendants number
+    :math:`c_p` in population :math:`p`, for the descendant vector :math:`\mathbf{c} = (c_0, \dots, c_{P-1})` over
+    :math:`P` populations. :attr:`mean`, :attr:`m2` and :attr:`m3` return :math:`\hat M_1`, :math:`\hat M_2` and
+    :math:`\hat M_3`, and :attr:`var` is :math:`\hat M_2 - \hat M_1^2`.
     """
 
     def __init__(self, moments: np.ndarray, samples: np.ndarray = None, n_samples: int = None) -> None:
         """
         Initialize the distribution.
 
-        :param moments: Per-configuration (non-central) moments of orders ``1, 2, ...``, stacked along the first
-            axis, i.e. an array of shape ``(max_order, n_0 + 1, ..., n_{P-1} + 1)``.
-        :param samples: Optional per-replicate joint SFS branch lengths, shape ``(n_replicates, n_0 + 1, ...)``, used
-            to pre-compute the within-tree joint surface ground truth and dropped before serialization. May be a capped
-            subset of the replicates the moments were averaged over.
-        :param n_samples: The number of replicates the moments were averaged over. Defaults to the length of
-            ``samples``; pass explicitly when ``samples`` is a capped subset so the tuner's noise floor reflects the
-            true replicate count rather than the cap.
+        :param moments: Raw moments per descendant configuration of orders one to three, stacked along the first
+            axis, of shape ``(3, n_0 + 1, ..., n_{P-1} + 1)``.
+        :param samples: Optional per-replicate joint SFS branch lengths, of shape ``(N, n_0 + 1, ...)``, possibly a
+            capped subset of the replicates the moments were averaged over.
+        :param n_samples: The number of replicates :math:`N` the moments were averaged over. Defaults to the length
+            of ``samples``, and must be given when ``samples`` is a capped subset.
         """
         #: Non-central moments per descendant configuration, indexed by order minus one.
         self._moments: np.ndarray = np.asarray(moments)
@@ -219,8 +225,7 @@ class _EmpiricalFunction:  # pragma: no cover
 
 
 class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDistributionFunction):  # pragma: no cover
-    """The empirical CDF (interpolated step function of the sorted samples), read from the distribution's samples.
-    Handles both a 1-D sample vector (a scalar distribution) and a 2-D per-bin matrix (a spectrum)."""
+    """The empirical CDF of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples."""
 
     def __call__(self, t) -> 'np.ndarray':
         # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
@@ -230,10 +235,10 @@ class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDis
         y = np.arange(1, len(samples) + 1) / len(samples)
 
         if x.ndim == 1:
-            return np.interp(t, x, y)
+            return np.interp(t, x, y, left=0.0)
 
         if x.ndim == 2:
-            return np.array([np.interp(t, x_, y) for x_ in x.T])
+            return np.array([np.interp(t, x_, y, left=0.0) for x_ in x.T])
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
@@ -251,7 +256,7 @@ class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDis
 
 
 class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragma: no cover
-    """The empirical quantile (sample quantile over the replicate axis; one column per bin for a spectrum)."""
+    """The sample quantile of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples."""
 
     def __call__(self, q) -> 'np.ndarray':
         # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
@@ -306,25 +311,9 @@ class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragm
 
 
 class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma: no cover
-    """
-    The empirical density over a grid: the **cell-average** density of each cell of ``t``, that is, the fraction of
-    replicates falling in the cell divided by the cell's width. The atom at 0 is excluded, so this estimates the
-    continuous sub-density ``f(t), t > 0``, which integrates to ``P(R > 0)`` and so matches the analytic pdf (also
-    atom-excluded) rather than spiking at the origin.
-
-    A cell average, not a point estimate, because that is the only density functional a sample determines without a
-    bandwidth. The comparison integrates the exact density over the *same* cells
-    (``Comparison._cell_average``), so both sides are the same functional: the estimate
-    carries no smoothing bias, and the discrepancy is Monte-Carlo noise alone, falling as ``1 / sqrt(n)``.
-
-    That property is the point of it. Any pointwise estimate -- a histogram read at ``t``, a kernel, or the derivative
-    of an interpolated ECDF -- compares a *smoothed* density against an unsmoothed one, and its bandwidth sets an
-    ``O(h f')`` bias floor that more replicates do not lower. Measured against the exact pdf of an SFS bin, such an
-    estimate is an order of magnitude further off and stops improving with the replicate count entirely.
-
-    The cells are ``[t_i, t_i+1)``, the last one extended by the final spacing. Handles a 1-D sample vector (a scalar
-    distribution) or a 2-D per-bin matrix (a spectrum).
-    """
+    """The cell-average density of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples.
+    ``Comparison._cell_average`` integrates the exact density over the same cells, so both sides estimate the same
+    functional."""
 
     def __call__(self, t, **kwargs) -> 'np.ndarray':
         samples = self._distribution.samples
@@ -366,10 +355,59 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
 
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
-    """
-    Probability distribution estimated from sampled realisations, such as those drawn by
-    :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`. Its moments and
-    spectra are Monte Carlo estimates formed from the samples.
+    r"""
+    Probability distribution estimated from :math:`N` realisations :math:`Y_1, \dots, Y_N`, such as the statistics
+    of genealogies simulated by :class:`~phasegen.distributions.MsprimeCoalescent` or the accumulated rewards drawn by
+    :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, which
+    :class:`~phasegen.distributions.SampledCoalescent` collects for every statistic of a coalescent.
+    For a spectrum each realisation is a vector, and every estimator below applies to each entry separately.
+    :math:`Y_{(1)} \le \dots \le Y_{(N)}` denote the order statistics. The moments are described at
+    :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+
+    The :attr:`cdf` at :math:`x` interpolates linearly between the points :math:`(Y_{(m)}, m / N)`,
+    :math:`m = 1, \dots, N`,
+
+    .. math::
+
+        \hat F(x) = \begin{cases}
+            0, & x < Y_{(1)}, \\
+            \dfrac{m}{N} + \dfrac{x - Y_{(m)}}{N\, (Y_{(m+1)} - Y_{(m)})}, & Y_{(m)} \le x < Y_{(m+1)}, \\
+            1, & x \ge Y_{(N)}.
+        \end{cases}
+
+    Where several order statistics coincide, as at the atom of an SFS bin at zero, :math:`\hat F` takes the value
+    after the jump, so :math:`\hat F(0)` is the fraction of realisations equal to zero.
+
+    The :attr:`quantile` at the probability level :math:`q \in [0, 1]` is the linearly interpolated sample quantile
+
+    .. math::
+
+        \hat Q(q) = Y_{(\lfloor \eta \rfloor)} + (\eta - \lfloor \eta \rfloor)
+            \bigl(Y_{(\lfloor \eta \rfloor + 1)} - Y_{(\lfloor \eta \rfloor)}\bigr), \qquad \eta = (N - 1)\, q + 1.
+
+    The :attr:`pdf` is evaluated on a grid :math:`x_0 < x_1 < \dots < x_{G-1}` of :math:`G \ge 2` points, the left
+    edges of the cells :math:`[x_g, x_{g+1})`, where the last cell ends at :math:`x_G = 2 x_{G-1} - x_{G-2}`. Its value
+    on cell :math:`g` is the cell average
+
+    .. math::
+
+        \hat f_g = \frac{\#\{m : Y_m > 0,\ x_g \le Y_m < x_{g+1}\}}{N\, (x_{g+1} - x_g)},
+
+    an unbiased estimate of :math:`(x_{g+1} - x_g)^{-1} \int_{x_g}^{x_{g+1}} f(x)\, \mathrm{d}x`, with :math:`f` the
+    density of the realisations away from zero. Realisations equal to zero are excluded but counted in :math:`N`, so
+    the cells estimate a density of total mass :math:`1 - p_0`, with :math:`p_0` the probability of a zero
+    realisation.
+
+    The covariance and correlation matrices :attr:`cov` and :attr:`corr` of a spectrum have the entries
+
+    .. math::
+
+        \hat C_{jl} = \frac{1}{N} \sum_{m=1}^{N} (Y_{mj} - \hat\mu_j)(Y_{ml} - \hat\mu_l), \qquad
+        \hat\rho_{jl} = \frac{\hat C_{jl}}{\sqrt{\hat C_{jj}\, \hat C_{ll}}},
+
+    where :math:`Y_{mj}` is entry :math:`j` of realisation :math:`m` and :math:`\hat\mu_j` the sample mean of entry
+    :math:`j`. The normalisation :math:`1 / N` matches :attr:`var`, the diagonal of :attr:`cov`. Entries undefined
+    for an entry without variance, such as a monomorphic bin, are set to zero.
     """
     # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
     # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
@@ -381,7 +419,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         Create object.
 
-        :param samples: 1-D array of samples.
+        :param samples: The realisations, of shape ``(N,)``, or ``(N, n + 1)`` for a spectrum.
         """
         super().__init__()
 
@@ -424,20 +462,12 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
-        Estimate and cache the standard error of each moment statistic, so that it survives ``_drop`` and a
-        consumer of the (samples-free) distribution can tell how much of a discrepancy against it is the distribution's
-        own Monte-Carlo noise.
+        Cache the standard error of each moment statistic so that it survives ``_drop``. The samples are split into
+        ``B`` disjoint blocks of equal size, the statistic is evaluated on each, and the standard error at the full
+        sample size is the standard deviation across blocks divided by ``sqrt(B)``, valid for nonlinear statistics.
 
-        The estimator splits the samples into ``n_blocks`` disjoint blocks and evaluates the statistic on each. The
-        spread across blocks is the standard error at the *block* sample size, so the standard error at the full sample
-        size is that spread divided by ``sqrt(n_blocks)``. This holds for any statistic, however nonlinear (a
-        correlation, a fourth moment), which the closed forms do not: ``SE[var]`` needs the fourth central moment,
-        ``SE[m4]`` the eighth, and the coalescent's rewards are heavy-tailed enough that assuming normality to dodge
-        them is not an option.
-
-        :param n_blocks: Number of blocks. The spread itself is estimated from ``n_blocks`` numbers, so its own
-            relative error is about ``1 / sqrt(2 * n_blocks)``. Reduced for a sample too small to fill that many
-            blocks (a conditional sub-sample, say); below two blocks no spread is defined and none is cached.
+        :param n_blocks: Number of blocks ``B``, reduced to half the sample size for small samples. Nothing is cached
+            below two blocks.
         """
         n_blocks = min(n_blocks, self.samples.shape[0] // 2)
 
@@ -465,65 +495,76 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     @cached_property
     def mean(self) -> float | np.ndarray:
-        r"""
-        First moment / mean: the Monte Carlo estimator :math:`\hat{\mu}_N = \tfrac{1}{N} \sum_{m=1}^{N} Y_m` over the
-        :math:`N` sampled realisations.
+        """
+        Sample mean, see :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return np.mean(self.samples, axis=0)
 
     @cached_property
     def var(self) -> float | np.ndarray:
         """
-        Second central moment / variance.
+        Sample variance, see :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return np.var(self.samples, axis=0)
 
     @cached_property
     def m2(self) -> float | np.ndarray:
         """
-        Second non-central moment.
+        Second raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return np.mean(self.samples ** 2, axis=0)
 
     @cached_property
     def m3(self) -> float | np.ndarray:
         """
-        Third non-central moment.
+        Third raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return np.mean(self.samples ** 3, axis=0)
 
     @cached_property
     def m4(self) -> float | np.ndarray:
         """
-        Fourth non-central moment.
+        Fourth raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return np.mean(self.samples ** 4, axis=0)
 
     @cached_property
     def cov(self) -> float | np.ndarray:
         """
-        Covariance matrix.
+        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
-            return np.nan_to_num(np.cov(self.samples, rowvar=False))
+            return np.nan_to_num(np.cov(self.samples, rowvar=False, bias=True))
 
     @cached_property
     def corr(self) -> float | np.ndarray:
         """
-        Correlation matrix.
+        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
         with np.errstate(divide='ignore', invalid='ignore'):
             return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
 
     def moment(self, k: int, center: bool = True) -> float | np.ndarray:
         r"""
-        The :math:`k`-th moment estimated from the :math:`N` sampled realisations :math:`Y_1, \dots, Y_N`: by default
-        the central moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} (Y_m - \hat{\mu}_N)^k`, with :math:`\hat{\mu}_N` the
-        sample mean, and with ``center=False`` the raw moment :math:`\tfrac{1}{N} \sum_{m=1}^{N} Y_m^k`.
+        The :math:`k`-th moment estimated from the realisations :math:`Y_1, \dots, Y_N`, with the notation of
+        :class:`~phasegen.distributions.EmpiricalDistribution`. For :math:`k \ge 2` and ``center=True`` this is the
+        central moment
 
-        :param k: Order of the moment.
-        :param center: Whether to center the moment around the sample mean.
-        :return: The :math:`k`-th moment.
+        .. math::
+
+            \frac{1}{N} \sum_{m=1}^{N} (Y_m - \hat\mu)^k, \qquad \hat\mu = \frac{1}{N} \sum_{m=1}^{N} Y_m,
+
+        and otherwise the raw moment :math:`N^{-1} \sum_{m=1}^{N} Y_m^k`, which is the sample mean :math:`\hat\mu`
+        for :math:`k = 1`. All estimators use the normalisation :math:`1 / N`. :attr:`mean` is :math:`\hat\mu`,
+        :attr:`var` the central moment of order two, and :attr:`m2`, :attr:`m3` and :attr:`m4` the raw moments of
+        orders two to four. Each entry of a spectrum is estimated separately.
+
+        :param k: Order :math:`k \ge 1` of the moment.
+        :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
+        :return: The :math:`k`-th moment, per entry for a spectrum.
         """
         samples = self.samples - np.mean(self.samples, axis=0) if (center and k > 1) else self.samples
 
@@ -532,53 +573,55 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
 class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     """
-    SFS probability distribution based on realisations.
+    Empirical site-frequency spectrum of one deme, with the estimators of
+    :class:`~phasegen.distributions.EmpiricalDistribution` applied per frequency class.
     """
 
     def __init__(self, samples: np.ndarray | list) -> None:
         """
         Create object.
 
-        :param samples: 2-D array of samples.
+        :param samples: The sampled spectra, of shape ``(N, n + 1)``.
         """
         super().__init__(samples)
 
     @cached_property
     def mean(self) -> SFS:
         """
-        First moment / mean.
+        Sample mean spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().mean)
 
     @cached_property
     def var(self) -> SFS:
         """
-        Second central moment / variance.
+        Sample variance spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().var)
 
     @cached_property
     def m2(self) -> SFS:
         """
-        Second non-central moment.
+        Second raw sample moment spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().m2)
 
     @cached_property
     def cov(self) -> TwoSFS:
         """
-        Covariance matrix.
+        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
-            return TwoSFS(np.nan_to_num(np.cov(self.samples, rowvar=False)))
+        return TwoSFS(super().cov)
 
     @cached_property
     def corr(self) -> TwoSFS:
         """
-        Correlation matrix.
+        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
-            return TwoSFS(np.nan_to_num(np.corrcoef(self.samples, rowvar=False)))
+        return TwoSFS(super().corr)
 
 
 class DictContainer(dict):  # pragma: no cover
@@ -590,7 +633,10 @@ class DictContainer(dict):  # pragma: no cover
 
 class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     """
-    Phase-type distribution based on realisations.
+    Empirical distribution of an accumulated reward with per-deme and per-locus breakdowns, built by
+    :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` or by
+    :class:`~phasegen.distributions.MsprimeCoalescent`. Its estimators are those of
+    :class:`~phasegen.distributions.EmpiricalDistribution`.
     """
 
     def __init__(
@@ -602,9 +648,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         Create object.
 
-        :param samples: 3-D array of samples.
+        :param samples: Realisations per locus, deme and replicate, of shape ``(loci, demes, N)``.
         :param pops: List of population names.
-        :param locus_agg: Aggregation function for loci.
+        :param locus_agg: Aggregation over the locus axis that forms the total, the sum by default.
         """
         over_loci = locus_agg(samples).astype(float)
         over_demes = samples.sum(axis=1).astype(float)
@@ -624,7 +670,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
             #: Covariance matrix for the demes
-            self.pops_cov: np.ndarray = np.cov(over_loci)
+            self.pops_cov: np.ndarray = np.cov(over_loci, bias=True)
 
             #: Correlation matrix for the demes
             self.pops_corr: np.ndarray = np.corrcoef(over_loci)
@@ -633,7 +679,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             self.loci_corr: np.ndarray = np.corrcoef(over_demes)
 
             #: Covariance matrix for the loci
-            self.loci_cov: np.ndarray = np.cov(over_demes)
+            self.loci_cov: np.ndarray = np.cov(over_demes, bias=True)
 
     def _touch(self, t: np.ndarray) -> None:
         """
@@ -659,20 +705,22 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
-        In addition to the scalar-total standard errors, block-estimate the standard error of the deme-deme and
-        locus-locus covariance / correlation matrices that :attr:`demes` and :attr:`loci` expose (``demes.cov`` etc.),
-        so the tolerance tuner has a real noise floor for those leaves rather than the scalar total's variance error.
-        The matrices are keyed ``"demes.cov"`` / ``"demes.corr"`` / ``"loci.cov"`` / ``"loci.corr"``.
+        Block standard errors of the totals, as ``EmpiricalDistribution._cache_standard_errors``, and of the deme and
+        locus covariance and correlation matrices, keyed ``"demes.cov"``, ``"demes.corr"``, ``"loci.cov"`` and
+        ``"loci.corr"``.
         """
         super()._cache_standard_errors(n_blocks)
 
         if self._samples is None:
             return
 
+        def cov(x: np.ndarray) -> np.ndarray:
+            return np.cov(x, bias=True)
+
         for key, data, fn in (
-            ('demes.cov', self._samples.sum(axis=0), np.cov),    # (n_demes, n_rep), summed over loci
+            ('demes.cov', self._samples.sum(axis=0), cov),  # (n_demes, n_rep), summed over loci
             ('demes.corr', self._samples.sum(axis=0), np.corrcoef),
-            ('loci.cov', self._samples.sum(axis=1), np.cov),     # (n_loci, n_rep), summed over demes
+            ('loci.cov', self._samples.sum(axis=1), cov),  # (n_loci, n_rep), summed over demes
             ('loci.corr', self._samples.sum(axis=1), np.corrcoef),
         ):
             se = self._matrix_block_standard_error(data, fn, n_blocks)
@@ -702,7 +750,8 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
         """
-        Get the distribution for each deme.
+        Empirical distribution of each deme, summed over loci, with the deme covariance and correlation matrices as
+        ``cov`` and ``corr``.
 
         :return: Dictionary of distributions.
         """
@@ -720,7 +769,8 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     @cached_property
     def loci(self) -> Dict[int, EmpiricalDistribution]:
         """
-        Get the distribution for each locus.
+        Empirical distribution of each locus, summed over demes, with the locus covariance and correlation matrices as
+        ``cov`` and ``corr``.
 
         :return: Dictionary of distributions.
         """
@@ -752,17 +802,11 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
     """
-    The replicates a windowed conditional selected (see :meth:`EmpiricalJointDistribution.conditional`), with a
-    **local-linear** :attr:`mean`. Everything else -- the variance, the cdf, the quantile -- is the plain estimate over
-    the window.
+    The replicates kept by ``EmpiricalJointDistribution.conditional``, with the local-linear mean described there.
 
-    Weighting the selected replicates equally would make the mean a Nadaraya-Watson estimator, which is ``O(h)``-biased
-    wherever ``E[R_other | R_on = v]`` has slope in ``v``: the conditioning values are not symmetric inside the window,
-    so the slope leaks in. A local-linear fit cancels that term.
-
-    :param samples: The other reward over the selected replicates.
-    :param offsets: The selected replicates' conditioning values, *centered* on the conditioning value.
-    :param window: Half-width of the window, the scale the weights are taken on.
+    :param samples: The other reward over the kept replicates.
+    :param offsets: The conditioning values of the kept replicates minus the conditioning value.
+    :param window: Half-width of the window, the scale of the weights.
     """
 
     def __init__(self, samples: np.ndarray, offsets: np.ndarray, window: float) -> None:
@@ -776,9 +820,9 @@ class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
 
     @cached_property
     def mean(self) -> float:
-        """The local-linear estimate of ``E[R_other | R_on = value]``: the intercept, at the conditioning value, of a
-        tricube-weighted least-squares line through the selected replicates. Falls back to the plain window mean for a
-        degenerate fit (a zero-width window, or one whose conditioning values do not vary)."""
+        """Local-linear window mean, see
+        :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
+        """
         x, y, h = self._offsets, self.samples, self._window
 
         if h <= 0 or x.size < 3:
@@ -795,20 +839,16 @@ class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
 
 
 class EmpiricalJointDistribution:  # pragma: no cover
-    """
-    Empirical counterpart of :class:`~phasegen.distributions.reward.JointRewardDistribution`: the sampled joint
-    distribution of two accumulated rewards, built from the per-replicate samples and sliced into the 1D
-    :meth:`EmpiricalJointDistribution.marginal() <phasegen.distributions.EmpiricalJointDistribution.marginal>` and
-    :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`
-    distributions.
+    r"""
+    Empirical joint distribution of two accumulated rewards :math:`R_a` and :math:`R_b` from paired realisations, the
+    sampled counterpart of :class:`~phasegen.distributions.JointRewardDistribution`. Its marginals, joint CDF,
+    covariance and correlation are the sample estimators of :class:`~phasegen.distributions.EmpiricalDistribution`,
+    with the normalisation :math:`1 / N` for :math:`N` replicates.
 
     .. warning::
-        :meth:`marginal` is an ordinary sample estimate, but :meth:`conditional` is not. No replicate lands exactly
-        on the conditioning value, so it keeps those in a *window* around it: an estimate of the conditional
-        *averaged over the window*, not at the value. Widening it smears the conditional wherever it varies with the
-        conditioning value, narrowing it leaves few replicates behind the estimate. A 2D sample therefore says far
-        less about a conditional than it does about the marginals, and this is a rough check on the exact
-        conditional, not a ground truth for it.
+        :meth:`EmpiricalJointDistribution.conditional()
+        <phasegen.distributions.EmpiricalJointDistribution.conditional>` averages over a window of conditioning
+        values and is therefore only an approximate check on the exact conditional distribution.
     """
 
     def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray, label: str = None) -> None:
@@ -837,19 +877,39 @@ class EmpiricalJointDistribution:  # pragma: no cover
         return EmpiricalDistribution(self._a if which == 'a' else self._b)
 
     def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> EmpiricalDistribution:
-        """
-        The empirical conditional distribution of the *other* reward given ``R_{on}`` close to ``value``, estimated
-        from the replicates whose conditioning reward falls in a window around ``value``. The sampled counterpart of
+        r"""
+        The empirical conditional distribution of one reward given that the other, the conditioning reward, is close
+        to ``value``, the sampled counterpart of
         :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`.
 
-        :param on: Which reward to condition on, ``'a'`` or ``'b'``.
-        :param value: The conditioning value.
-        :param window: Half-width of the symmetric window, in the conditioning reward's units. Defaults to the
-            smallest window around ``value`` holding at least ``max(200, n / 50)`` replicates, a data-adaptive
-            bandwidth that keeps the estimate stable wherever ``value`` sits (narrower reduces bias, wider reduces
-            noise).
-        :return: The empirical distribution of the other reward over the selected replicates.
-        :raises ValueError: If ``on`` is not ``'a'`` / ``'b'`` or no replicate falls in the window.
+        Let :math:`c_m` be the conditioning reward and :math:`y_m` the other reward of replicate
+        :math:`m = 1, \dots, N`, let :math:`v` be ``value`` and :math:`h \ge 0` the half-width ``window``. The
+        estimate keeps the replicates with :math:`|c_m - v| \le h`. By default :math:`h` is the smallest half-width
+        that keeps at least :math:`\nu + 1` replicates, where :math:`\nu` is proportional to :math:`N` with a fixed
+        lower bound and at most :math:`N - 1`.
+
+        The variance, cdf, pdf and quantile of the result are the estimators of
+        :class:`~phasegen.distributions.EmpiricalDistribution` over the kept replicates. Its mean is the local-linear
+        estimate, the intercept at :math:`v` of a weighted least-squares line through the kept pairs
+        :math:`(c_m, y_m)`,
+
+        .. math::
+
+            \hat\mu(v) = \frac{S_2 T_0 - S_1 T_1}{S_0 S_2 - S_1^2}, \qquad
+            S_p = \sum_m w_m \delta_m^p, \qquad T_p = \sum_m w_m \delta_m^p\, y_m, \qquad
+            w_m = \bigl(1 - \min(|\delta_m| / h, 1)^3\bigr)^3,
+
+        with the offsets :math:`\delta_m = c_m - v` and the sums over the kept replicates. Unlike the plain window
+        mean, it has no bias proportional to :math:`h` where the conditional mean has a slope in :math:`v`. The plain
+        window mean is returned for :math:`h = 0`, for fewer than three kept replicates, or for a vanishing
+        denominator. Every estimate is an average over the window, not the conditional distribution at :math:`v`, so a
+        wider window smooths the conditional where it varies with :math:`v`, and a narrower one keeps fewer replicates.
+
+        :param on: Which reward to condition on, ``'a'`` for :math:`R_a` or ``'b'`` for :math:`R_b`.
+        :param value: The conditioning value :math:`v`.
+        :param window: The half-width :math:`h`, in units of the conditioning reward. ``None`` for the default.
+        :return: The empirical conditional distribution of the other reward.
+        :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, or no replicate falls in the window.
         """
         if on not in ('a', 'b'):
             raise ValueError("`on` must be 'a' or 'b'.")
@@ -890,17 +950,24 @@ class EmpiricalJointDistribution:  # pragma: no cover
         return float(empty.mean()), EmpiricalDistribution(other[empty])
 
     def cdf(self, x: float, y: float) -> float:
-        r"""The empirical joint CDF :math:`P(R_a \le x, R_b \le y)`."""
+        r"""
+        The empirical joint CDF, the fraction of replicates with :math:`R_a \le x` and :math:`R_b \le y`.
+
+        :param x: Threshold for :math:`R_a`.
+        :param y: Threshold for :math:`R_b`.
+        :return: The empirical joint probability.
+        """
         return float(((self._a <= x) & (self._b <= y)).mean())
 
     @property
     def mean(self) -> np.ndarray:
-        r"""The pair of marginal means :math:`(\mathbb{E}[R_a], \mathbb{E}[R_b])`."""
+        r"""The pair of sample means of :math:`R_a` and :math:`R_b`."""
         return np.array([self._a.mean(), self._b.mean()])
 
     def cov(self) -> float:
-        """The empirical covariance of the two rewards."""
-        return float(np.cov(self._a, self._b)[0, 1])
+        """The sample covariance of the two rewards, with the normalisation of
+        :class:`~phasegen.distributions.EmpiricalDistribution`."""
+        return float(np.cov(self._a, self._b, bias=True)[0, 1])
 
     def corr(self) -> float:
         """The empirical Pearson correlation of the two rewards."""
@@ -909,10 +976,10 @@ class EmpiricalJointDistribution:  # pragma: no cover
 
 class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
     """
-    SFS phase-type distribution based on realisations.
-
-    The per-bin (2-D samples) cdf / pdf / quantile evaluation and plot data are handled by the inherited
-    ``_Empirical*`` function objects.
+    Empirical site-frequency spectrum with a per-deme breakdown, built by
+    :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>` or
+    by :class:`~phasegen.distributions.MsprimeCoalescent`. The estimators of
+    :class:`~phasegen.distributions.EmpiricalDistribution` apply per frequency class.
     """
 
     def _tajima_n(self) -> int:
@@ -930,7 +997,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     def __init__(
             self,
             branch_lengths: np.ndarray,
-            mutations: np.ndarray,
+            mutations: Optional[np.ndarray],
             pops: List[str],
             sfs_dist: Type[SFSDistribution],
             locus_agg: Callable = lambda x: x.sum(axis=0),
@@ -938,8 +1005,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         Create object.
 
-        :param branch_lengths: 4-D array of branch length samples.
-        :param mutations: 4-D array of mutation counts.
+        :param branch_lengths: Branch lengths per locus, deme, replicate and frequency class, of shape
+            ``(loci, demes, N, n + 1)``.
+        :param mutations: Mutation counts per locus, deme, replicate and polymorphic frequency class, or ``None`` for
+            a spectrum without mutations.
         :param pops: List of population names.
         :param sfs_dist: SFS distribution class.
         :param locus_agg: Aggregation function for loci.
@@ -960,7 +1029,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Branch length samples by deme and locus
         self._samples = branch_lengths
 
-        #: Mutation counts by deme and locus
+        #: Mutation counts by deme and locus, ``None`` for a spectrum without mutations
         self._mutations = mutations
 
         #: Deme-deme covariance/correlation are unused for the SFS (``demes`` is overridden to a plain per-deme
@@ -974,50 +1043,66 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         #: Covariance matrix for the loci
         self.loci_cov: np.ndarray = None
 
-        #: Generated probability mass by iterator returned from :meth:`get_mutation_configs`.
+        #: Relative frequency yielded by the most recently started
+        #: :meth:`EmpiricalPhaseTypeSFSDistribution.get_mutation_configs()
+        #: <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.get_mutation_configs>` iterator.
         self.generated_mass = 0
 
         #: Atom-conditional ground truth: ``[(i, j, on, mass, dist), ...]``, see
-        #: :meth:`cache_atom_conditional`. Survives ``_drop`` and is serialized with the comparison.
+        #: ``_cache_atom_conditional``. Survives ``_drop`` and is serialized with the comparison.
         self._atom_conditional: list = []
 
-        #: Cached windowed-conditional ground truth, see :meth:`cache_windowed_conditional`.
+        #: Cached windowed-conditional ground truth, see ``_cache_windowed_conditional``.
         self._windowed_conditional: list = []
 
     @cached_property
     def mean(self) -> SFS:
         """
-        First moment / mean.
+        Sample mean spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().mean)
 
     @cached_property
     def var(self) -> SFS:
         """
-        Second central moment / variance.
+        Sample variance spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().var)
 
     @cached_property
     def m2(self) -> SFS:
         """
-        Second non-central moment.
+        Second raw sample moment spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return SFS(super().m2)
 
     @cached_property
     def cov(self) -> TwoSFS:
         """
-        Covariance matrix.
+        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
         return TwoSFS(super().cov)
 
     @cached_property
     def corr(self) -> TwoSFS:
         """
-        Correlation matrix.
+        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
         return TwoSFS(super().corr)
+
+    def _touch(self, t: np.ndarray) -> None:
+        """
+        Touch as ``EmpiricalPhaseTypeDistribution._touch`` and persist ``mutation_configs`` when mutation counts exist.
+
+        :param t: Times to cache properties for.
+        """
+        super()._touch(t)
+
+        if self._mutations is not None:
+            self.__dict__['mutation_configs'] = self.mutation_configs
 
     def _drop(self) -> None:
         """
@@ -1029,8 +1114,9 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
     def cross_moment(self, i: int, j: int) -> float:
         r"""
-        Empirical cross-moment :math:`\mathbb{E}[L_i L_j]` of the branch lengths subtending ``i`` and ``j`` samples,
-        from the per-replicate SFS branch-length samples, the simulated counterpart of
+        Sample cross-moment :math:`N^{-1} \sum_{m} L_{mi} L_{mj}` of the branch lengths :math:`L_{mi}` and
+        :math:`L_{mj}` subtending ``i`` and ``j`` of the :math:`n` lineages in replicate :math:`m = 1, \dots, N`, the
+        sampled counterpart of
         :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>` ``(1, 1)``.
 
         :param i: First frequency class.
@@ -1041,14 +1127,15 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
     def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
         r"""
-        Empirical joint CDF :math:`P(L_i \le x, L_j \le y)` of two SFS bins, from the per-replicate samples, the
-        simulated counterpart of :attr:`JointRewardDistribution.cdf
+        Empirical joint CDF of two SFS bins, the fraction of replicates whose branch lengths :math:`L_i` and
+        :math:`L_j` subtending ``i`` and ``j`` of the :math:`n` lineages satisfy :math:`L_i \le x` and
+        :math:`L_j \le y`, the sampled counterpart of :attr:`JointRewardDistribution.cdf
         <phasegen.distributions.JointRewardDistribution.cdf>`.
 
         :param i: First frequency class.
         :param j: Second frequency class.
-        :param x: Threshold for ``L_i``.
-        :param y: Threshold for ``L_j``.
+        :param x: Threshold for :math:`L_i`.
+        :param y: Threshold for :math:`L_j`.
         :return: The empirical joint probability.
         """
         return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
@@ -1075,27 +1162,11 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
-    def cache_atom_conditional(self, pairs: List[Tuple[int, int]], n_grid: int = 100) -> None:
+    def _cache_atom_conditional(self, pairs: List[Tuple[int, int]], n_grid: int = 100) -> None:
         """
-        Pre-compute, for each requested bin pair and each conditioning axis, the empirical **atom conditional**: the
-        mass of ``{L_on = 0}`` and the distribution of the other bin's length over exactly those replicates.
-
-        This is the one conditional a sample pins exactly -- the atom event has positive probability, so the
-        conditioning set needs no window and carries no bandwidth bias (see
-        :meth:`EmpiricalJointDistribution.conditional_on_atom`). Nothing else validates the ``value = 0``
-        branch: every conditional check places its conditioning values at ``quantile(p0 + (1 - p0) u)``, strictly
-        *above* the atom.
-
-        Each conditional is cached as an ordinary :class:`EmpiricalDistribution`, touched on its own support and then
-        dropped, so its moments and its cdf / pdf / quantile grids are compared by the same machinery as every other
-        distribution rather than by a bespoke path.
-
-        Stored as ``self._atom_conditional = [(i, j, on, mass, dist), ...]`` and serialized with the comparison.
-
-        An axis whose conditioning bin is never empty has no atom to condition on, and is recorded with a zero mass
-        and no distribution rather than omitted. Omitting it would make an unwired axis indistinguishable from a
-        fixture predating this cache, and the zero mass is itself worth asserting: a bin that cannot be empty (for
-        ``n = 4`` every tree has a doubleton branch) must carry no atom in the exact joint either.
+        Cache, per bin pair and conditioning axis, ``EmpiricalJointDistribution.conditional_on_atom`` as
+        ``self._atom_conditional = [(i, j, on, mass, dist), ...]``, each ``dist`` touched on its own support and
+        dropped. An axis without an atom is recorded with zero mass and no distribution, which the comparison asserts.
 
         :param pairs: Bin pairs to cache.
         :param n_grid: Points of the cdf / pdf grid each conditional is cached on.
@@ -1116,32 +1187,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                 dist._drop()
                 self._atom_conditional.append((int(i), int(j), on, mass, dist))
 
-    def cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
+    def _cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
         """
-        Pre-compute, for each requested conditioning window, the empirical conditional of the other bin's length over
-        exactly the replicates whose conditioning bin falls in that window: the mean (with its standard error) and the
-        CDF over a grid.
-
-        The window is *the* thing being cached, and it is deliberately not corrected for. What a sample measures is
-        the conditional averaged over the window, and the comparison averages the exact conditional over the same
-        window (:meth:`JointRewardDistribution.window_average()
-        <phasegen.distributions.JointRewardDistribution.window_average>`) rather than evaluating it at the centre, so
-        the two sides are the same functional. That is what makes this the only ground truth the nested conditional has
-        away from the atom, and it is why no bandwidth correction is applied here.
-
-        The mean's standard error is cached because the mean has no other floor: both sides measure the same
-        functional, so once the window bias is gone what separates them is the sampling noise of the window alone.
-        The comparison reports the mean's deviation in standard errors, which keeps that check independent of the
-        replicate count instead of silently loosening with it. The CDF is compared as a plain absolute difference
-        instead: its per-point binomial error collapses in the tails, where a sigma would explode on an agreement that
-        is in fact excellent.
-
-        The CDF grid is dense and runs to ``q_max`` of the window's own samples, because on the exact side it is free:
-        the conditional's cosine grid is built regardless, and reading it at 500 points rather than 50 costs an
-        interpolation. A coarse grid stopping at the 99th percentile would simply discard the tail, and with it any
-        chance of the check seeing a discrepancy there.
-
-        Stored as ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``.
+        Cache, per conditioning window, the plain window mean of the other bin (not the local-linear mean), its
+        standard error and its step CDF over a grid, as
+        ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``. The comparison
+        averages the exact conditional over the same window, so both sides estimate the same functional.
 
         :param specs: ``(i, j, on, value, half_width)`` windows to cache, the values fixed by the exact marginal.
         :param n_grid: Points of the CDF grid.
@@ -1200,35 +1251,63 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         return {pop: EmpiricalSFSDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
 
-    @cached_property
+    @property
     def mutation_configs(self) -> Dict[Tuple[float, ...], float]:
         """
-        Get a dictionary of all mutation configurations and their probabilities.
+        Relative frequency of each mutational configuration among the simulated replicates.
 
-        :return: Dictionary of distributions.
+        :return: Dictionary from configuration to relative frequency.
+        :raises ValueError: If the spectrum carries no mutation counts, as a spectrum built by
+            :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>`.
         """
+        # stored under its own name, so a serialized comparison restores it through the setter, and persisted by
+        # ``_touch`` only when mutation counts exist
+        if 'mutation_configs' in self.__dict__:
+            return self.__dict__['mutation_configs']
+
+        if self._mutations is None:
+            raise ValueError(
+                "This spectrum carries no mutation counts (it was sampled from branch lengths only, or its samples "
+                "were dropped), so mutational configuration frequencies are unavailable."
+            )
+
         configs = defaultdict(lambda: 0)
 
         for config in self._mutations[0, 0]:
             configs[tuple(config)] += 1 / self._mutations.shape[2]
 
+        if Settings.cache:
+            self.__dict__['mutation_configs'] = configs
+
         return configs
+
+    @mutation_configs.setter
+    def mutation_configs(self, configs: Dict[Tuple[float, ...], float]) -> None:
+        """
+        Store the configuration frequencies.
+
+        :param configs: Dictionary from configuration to relative frequency.
+        """
+        self.__dict__['mutation_configs'] = configs
 
     def get_mutation_config(self, config: Sequence[int]) -> float:
         """
-        Get the probability of observing the given mutational configuration.
+        Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
+        :meth:`UnfoldedSFSDistribution.get_mutation_config()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, which defines configurations.
 
-        :param config: The mutational configuration.
-        :return: The probability of observing the given mutational configuration.
+        :param config: The configuration, one mutation count per frequency class.
+        :return: The fraction of replicates showing the configuration.
         """
         return self.mutation_configs[tuple(config)]
 
     def get_mutation_configs(self) -> Iterator[Tuple[Tuple[float, ...], float]]:
         """
-        An iterator over the probabilities of observing mutational configurations according to the infinite sites model.
-        The order of the mutational configurations generated ascends in the number of mutations observed.
+        Sampled counterpart of :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>`, yielding the relative
+        frequencies of the configurations among the simulated replicates.
 
-        :return: An iterator over the probabilities of observing mutational configurations.
+        :return: An iterator over pairs of configuration and relative frequency.
         """
         # reset generated mass
         self.generated_mass = 0
@@ -1247,18 +1326,20 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
 
 class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
-    """
-    Empirical (msprime-based) two-locus SFS, exposing the same ``mean`` interface as
-    :class:`~phasegen.distributions.spectra.TwoLocusSFSDistribution` (a :class:`~sfsutils.spectrum.TwoLocusSFS`) so the
-    two can be compared by ``Comparison``.
+    r"""
+    Empirical two-locus site-frequency spectrum, built by
+    :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
+    by :class:`~phasegen.distributions.MsprimeCoalescent`. Its :attr:`mean` has the entries
+    :math:`N^{-1} \sum_{m=1}^{N} L^0_{mi} L^1_{mj}`, where :math:`L^\ell_{mi}` is the branch length subtending
+    :math:`i` of the :math:`n` lineages at locus :math:`\ell \in \{0, 1\}` in replicate :math:`m = 1, \dots, N`. The
+    mean is not symmetrized over the two loci.
     """
 
     def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None) -> None:
         """
-        :param mean: The simulated mean two-locus SFS array.
-        :param left: Optional per-replicate locus-0 SFS branch lengths ``(num_replicates, n + 1)`` (for the joint
-            distribution / cross-moment tracking), freed before serialization.
-        :param right: Optional per-replicate locus-1 SFS branch lengths.
+        :param mean: The sample mean two-locus SFS array.
+        :param left: Optional per-replicate locus-0 SFS branch lengths, of shape ``(N, n + 1)``.
+        :param right: Optional per-replicate locus-1 SFS branch lengths, of shape ``(N, n + 1)``.
         """
         self._mean = np.asarray(mean)
         self._left = None if left is None else np.asarray(left)
@@ -1492,8 +1573,10 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
 
 class MsprimeCoalescent(AbstractCoalescent):
     """
-    Empirical coalescent distribution based on `msprime` simulations.
-    This is used for testing purposes. Note that the results are stochastic.
+    Coalescent whose statistics are estimated from ``msprime`` ancestry simulations, independently of the phase-type
+    computation. :meth:`MsprimeCoalescent.simulate() <phasegen.distributions.MsprimeCoalescent.simulate>` splits the
+    replicates into batches simulated in parallel, each seeded with :attr:`seed` plus its batch index, and the
+    statistics use the estimators of :class:`~phasegen.distributions.EmpiricalDistribution`.
     """
 
     def __init__(
@@ -1629,8 +1712,8 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         def simulate_batch(seed: Optional[int]) -> dict:
             """
-            Simulate one batch of replicates, accumulating every requested statistic in a **single pass** over the
-            tree sequences via self-contained :class:`_ReplicateStatistic` components.
+            Simulate one batch of replicates, accumulating every requested statistic in a single pass over the tree
+            sequences via self-contained per-statistic accumulators.
 
             :param seed: Random seed.
             :return: Statistics.
@@ -1841,7 +1924,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=self.sfs_lengths,
-            mutations=self.mutations.T[1:-1].T,
+            mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
             pops=self.demography.pop_names,
             sfs_dist=UnfoldedSFSDistribution
         )
@@ -1867,7 +1950,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=lengths.T,
-            mutations=mutations.T,
+            mutations=mutations.T if self.simulate_mutations else None,
             pops=self.demography.pop_names,
             sfs_dist=FoldedSFSDistribution
         )
@@ -2039,21 +2122,19 @@ class MsprimeCoalescent(AbstractCoalescent):
 
 
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
-    r"""
-    PhaseGen-sampled empirical coalescent: the same per-statistic distributions as
-    :class:`~phasegen.distributions.empirical.MsprimeCoalescent`, but estimated from PhaseGen's own trajectory sampler
-    (:meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`) rather than
-    msprime, so each statistic is an unbiased Monte Carlo estimate. Used by ``Comparison`` to validate the sampler
-    against the exact analytic :class:`~phasegen.distributions.coalescent.Coalescent`. The sampled realization
-    is frozen into the comparison fixture at creation time; the per-statistic seeds make it reproducible and
-    independent of access order.
+    """
+    Coalescent whose statistics are estimated by simulation. Each statistic (:attr:`tree_height`,
+    :attr:`total_branch_length`, :attr:`sfs`, :attr:`fsfs`, :attr:`jsfs` and :attr:`sfs2`) is the empirical
+    counterpart that the matching exact distribution of the wrapped :class:`~phasegen.distributions.Coalescent`
+    builds from :attr:`n_samples` trajectories, as described at
+    :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` and
+    :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`. A statistic is
+    simulated on its first access and cached.
 
-    .. warning::
-        Each statistic is sampled in its **own** simulation run, so different statistics come from **different
-        genealogies**. Within one statistic the samples are coherent (the SFS bins of a single ``sfs`` draw share
-        their trajectories, so their joints, covariances and correlations are valid), but pairing the raw ``.samples``
-        of *two* statistics is not meaningful -- ``corrcoef(sc.tree_height.samples, sc.total_branch_length.samples)``
-        is ~0 where the truth is ~1.
+    Each statistic is simulated separately, with the seed :attr:`seed` plus a fixed offset per statistic, so its
+    draws do not depend on the order in which the statistics are accessed. The entries of one statistic share their
+    trajectories, which makes, for example, the covariances and joint distributions of SFS bins meaningful. Two
+    different statistics are drawn from independent trajectories, so their samples cannot be paired.
 
     .. versionadded:: 2.0
     """
@@ -2061,11 +2142,11 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.
     _seed_offsets = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
 
-    def __init__(self, coalescent: Coalescent, n_samples: int = 10000, seed: int = None) -> None:
+    def __init__(self, coalescent: Coalescent, n_samples: int = 100000, seed: int = None) -> None:
         """
-        :param coalescent: The analytic coalescent to sample from.
+        :param coalescent: The exact coalescent to sample from.
         :param n_samples: Number of trajectories to simulate per statistic.
-        :param seed: Random seed.
+        :param seed: Integer seed, ``None`` for fresh entropy per statistic.
         """
         # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
         # the config after the analytic coalescent is dropped (Comparison / serialization need it)

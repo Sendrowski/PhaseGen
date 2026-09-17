@@ -25,10 +25,10 @@ def parallelize(
     """
     Parallelize given function or execute sequentially.
 
-    On macOS the worker pool uses the ``spawn`` start method instead of ``multiprocess``'s default ``fork``.
-    Forking a process that has already initialized threaded native libraries (numba/llvmlite, and on macOS
-    the Accelerate BLAS and libdispatch) copies their internal locks in a held state, so the first such call
-    in the child deadlocks; ``spawn`` starts a fresh interpreter and sidesteps the inherited locks. The
+    On macOS the worker pool uses the ``spawn`` start method, not the ``fork`` default of ``multiprocess``.
+    Forking a process that has initialized threaded native libraries (numba/llvmlite, and on macOS the
+    Accelerate BLAS and libdispatch) copies their internal locks in a held state, so the first such call in
+    the child deadlocks. ``spawn`` starts a fresh interpreter and sidesteps the inherited locks. The
     platform default is kept elsewhere (``fork`` on Linux), where it is safe and avoids the per-worker
     re-import cost of ``spawn``. Because ``spawn`` re-imports the caller's module, on macOS callers must be
     import-safe (guard top-level code with ``if __name__ == '__main__':``) and ``func``/``data`` must be

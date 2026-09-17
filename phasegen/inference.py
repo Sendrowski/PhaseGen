@@ -85,7 +85,7 @@ class Inference(Serializable):
         :param observation: The observed summary statistic the inference is based on.
             This is passed as second argument to the ``loss`` function, and is only required
             if you want to use automatic bootstrapping.
-        :param resample: Callback that is used to resample the observation. This is
+        :param resample: Callback that resamples the observation. This is
             required for automatic bootstrapping. The resample function must accept
             the observation as first argument and a random number generator as second
             argument, and must return a resampled observation.
@@ -102,11 +102,9 @@ class Inference(Serializable):
                 run independently, and whose results can be merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
-        :param cache: Whether to cache the state spaces across the given optimization iterations given
-            that they are equivalent. The can significantly speed up the optimization as we do not
-            require to recompute the complete state spaces for each iteration. This only leads to
-            performance improvements if optimizing demographic parameters such as population sizes
-            or migration rates.
+        :param cache: Whether to reuse the lineage-counting, block-counting and joint block-counting state spaces
+            across optimization iterations when they are equivalent, so that only their rate matrices are rebuilt.
+            This speeds up optimizations over demographic parameters such as population sizes or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
         :param method_mle: Method to use for optimization. See `scipy.optimize.minimize` for available methods.
@@ -230,8 +228,8 @@ class Inference(Serializable):
         The ``coal``, ``loss`` and ``resample`` callables are serialized with ``dill`` (they are typically
         lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
         once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
-        directly from ``self`` rather than deep-copied first; only the remaining state is deep-copied so the
-        live object is left untouched.
+        directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
+        is left untouched.
 
         :return: State of the object.
         """
@@ -518,8 +516,10 @@ class Inference(Serializable):
         observation :math:`y` is resampled to :math:`y^{*}` via the ``resample`` callback and the inference is rerun,
         yielding :math:`\\hat{\\theta}^{*} = \\arg\\min_{\\theta} L(\\mathrm{coal}(\\theta),\\, y^{*})`. The spread of the
         replicate estimates :math:`\\{\\hat{\\theta}^{*}_b\\}` estimates the sampling distribution of :math:`\\hat{\\theta}`.
+        Each replicate starts from :math:`\\hat{\\theta}`, and the replicates are stored in
+        :attr:`Inference.bootstraps <phasegen.inference.Inference.bootstraps>`.
 
-        :return: Bootstrap replicates.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
         if not self.params_inferred:
             raise RuntimeError('The main optimization must be run first (call run()).')
@@ -613,7 +613,8 @@ class Inference(Serializable):
         :meth:`plot_demography`, :meth:`plot_pop_sizes` and :meth:`plot_migration`.
 
         :param t: Times at which to evaluate the trajectories. By default, :attr:`Settings.plot_inference_n_grid`
-            points up to the :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height.
+            points up to the :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height, or up to
+            the end time of a windowed coalescent.
         :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
         :param include_bootstraps: Whether to include the bootstrap replicates.
         :return: The inferred trajectories, and the trajectories of each bootstrap replicate.
@@ -623,8 +624,15 @@ class Inference(Serializable):
             raise RuntimeError('The main optimization must be run first (call run()).')
 
         if t is None:
-            t = np.linspace(0, self.dist_inferred.tree_height.quantile(Settings.plot_inference_quantile),
-                            Settings.plot_inference_n_grid)
+            tree_height = self.dist_inferred.tree_height
+
+            # a windowed coalescent has no tree-height quantile, so its end time bounds the plot
+            if tree_height._windowed:
+                t_end = tree_height.t_max
+            else:
+                t_end = tree_height.quantile(Settings.plot_inference_quantile)
+
+            t = np.linspace(0, t_end, Settings.plot_inference_n_grid)
 
         bootstraps = self._bootstrap_demographies if include_bootstraps else []
 
@@ -927,16 +935,24 @@ class Inference(Serializable):
 
 
 class WeightedLoss:  # pragma: no cover
-    """
-    Weigh components of the loss function based on the average of the observed and modelled values.
+    r"""
+    Combination of loss components normalized by their running averages. For components :math:`c` with values
+    :math:`L_c`, weights :math:`w_c` and running averages :math:`\bar{L}_c` over the most recent values passed to
+    :meth:`WeightedLoss.compute() <phasegen.inference.WeightedLoss.compute>`, the combined loss is
+
+    .. math::
+
+        \sum_c L_c\, \frac{w_c / \bar{L}_c}{\sum_{c'} w_{c'} / \bar{L}_{c'}},
+
+    so that each component contributes in proportion to its weight irrespective of its scale.
     """
 
     def __init__(self, weights: Dict[str, float], n_max: int | None = 100) -> None:
         """
         Initialize the class with the provided parameters.
 
-        :param weights: Dictionary of weights for each component of the loss function.
-        :param n_max: Maximum recent values to consider for the average. Use `None` to consider all values.
+        :param weights: Dictionary of weights :math:`w_c` for each component of the loss function.
+        :param n_max: Maximum number of recent values in the running averages. Use ``None`` to consider all values.
         """
         #: Weights for each component of the loss function.
         self.weights: Dict[str, float] = weights

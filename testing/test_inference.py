@@ -663,8 +663,9 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(1.5, weighted_loss.compute(dict(l1=3, l2=1)))
 
         weighted_loss = pg.inference.WeightedLoss(dict(l1=0.5, l2=0.5))
+        rng = np.random.default_rng(42)
 
         for _ in range(100):
-            weighted_loss.compute(dict(l1=np.random.normal(3, 1), l2=np.random.normal(1, 1)))
+            weighted_loss.compute(dict(l1=rng.normal(3, 1), l2=rng.normal(1, 1)))
 
         self.assertTrue(1.4 < weighted_loss.compute(dict(l1=3, l2=1)) < 1.6)

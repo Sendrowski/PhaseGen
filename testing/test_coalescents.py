@@ -798,8 +798,12 @@ class CoalescentTestCase(TestCase):
         _ = coal.total_branch_length.var
         _ = coal.sfs.mean
         _ = coal.sfs.corr
-        _ = coal.tree_height.pdf(1)
-        _ = coal.tree_height.cdf(1)
+
+        # the distribution functions describe the unwindowed law, so they refuse a windowed coalescent
+        with self.assertRaises(NotImplementedError):
+            coal.tree_height.pdf(1)
+        with self.assertRaises(NotImplementedError):
+            coal.tree_height.cdf(1)
 
     def test_batched_spectrum_mean_honours_start_time(self):
         """
@@ -1648,8 +1652,7 @@ class CoalescentTestCase(TestCase):
         )
         th = pg.Coalescent(n={'p0': 1, 'p1': 1}, demography=dem).tree_height
 
-        np.random.seed(0)
-        s = th._sample(20000).ravel()
+        s = th.sample(20000, seed=0)
 
         # coalescence is impossible while the demes are isolated (t < 1)
         self.assertTrue((s >= 1.0).all())
@@ -1676,13 +1679,11 @@ class CoalescentTestCase(TestCase):
 
         saved = pg.Settings.sample_batch_size
         try:
-            np.random.seed(0)
             pg.Settings.sample_batch_size = None  # single pass
-            single = th._sample(20000).ravel()
+            single = th.sample(20000, seed=0)
 
-            np.random.seed(0)
             pg.Settings.sample_batch_size = 3000  # several batches, including a short final one
-            batched = th._sample(20000).ravel()
+            batched = th.sample(20000, seed=0)
         finally:
             pg.Settings.sample_batch_size = saved
 

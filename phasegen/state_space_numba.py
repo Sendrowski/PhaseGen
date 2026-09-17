@@ -1,10 +1,10 @@
 """
 Numba-accelerated kernels for state-space construction.
 
-This module is imported behind a guard (:data:`HAS_NUMBA`); when numba is unavailable the public classes fall back
+This module is imported behind a guard (:data:`HAS_NUMBA`). When numba is unavailable the public classes fall back
 to the pure-Python construction in :mod:`phasegen.state_space`. The kernels operate on integer state rows (the
 flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
-build the single-locus lineage- and block-/joint-counting spaces; kinds 2 and 3 the two-locus block- and
+build the single-locus lineage- and block-/joint-counting spaces, and kinds 2 and 3 the two-locus block- and
 lineage-counting spaces under recombination.
 
 Coalescent rates are reproduced from the model formulae (exact ``comb`` via an integer loop, the Euler beta via
@@ -12,8 +12,8 @@ Coalescent rates are reproduced from the model formulae (exact ``comb`` via an i
 1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate matrix are precomputed in
 Python and passed in, so no transcendental model code other than the rates lives here.
 
-States are numbered in discovery order, which differs from the pure-Python enumeration; this is intentional and
-validated by permutation-invariant parity tests.
+States are numbered in discovery order, which differs from the pure-Python enumeration. Parity tests compare the two
+constructions up to a permutation of the states.
 """
 
 import math
@@ -434,13 +434,13 @@ def build_rate_matrix(
     Python entry point: build the state rows and the rate matrix via the numba kernel.
 
     The kernel's BFS is aborted once it discovers more than ``max_states`` states, which guards against building a
-    prohibitively large state space (raising a clear error instead of exhausting memory). The COO transitions it
+    prohibitively large state space by raising a clear error before memory is exhausted. The COO transitions it
     returns are assembled, in one place, into either a dense array (below ``dense_max_states`` states, where dense is
-    cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above it — the generator is
-    sparse, each state coalescing to only O(n) others, so a dense ``n_states**2`` matrix would be prohibitive).
+    cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above it, since the generator
+    is sparse, each state coalescing to only O(n) others, and a dense ``n_states**2`` matrix would be prohibitive).
 
     :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
-        order) and ``S`` is the intensity matrix (dense or sparse; diagonal = negative row sums).
+        order) and ``S`` is the dense or sparse intensity matrix, whose diagonal holds the negative row sums.
     :raises MemoryError: if the state space exceeds ``max_states``.
     """
     from scipy.sparse import coo_matrix
