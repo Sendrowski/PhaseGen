@@ -48,15 +48,17 @@ class RewardDistribution(CallableDistributionFunctions):
     .. math::
 
         F(x) = p_0 + (1 - p_0) \Big[\frac{x}{\beta}
-        + \sum_{j=1}^{K-1} \frac{\beta A_j}{j \pi} \sin\frac{j \pi x}{\beta}\Big],
+        + \sum_{j=1}^{K-1} \frac{\beta A_j}{j \pi} \sin\frac{j \pi x}{\beta}\Big].
 
-    where the coefficients are samples of the characteristic function of the continuous part,
+    The coefficients evaluate the transform on the imaginary axis, :math:`s = -\mathrm{i}\omega`, where
+    :math:`\varphi(-\mathrm{i}\omega) = \mathbb{E}[e^{\mathrm{i}\omega R}]` is the characteristic function at the
+    frequency :math:`\omega`, here at the frequencies :math:`\omega = j \pi / \beta`,
 
     .. math::
 
         A_j = \frac{2}{\beta}\, \mathrm{Re}\, \frac{\varphi(-\mathrm{i} j \pi / \beta) - p_0}{1 - p_0}.
 
-    One set of transform evaluations gives the whole curve. The expansion reaches 1 at :math:`\beta`, so the mass
+    These :math:`K` transform evaluations give the whole curve. The expansion reaches 1 at :math:`\beta`, so the mass
     beyond the window is lost.
 
     .. rubric:: Tail
@@ -70,8 +72,9 @@ class RewardDistribution(CallableDistributionFunctions):
         F(x) \approx \frac{e^{\gamma x}}{2x}\, \mathrm{Re} \sum_{l=0}^{2D} w_l\,
         \frac{\varphi(z_l)}{z_l}\, e^{\mathrm{i} l \pi / 2},
 
-    with nodes :math:`z_l = \gamma + \mathrm{i} l \pi / (2x)` on a contour of abscissa :math:`\gamma > 0`, weights
-    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and :math:`D` given by
+    where the transform is evaluated at the nodes :math:`s = z_l = \gamma + \mathrm{i} l \pi / (2x)`. They lie on a
+    vertical line in the complex plane, and their real part :math:`\gamma > 0` damps the function being inverted by
+    :math:`e^{-\gamma x}`, which keeps the series convergent. The weights are :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and :math:`D` is given by
     :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in
     :math:`e^{\mathrm{i} \pi / 2}`, the sum converges slowly, so it is replaced by its Padé approximant: a continued
     fraction that matches its first :math:`2D + 1` terms, with coefficients from the quotient-difference algorithm.
