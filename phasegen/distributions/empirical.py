@@ -360,54 +360,24 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     of genealogies simulated by :class:`~phasegen.distributions.MsprimeCoalescent` or the accumulated rewards drawn by
     :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, which
     :class:`~phasegen.distributions.SampledCoalescent` collects for every statistic of a coalescent.
-    For a spectrum each realisation is a vector, and every estimator below applies to each entry separately.
-    :math:`Y_{(1)} \le \dots \le Y_{(N)}` denote the order statistics. The moments are described at
+    Every estimator applies to each entry of a spectrum separately, and :math:`Y_{(1)} \le \dots \le Y_{(N)}` are the
+    order statistics. The moments are described at
     :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
 
-    The :attr:`cdf` at :math:`x` interpolates linearly between the points :math:`(Y_{(m)}, m / N)`,
-    :math:`m = 1, \dots, N`,
+    - :attr:`cdf`: linear interpolation between the points :math:`(Y_{(m)}, m / N)`, zero below :math:`Y_{(1)}` and
+      one from :math:`Y_{(N)}` on. At an atom it takes the value after the jump.
+    - :attr:`quantile`: the linearly interpolated sample quantile, :math:`Y_{(\eta)}` at the position
+      :math:`\eta = (N - 1)\, q + 1`.
+    - :attr:`pdf`: for a grid :math:`x_0 < x_1 < \dots` of left cell edges, the fraction of realisations in each cell
+      divided by its width,
 
-    .. math::
+      .. math::
 
-        \hat F(x) = \begin{cases}
-            0, & x < Y_{(1)}, \\
-            \dfrac{m}{N} + \dfrac{x - Y_{(m)}}{N\, (Y_{(m+1)} - Y_{(m)})}, & Y_{(m)} \le x < Y_{(m+1)}, \\
-            1, & x \ge Y_{(N)}.
-        \end{cases}
+          \hat f_g = \frac{\#\{m : Y_m > 0,\ x_g \le Y_m < x_{g+1}\}}{N\, (x_{g+1} - x_g)}.
 
-    Where several order statistics coincide, as at the atom of an SFS bin at zero, :math:`\hat F` takes the value
-    after the jump, so :math:`\hat F(0)` is the fraction of realisations equal to zero.
-
-    The :attr:`quantile` at the probability level :math:`q \in [0, 1]` is the linearly interpolated sample quantile
-
-    .. math::
-
-        \hat Q(q) = Y_{(\lfloor \eta \rfloor)} + (\eta - \lfloor \eta \rfloor)
-            \bigl(Y_{(\lfloor \eta \rfloor + 1)} - Y_{(\lfloor \eta \rfloor)}\bigr), \qquad \eta = (N - 1)\, q + 1.
-
-    The :attr:`pdf` is evaluated on a grid :math:`x_0 < x_1 < \dots < x_{G-1}` of :math:`G \ge 2` points, the left
-    edges of the cells :math:`[x_g, x_{g+1})`, where the last cell ends at :math:`x_G = 2 x_{G-1} - x_{G-2}`. Its value
-    on cell :math:`g` is the cell average
-
-    .. math::
-
-        \hat f_g = \frac{\#\{m : Y_m > 0,\ x_g \le Y_m < x_{g+1}\}}{N\, (x_{g+1} - x_g)},
-
-    an unbiased estimate of :math:`(x_{g+1} - x_g)^{-1} \int_{x_g}^{x_{g+1}} f(x)\, \mathrm{d}x`, with :math:`f` the
-    density of the realisations away from zero. Realisations equal to zero are excluded but counted in :math:`N`, so
-    the cells estimate a density of total mass :math:`1 - p_0`, with :math:`p_0` the probability of a zero
-    realisation.
-
-    The covariance and correlation matrices :attr:`cov` and :attr:`corr` of a spectrum have the entries
-
-    .. math::
-
-        \hat C_{jl} = \frac{1}{N} \sum_{m=1}^{N} (Y_{mj} - \hat\mu_j)(Y_{ml} - \hat\mu_l), \qquad
-        \hat\rho_{jl} = \frac{\hat C_{jl}}{\sqrt{\hat C_{jj}\, \hat C_{ll}}},
-
-    where :math:`Y_{mj}` is entry :math:`j` of realisation :math:`m` and :math:`\hat\mu_j` the sample mean of entry
-    :math:`j`. The normalisation :math:`1 / N` matches :attr:`var`, the diagonal of :attr:`cov`. Entries undefined
-    for an entry without variance, such as a monomorphic bin, are set to zero.
+      Zero realisations are excluded but counted in :math:`N`, so the cells carry the mass :math:`1 - p_0`.
+    - :attr:`cov` and :attr:`corr`: the sample covariance with normalisation :math:`1 / N`, so that :attr:`var` is
+      its diagonal, and the correlation derived from it. Entries without variance are set to zero.
     """
     # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
     # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
@@ -549,18 +519,16 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def moment(self, k: int, center: bool = True) -> float | np.ndarray:
         r"""
-        The :math:`k`-th moment estimated from the realisations :math:`Y_1, \dots, Y_N`, with the notation of
-        :class:`~phasegen.distributions.EmpiricalDistribution`. For :math:`k \ge 2` and ``center=True`` this is the
-        central moment
+        The :math:`k`-th sample moment of the realisations :math:`Y_1, \dots, Y_N` of
+        :class:`~phasegen.distributions.EmpiricalDistribution`,
 
         .. math::
 
-            \frac{1}{N} \sum_{m=1}^{N} (Y_m - \hat\mu)^k, \qquad \hat\mu = \frac{1}{N} \sum_{m=1}^{N} Y_m,
+            \frac{1}{N} \sum_{m=1}^{N} (Y_m - \hat\mu)^k,
 
-        and otherwise the raw moment :math:`N^{-1} \sum_{m=1}^{N} Y_m^k`, which is the sample mean :math:`\hat\mu`
-        for :math:`k = 1`. All estimators use the normalisation :math:`1 / N`. :attr:`mean` is :math:`\hat\mu`,
-        :attr:`var` the central moment of order two, and :attr:`m2`, :attr:`m3` and :attr:`m4` the raw moments of
-        orders two to four. Each entry of a spectrum is estimated separately.
+        with :math:`\hat\mu` the sample mean for a central moment (``center=True`` and :math:`k \ge 2`) and
+        :math:`\hat\mu = 0` for a raw moment. :attr:`var` is the central moment of order two, and :attr:`m2`,
+        :attr:`m3` and :attr:`m4` are raw moments.
 
         :param k: Order :math:`k \ge 1` of the moment.
         :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
@@ -882,28 +850,19 @@ class EmpiricalJointDistribution:  # pragma: no cover
         to ``value``, the sampled counterpart of
         :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`.
 
-        Let :math:`c_m` be the conditioning reward and :math:`y_m` the other reward of replicate
-        :math:`m = 1, \dots, N`, let :math:`v` be ``value`` and :math:`h \ge 0` the half-width ``window``. The
-        estimate keeps the replicates with :math:`|c_m - v| \le h`. By default :math:`h` is the smallest half-width
-        that keeps at least :math:`\nu + 1` replicates, where :math:`\nu` is proportional to :math:`N` with a fixed
-        lower bound and at most :math:`N - 1`.
-
-        The variance, cdf, pdf and quantile of the result are the estimators of
-        :class:`~phasegen.distributions.EmpiricalDistribution` over the kept replicates. Its mean is the local-linear
-        estimate, the intercept at :math:`v` of a weighted least-squares line through the kept pairs
-        :math:`(c_m, y_m)`,
+        With :math:`c_m` the conditioning reward and :math:`y_m` the other reward of replicate :math:`m`, the estimate
+        keeps the replicates with :math:`|c_m - v| \le h`, where :math:`v` is ``value`` and :math:`h` the half-width
+        ``window``. By default :math:`h` is the smallest half-width keeping a number of replicates that grows with
+        the sample size. The cdf, pdf, quantile and variance are those of
+        :class:`~phasegen.distributions.EmpiricalDistribution` over the kept replicates. The mean is the intercept
+        :math:`\beta_0` of the local-linear fit minimizing
 
         .. math::
 
-            \hat\mu(v) = \frac{S_2 T_0 - S_1 T_1}{S_0 S_2 - S_1^2}, \qquad
-            S_p = \sum_m w_m \delta_m^p, \qquad T_p = \sum_m w_m \delta_m^p\, y_m, \qquad
-            w_m = \bigl(1 - \min(|\delta_m| / h, 1)^3\bigr)^3,
+            \sum_{|c_m - v| \le h} w_m \bigl(y_m - \beta_0 - \beta_1 (c_m - v)\bigr)^2,
 
-        with the offsets :math:`\delta_m = c_m - v` and the sums over the kept replicates. Unlike the plain window
-        mean, it has no bias proportional to :math:`h` where the conditional mean has a slope in :math:`v`. The plain
-        window mean is returned for :math:`h = 0`, for fewer than three kept replicates, or for a vanishing
-        denominator. Every estimate is an average over the window, not the conditional distribution at :math:`v`, so a
-        wider window smooths the conditional where it varies with :math:`v`, and a narrower one keeps fewer replicates.
+        with tricube weights :math:`w_m = (1 - |c_m - v|^3 / h^3)^3`, which removes the bias of the plain window mean
+        where the conditional mean changes with :math:`v`. Every estimate remains an average over the window.
 
         :param on: Which reward to condition on, ``'a'`` for :math:`R_a` or ``'b'`` for :math:`R_b`.
         :param value: The conditioning value :math:`v`.
@@ -2123,18 +2082,13 @@ class MsprimeCoalescent(AbstractCoalescent):
 
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
-    Coalescent whose statistics are estimated by simulation. Each statistic (:attr:`tree_height`,
-    :attr:`total_branch_length`, :attr:`sfs`, :attr:`fsfs`, :attr:`jsfs` and :attr:`sfs2`) is the empirical
-    counterpart that the matching exact distribution of the wrapped :class:`~phasegen.distributions.Coalescent`
-    builds from :attr:`n_samples` trajectories, as described at
-    :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` and
-    :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`. A statistic is
-    simulated on its first access and cached.
+    Coalescent whose statistics are estimated from :attr:`n_samples` simulated trajectories each, built by
+    :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` on the
+    wrapped :class:`~phasegen.distributions.Coalescent` at first access and cached.
 
-    Each statistic is simulated separately, with the seed :attr:`seed` plus a fixed offset per statistic, so its
-    draws do not depend on the order in which the statistics are accessed. The entries of one statistic share their
-    trajectories, which makes, for example, the covariances and joint distributions of SFS bins meaningful. Two
-    different statistics are drawn from independent trajectories, so their samples cannot be paired.
+    Each statistic is simulated separately from :attr:`seed` plus a fixed offset, so its draws do not depend on the
+    order of access. The entries of one statistic, such as the bins of a spectrum, share their trajectories and can
+    be paired. Different statistics come from independent trajectories and cannot.
 
     .. versionadded:: 2.0
     """

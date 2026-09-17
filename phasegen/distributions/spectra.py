@@ -789,100 +789,74 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         Probability of a mutational configuration of a single locus under the infinite-sites model, with the notation
         of :class:`~phasegen.distributions.PhaseTypeDistribution`.
 
-        A configuration :math:`\mathbf{m} = (m_1, \dots, m_J) \in \mathbb{N}_0^J` counts the segregating sites in each
-        of the :math:`J` frequency classes. For the unfolded spectrum :math:`J = n - 1`, and class :math:`j` holds the
-        mutations carried by :math:`j` of the :math:`n` sampled lineages. For the folded spectrum
-        :math:`J = \lfloor n/2 \rfloor`, and class :math:`j` holds those carried by :math:`j` or :math:`n - j`
-        lineages. On the block-counting state space, :math:`r_j(x) \in \mathbb{N}_0` is the number of blocks of state
-        :math:`x` in class :math:`j`. The column vectors :math:`\mathbf{r}_j` and
-        :math:`\bar{\mathbf{r}} = \sum_j \mathbf{r}_j` collect these rewards over the transient states, where
-        :math:`\bar{\mathbf{r}}` is positive. The total branch length of class :math:`j` is
-        :math:`\ell_j = \int_0^\tau r_j(X_u)\, \mathrm{d}u`. Let :math:`\theta \ge 0` be the mutation rate per unit of
-        branch length, in the time units of the demography. Given the genealogy, the class counts :math:`Y_j` are
-        independent Poisson variables with means :math:`\theta \ell_j`, so that the configuration
-        :math:`\mathbf{Y} = (Y_1, \dots, Y_J)` has the distribution
+        A configuration :math:`\mathbf{m} = (m_1, \dots, m_J)` counts the mutations in each of the :math:`J`
+        frequency classes, with :math:`J = n - 1` for the unfolded and :math:`J = \lfloor n/2 \rfloor` for the folded
+        spectrum. The reward vector :math:`\mathbf{r}_j` counts the blocks of each state that subtend class :math:`j`,
+        so its accumulated reward :math:`\ell_j` is the total branch length of the class. Given the genealogy, the
+        class counts :math:`Y_j` are independent Poisson variables with means :math:`\theta \ell_j`, where
+        :math:`\theta \ge 0` is the mutation rate per unit of branch length. Hence
 
         .. math::
+
             \mathbb{P}(\mathbf{Y} = \mathbf{m})
             = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right].
 
-        For a single epoch (:math:`M = 1`), mutations occur in state :math:`x` at rate :math:`\theta \bar{r}(x)` and
-        leave the state unchanged. With :math:`\mathbf{I}` the :math:`n_T \times n_T` identity matrix, define
+        .. rubric:: Single epoch
+
+        Mutations occur in state :math:`x` at rate :math:`\theta \bar{r}(x)`, where
+        :math:`\bar{\mathbf{r}} = \sum_j \mathbf{r}_j`. Starting in state :math:`x`, the entry
+        :math:`(\mathbf{G}_j)_{xy}` of :math:`\mathbf{G}_j = \theta\, (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}
+        \operatorname{diag}(\mathbf{r}_j)` is the probability that the next mutation falls into class :math:`j` while
+        the process is in state :math:`y`. The entry :math:`g_x` of
+        :math:`\mathbf{g} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1} \mathbf{q}_1` is the
+        probability of absorption before the next mutation. The probability generating function of Hobolth et al.
+        (2025) is then
 
         .. math::
-            \mathbf{G} = \left( \mathbf{I} - \theta^{-1} \operatorname{diag}(\bar{\mathbf{r}})^{-1}
-            \mathbf{T}_1 \right)^{-1},
-            \qquad
-            \mathbf{G}_j = \mathbf{G} \operatorname{diag}(\mathbf{r}_j) \operatorname{diag}(\bar{\mathbf{r}})^{-1},
-            \qquad
-            \mathbf{g} = (\mathbf{I} - \mathbf{G})\, \mathbf{e}_T.
 
-        For the process in state :math:`x`, the entry :math:`G_{xy}` is the probability that the next mutation occurs
-        in state :math:`y`, the entry :math:`(\mathbf{G}_j)_{xy}` the probability that it also falls into class
-        :math:`j`, and :math:`g_x` the probability that absorption precedes any further mutation. Let
-        :math:`|\mathbf{m}| = \sum_j m_j` and let :math:`\mathcal{O}(\mathbf{m})` be the set of sequences
-        :math:`(\sigma_1, \dots, \sigma_{|\mathbf{m}|}) \in \{1, \dots, J\}^{|\mathbf{m}|}` in which each class
-        :math:`j` occurs :math:`m_j` times. Then
+            \mathbb{E}\Big[ \prod_{j=1}^{J} z_j^{Y_j} \Big]
+            = \boldsymbol{\alpha}_T \Big( \mathbf{I} - \sum_{j=1}^{J} z_j \mathbf{G}_j \Big)^{-1} \mathbf{g},
 
-        .. math::
-            \mathbb{P}(\mathbf{Y} = \mathbf{m})
-            = \boldsymbol{\alpha}_T \sum_{\sigma \in \mathcal{O}(\mathbf{m})}
-              \mathbf{G}_{\sigma_1} \cdots \mathbf{G}_{\sigma_{|\mathbf{m}|}}\, \mathbf{g},
+        with :math:`z_j \in [0, 1]` and :math:`\mathbf{I}` the identity matrix. The coefficient of
+        :math:`z_1^{m_1} \cdots z_J^{m_J}` is the sum of :math:`\boldsymbol{\alpha}_T \mathbf{G}_{\sigma_1} \cdots
+        \mathbf{G}_{\sigma_{|\mathbf{m}|}} \mathbf{g}` over all orderings :math:`\sigma` of the
+        :math:`|\mathbf{m}| = \sum_j m_j` mutations by class.
 
-        the coefficient of :math:`z_1^{m_1} \cdots z_J^{m_J}` in the probability generating function
-        :math:`\boldsymbol{\alpha}_T (\mathbf{I} - \sum_j z_j \mathbf{G}_j)^{-1} \mathbf{g}` of Hobolth et al. (2025),
-        with :math:`z_j \in [0, 1]`. The sum has :math:`|\mathbf{m}|! / \prod_j m_j!` terms. The matrices are formed
-        by a dense inverse and cached per :math:`\theta`.
+        .. rubric:: Several epochs
 
-        For several epochs, the mutation counts are tracked on the lattice
-        :math:`\mathcal{C} = \{\mathbf{c} \in \mathbb{N}_0^J : \mathbf{c} \le \mathbf{m}\}` of
-        :math:`L = \prod_j (m_j + 1)` nodes. Let :math:`\boldsymbol{\delta}_{\mathbf{c}} \in \{0, 1\}^L` be the
-        indicator column vector of node :math:`\mathbf{c}`, :math:`\mathbf{u}_j` the :math:`j`-th unit vector of
-        :math:`\mathbb{N}_0^J`, :math:`\mathbf{I}_L` the :math:`L \times L` identity matrix, and
-        :math:`\mathbf{N}_j \in \{0, 1\}^{L \times L}` the matrix whose entry
-        :math:`(\mathbf{c}, \mathbf{c} + \mathbf{u}_j)` is one whenever :math:`c_j < m_j` and whose other entries are
-        zero. In epoch :math:`i`, the process on lattice nodes and transient states has the sub-intensity matrix
+        The mutation counts are tracked jointly with the state, on the :math:`L = \prod_j (m_j + 1)` count vectors
+        that do not exceed :math:`\mathbf{m}`. In epoch :math:`i`, this process has the sub-intensity matrix
 
         .. math::
-            \mathbf{A}_i = \mathbf{I}_L \otimes \left( \mathbf{T}_i - \theta \operatorname{diag}(\bar{\mathbf{r}})
-            \right) + \theta \sum_{j=1}^{J} \mathbf{N}_j \otimes \operatorname{diag}(\mathbf{r}_j),
 
-        where :math:`\otimes` is the Kronecker product. A class-:math:`j` mutation moves the process from node
-        :math:`\mathbf{c}` to :math:`\mathbf{c} + \mathbf{u}_j`, and a mutation at :math:`c_j = m_j` removes it, which
-        realizes the factor :math:`e^{-\theta \ell_j}`. The row vector
-        :math:`\mathbf{v}_i \in \mathbb{R}^{1 \times L n_T}` of sub-probabilities at time :math:`t_i` starts at
-        :math:`\mathbf{v}_0 = \boldsymbol{\delta}_{\mathbf{0}}^\top \otimes \boldsymbol{\alpha}_T` and evolves as
-        :math:`\mathbf{v}_i = \mathbf{v}_{i-1} \exp(\mathbf{A}_i \Delta_i)` for :math:`i < M`. The probability is the
-        mass absorbed from node :math:`\mathbf{m}`, accumulated over all epochs:
+            \mathbf{A}_i = \mathbf{I}_L \otimes \big( \mathbf{T}_i - \theta \operatorname{diag}(\bar{\mathbf{r}}) \big)
+            + \theta \sum_{j=1}^{J} \mathbf{N}_j \otimes \operatorname{diag}(\mathbf{r}_j),
 
-        .. math::
-            \mathbb{P}(\mathbf{Y} = \mathbf{m})
-            = \sum_{i=1}^{M-1} (\mathbf{v}_i - \mathbf{v}_{i-1})\, \mathbf{A}_i^{-1}
-              (\boldsymbol{\delta}_{\mathbf{m}} \otimes \mathbf{q}_i)
-            + \mathbf{v}_{M-1} (-\mathbf{A}_M)^{-1} (\boldsymbol{\delta}_{\mathbf{m}} \otimes \mathbf{q}_M).
+        where :math:`\otimes` is the Kronecker product, :math:`\mathbf{I}_L` the :math:`L \times L` identity matrix,
+        and :math:`\mathbf{N}_j` raises the count of class :math:`j` by one while it is below :math:`m_j`. A mutation
+        that would exceed :math:`m_j` removes the process. The probability is the mass that starts with zero counts and
+        is absorbed with counts exactly :math:`\mathbf{m}`, accumulated over all epochs.
 
-        Each :math:`\mathbf{A}_i` is block upper triangular with non-singular diagonal blocks for :math:`\theta > 0`,
-        and for :math:`M = 1` the expression reduces to the single-epoch formula. The matrix :math:`\mathbf{A}_i` is
-        assembled sparse and factorized by a block-triangular sparse LU decomposition once :math:`L n_T` reaches
-        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`, and
-        the matrix exponential is applied as an action on :math:`\mathbf{v}_{i-1}` once :math:`L n_T` reaches
-        :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, using the active
-        :class:`~phasegen.expm.Backend`. The cost grows with the number of sequences for one epoch and with
-        :math:`L n_T` for several.
+        .. rubric:: Implementation
 
-        :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>` enumerates the configurations
-        in ascending order of :math:`|\mathbf{m}|`. :meth:`UnfoldedSFSDistribution.get_mutation_configs()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` enumerates them in descending order of
-        probability. It starts at :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])`, with
-        :math:`\mathbb{E}[\ell_j]` taken from :attr:`UnfoldedSFSDistribution.mean
-        <phasegen.distributions.UnfoldedSFSDistribution.mean>`, moves to a more probable neighbour
-        :math:`\mathbf{m} \pm \mathbf{u}_j` until none exists, and expands outward from that configuration with a
-        priority queue. The order is exactly descending whenever every configuration other than the most probable one
-        has a neighbour of at least equal probability. Both iterators set :attr:`UnfoldedSFSDistribution.generated_mass
-        <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>` to zero when the first configuration is
-        requested and add every yielded probability to it. One minus this value is the total probability of the
-        configurations not yet yielded, irrespective of the order.
+        - In a single epoch, the matrices :math:`\mathbf{G}_j` are formed by one dense inverse and cached per
+          :math:`\theta`, and the sum over orderings has :math:`|\mathbf{m}|! / \prod_j m_j!` terms.
+        - Over several epochs, the finite epochs are propagated by matrix exponentials and the last epoch is closed by
+          a linear solve. The solves use a sparse LU factorization once :math:`L n_T` reaches
+          :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`,
+          and the exponentials become sparse actions once it reaches
+          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`.
+        - :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
+          <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>` yields configurations in
+          ascending order of :math:`|\mathbf{m}|`.
+        - :meth:`UnfoldedSFSDistribution.get_mutation_configs()
+          <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` climbs from
+          :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])` to the most probable configuration and expands
+          outward with a priority queue. The order is exactly descending when every other configuration has a
+          neighbour, differing by one mutation, of at least equal probability.
+        - Both iterators reset :attr:`UnfoldedSFSDistribution.generated_mass
+          <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>` when the first configuration is requested
+          and add each yielded probability to it, so one minus its value is the probability not yet yielded.
 
         .. rubric:: References
 

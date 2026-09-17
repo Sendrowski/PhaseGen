@@ -349,45 +349,45 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         r"""
-        Draw independent samples :math:`R^{(1)}, \dots, R^{(N)}` of the accumulated reward :math:`R` by simulating
-        trajectories of the Markov jump process, with the notation of
-        :class:`~phasegen.distributions.PhaseTypeDistribution`.
+        Draw independent samples of the accumulated reward :math:`R` by simulating trajectories of the Markov jump
+        process, with the notation of :class:`~phasegen.distributions.PhaseTypeDistribution`.
 
-        A trajectory starts in a state drawn from :math:`\boldsymbol{\alpha}`. In state :math:`x` during epoch
-        :math:`i` the exit rate is :math:`\lambda_i(x) = -(\mathbf{S}_i)_{xx} \ge 0`, and a jump leads to the state
-        :math:`y \ne x` with probability :math:`(\mathbf{S}_i)_{xy} / \lambda_i(x)`. A trajectory entering :math:`x` at
-        time :math:`u_0` draws a hazard budget :math:`H \sim \mathrm{Exp}(1)` and leaves :math:`x` at the time
-        :math:`u_0 + D` that exhausts it,
+        .. rubric:: Single epoch
+
+        A trajectory starts in a state drawn from :math:`\boldsymbol{\alpha}`. In state :math:`x` it stays for an
+        exponential holding time with rate :math:`\lambda(x) = -(\mathbf{S}_1)_{xx}` and then jumps to :math:`y \ne x`
+        with probability :math:`(\mathbf{S}_1)_{xy} / \lambda(x)`. The sample collects the reward of every visited
+        state,
+
+        .. math::
+
+            R = \sum_{j} r(x_j)\, D_j,
+
+        where :math:`x_1, x_2, \dots` are the states visited before absorption and :math:`D_j` their holding times.
+
+        .. rubric:: Several epochs
+
+        On entering a state at time :math:`u_0`, a trajectory draws a hazard budget :math:`H \sim \mathrm{Exp}(1)`
+        and leaves when the rates of the epochs it passes through have used it up,
 
         .. math::
 
             \int_{u_0}^{u_0 + D} \lambda_{i(u)}(x)\, \mathrm{d}u = H,
 
-        where :math:`i(u)` is the epoch containing :math:`u`. The holding time :math:`D` then has the survival function
-        :math:`\exp\bigl(-\int_{u_0}^{u_0 + d} \lambda_{i(u)}(x)\, \mathrm{d}u\bigr)` of the time-inhomogeneous
-        process. As the rates are piecewise constant, the budget is spent one epoch at a time. While
-        :math:`H > \lambda_i(x)\,(t_i - u_0)`, the trajectory moves to the boundary :math:`t_i`, keeps the remaining
-        budget :math:`H - \lambda_i(x)\,(t_i - u_0)` and continues in epoch :math:`i + 1`. Otherwise it jumps after
-        :math:`H / \lambda_i(x)` to a state drawn from the jump probabilities of epoch :math:`i` and draws a new
-        budget. A state with zero exit rate is thereby carried across an epoch without a jump. Every interval
-        :math:`[u_0, u_1)` spent in state :math:`x` adds
+        with :math:`i(u)` the epoch containing :math:`u`. The unused budget is carried across epoch boundaries, and a
+        jump follows the probabilities of the epoch in which it occurs. Only time within
+        :math:`[t_\mathrm{start}, t_\mathrm{end}]` contributes to :math:`R`. A transient state with zero exit rate in
+        the last epoch is never left, which gives an infinite sample for :math:`t_\mathrm{end} = \infty`.
 
-        .. math::
+        .. rubric:: Implementation
 
-            r(x)\, \max\bigl(0,\ \min(u_1, t_\mathrm{end}) - \max(u_0, t_\mathrm{start})\bigr)
-
-        to the sample, which restricts the accumulation to the window :math:`[t_\mathrm{start}, t_\mathrm{end}]`. A
-        trajectory ends on absorption or once its time passes :math:`t_\mathrm{end}`. A transient state with zero exit
-        rate in the last epoch is never left: its reward accrues up to :math:`t_\mathrm{end}`, and the sample is
-        infinite for :math:`t_\mathrm{end} = \infty` and :math:`r(x) > 0`.
-
-        All trajectories advance together, one jump per step. The jump probabilities of all epochs are stored as
-        sparse rows of cumulative probabilities, so a single sorted search draws the next state of every trajectory,
-        at a cost logarithmic in the number of nonzero rates. The state space and the intensity matrix of every epoch
-        are built as for the exact computation. Trajectories are simulated in batches of at most
-        :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`. With more than one batch,
-        each batch draws from its own generator spawned from ``seed``, so a fixed seed yields different draws for
-        different batch sizes, all from the same distribution.
+        - All trajectories advance together, one jump per step.
+        - The jump probabilities of all epochs are stored as sparse rows of cumulative probabilities, so one sorted
+          search draws the next state of every trajectory.
+        - The state space and the intensity matrix of every epoch are built as for the exact computation.
+        - Trajectories are simulated in batches of at most
+          :attr:`Settings.sample_batch_size <phasegen.settings.Settings.sample_batch_size>`. Several batches draw
+          from generators spawned from ``seed``, so a fixed seed yields different draws for different batch sizes.
 
         :param n_samples: Number of samples :math:`N`.
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
@@ -404,25 +404,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeDistribution':
         r"""
-        Build an empirical counterpart of this distribution from :math:`N` trajectories simulated as in
+        Build an empirical counterpart of this distribution from trajectories simulated as in
         :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, with the
-        notation of :class:`~phasegen.distributions.PhaseTypeDistribution`.
+        estimators of :class:`~phasegen.distributions.EmpiricalDistribution`.
 
-        Every trajectory :math:`m = 1, \dots, N` accumulates, for each of the :math:`n_L` loci :math:`\ell` and each of
-        the :math:`n_D` demes :math:`d`, the reward :math:`R_{\ell d}^{(m)}` of the marginal distribution in
-        :attr:`loci` and :attr:`demes`, which restricts this distribution's reward to that locus and deme. The returned
-        distribution holds the totals
+        Each trajectory accumulates the reward :math:`R_{\ell d}` of every locus :math:`\ell` and deme :math:`d`, as
+        restricted by the marginals :attr:`loci` and :attr:`demes`. The per-locus and per-deme marginals sum these
+        over demes and over loci. The total sums over demes and over loci, except for the tree height, which takes
+        the maximum over loci. All breakdowns share the trajectories, so their covariances are estimated jointly.
 
-        .. math::
-
-            R^{(m)} = \sum_{d=1}^{n_D} A\bigl(R_{1 d}^{(m)}, \dots, R_{n_L d}^{(m)}\bigr),
-
-        where the locus aggregate :math:`A` is the sum, or the maximum for the tree height. Its per-deme and per-locus
-        marginals hold :math:`\sum_\ell R_{\ell d}^{(m)}` and :math:`\sum_d R_{\ell d}^{(m)}`. All breakdowns come from
-        the same trajectories, so their covariances are estimated jointly. The statistics are the estimators of
-        :class:`~phasegen.distributions.EmpiricalDistribution`.
-
-        :param n_samples: Number of trajectories :math:`N`.
+        :param n_samples: Number of trajectories.
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical distribution.
@@ -882,50 +873,47 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     r"""
     Distribution of the tree height, the absorption time :math:`\tau`, with the notation of
-    :class:`~phasegen.distributions.PhaseTypeDistribution`. Its moments are those of any phase-type distribution. Its
-    ``cdf``, ``pdf`` and ``quantile`` are evaluated by matrix exponentiation of the intensity matrices.
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. Its ``cdf``, ``pdf`` and ``quantile`` are evaluated by
+    matrix exponentiation.
 
-    For :math:`x \ge 0` in epoch :math:`\ell`, that is :math:`t_{\ell - 1} \le x < t_\ell`, the distribution of
-    :math:`X_x` over :math:`E` is the row vector
+    .. rubric:: Single epoch
 
-    .. math::
-
-        \mathbf{p}(x) = \boldsymbol{\alpha} \Big[\prod_{i=1}^{\ell - 1} \exp(\mathbf{S}_i \Delta_i)\Big]
-        \exp\big(\mathbf{S}_\ell (x - t_{\ell - 1})\big),
-
-    and with :math:`\mathbf{1}_{E \setminus B}` the column vector that is one on the transient states and zero on
-    :math:`B`, the CDF and the density of :math:`\tau` are
+    For a time-homogeneous process, :math:`\tau` is phase-type distributed with CDF and density
 
     .. math::
 
-        F(x) = \mathbb{P}(\tau \le x) = 1 - \mathbf{p}(x)\,\mathbf{1}_{E \setminus B}, \qquad
-        f(x) = \mathbf{p}(x)\,\big(-\mathbf{S}_\ell\,\mathbf{1}_{E \setminus B}\big).
+        F(x) = 1 - \boldsymbol{\alpha}_T\, e^{\mathbf{T} x}\, \mathbf{e}_T,
+        \qquad
+        f(x) = \boldsymbol{\alpha}_T\, e^{\mathbf{T} x}\, \mathbf{q},
 
-    The vector :math:`-\mathbf{S}_\ell\,\mathbf{1}_{E \setminus B}` holds the rate of absorption from each state, so
-    the density is read off the same vector as the CDF and involves no differencing (Bladt and Nielsen, 2017). An
-    array of points is evaluated in ascending order, each point advancing :math:`\mathbf{p}` from the previous one.
-    For state spaces with fewer states than
-    :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, the exponential is formed
-    densely by the active :class:`~phasegen.expm.Backend`. For larger ones, its action on :math:`\mathbf{p}` is
-    computed from the sparse intensity matrix (Al-Mohy and Higham, 2011).
+    where :math:`\boldsymbol{\alpha}_T e^{\mathbf{T} x}` holds the probabilities of the transient states at time
+    :math:`x` and :math:`\mathbf{q}` their absorption rates (Bladt and Nielsen, 2017). The density is read off the
+    same vector as the CDF, without differencing.
 
-    The quantile :math:`F^{-1}(q)` of a level :math:`q \in [0, 1]` is read from the cumulative-hazard grid described
-    at :class:`~phasegen.distributions.QuantileFunction`, whose nodes carry exact values of :math:`F` on
-    :math:`[0, x_\mathrm{max}]`, with :math:`x_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
-    <phasegen.distributions.TreeHeightDistribution.t_max>`. That time doubles a starting value proportional to the
-    mean population size at time 0 until :math:`F` reaches
-    :attr:`TreeHeightDistribution.p_absorption <phasegen.distributions.TreeHeightDistribution.p_absorption>`, for at
-    most :attr:`TreeHeightDistribution.max_iter <phasegen.distributions.TreeHeightDistribution.max_iter>` doublings.
-    The nodes are placed in two passes. The first evaluates :math:`F` uniformly within
-    :math:`[0, x_\mathrm{max} 2^{-J}]` and within each octave :math:`[x_\mathrm{max} 2^{-j-1}, x_\mathrm{max} 2^{-j}]`
-    for :math:`j = 0, \dots, J - 1`, which locates the rise of the CDF wherever it lies. The second divides
-    :math:`[0, x_\mathrm{max}]` into segments at equal steps of the cumulative hazard :math:`-\log(1 - F)` of the first
-    pass and at the epoch boundaries :math:`t_i`, where :math:`F` has a kink, and places :math:`K` nodes, an equal
-    number uniformly within each segment. Levels above
-    :math:`F(x_\mathrm{max})` return :math:`x_\mathrm{max}`.
+    .. rubric:: Several epochs
 
-    The distribution functions describe the absorption time from time 0 and raise :class:`NotImplementedError` on a
-    coalescent with a start time above 0 or a finite end time.
+    For :math:`x` in epoch :math:`\ell`, the exponential is replaced by the product of the epoch exponentials up to
+    :math:`x`,
+
+    .. math::
+
+        e^{\mathbf{T}_1 \Delta_1} \cdots e^{\mathbf{T}_{\ell - 1} \Delta_{\ell - 1}}\,
+        e^{\mathbf{T}_\ell (x - t_{\ell - 1})},
+
+    and the density uses the absorption rates :math:`\mathbf{q}_\ell` of that epoch.
+
+    .. rubric:: Implementation
+
+    - The state probabilities are propagated from point to point in ascending order. The exponential is formed
+      densely by the active :class:`~phasegen.expm.Backend` below :attr:`Settings.expm_action_min_dim
+      <phasegen.settings.Settings.expm_action_min_dim>` states, and is otherwise applied as a sparse action (Al-Mohy
+      and Higham, 2011).
+    - The quantile is read from the cumulative-hazard grid of :class:`~phasegen.distributions.QuantileFunction` on
+      :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
+      <phasegen.distributions.TreeHeightDistribution.t_max>`. A first pass over octaves below :math:`t_\mathrm{max}`
+      locates the rise of the CDF, and the grid nodes are then spread over segments of equal cumulative hazard, with
+      the epoch boundaries as nodes.
+    - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 
     .. rubric:: References
 

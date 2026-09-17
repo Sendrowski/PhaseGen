@@ -178,28 +178,26 @@ class QuantileFunction(DistributionFunction):
     probability level :math:`q \in [0, 1]`.
 
     Calling ``quantile(q)`` returns the quantile at ``q``, for a scalar or an array. An
-    :class:`~phasegen.distributions.EmpiricalDistribution` uses the sample quantile. The analytic distributions
-    read their quantile from a grid of nodes :math:`0 = x_0 < x_1 < \dots < x_G` that carries the cumulative hazard
-    :math:`H_g = -\log(1 - F(x_g))`, made non-decreasing, for :math:`g = 0, \dots, G`. With :math:`\hat H` the
-    piecewise-linear interpolant of the pairs :math:`(x_g, H_g)`, extended by 0 below :math:`x_0`,
+    :class:`~phasegen.distributions.EmpiricalDistribution` uses the sample quantile.
+
+    .. rubric:: Cumulative-hazard grid
+
+    The analytic distributions carry the cumulative hazard :math:`H(x) = -\log(1 - F(x))` on a grid of nodes and
+    interpolate it linearly, which is exact for an exponential tail. With :math:`\hat H` the interpolant,
 
     .. math::
 
-        F^{-1}(q) = \hat H^{-1}\big(-\log(1 - q)\big),
+        F^{-1}(q) = \hat H^{-1}\big(-\log(1 - q)\big).
 
-    clamped to :math:`[x_0, x_G]`. Interpolating in :math:`H` is exact for an exponential tail, on which :math:`H` is
-    linear. The nodes of the tree height carry exact values of its CDF and are placed as described at
-    :class:`~phasegen.distributions.TreeHeightDistribution`, whose CDF and density are evaluated pointwise. The
-    nodes of any other accumulated reward are described at :class:`~phasegen.distributions.RewardDistribution`, and
-    its CDF and density are read from the same grid,
+    The tree height evaluates its CDF and density pointwise (see
+    :class:`~phasegen.distributions.TreeHeightDistribution`). Any other accumulated reward reads them from the same
+    grid (see :class:`~phasegen.distributions.RewardDistribution`), as :math:`F = 1 - e^{-\hat H}` and
+    :math:`f = e^{-\hat H} \hat H'`, so that its quantile inverts its CDF exactly and its density is non-negative.
 
-    .. math::
+    .. rubric:: Implementation
 
-        F(x) = 1 - e^{-\hat H(x)}, \qquad f(x) = e^{-\hat H(x)}\, \hat h(x),
-
-    where :math:`\hat h` is the piecewise-linear interpolant of finite-difference estimates of
-    :math:`H'(x_g)` at the nodes. The quantile and the CDF are then exact inverses of each other, and the density is
-    non-negative.
+    - The slope :math:`\hat H'` is interpolated from finite differences at the nodes.
+    - Levels beyond the last node return the last node.
     """
     kind = 'quantile'
 
@@ -845,28 +843,26 @@ class _JointFunction(_SurfacePlottable):
 
 class JointDensity(_JointFunction, DensityFunction):
     r"""
-    Joint density :math:`f(x, y) = \partial^2 F(x, y) / \partial x\,\partial y` of a
-    :class:`~phasegen.distributions.JointRewardDistribution` for :math:`x, y > 0`, the density of the continuous part of
-    the law, with :math:`F` the joint CDF of :class:`~phasegen.distributions.JointCDF`. The atom at the origin and the
-    mass on the axes described there have no density, and the density is zero where either argument is negative.
+    Joint density :math:`f(x, y)` of the continuous part of a :class:`~phasegen.distributions.JointRewardDistribution`,
+    for :math:`x, y > 0`. The atom and the mass on the axes described at :class:`~phasegen.distributions.JointCDF` have
+    no density.
 
-    The density is the mixed central difference of the box probability :math:`C` of
-    :class:`~phasegen.distributions.JointCDF` on the uniform grid :math:`x_j = j h_x`, :math:`y_l = l h_y`,
-    :math:`j, l = 0, \ldots, m - 1`, whose :math:`m` nodes per axis span slightly more than the queried range, so that
-    the steps :math:`h_x` and :math:`h_y` are proportional to the largest queried coordinates,
+    The density is the mixed central difference of the continuous part :math:`C` of
+    :class:`~phasegen.distributions.JointCDF` on a coarse uniform grid with steps :math:`h_x` and :math:`h_y`,
 
     .. math::
 
-        \hat{f}_{jl} = \frac{C(x_{j+1}, y_{l+1}) - C(x_{j+1}, y_{l-1}) - C(x_{j-1}, y_{l+1}) + C(x_{j-1}, y_{l-1})}
-        {4\,h_x h_y}, \qquad 1 \le j, l \le m - 2.
+        f(x, y) \approx \frac{1}{4 h_x h_y} \big[\, & C(x + h_x, y + h_y) - C(x + h_x, y - h_y) \\
+        & - C(x - h_x, y + h_y) + C(x - h_x, y - h_y) \,\big],
 
-    Each :math:`\hat{f}_{jl}` is the probability of the cell :math:`[x_{j-1}, x_{j+1}] \times [y_{l-1}, y_{l+1}]`
-    divided by its area, the density averaged over that cell. The coarse cell average smooths the residual oscillation
-    of the cosine expansion near the origin, which a derivative of the series itself would amplify. A bicubic
-    interpolating spline through the values :math:`\hat{f}_{jl}` gives the density at the queried points, and negative
-    values are set to zero, with a warning under :attr:`Settings.check_inversions
-    <phasegen.settings.Settings.check_inversions>`. Because the grid spans the queried range, the value at a point
-    depends slightly on the other points of the same call.
+    the density averaged over one cell, which smooths the residual oscillation of the cosine expansion near the origin.
+
+    .. rubric:: Implementation
+
+    - The grid spans the queried range and a bicubic spline interpolates between its nodes, so a value depends slightly
+      on the other points of the same call.
+    - Negative values are set to zero, with a warning under :attr:`Settings.check_inversions
+      <phasegen.settings.Settings.check_inversions>`.
     """
 
     def __call__(self, x, y) -> 'np.ndarray | float':
@@ -898,71 +894,52 @@ class JointDensity(_JointFunction, DensityFunction):
 class JointCDF(_JointFunction, CumulativeDistributionFunction):
     r"""
     Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x,\ R_b \le y)` of a
-    :class:`~phasegen.distributions.JointRewardDistribution` with thresholds :math:`x, y \in \mathbb{R}`, zero when
-    either threshold is negative, and with :math:`\Phi`, :math:`p_a`, :math:`p_b` and :math:`p_{00}` as defined there.
-    For :math:`x, y \ge 0` the law splits into the atom at the origin, the mass on each axis and a continuous part,
+    :class:`~phasegen.distributions.JointRewardDistribution`, zero when either threshold is negative. With
+    :math:`p_{00} = \mathbb{P}(R_a = R_b = 0)`,
 
     .. math::
 
         F(x, y) = g_b(x) + g_a(y) - p_{00} + C(x, y),
 
-    where :math:`g_b(x) = \mathbb{P}(R_a \le x,\ R_b = 0)` and :math:`g_a(y) = \mathbb{P}(R_a = 0,\ R_b \le y)` are the
-    axis sub-distributions and :math:`C(x, y) = \mathbb{P}(0 < R_a \le x,\ 0 < R_b \le y)` is the box probability.
+    where :math:`g_b(x) = \mathbb{P}(R_a \le x,\ R_b = 0)` and :math:`g_a(y) = \mathbb{P}(R_a = 0,\ R_b \le y)` hold the
+    mass on the axes, and :math:`C(x, y) = \mathbb{P}(0 < R_a \le x,\ 0 < R_b \le y)` is the continuous part.
 
-    The continuous part is a two-dimensional Fourier-cosine expansion (Ruijter and Oosterlee, 2012) on the window
-    :math:`[0, L_a] \times [0, L_b]`, where :math:`L_a = \mu_a + \kappa \sigma_a` for the mean :math:`\mu_a` and
-    standard deviation :math:`\sigma_a` of :math:`R_a`, :math:`L_b` is defined alike, and :math:`\kappa > 0` is a fixed
-    scale. Removing the atom and the axes from :math:`\Phi` by inclusion-exclusion gives, for real frequencies
-    :math:`\omega_a` and :math:`\omega_b`,
+    .. rubric:: Continuous part
 
-    .. math::
-
-        \chi(\omega_a, \omega_b) = \mathbb{E}\big[e^{\mathrm{i}\omega_a R_a + \mathrm{i}\omega_b R_b};\ R_a > 0,\
-        R_b > 0\big] = \Phi(-\mathrm{i}\omega_a, -\mathrm{i}\omega_b) - \Phi(-\mathrm{i}\omega_a, \infty)
-        - \Phi(\infty, -\mathrm{i}\omega_b) + p_{00}.
-
-    With :math:`N` terms per axis and frequencies :math:`u_j = j\pi/L_a` and :math:`v_l = l\pi/L_b` for
-    :math:`j, l = 0, \ldots, N - 1`,
+    :math:`C` is a two-dimensional Fourier-cosine expansion (Ruijter and Oosterlee, 2012) on a window
+    :math:`[0, L_a] \times [0, L_b]` that holds nearly all the mass. Removing the axes from the joint transform
+    :math:`\Phi` gives the characteristic function of the continuous part,
 
     .. math::
 
-        A_{jl} = \frac{2\,\beta_j \beta_l\,\lambda_j \lambda_l}{L_a L_b}\,
-        \operatorname{Re}\big[\chi(u_j, v_l) + \chi(u_j, -v_l)\big],
-        \qquad
-        C(x, y) = \sum_{j=0}^{N-1} \sum_{l=0}^{N-1} A_{jl}\, I_j(\min(x, L_a))\, J_l(\min(y, L_b)),
+        \chi(\omega_a, \omega_b) = \Phi(-\mathrm{i}\omega_a, -\mathrm{i}\omega_b)
+        - \Phi(-\mathrm{i}\omega_a, \infty) - \Phi(\infty, -\mathrm{i}\omega_b) + p_{00}.
 
-    where :math:`\beta_0 = 1/2` and :math:`\beta_j = 1` for :math:`j \ge 1`, the Lanczos factors
-    :math:`\lambda_j = \sin(\pi j/N)/(\pi j/N)` with :math:`\lambda_0 = 1` damp the Gibbs oscillation at the window
-    edges, and :math:`I_j(x) = \sin(u_j x)/u_j` and :math:`J_l(y) = \sin(v_l y)/v_l`, with :math:`I_0(x) = x` and
-    :math:`J_0(y) = y`, integrate the cosine series in closed form. Half the bracket equals
-    :math:`\mathbb{E}[\cos(u_j R_a)\cos(v_l R_b);\ R_a > 0,\ R_b > 0]`. Since :math:`I_j(L_a) = 0` for :math:`j \ge 1`,
-    the Lanczos factors leave the continuous mass :math:`C(L_a, L_b)` unchanged. For a single epoch on a dense state
-    space, the transform values of one frequency share the matrix pencil
-    :math:`(\operatorname{diag}(s_a \mathbf{r}_a) - \mathbf{T}_1,\ \operatorname{diag}(\mathbf{r}_b))`, so one
-    generalized Schur (QZ) decomposition per frequency of one axis gives all frequencies of the other axis by
-    triangular back-substitution.
-
-    Each axis sub-distribution is a one-dimensional Fourier-cosine series of a defective transform with the atom
-    :math:`p_{00}` removed,
+    With :math:`N` frequencies :math:`u_j = j\pi / L_a` and :math:`v_l = l\pi / L_b` per axis,
 
     .. math::
 
-        g_b(x) = p_{00} + (p_b - p_{00}) \operatorname{clip}_{[0, 1]}\Big( c_0 \bar{x} + \sum_{j=1}^{K-1}
-        \frac{c_j}{w_j} \sin(w_j \bar{x}) \Big),
-        \qquad
-        c_j = \frac{2\beta_j}{L'_a} \operatorname{Re} \frac{\Phi(-\mathrm{i} w_j, \infty) - p_{00}}{p_b - p_{00}},
+        C(x, y) = \sum_{j, l = 0}^{N - 1} A_{jl}\, \frac{\sin(u_j x)}{u_j}\, \frac{\sin(v_l y)}{v_l},
 
-    with the window end :math:`L'_a = \mu_a + \kappa' \sigma_a` for a wider fixed scale :math:`\kappa' > \kappa`, the
-    frequencies :math:`w_j = j\pi/L'_a`, :math:`\bar{x} = \min(x, L'_a)`, and the term count :math:`K` of the
-    marginal CDF of :class:`~phasegen.distributions.RewardDistribution`. The function :math:`g_a` is defined
-    symmetrically, and :math:`\infty` stands for the large finite argument of the atoms.
+    .. math::
 
-    When both reward vectors agree on every transient state, :math:`R_a = R_b` almost surely, the law has no density on
-    the plane, and :math:`F(x, y) = F_R(\min(x, y))` with :math:`F_R` the marginal CDF.
+        A_{jl} = \frac{2}{L_a L_b} \operatorname{Re}\big[\chi(u_j, v_l) + \chi(u_j, -v_l)\big],
 
-    Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>` the first evaluation compares
-    :math:`F(x, \infty)` near the origin with the marginal CDF of :math:`R_a` and logs a warning when they differ
-    materially, which indicates that the expansion under-resolves a steep rise near the axes.
+    for :math:`x \le L_a` and :math:`y \le L_b`. A zero frequency contributes :math:`x` or :math:`y` in place of the
+    fraction and halves the coefficient.
+
+    .. rubric:: Implementation
+
+    - The window ends are the marginal means plus a fixed multiple of the standard deviations. Lanczos factors damp the
+      ringing of the series without changing the total mass.
+    - For a single epoch on a dense state space, the transform values of one frequency :math:`u_j` form a shifted
+      linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
+    - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
+      on wider windows, as for the marginal CDF of a :class:`~phasegen.distributions.RewardDistribution`.
+    - When both rewards agree on every transient state, :math:`R_a = R_b` almost surely and
+      :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, y))`.
+    - Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
+      :math:`F(x, \infty)` departs from the marginal CDF near the origin.
 
     .. rubric:: References
 

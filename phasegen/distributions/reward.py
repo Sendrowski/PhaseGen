@@ -36,62 +36,55 @@ class RewardDistribution(CallableDistributionFunctions):
     :meth:`PhaseTypeDistribution.distribution() <phasegen.distributions.PhaseTypeDistribution.distribution>` and the
     ``bin()`` methods of the spectra, and it supplies the ``cdf``, ``pdf`` and ``quantile`` of every phase-type
     distribution except :class:`~phasegen.distributions.TreeHeightDistribution`. The mean and variance are exact
-    moments. The ``cdf``, ``pdf`` and ``quantile`` numerically invert the transform :math:`\varphi` of
-    :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>` as follows.
+    moments, and the ``cdf``, ``pdf`` and ``quantile`` numerically invert the transform :math:`\varphi` of
+    :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>`.
 
-    The atom :math:`p_0 = \mathbb{P}(R = 0) = \lim_{s \to \infty} \varphi(s)` is positive when the reward can be
-    zero at absorption, as for an SFS bin that may be empty. It is evaluated as :math:`\varphi(s_\infty)` at a real
-    :math:`s_\infty` that is a large fixed multiple of :math:`1/\zeta`, with :math:`\zeta` the time unit of
-    :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>`. A negligible atom is not split
-    off.
+    .. rubric:: Fourier-cosine expansion
 
-    Below the CDF level :math:`c \in [0, 1]` set by :attr:`Settings.dehoog_tail_quantile
-    <phasegen.settings.Settings.dehoog_tail_quantile>`, the CDF is the Fourier-cosine expansion of the continuous part
-    on a window :math:`[0, \beta]` (Fang and Oosterlee, 2008),
+    The reward is zero with probability :math:`p_0 = \lim_{s \to \infty} \varphi(s)`, for example when an SFS bin is
+    empty. The CDF of the remaining continuous part is expanded in :math:`K` cosine terms on a window
+    :math:`[0, \beta]` (Fang and Oosterlee, 2008),
 
     .. math::
 
-        F(x) = p_0 + (1 - p_0) \Big[\frac{x}{\beta} + \sum_{j=1}^{K-1} \frac{\beta A_j}{j \pi}
-        \sin\Big(\frac{j \pi x}{\beta}\Big)\Big], \qquad
-        A_j = \frac{2}{\beta}\,\mathrm{Re}\,\frac{\varphi(-\mathrm{i} j \pi / \beta) - p_0}{1 - p_0},
+        F(x) = p_0 + (1 - p_0) \Big[\frac{x}{\beta}
+        + \sum_{j=1}^{K-1} \frac{\beta A_j}{j \pi} \sin\frac{j \pi x}{\beta}\Big],
 
-    for :math:`0 \le x \le \beta`, where :math:`K` is the number of cosine terms and :math:`A_j` is the :math:`j`-th
-    cosine coefficient of the continuous density, a sample of its characteristic function at frequency :math:`j \pi /
-    \beta`. The result is clipped to :math:`[0, 1]` and made non-decreasing. The expansion satisfies :math:`F(\beta) =
-    1`, so the mass beyond :math:`\beta` is lost, and the window is chosen in two passes. A first expansion on
-    :math:`[0, \hat\mu + \kappa \hat\sigma]` locates the support, with :math:`\hat\mu` and :math:`\hat\sigma^2` the mean
-    and variance from central differences of :math:`\varphi` at 0 and :math:`\kappa > 0` a scale factor. The second
-    expansion uses the window whose end :math:`\beta` is the :math:`1 - \delta` quantile of the first, with
-    :math:`\delta > 0` the tail mass it may discard, and it is evaluated on :math:`N` equispaced nodes in :math:`[0,
-    \beta]`.
-
-    Above :math:`c` the nodes carry exact values of :math:`F`, the inverse transform of :math:`\varphi(s)/s`, from the
-    method of de Hoog et al. (1982),
+    where the coefficients are samples of the characteristic function of the continuous part,
 
     .. math::
 
-        F(x) \approx \frac{e^{\gamma x}}{L}\,\mathrm{Re}\Big[\frac{1}{2} \frac{\varphi(z_0)}{z_0}
-        + \sum_{\ell=1}^{2D} \frac{\varphi(z_\ell)}{z_\ell}\, e^{\mathrm{i} \ell \pi x / L}\Big],
-        \qquad z_\ell = \gamma + \frac{\mathrm{i} \ell \pi}{L},
+        A_j = \frac{2}{\beta}\, \mathrm{Re}\, \frac{\varphi(-\mathrm{i} j \pi / \beta) - p_0}{1 - p_0}.
 
-    where the series is summed by a quotient-difference continued fraction, :math:`D` is
-    :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`, :math:`L = 2x` is the period
-    parameter and :math:`\gamma > 0` the abscissa of the integration contour. The inversion runs in the time unit
-    :math:`\zeta` and is evaluated in extended precision by ``mpmath``. Starting at the point where the expansion
-    reaches :math:`c`, each exact node lies a step :math:`\min\{\eta_H (1 - F),\, \eta_F\} / \hat f` beyond the
-    previous one, where :math:`\hat f` is the local density and :math:`\eta_H, \eta_F > 0` are the step sizes in
-    cumulative hazard and in probability. The nodes extend until they cover the largest queried point and level and a
-    CDF of :math:`1 - \epsilon`, with :math:`\epsilon > 0` a small tail mass, up to a fixed number of nodes. They are
-    computed only when a query reaches beyond :math:`c`, and they are kept for later queries.
+    One set of transform evaluations gives the whole curve. The expansion reaches 1 at :math:`\beta`, so the mass
+    beyond the window is lost.
 
-    The grid consists of the equispaced cosine nodes whose CDF lies below :math:`c` and the exact nodes. The ``cdf``,
-    ``pdf`` and ``quantile`` are all read from it by the cumulative-hazard interpolation described at
-    :class:`~phasegen.distributions.QuantileFunction`, so the quantile inverts the CDF exactly, the density is
-    non-negative, and the quantile of a level :math:`q \le p_0` is 0. The grid is built once per distribution, shared
-    by the three functions, and rebuilt when :attr:`Settings.dehoog_tail_quantile
-    <phasegen.settings.Settings.dehoog_tail_quantile>` changes. If :attr:`Settings.check_inversions
-    <phasegen.settings.Settings.check_inversions>` is set, a warning is logged when the raw cosine CDF decreases by
-    more than a small fraction of its range, which indicates a feature the expansion cannot resolve.
+    .. rubric:: Tail
+
+    Above the CDF level set by :attr:`Settings.dehoog_tail_quantile
+    <phasegen.settings.Settings.dehoog_tail_quantile>`, the CDF is evaluated pointwise as the inverse transform of
+    :math:`\varphi(s)/s` by the method of de Hoog et al. (1982),
+
+    .. math::
+
+        F(x) \approx \frac{e^{\gamma x}}{2x}\, \mathrm{Re} \sum_{l=0}^{2D} w_l\,
+        \frac{\varphi(z_l)}{z_l}\, e^{\mathrm{i} l \pi / 2},
+
+    with nodes :math:`z_l = \gamma + \mathrm{i} l \pi / (2x)` on a contour of abscissa :math:`\gamma > 0`, weights
+    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, :math:`D` given by :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`,
+    and the series summed by a quotient-difference continued fraction.
+
+    .. rubric:: Implementation
+
+    - The window is chosen in two passes. A first expansion over several standard deviations of :math:`R` locates the
+      support, and the second window ends where the first expansion comes close to 1.
+    - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
+      :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
+      above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
+    - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform. The de Hoog series
+      is summed in extended precision by ``mpmath``.
+    - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
+      the expansion is not monotone, a sign of a feature it cannot resolve.
 
     .. rubric:: References
 
@@ -201,36 +194,43 @@ class RewardDistribution(CallableDistributionFunctions):
         The Laplace-Stieltjes transform :math:`\varphi(s) = \mathbb{E}[e^{-sR}]` of the accumulated reward, with the
         notation of :class:`~phasegen.distributions.PhaseTypeDistribution`.
 
-        Let :math:`\mathbf{r}_T` be the restriction of :math:`\mathbf{r}` to the transient states. While the process
-        occupies state :math:`x`, the weight :math:`e^{-sR}` decays at rate :math:`s\,r(x)`, so the reward enters as the
-        diagonal shift :math:`-s \operatorname{diag}(\mathbf{r}_T)` of the sub-intensity matrix. The bounded epochs
-        propagate the row vector :math:`\mathbf{a}(s)` of weighted transient probabilities together with the absorbed
-        weight :math:`c(s)`,
+        .. rubric:: Single epoch
+
+        While the process occupies state :math:`x`, the weight :math:`e^{-sR}` decays at rate :math:`s\, r(x)`, so the
+        reward enters as a diagonal shift of the sub-intensity matrix. With the reward vector restricted to the
+        transient states,
 
         .. math::
 
-            [\mathbf{a}(s),\; c(s)] = [\boldsymbol{\alpha}_T,\; 0] \prod_{i=1}^{M-1}
-            \exp\left(\begin{bmatrix} \mathbf{T}_i - s \operatorname{diag}(\mathbf{r}_T) & \mathbf{q}_i \\
-            \mathbf{0} & 0 \end{bmatrix} \Delta_i\right),
+            \varphi(s) = \boldsymbol{\alpha}_T \big(s \operatorname{diag}(\mathbf{r}) - \mathbf{T}\big)^{-1} \mathbf{q},
 
-        and the unbounded last epoch contributes in closed form,
+        the transform of the reward-transformed phase-type distribution (Hobolth et al., 2019).
+
+        .. rubric:: Several epochs
+
+        Each bounded epoch propagates the weighted transient probabilities together with the absorbed weight, which
+        stays constant after absorption. With the block matrix
 
         .. math::
 
-            \varphi(s) = c(s) + \mathbf{a}(s) \big(s \operatorname{diag}(\mathbf{r}_T) - \mathbf{T}_M\big)^{-1}
-            \mathbf{q}_M.
+            \mathbf{G}_i(s) =
+            \begin{pmatrix} \mathbf{T}_i - s \operatorname{diag}(\mathbf{r}) & \mathbf{q}_i \\ \mathbf{0} & 0
+            \end{pmatrix},
 
-        With a single epoch this is the transform :math:`\boldsymbol{\alpha}_T (s \operatorname{diag}(\mathbf{r}_T) -
-        \mathbf{T}_1)^{-1} \mathbf{q}_1` of the reward-transformed phase-type distribution (Hobolth et al., 2019).
-        The exponentials of the bounded epochs are formed densely. The last-epoch system is solved by a sparse LU
-        factorisation from :attr:`Settings.closed_form_sparse_min_states
-        <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, and by a dense one below.
+        the bounded epochs are chained and the unbounded last epoch is closed with the single-epoch formula,
 
-        The transform is evaluated in a time unit :math:`\zeta > 0`, which is the mean population size
-        :math:`\bar N` at time 0 when :math:`\bar N` lies outside a fixed interval around 1, and 1 otherwise. The
-        substitution :math:`\mathbf{T}_i \mapsto \zeta \mathbf{T}_i`, :math:`t_i \mapsto t_i / \zeta`,
-        :math:`s \mapsto \zeta s` leaves :math:`\varphi(s)` unchanged and keeps the shifted matrices well scaled for
-        very large or very small populations.
+        .. math::
+
+            \varphi(s) = (\boldsymbol{\alpha}_T, 0) \prod_{i=1}^{M-1} e^{\mathbf{G}_i(s) \Delta_i}
+            \begin{pmatrix} (s \operatorname{diag}(\mathbf{r}) - \mathbf{T}_M)^{-1} \mathbf{q}_M \\ 1 \end{pmatrix}.
+
+        .. rubric:: Implementation
+
+        - The exponentials are formed densely. The last-epoch system is solved by a sparse LU factorization from
+          :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
+          transient states on, and by a dense one below.
+        - For a mean population size at time 0 far from 1, time is measured in units of that size, which leaves
+          :math:`\varphi` unchanged and keeps the shifted matrices well scaled.
 
         .. rubric:: References
 
@@ -436,54 +436,46 @@ def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarr
 
 class JointRewardDistribution(CallableDistributionFunctions):
     r"""
-    Joint distribution of two accumulated rewards :math:`R_a` and :math:`R_b` with reward vectors :math:`\mathbf{r}_a`
-    and :math:`\mathbf{r}_b`, accumulated over :math:`[0, \infty)`, with the notation of
+    Joint distribution of two rewards :math:`R_a` and :math:`R_b` accumulated until absorption, with the notation of
     :class:`~phasegen.distributions.PhaseTypeDistribution`. It is returned by
     :meth:`PhaseTypeDistribution.joint_distribution() <phasegen.distributions.PhaseTypeDistribution.joint_distribution>`
     and the accessors built on it.
 
     The distribution is determined by the bivariate Laplace-Stieltjes transform
-    :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a R_a - s_b R_b}]` with complex arguments :math:`s_a` and :math:`s_b`. The
-    rewards enter only through the diagonal matrix
-    :math:`\mathbf{D} = \operatorname{diag}(s_a \mathbf{r}_{a,T} + s_b \mathbf{r}_{b,T})`, with
-    :math:`\mathbf{r}_{a,T}` and :math:`\mathbf{r}_{b,T}` the reward vectors restricted to the transient states, which
-    shifts every sub-intensity matrix. With the absorbing states lumped into one,
+    :math:`\Phi(s_a, s_b) = \mathbb{E}[e^{-s_a R_a - s_b R_b}]`. For a single epoch, with the reward vectors
+    :math:`\mathbf{r}_a` and :math:`\mathbf{r}_b` restricted to the transient states,
 
     .. math::
 
-        [\mathbf{a},\ c] = [\boldsymbol{\alpha}_T,\ 0] \prod_{i=1}^{M-1}
-        \exp\!\left( \begin{bmatrix} \mathbf{T}_i - \mathbf{D} & \mathbf{q}_i \\ \mathbf{0} & 0 \end{bmatrix}
-        \Delta_i \right),
-        \qquad
-        \Phi(s_a, s_b) = c + \mathbf{a}\,(\mathbf{D} - \mathbf{T}_M)^{-1}\,\mathbf{q}_M,
+        \Phi(s_a, s_b) = \boldsymbol{\alpha}_T
+        \big(\operatorname{diag}(s_a \mathbf{r}_a + s_b \mathbf{r}_b) - \mathbf{T}\big)^{-1} \mathbf{q}.
 
-    where the product runs forward in time, and the row vector :math:`\mathbf{a}` and the scalar :math:`c` are the
-    transient and the absorbed probability mass at time :math:`t_{M-1}`, each weighted by
-    :math:`e^{-s_a R_a - s_b R_b}` with the rewards accumulated up to that time. The last, unbounded epoch is solved in
-    closed form. This is the transform of :meth:`RewardDistribution.lst()
-    <phasegen.distributions.RewardDistribution.lst>` with its diagonal shift replaced by :math:`\mathbf{D}`, evaluated
-    with the same time rescaling.
+    Both rewards enter as one diagonal shift, so this is the transform of :meth:`RewardDistribution.lst()
+    <phasegen.distributions.RewardDistribution.lst>` with :math:`s\,\mathbf{r}` replaced by
+    :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b`, and several epochs are chained as described there.
 
-    Setting one argument to zero gives a marginal transform, for example :math:`\Phi(s, 0) = \mathbb{E}[e^{-sR_a}]`.
-    Infinite arguments give the atoms
+    .. rubric:: Atoms and moments
+
+    A reward that can be zero puts mass on an axis. Infinite arguments give the atoms
 
     .. math::
 
-        p_a = \mathbb{P}(R_a = 0) = \Phi(\infty, 0), \qquad p_b = \mathbb{P}(R_b = 0) = \Phi(0, \infty), \qquad
-        p_{00} = \mathbb{P}(R_a = 0,\ R_b = 0) = \Phi(\infty, \infty),
+        \mathbb{P}(R_a = 0) = \Phi(\infty, 0), \qquad
+        \mathbb{P}(R_b = 0) = \Phi(0, \infty), \qquad
+        \mathbb{P}(R_a = R_b = 0) = \Phi(\infty, \infty).
 
-    evaluated at the same large finite argument as the atom :math:`p_0` of a
-    :class:`~phasegen.distributions.RewardDistribution`. The mixed moments
-    :math:`\mathbb{E}[R_a^j R_b^l] = (-1)^{j+l}\,\partial_{s_a}^j \partial_{s_b}^l \Phi(0, 0)`, for integers
-    :math:`j, l \ge 0`, are evaluated exactly by :meth:`JointRewardDistribution.moment()
-    <phasegen.distributions.JointRewardDistribution.moment>`.
+    Mixed moments are derivatives of :math:`\Phi` at the origin and are computed exactly by
+    :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>`.
 
-    The joint CDF and density are described at :class:`~phasegen.distributions.JointCDF` and
-    :class:`~phasegen.distributions.JointDensity`, the Taylor coefficients of :math:`\Phi` at
-    :meth:`JointRewardDistribution.lst_taylor() <phasegen.distributions.JointRewardDistribution.lst_taylor>`, and the
-    conditionals at :class:`~phasegen.distributions.ConditionalRewardDistribution`. A joint distribution has no quantile
-    function. On a windowed coalescent the transform and every distribution function raise
-    :class:`NotImplementedError`.
+    .. rubric:: Implementation
+
+    - The joint CDF and density are described at :class:`~phasegen.distributions.JointCDF` and
+      :class:`~phasegen.distributions.JointDensity`, the conditionals at
+      :class:`~phasegen.distributions.ConditionalRewardDistribution`.
+    - An infinite argument is represented by a large finite one, as for the atom of a
+      :class:`~phasegen.distributions.RewardDistribution`.
+    - A joint distribution has no quantile function. On a coalescent with a start or end time, the transform and the
+      distribution functions raise :class:`NotImplementedError`.
 
     .. versionadded:: 2.0
     """
@@ -572,36 +564,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         and :math:`\epsilon` the argument of :math:`R_b`. For ``on='b'`` the two arguments exchange roles. The
         :math:`j`-th derivative in :math:`\epsilon` at zero is :math:`j!\,\Phi_j(s)`.
 
-        The coefficients carry no truncation or differencing error. Write :math:`\mathbf{r}_h` and :math:`\mathbf{r}_f`
-        for the reward vectors of the held and the free argument restricted to the transient states,
-        :math:`\mathbf{C}_i` for the matrix of epoch
-        :math:`i` inside the exponential of :class:`~phasegen.distributions.JointRewardDistribution` at
-        :math:`\epsilon = 0`, and :math:`\mathbf{W}` for :math:`-\operatorname{diag}(\mathbf{r}_f)` padded with a zero
-        row and column for the lumped absorbing state. The coefficients :math:`\mathbf{P}_0, \ldots, \mathbf{P}_J` of
-        :math:`\exp((\mathbf{C}_i + \epsilon \mathbf{W})\Delta_i) = \sum_j \mathbf{P}_j \epsilon^j + O(\epsilon^{J+1})`
-        are the blocks of a single matrix exponential (Van Loan, 1978),
+        For a single epoch, with :math:`\mathbf{A} = \operatorname{diag}(s\,\mathbf{r}_a) - \mathbf{T}` and the reward
+        vectors restricted to the transient states, expanding the inverse gives the coefficients exactly,
 
         .. math::
 
-            \exp\begin{pmatrix} \mathbf{C}_i \Delta_i & \mathbf{W} \Delta_i & & \\
-            & \ddots & \ddots & \\ & & \mathbf{C}_i \Delta_i & \mathbf{W} \Delta_i \\ & & & \mathbf{C}_i \Delta_i
-            \end{pmatrix}
-            = \begin{pmatrix} \mathbf{P}_0 & \mathbf{P}_1 & \cdots & \mathbf{P}_J \\ & \mathbf{P}_0 & \ddots & \vdots \\
-            & & \ddots & \mathbf{P}_1 \\ & & & \mathbf{P}_0 \end{pmatrix},
+            \Phi_j(s) = (-1)^j\, \boldsymbol{\alpha}_T
+            \big(\mathbf{A}^{-1} \operatorname{diag}(\mathbf{r}_b)\big)^j \mathbf{A}^{-1} \mathbf{q},
 
-        with :math:`J + 1` blocks along the diagonal. These blocks propagate the Taylor coefficients
-        :math:`\mathbf{a}_j` and :math:`c_j` of the weighted masses :math:`\mathbf{a}` and :math:`c` through the bounded
-        epochs. In the last epoch, with :math:`\mathbf{H} = \operatorname{diag}(s\,\mathbf{r}_h) - \mathbf{T}_M`, the
-        solution :math:`\mathbf{z}(\epsilon) = (\mathbf{H} + \epsilon
-        \operatorname{diag}(\mathbf{r}_f))^{-1}\mathbf{q}_M` has the coefficients
-
-        .. math::
-
-            \mathbf{z}_0 = \mathbf{H}^{-1}\mathbf{q}_M, \qquad
-            \mathbf{z}_j = -\mathbf{H}^{-1}\operatorname{diag}(\mathbf{r}_f)\,\mathbf{z}_{j-1}, \qquad
-            \Phi_j(s) = c_j + \sum_{l=0}^{j} \mathbf{a}_l\,\mathbf{z}_{j-l},
-
-        which share one LU factorization of :math:`\mathbf{H}`.
+        so no derivative is approximated by a difference, and one LU factorization of :math:`\mathbf{A}` serves all
+        orders. For several epochs, the coefficients of each epoch's matrix exponential are the blocks of a single
+        exponential of a block upper-bidiagonal matrix (Van Loan, 1978), with the shifted generator on the diagonal and
+        :math:`-\operatorname{diag}(\mathbf{r}_b)` above it.
 
         .. rubric:: References
 
@@ -924,26 +898,21 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :class:`~phasegen.distributions.ConditionalRewardDistribution`, and log a warning per conditioning reward when
         the relative error exceeds ``tol``.
 
-        For each conditioning reward :math:`R_c \in \{R_a, R_b\}`, with :math:`R_o` the other reward,
-        :math:`p_c = \mathbb{P}(R_c = 0)` its atom, :math:`F_c` its CDF and :math:`F_c^{-1}` its quantile function,
+        For each conditioning reward :math:`R_c`, with :math:`R_o` the other reward and :math:`p_c = \mathbb{P}(R_c = 0)`,
 
         .. math::
 
             \mathbb{E}[R_o] = p_c\,\mathbb{E}[R_o \mid R_c = 0]
-            + (1 - p_c) \int_0^1 \mathbb{E}\big[R_o \mid R_c = F_c^{-1}(p_c + (1 - p_c)\,\xi)\big]\,\mathrm{d}\xi.
+            + (1 - p_c) \int_0^1 \mathbb{E}\big[R_o \mid R_c = v(\xi)\big]\,\mathrm{d}\xi,
 
-        The substitution :math:`F_c(v) = p_c + (1 - p_c)\,\xi` maps the continuous part of :math:`R_c`, with values
-        :math:`v > 0`, onto the levels :math:`\xi \in (0, 1)` and absorbs its density into the measure, so only
-        quantiles of :math:`R_c` are needed. The other checks place their conditioning values at these levels as well.
-        The integral uses Gauss-Legendre quadrature with ``n_points`` nodes, and the atom term is omitted when
-        :math:`p_c` is negligible. The integrand may vary sharply as :math:`\xi \to 1`, so the quadrature error can
-        dominate for few nodes.
+        where :math:`v(\xi)` is the quantile of :math:`R_c` at the level :math:`p_c + (1 - p_c)\,\xi`, so that the levels
+        :math:`\xi \in (0, 1)` cover the continuous part of :math:`R_c`. All conditional checks place their conditioning
+        values at such levels. The integral uses Gauss-Legendre quadrature with ``n_points`` nodes.
 
-        All conditional checks treat a conditioning level whose conditional cannot be constructed alike, typically a
-        level so far in the tail of :math:`R_c` that its density lies below the resolution of the inversion. The level
-        is skipped, one warning per conditioning reward names the skipped levels and the reason, and the error is
-        computed over the remaining levels. A quadrature is renormalised to the total weight of the remaining nodes.
-        The error is infinite only when no conditional could be constructed.
+        A level whose conditional cannot be constructed, typically one so far in the tail that the density of
+        :math:`R_c` is below the resolution of the inversion, is skipped by every conditional check with one warning
+        per conditioning reward. The error is computed over the remaining levels, with quadrature weights renormalised,
+        and is infinite only when no conditional could be constructed.
 
         :param n_points: Number of Gauss-Legendre nodes per conditioning reward.
         :param tol: Relative error above which a warning is logged.
@@ -1007,21 +976,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Test the law of total probability over the conditionals, and log a warning per conditioning reward when the
         largest deviation exceeds ``tol``.
 
-        With :math:`R_c`, :math:`R_o`, :math:`p_c`, :math:`F_c^{-1}` and the levels :math:`\xi` as in
-        :meth:`JointRewardDistribution.check_total_expectation()
-        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`, and :math:`F_o` the CDF of
-        :math:`R_o`, the deviation is
+        With the notation of :meth:`JointRewardDistribution.check_total_expectation()
+        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`, the identity
 
         .. math::
 
-            \max_{y} \Big| F_o(y) - p_c\,\mathbb{P}(R_o \le y \mid R_c = 0)
-            - (1 - p_c) \sum_{j} w_j\,\mathbb{P}\big(R_o \le y \mid R_c = F_c^{-1}(p_c + (1 - p_c)\,\xi_j)\big) \Big|,
+            \mathbb{P}(R_o \le y) = p_c\,\mathbb{P}(R_o \le y \mid R_c = 0)
+            + (1 - p_c) \int_0^1 \mathbb{P}\big(R_o \le y \mid R_c = v(\xi)\big)\,\mathrm{d}\xi
 
-        where :math:`\xi_j` and :math:`w_j` are the ``n_points`` Gauss-Legendre nodes and weights on :math:`[0, 1]`, and
-        :math:`y` runs over the quantiles of :math:`R_o` at ``n_y`` evenly spaced levels in the bulk. The whole
-        conditional law enters, so errors that cancel in the mean remain visible. Each node builds the CDF of one
-        conditional, and a node whose conditional cannot be constructed is handled as described at the expectation
-        check.
+        is tested at ``n_y`` quantiles :math:`y` of :math:`R_o`, and the largest absolute deviation is reported. The
+        whole conditional law enters, so errors that cancel in the mean remain visible. Unbuildable levels are handled
+        as described there.
 
         :param n_points: Number of Gauss-Legendre nodes per conditioning reward.
         :param n_y: Number of evaluation points :math:`y`.
@@ -1080,27 +1045,24 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def window_average(self, statistic, on: str = 'a', value: float = 0.0, half_width: float = 0.0,
                        n_nodes: int = None) -> 'float | np.ndarray':
         r"""
-        A statistic of the conditionals averaged over a window of conditioning values, weighted by the density of the
-        conditioning reward,
+        A statistic of the conditionals averaged over the window :math:`W` of conditioning values from
+        ``value - half_width`` to ``value + half_width``, weighted by the density :math:`f_c` of the conditioning reward
+        :math:`R_c`,
 
         .. math::
 
-            \bar{g} = \frac{\int_W f_c(v)\, g(v)\,\mathrm{d}v}{\int_W f_c(v)\,\mathrm{d}v}, \qquad
-            W = [v_0 - h,\ v_0 + h],
+            \bar{g} = \frac{\int_W f_c(v)\, g(v)\,\mathrm{d}v}{\int_W f_c(v)\,\mathrm{d}v},
 
-        where :math:`R_c` is the reward ``on`` with density :math:`f_c` on :math:`(0, \infty)`, :math:`g(v)` is
-        ``statistic`` applied to the conditional distribution given :math:`R_c = v`, :math:`v_0` is ``value`` and
-        :math:`h \ge 0` is ``half_width``, with :math:`v_0 - h > 0`. The integrals use Gauss-Legendre quadrature. For a
-        statistic linear in the conditional law, such as the mean or the CDF at fixed points, :math:`\bar{g}` is that
-        statistic of the other reward given :math:`R_c \in W`, the quantity estimated by
-        :meth:`EmpiricalJointDistribution.conditional()
-        <phasegen.distributions.EmpiricalJointDistribution.conditional>` with the same window.
+        where :math:`g(v)` is ``statistic`` applied to the conditional given :math:`R_c = v`, and the integrals use
+        Gauss-Legendre quadrature. For the mean or the CDF this is the quantity that a sample restricted to the window
+        estimates, as in :meth:`EmpiricalJointDistribution.conditional()
+        <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
 
         :param statistic: Callable taking a :class:`~phasegen.distributions.ConditionalRewardDistribution` and returning
             a scalar or a 1D array, for example ``lambda c: c.mean`` or ``lambda c: c.cdf(ys)``.
         :param on: The conditioning reward, ``'a'`` or ``'b'``.
-        :param value: Centre :math:`v_0` of the window.
-        :param half_width: Half-width :math:`h` of the window, in units of the conditioning reward.
+        :param value: Centre of the window.
+        :param half_width: Half-width of the window, in units of the conditioning reward.
         :param n_nodes: Number of Gauss-Legendre nodes, ``None`` for the default.
         :return: The window average, a float for a scalar statistic and an array of the statistic's shape otherwise.
         :raises ValueError: If the window reaches zero, where the conditioning reward may have an atom.
@@ -1142,30 +1104,25 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Compare the mean of each conditional with the derivative identity at a set of conditioning values, and log a
         warning per conditioning reward when the largest scaled error exceeds ``tol``.
 
-        With :math:`R_c`, :math:`R_o`, :math:`p_c` and :math:`F_c^{-1}` as in
+        The conditioning values :math:`v(\xi)` are placed as described at
         :meth:`JointRewardDistribution.check_total_expectation()
-        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`, the conditioning values are
-        :math:`v_j = F_c^{-1}(p_c + (1 - p_c)\,\xi_j)` for levels :math:`\xi_j` spread evenly over nearly all of
-        :math:`(0, 1)`, or given by ``quantiles``. At each :math:`v_j` the mean :math:`\hat{m}_j` of the conditional
-        transform, described at :class:`~phasegen.distributions.ConditionalRewardDistribution`, is compared with
-        :math:`m_j = \mathbb{E}[R_o \mid R_c = v_j]` from the identity of :meth:`ConditionalRewardDistribution.moment()
-        <phasegen.distributions.ConditionalRewardDistribution.moment>`, which involves no nested inversion. The scaled
-        error is
+        <phasegen.distributions.JointRewardDistribution.check_total_expectation>`, at levels :math:`\xi` spread over
+        nearly all of :math:`(0, 1)` or given by ``quantiles``. At each, the mean :math:`\hat{m}` of the conditional
+        transform is compared with :math:`m = \mathbb{E}[R_o \mid R_c = v(\xi)]` from
+        :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`,
+        which involves no nested inversion, with the scaled error
 
         .. math::
 
-            \delta_j = \frac{|\hat{m}_j - m_j|}{\max\big(|m_j|,\ \epsilon_f\,|\mathbb{E}[R_o]|\big)},
+            \frac{|\hat{m} - m|}{\max\big(|m|,\ \epsilon\,\mathbb{E}[R_o]\big)}.
 
-        with a small floor fraction :math:`\epsilon_f > 0` that keeps the error meaningful where the conditional mean
-        vanishes, deep in the tail of :math:`R_c`. The identity inherits the error of the de Hoog inversion, which is
-        largest on demographies with many epochs, so ``tol`` must exceed that error. The check tests the transform, not
-        the distribution functions built from it (see :meth:`JointRewardDistribution.check_conditional_grid_moments()
-        <phasegen.distributions.JointRewardDistribution.check_conditional_grid_moments>`). A value whose conditional
-        cannot be constructed is handled as described at the expectation check.
+        The small fraction :math:`\epsilon` of the unconditional mean keeps the error meaningful where the conditional
+        mean vanishes. The identity carries the de Hoog error, which grows with the number of epochs, so ``tol`` must
+        exceed it.
 
         :param n_points: Number of conditioning values per conditioning reward. Ignored when ``quantiles`` is given.
         :param tol: Scaled error above which a warning is logged.
-        :param quantiles: Levels :math:`\xi_j \in (0, 1)` within the continuous part of the conditioning reward.
+        :param quantiles: Levels :math:`\xi \in (0, 1)` within the continuous part of the conditioning reward.
         :param curves: Number of conditioning values per conditioning reward at which the conditional density is also
             evaluated and stored in ``conditional_densities``, for inspection only.
         :return: The largest scaled error per conditioning reward, keyed ``'a'`` and ``'b'``, infinite when no
@@ -1240,21 +1197,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Integrate the evaluated CDF of each conditional into raw moments, and log a warning per conditioning reward when
         they deviate from the derivative identity by more than ``tol``.
 
-        At the conditioning values :math:`v_j` of :meth:`JointRewardDistribution.check_conditional_moments()
-        <phasegen.distributions.JointRewardDistribution.check_conditional_moments>` and for orders
-        :math:`i = 1, \ldots, k`, the moments of the conditional CDF :math:`F_j`, as evaluated by its ``cdf``, are
+        At the conditioning values of :meth:`JointRewardDistribution.check_conditional_moments()
+        <phasegen.distributions.JointRewardDistribution.check_conditional_moments>`, the moment of order
+        :math:`i \le k` of the evaluated conditional CDF :math:`F` is
 
         .. math::
 
-            \hat{m}_{ji} = \int_0^{L_j} i\,y^{i-1}\big(1 - F_j(y)\big)\,\mathrm{d}y,
+            \hat{m}_i = \int_0^{\infty} i\,y^{i-1}\big(1 - F(y)\big)\,\mathrm{d}y,
 
-        by Simpson's rule on a uniform grid, where :math:`L_j` is the upper end of the support window of that CDF, and
-        the atom at zero contributes nothing. They are compared with
-        :math:`\mathbb{E}[R_o^i \mid R_c = v_j]` from :meth:`ConditionalRewardDistribution.moment()
-        <phasegen.distributions.ConditionalRewardDistribution.moment>`, scaled as in the mean check with the floor
-        :math:`\epsilon_f\,\mathbb{E}[R_o^i]`. Unlike the mean check, this reaches the distribution function itself.
-        Orders above two weight the far tail, where a small absolute error of the CDF is a large relative one. A value
-        whose conditional cannot be constructed is handled as described at the expectation check.
+        computed by Simpson's rule over the support window of :math:`F`. It is compared with
+        :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>` and
+        scaled as in the mean check. Unlike the mean check, this reaches the distribution function itself. Orders above
+        two weight the far tail, where a small absolute error of the CDF becomes a large relative one.
 
         :param n_points: Number of conditioning values per conditioning reward. Ignored when ``quantiles`` is given.
         :param tol: Scaled error above which a warning is logged.
@@ -1331,74 +1285,51 @@ class ConditionalRewardDistribution(RewardDistribution):
     :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`.
 
     Write :math:`R_c` for the conditioning reward, :math:`R_o` for the other reward, :math:`v \ge 0` for the
-    conditioning value, :math:`p_c = \mathbb{P}(R_c = 0)`, and :math:`\Phi(s_o, s_c) = \mathbb{E}[e^{-s_o R_o - s_c
-    R_c}]` for the joint transform of :class:`~phasegen.distributions.JointRewardDistribution` with its arguments in
-    this order. The conditional distribution is given by its Laplace-Stieltjes transform
+    conditioning value, and :math:`\Phi(s_o, s_c)` for the joint transform of
+    :class:`~phasegen.distributions.JointRewardDistribution` with its arguments in this order. The conditional law is
+    given by its transform :math:`\varphi(s) = \mathbb{E}[e^{-sR_o} \mid R_c = v]`, which ``cdf``, ``pdf`` and
+    ``quantile`` invert as for any :class:`~phasegen.distributions.RewardDistribution`.
+
+    For :math:`v > 0` the conditional density is :math:`f(x \mid v) = f(x, v) / f_c(v)`, with :math:`f(x, v)` the joint
+    density of :math:`(R_o, R_c)` and :math:`f_c` the density of :math:`R_c`. In transform form,
 
     .. math::
 
-        \varphi(s) = \mathbb{E}\big[e^{-sR_o} \mid R_c = v\big],
-
-    and ``cdf``, ``pdf`` and ``quantile`` invert :math:`\varphi` by the construction described at
-    :class:`~phasegen.distributions.RewardDistribution` and :class:`~phasegen.distributions.QuantileFunction`, including
-    the atom
-    :math:`p_0 = \varphi(\infty) = \mathbb{P}(R_o = 0 \mid R_c = v)`.
-
-    For :math:`v = 0` the condition is the atom of :math:`R_c`, which requires :math:`p_c > 0`, and
-
-    .. math::
-
-        \varphi(s) = \frac{\Phi(s, \infty)}{\Phi(0, \infty)} = \frac{\mathbb{E}[e^{-sR_o};\ R_c = 0]}{p_c},
-
-    evaluated at a large finite second argument as for the atoms of the joint distribution.
-
-    For :math:`v > 0`, let :math:`f_c` be the density of :math:`R_c` on :math:`(0, \infty)`. Splitting :math:`\Phi` over
-    the atom and the continuous part of :math:`R_c`,
-
-    .. math::
-
-        \Phi(s_o, s_c) = \mathbb{E}\big[e^{-s_o R_o};\ R_c = 0\big]
-        + \int_0^\infty e^{-s_c y}\, \mathbb{E}\big[e^{-s_o R_o} \mid R_c = y\big]\, f_c(y)\,\mathrm{d}y,
-
-    with :math:`y` the integration variable. The first term does not depend on :math:`s_c` and contributes nothing to
-    the inverse Laplace transform in :math:`s_c` at :math:`v > 0`, so
-
-    .. math::
-
+        \varphi(s) = \frac{G(s)}{G(0)}, \qquad
         G(s) = \mathcal{L}^{-1}_{s_c}\big[\Phi(s, s_c)\big](v) = \mathbb{E}\big[e^{-sR_o} \mid R_c = v\big]\, f_c(v),
-        \qquad \varphi(s) = \frac{G(s)}{G(0)},
 
-    the transform form of :math:`f_{o \mid c}(x \mid v) = f_{oc}(x, v)/f_c(v)` for :math:`x > 0`, where
-    :math:`f_{oc}` is the joint density of :math:`(R_o, R_c)` and :math:`G(0) = f_c(v)`.
+    where :math:`\mathcal{L}^{-1}_{s_c}` inverts the Laplace transform in :math:`s_c` and :math:`G(0) = f_c(v)`. The
+    atom of :math:`R_c` at zero does not contribute at :math:`v > 0`.
 
-    The inverse Laplace transform in :math:`s_c` is the Fourier-series method with Euler summation of Abate and Whitt
-    (1995),
+    .. rubric:: Inner inversion
+
+    :math:`G` is computed by the Fourier-series method with Euler summation (Abate and Whitt, 1995),
 
     .. math::
 
-        G(s) \approx \frac{e^{\eta/2}}{2v} \sum_{j=-(N+m)}^{N+m} (-1)^j\, w_j\,
-        \Phi\!\left(s, \frac{\eta + 2\pi \mathrm{i} j}{2v}\right),
-        \qquad
-        w_j = \begin{cases} 1, & |j| \le N, \\ 2^{-m} \sum_{l=|j|-N}^{m} \binom{m}{l}, & N < |j| \le N + m, \end{cases}
+        G(s) \approx \frac{e^{\eta/2}}{2v} \sum_{j} (-1)^j\, w_j\,
+        \Phi\Big(s,\ \frac{\eta + 2\pi \mathrm{i} j}{2v}\Big),
 
-    where :math:`\eta > 0` sets the discretization error, of order :math:`e^{-\eta}`, :math:`N` truncates the series,
-    and the last :math:`m + 1` partial sums are averaged with binomial weights. The nodes and weights do not depend on
-    :math:`s`, so :math:`G` is a fixed linear combination of transform values and inherits the analyticity of
-    :math:`\Phi` in :math:`s`, on which the outer inversion of :math:`\varphi` relies. :math:`N` is chosen once per
-    conditional and held for every :math:`s`. It is doubled from a starting value until :math:`G(0)` is positive and
-    changes by less than a fixed relative tolerance. If no truncation up to a maximum qualifies, the density of
-    :math:`R_c` at :math:`v` lies below the resolution of the inversion and construction raises :class:`ValueError`.
+    where the damping :math:`\eta > 0` bounds the discretization error by about :math:`e^{-\eta}` and the weights
+    :math:`w_j` are 1 up to a truncation :math:`N` and then taper binomially over a few more terms. The nodes and weights
+    do not depend on :math:`s`, so :math:`\varphi` stays analytic in :math:`s`, as the outer inversion requires.
 
-    The upper end :math:`L` of the support window of the Fourier-cosine fit is found by bracketing: starting from the
-    conditional mean, :math:`L` is multiplied by a fixed factor until the CDF, inverted pointwise by the de Hoog method,
-    reaches a target probability close to one. The mean is :math:`-\varphi'(0)`, evaluated by a central difference of
-    :math:`\varphi`, and higher moments are described at :meth:`ConditionalRewardDistribution.moment()
-    <phasegen.distributions.ConditionalRewardDistribution.moment>`.
+    .. rubric:: Conditioning on the atom
 
-    .. warning::
-        For :math:`v > 0` the transform is itself a numerical inversion, so the results carry a few correct digits
-        rather than machine precision, least of all far in the tail of :math:`R_c` and on demographies with many
-        epochs.
+    For :math:`v = 0` the condition is the event :math:`R_c = 0`, which must have positive probability, and
+    :math:`\varphi(s) = \Phi(s, \infty) / \Phi(0, \infty)` needs no inner inversion.
+
+    .. rubric:: Implementation
+
+    - :math:`N` is doubled until :math:`G(0)` is positive and stable, then held for all :math:`s`. If it does not
+      stabilize, the density of :math:`R_c` at :math:`v` is below the resolution of the inversion and construction
+      raises :class:`ValueError`.
+    - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
+      close to one.
+    - The mean is :math:`-\varphi'(0)` by a central difference, and higher moments are described at
+      :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
+    - For :math:`v > 0` the transform is itself a numerical inversion, so results carry a few correct digits, fewest
+      far in the tail of :math:`R_c` and on demographies with many epochs.
 
     .. rubric:: References
 
@@ -1492,30 +1423,19 @@ class ConditionalRewardDistribution(RewardDistribution):
         The raw moment :math:`\mathbb{E}[R_o^k \mid R_c = v]` of order :math:`k \ge 1`, with the notation of
         :class:`~phasegen.distributions.ConditionalRewardDistribution`.
 
-        The first moment is the mean :math:`-\varphi'(0)`. For :math:`v > 0` and :math:`k \ge 2`, differentiating the
-        decomposition of :math:`\Phi` over the atom and the continuous part of :math:`R_c` gives
+        The first moment is the mean :math:`-\varphi'(0)`. For :math:`v > 0` and :math:`k \ge 2`,
 
         .. math::
 
-            \frac{\partial^k \Phi}{\partial s_o^k}(0, s_c) = (-1)^k \Big( \mathbb{E}\big[R_o^k;\ R_c = 0\big]
-            + \int_0^\infty e^{-s_c y}\, \mathbb{E}\big[R_o^k \mid R_c = y\big]\, f_c(y)\,\mathrm{d}y \Big),
+            \mathbb{E}[R_o^k \mid R_c = v]
+            = \frac{k!\,(-1)^k\,\mathcal{L}^{-1}[\Phi_k](v)}{\mathcal{L}^{-1}[\Phi_0](v)},
 
-        where the first term does not depend on :math:`s_c`. Inverting in :math:`s_c` at :math:`v > 0` therefore gives
-
-        .. math::
-
-            \mathbb{E}[R_o^k \mid R_c = v] = \frac{k!\,(-1)^k\,\mathcal{L}^{-1}\big[\Phi_k\big](v)}
-            {\mathcal{L}^{-1}\big[\Phi_0\big](v)},
-
-        where :math:`\Phi_j(s_c)` is the coefficient of :math:`s_o^j` in the Taylor expansion of :math:`\Phi(s_o, s_c)`
-        about :math:`s_o = 0`, computed without truncation error by :meth:`JointRewardDistribution.lst_taylor()
-        <phasegen.distributions.JointRewardDistribution.lst_taylor>`, and the denominator equals :math:`f_c(v)`. Both
-        inverse transforms use the de Hoog method of :class:`~phasegen.distributions.RewardDistribution` once, without
-        nesting, so this identity is independent of the conditional transform. Its accuracy is
-        that of the de Hoog method, which degrades on demographies with many epochs.
-
-        For :math:`v = 0` the identity has no density to divide by, and the second moment is
-        :math:`\varphi''(0)`, evaluated by central differences. Higher orders are not available there.
+        where :math:`\Phi_j(s_c)` is the coefficient of :math:`s_o^j` in the expansion of :math:`\Phi(s_o, s_c)` about
+        :math:`s_o = 0`, from :meth:`JointRewardDistribution.lst_taylor()
+        <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inversions
+        are single de Hoog inversions, so the identity is independent of the conditional transform, with the accuracy
+        of the de Hoog method. For :math:`v = 0` only the second moment :math:`\varphi''(0)` is available, by central
+        differences.
 
         :param k: Order :math:`k` of the moment.
         :return: The raw moment of order ``k``.

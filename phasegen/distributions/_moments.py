@@ -170,178 +170,77 @@ class MomentEvaluator:
             permute: bool = True
     ) -> float:
         r"""
-        The :math:`k`-th cross-moment of the accumulated rewards :math:`R_1, \dots, R_k`, with the notation of
-        :class:`~phasegen.distributions.PhaseTypeDistribution`. By default the moment is central,
+        The :math:`k`-th moment of accumulated rewards, with the notation of
+        :class:`~phasegen.distributions.PhaseTypeDistribution`.
+
+        For rewards :math:`R_1, \dots, R_k` with reward vectors :math:`\mathbf{r}_1, \dots, \mathbf{r}_k`, the raw
+        cross-moment :math:`\mathbb{E}[R_1 \cdots R_k]` is computed first. By default it is centered using the raw
+        moments of all subsets of the rewards, so that ``moment(2)`` is the variance.
+
+        .. rubric:: Single epoch
+
+        For a time-homogeneous process accumulating rewards until absorption, the Green's matrix
+        :math:`\mathbf{U} = (-\mathbf{T})^{-1}` holds in entry :math:`U_{xy}` the expected time spent in transient state
+        :math:`y` when starting in :math:`x`. With the reward vectors restricted to the transient states,
 
         .. math::
 
-            \mathbb{E}\Big[\prod_{j=1}^{k} \big(R_j - \mathbb{E}[R_j]\big)\Big]
-            = \sum_{I \subseteq \{1, \dots, k\}} (-1)^{k - |I|}\,
-            \mathbb{E}\Big[\prod_{j \in I} R_j\Big] \prod_{j \notin I} \mathbb{E}[R_j],
+            \mathbb{E}[R_1 \cdots R_k] = \sum_{\sigma} \boldsymbol{\alpha}_T
+            \prod_{j=1}^{k} \mathbf{U} \operatorname{diag}(\mathbf{r}_{\sigma(j)})\; \mathbf{e}_T,
 
-        where :math:`I` runs over the subsets of reward indices, :math:`|I|` is its size and an empty product equals
-        one. Hence ``moment(2)`` is the variance. With ``center=False`` the raw moment
-        :math:`\mathbb{E}[R_1 \cdots R_k]` is returned, which for equal rewards is :math:`\mathbb{E}[R^k]`.
+        where :math:`\sigma` runs over the :math:`k!` orderings of the rewards and the product is ordered by
+        increasing :math:`j`. For a single reward this is
+        :math:`\mathbb{E}[R^k] = k!\, \boldsymbol{\alpha}_T (\mathbf{U} \operatorname{diag}(\mathbf{r}))^k
+        \mathbf{e}_T` (Hobolth et al., 2019).
 
-        .. rubric:: Van Loan's method
+        .. rubric:: Several epochs
 
-        For the reward vectors :math:`\mathbf{r}_1, \dots, \mathbf{r}_k` of :math:`R_1, \dots, R_k`, the Van Loan
-        matrix of epoch :math:`i` is the block upper-bidiagonal matrix of dimension :math:`(k + 1)|E|`
+        Within an epoch of duration :math:`\Delta`, the rewards accumulated in a given order are obtained from the
+        block matrix of Van Loan (1978),
 
         .. math::
 
-            \mathbf{V}_i =
+            \mathbf{V} =
             \begin{pmatrix}
-                \mathbf{S}_i & \operatorname{diag}(\mathbf{r}_1) &        &                                   \\
-                             & \mathbf{S}_i                      & \ddots &                                   \\
-                             &                                   & \ddots & \operatorname{diag}(\mathbf{r}_k) \\
-                             &                                   &        & \mathbf{S}_i
+                \mathbf{S} & \operatorname{diag}(\mathbf{r}_1) &        &                                   \\
+                           & \mathbf{S}                        & \ddots &                                   \\
+                           &                                   & \ddots & \operatorname{diag}(\mathbf{r}_k) \\
+                           &                                   &        & \mathbf{S}
             \end{pmatrix}.
 
-        Following Van Loan (1978), the top-right :math:`|E| \times |E|` block of its exponential over a duration
-        :math:`h \ge 0` is the time-ordered integral
+        The top-right :math:`|E| \times |E|` block :math:`[\cdot]_{1, k+1}` of its exponential is
 
         .. math::
 
-            \big[\exp(\mathbf{V}_i h)\big]_{1, k+1}
-            = \int_{0 < u_1 < \dots < u_k < h}
-            e^{\mathbf{S}_i u_1} \operatorname{diag}(\mathbf{r}_1)\, e^{\mathbf{S}_i (u_2 - u_1)} \cdots
-            \operatorname{diag}(\mathbf{r}_k)\, e^{\mathbf{S}_i (h - u_k)}\, \mathrm{d}u_1 \cdots \mathrm{d}u_k.
+            \big[e^{\mathbf{V} \Delta}\big]_{1, k+1}
+            = \int_{0 < u_1 < \dots < u_k < \Delta}
+            e^{\mathbf{S} u_1} \operatorname{diag}(\mathbf{r}_1) \cdots
+            \operatorname{diag}(\mathbf{r}_k)\, e^{\mathbf{S} (\Delta - u_k)}\, \mathrm{d}\mathbf{u},
 
-        Let :math:`g_i` and :math:`h_i` be the lengths of :math:`[0, t_\mathrm{start}] \cap [t_{i-1}, t_i)` and
-        :math:`[t_\mathrm{start}, t_\mathrm{end}] \cap [t_{i-1}, t_i)` for a finite end time :math:`t_\mathrm{end}`. The
-        state distribution at the start time is :math:`\boldsymbol{\alpha}_\mathrm{start} = \boldsymbol{\alpha}
-        \prod_{i=1}^{M} \exp(\mathbf{S}_i g_i)`, and threading the Van Loan matrices through the epochs gives
+        so that reward :math:`j` is collected at time :math:`u_j`, with the process evolving under
+        :math:`\mathbf{S}` between the collection times. The exponentials of the finite epochs are chained in time, and the unbounded
+        last epoch is closed with the single-epoch formula. A start or end time shortens the durations accordingly.
 
-        .. math::
+        .. rubric:: Implementation
 
-            k!\; \boldsymbol{\alpha}_\mathrm{start} \Big[\prod_{i=1}^{M} \exp(\mathbf{V}_i h_i)\Big]_{1, k+1} \mathbf{e}
-            = k! \int_{t_\mathrm{start} < u_1 < \dots < u_k < t_\mathrm{end}}
-            \mathbb{E}\Big[\prod_{j=1}^{k} r_j(X_{u_j})\Big]\, \mathrm{d}u_1 \cdots \mathrm{d}u_k,
-
-        with both products ordered by increasing :math:`i`. Averaging this quantity over the :math:`k!` orderings of
-        the rewards gives :math:`\mathbb{E}[R_1 \cdots R_k]`, because the ordered simplices partition
-        :math:`[t_\mathrm{start}, t_\mathrm{end}]^k`. For :math:`k = 1` and :math:`t_\mathrm{start} > 0` the mean is the
-        difference of the means accumulated over :math:`[0, t_\mathrm{end}]` and :math:`[0, t_\mathrm{start}]`. All end
-        times passed to :meth:`PhaseTypeDistribution.accumulate()
-        <phasegen.distributions.PhaseTypeDistribution.accumulate>` share one pass through the epochs.
-
-        The exponentials are formed densely when :math:`(k + 1)|E|` is below
-        :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. At or above it, only
-        their action on the propagated row vector is computed with the algorithm of Al-Mohy and Higham (2011), which
-        exploits the sparsity of :math:`\mathbf{S}_i`. With :attr:`Settings.regularize
-        <phasegen.settings.Settings.regularize>` enabled, both variants exponentiate the balanced matrix
-        :math:`\mathbf{D} \mathbf{V}_i \mathbf{D}^{-1}`, where :math:`\mathbf{D}` is block diagonal with blocks
-        :math:`\mathbf{I}, \gamma \mathbf{I}, \dots, \gamma^k \mathbf{I}`, :math:`\mathbf{I}` is the
-        :math:`|E| \times |E|` identity and :math:`\gamma > 0` is the reciprocal geometric mean of the positive entries
-        of the intensity matrix of the epoch containing :math:`t_\mathrm{start}`. The balancing scales the top-right
-        block by :math:`\gamma^{-k}`, which is corrected exactly.
-
-        .. rubric:: Moments to absorption
-
-        When no end time is set on the call or on the distribution, :math:`t_\mathrm{start} = 0`,
-        :attr:`Settings.closed_form_last_epoch <phasegen.settings.Settings.closed_form_last_epoch>` is enabled and every
-        transient state of epoch :math:`M` can reach :math:`B`, the unbounded last epoch is evaluated exactly with the
-        Green's matrix :math:`\mathbf{U} = (-\mathbf{T}_M)^{-1}`. Its entry :math:`U_{yy'}` is the expected time spent
-        in the transient state :math:`y'` when starting in the transient state :math:`y`. With the reward vectors
-        restricted to the transient states, the backward recursion
-
-        .. math::
-
-            \boldsymbol{\nu}_{k+1} = \mathbf{e}_T, \qquad
-            \boldsymbol{\nu}_j = \mathbf{U} \operatorname{diag}(\mathbf{r}_j)\, \boldsymbol{\nu}_{j+1},
-            \quad j = k, \dots, 1,
-
-        gives the moment of a single ordering for :math:`M = 1` as
-        :math:`k!\, \boldsymbol{\alpha}_T \boldsymbol{\nu}_1 = k!\, \boldsymbol{\alpha}_T \mathbf{U}
-        \operatorname{diag}(\mathbf{r}_1) \mathbf{U} \cdots \mathbf{U} \operatorname{diag}(\mathbf{r}_k)\,
-        \mathbf{e}_T` (Hobolth et al., 2019). For :math:`M > 1` the vector
-        :math:`\mathbf{z} \in \mathbb{R}^{(k + 1)|E|}` holds :math:`\boldsymbol{\nu}_j` on the transient states of
-        block :math:`j`, zeros on :math:`B` in blocks :math:`1, \dots, k`, and :math:`\mathbf{e}` in block
-        :math:`k + 1`. It is propagated backwards through the finite epochs by
-        :math:`\mathbf{z} \leftarrow \exp(\mathbf{V}_i \Delta_i)\, \mathbf{z}` for :math:`i = M - 1, \dots, 1`, and the
-        moment is :math:`k!` times the product of :math:`\mathbf{z}` with the row vector holding
-        :math:`\boldsymbol{\alpha}` in block 1.
-
-        A single LU factorization of :math:`-\mathbf{T}_M` serves all :math:`k` solves. At or above
-        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
-        transient states, the factorization is sparse and the finite epochs use the sparse exponential action. Before
-        a sparse factorization, :math:`-\mathbf{T}_M` is permuted symmetrically into block-triangular form by ordering
-        the strongly connected components of its sparsity graph topologically, which reduces the factorization to
-        back-substitution over the components. When the conditions of the closed form do not hold, an unset or
-        infinite end time is replaced by :attr:`TreeHeightDistribution.t_max
-        <phasegen.distributions.TreeHeightDistribution.t_max>`.
-
-        .. rubric:: Spectra
-
-        The bins of a site-frequency spectrum differ only in their reward vectors
-        :math:`\mathbf{w}_1, \dots, \mathbf{w}_J`, with accumulated rewards :math:`R_1, \dots, R_J` for :math:`J`
-        bins. The spectrum-wide accessors contract bin-independent quantities with these vectors, restricted to the
-        transient states, and evaluate one moment per bin or per pair of bins when the conditions below do not hold.
-
-        The expected occupation times of the transient states until absorption form the row vector
-        :math:`\mathbf{m}`. With :math:`\mathbf{p}_1 = \boldsymbol{\alpha}_T`, each finite epoch contributes the
-        occupation :math:`\mathbf{m}_i` and carries the distribution :math:`\mathbf{p}_{i+1}` forward,
-
-        .. math::
-
-            \big[\mathbf{p}_{i+1},\ \mathbf{m}_i\big] = \big[\mathbf{p}_i,\ \mathbf{0}\big]
-            \exp\!\left(\begin{pmatrix} \mathbf{T}_i & \mathbf{I}_T \\ \mathbf{0} & \mathbf{0} \end{pmatrix}
-            \Delta_i\right), \qquad i = 1, \dots, M - 1,
-
-        with :math:`\mathbf{I}_T` the :math:`n_T \times n_T` identity, so that
-        :math:`\mathbf{m} = \sum_{i < M} \mathbf{m}_i + \mathbf{p}_M \mathbf{U}`. With the closed form enabled and no
-        end time set, the mean of bin :math:`j` is :math:`\mathbf{m} \mathbf{w}_j`, and a start time
-        :math:`t_\mathrm{start} > 0` subtracts the occupation accumulated up to :math:`t_\mathrm{start}`. The means
-        accumulated up to the end times of
-        :meth:`PhaseTypeDistribution.accumulate() <phasegen.distributions.PhaseTypeDistribution.accumulate>` use the
-        occupation :math:`\boldsymbol{\alpha} \int_0^b \mathbf{P}(u)\, \mathrm{d}u` of all states in the same way,
-        where :math:`\mathbf{P}(u)` is the transition matrix from time :math:`0` to time :math:`u`.
-
-        For :math:`M = 1`, :math:`t_\mathrm{start} = 0` and no end time, the two-point occupation of the transient
-        states
-        :math:`y, y'`,
-
-        .. math::
-
-            K_{yy'} = \int_0^\infty \int_0^{u'} \mathbb{P}(X_u = y,\, X_{u'} = y')\, \mathrm{d}u\, \mathrm{d}u'
-            = m_y U_{yy'},
-
-        gives :math:`\mathbf{K} = \operatorname{diag}(\mathbf{m}) \mathbf{U}` and all covariances of the spectrum at
-        once,
-
-        .. math::
-
-            \operatorname{Cov}(R_j, R_{j'}) = \mathbf{w}_j^\top (\mathbf{K} + \mathbf{K}^\top)\, \mathbf{w}_{j'}
-            - \mathbb{E}[R_j]\, \mathbb{E}[R_{j'}].
-
-        Under the same conditions the two-locus spectrum of the locus-specific bin rewards
-        :math:`\mathbf{w}^0_j` and :math:`\mathbf{w}^1_{j'}`, with accumulated rewards :math:`R^0_j` and
-        :math:`R^1_{j'}`, is evaluated without forming :math:`\mathbf{K}`,
-
-        .. math::
-
-            \mathbb{E}[R^0_j R^1_{j'}] = (\mathbf{m}^\top \odot \mathbf{w}^0_j)^\top \mathbf{U}\, \mathbf{w}^1_{j'}
-            + (\mathbf{U} \mathbf{w}^0_j)^\top (\mathbf{m}^\top \odot \mathbf{w}^1_{j'}),
-
-        where :math:`\odot` is the elementwise product. This requires one factorization each of :math:`-\mathbf{T}_1`
-        and its transpose and one solve per bin reward, and the result is averaged with its transpose over the two
-        loci.
-
-        For a single population, a single locus and the
-        :class:`~phasegen.coalescent_models.StandardCoalescent`, the first moment of a spectrum bin is computed on the
-        lineage-counting state space when :attr:`Settings.flatten_block_counting
-        <phasegen.settings.Settings.flatten_block_counting>` is enabled, which takes precedence over the contraction
-        above. Bin :math:`j` then accumulates the reward
-
-        .. math::
-
-            w_\ell(j) = \ell \binom{n - j - 1}{\ell - 2} \Big/ \binom{n - 1}{\ell - 1}
-
-        in the state with :math:`\ell \ge 2` lineages, the expected number of lineages subtending :math:`j` of the
-        :math:`n` samples given :math:`\ell` lineages. The weights hold in every epoch because the sequence of mergers
-        does not depend on the population sizes. Rewards without this closed form are weighted with the state
-        probabilities of the embedded jump chain of the block-counting state space.
+        - Matrix exponentials are formed densely while :math:`(k + 1)|E|` is below
+          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and are otherwise
+          applied to vectors as sparse actions (Al-Mohy and Higham, 2011).
+        - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
+          sparse from :attr:`Settings.closed_form_sparse_min_states
+          <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
+          the strongly connected components of the transition graph so that the factors stay nearly triangular.
+        - The closed form requires :attr:`Settings.closed_form_last_epoch
+          <phasegen.settings.Settings.closed_form_last_epoch>`, no end time and a zero start time. Otherwise the last
+          epoch is integrated up to :attr:`TreeHeightDistribution.t_max
+          <phasegen.distributions.TreeHeightDistribution.t_max>`.
+        - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
+          transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
+          mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
+          :math:`\operatorname{diag}(\mathbf{m})\, \mathbf{U}` gives every covariance at once. For one population
+          under the :class:`~phasegen.coalescent_models.StandardCoalescent`, the mean SFS is computed on the smaller
+          lineage-counting state space (:attr:`Settings.flatten_block_counting
+          <phasegen.settings.Settings.flatten_block_counting>`).
 
         .. rubric:: References
 
