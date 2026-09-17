@@ -1581,3 +1581,19 @@ def test_windowed_coalescent_distribution_functions_raise_on_every_host(window):
 
     # the default moment-accumulation grid does not depend on a quantile function
     assert len(coal.tree_height._default_end_times()) == Settings.plot_n_grid
+
+
+@pytest.mark.parametrize("name, transform, inverse, points", [
+    ("exponential CDF", lambda s: 1 / (s * (s + 1)), lambda t: 1 - np.exp(-t), [0.05, 0.5, 2, 8, 20]),
+    ("gamma density", lambda s: 1 / (s + 1) ** 3, lambda t: t ** 2 * np.exp(-t) / 2, [0.05, 0.5, 2, 8, 20]),
+    ("Levy density", lambda s: np.exp(-np.sqrt(s)), lambda t: np.exp(-1 / (4 * t)) / (2 * np.sqrt(np.pi) * t ** 1.5),
+     [0.1, 1, 5]),
+    ("sine", lambda s: 1 / (s ** 2 + 1), np.sin, [0.5, 3, 10]),
+])
+def test_dehoog_inversion_matches_closed_form_inverses(name, transform, inverse, points):
+    """The double-precision de Hoog inversion recovers closed-form inverse Laplace transforms, including a branch
+    point (Levy) and an oscillating inverse (sine), to within 1e-9 at the default degree."""
+    from phasegen.distributions.reward import _dehoog_invert
+
+    for t in points:
+        assert abs(_dehoog_invert(transform, t, Settings.dehoog_degree) - inverse(t)) < 1e-9, (name, t)

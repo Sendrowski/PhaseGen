@@ -8,7 +8,6 @@ import logging
 from math import comb, factorial
 from typing import TYPE_CHECKING, Optional, Sequence
 
-import mpmath as mp
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -71,8 +70,10 @@ class RewardDistribution(CallableDistributionFunctions):
         \frac{\varphi(z_l)}{z_l}\, e^{\mathrm{i} l \pi / 2},
 
     with nodes :math:`z_l = \gamma + \mathrm{i} l \pi / (2x)` on a contour of abscissa :math:`\gamma > 0`, weights
-    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, :math:`D` given by :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`,
-    and the series summed by a quotient-difference continued fraction.
+    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and :math:`D` given by
+    :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in
+    :math:`e^{\mathrm{i} \pi / 2}`, the sum converges slowly, so it is replaced by its Padé approximant: a continued
+    fraction that matches its first :math:`2D + 1` terms, with coefficients from the quotient-difference algorithm.
 
     .. rubric:: Implementation
 
@@ -81,8 +82,7 @@ class RewardDistribution(CallableDistributionFunctions):
     - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
       :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
       above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
-    - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform. The de Hoog series
-      is summed in extended precision by ``mpmath``.
+    - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
       the expansion is not monotone, a sign of a feature it cannot resolve.
 
@@ -253,8 +253,8 @@ class RewardDistribution(CallableDistributionFunctions):
 
     def _invert(self, transform, t: float) -> float:
         r"""
-        De Hoog inversion (``mpmath.invertlaplace``) of ``transform`` at ``t``, described at ``RewardDistribution``.
-        It runs in the time unit :math:`\zeta` of ``_time_scale``, using
+        De Hoog inversion of ``transform`` at ``t``, described at ``RewardDistribution``. It runs in the time unit
+        :math:`\zeta` of ``_time_scale``, using
         :math:`g(t) = \zeta^{-1} \mathcal{L}^{-1}[\sigma \mapsto G(\sigma / \zeta)](t / \zeta)` for a transform
         :math:`G` with inverse :math:`g`, so the contour nodes stay of order one.
 
@@ -267,11 +267,7 @@ class RewardDistribution(CallableDistributionFunctions):
 
         tau = self._time_scale
 
-        def F(s) -> 'mp.mpc':
-            val = transform(complex(s) / tau)
-            return mp.mpc(val.real, val.imag)
-
-        return float(mp.invertlaplace(F, t / tau, method='dehoog', degree=Settings.dehoog_degree)) / tau
+        return _dehoog_invert(lambda s: transform(s / tau), t / tau, Settings.dehoog_degree) / tau
 
     def _titled(self, base: str) -> str:
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
@@ -1571,6 +1567,65 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, per
         A = (sp.diags(shifts[i]) if sparse else np.diag(shifts[i])) - Tm
         out[i] = c[i] + a[i] @ MomentEvaluator._lu_solver(A, sparse, perm)(exit_m)
     return out
+
+
+def _dehoog_invert(transform, t: float, degree: int) -> float:
+    """
+    Inverse Laplace transform of ``transform`` at ``t > 0`` by the method of de Hoog, Knight and Stokes (1982), the
+    tail inversion of ``RewardDistribution``. The Fourier series on the ``2 * degree + 1`` contour nodes
+    ``gamma + i k pi / T``, ``T = 2t``, is accelerated by a continued fraction whose coefficients come from the
+    quotient-difference algorithm, with the improved remainder of the last term. The contour abscissa follows the
+    degree through ``alpha = 10 ** -int(1.38 * degree)``, ``tol = 10 * alpha`` and ``gamma = alpha - log(tol) / (2T)``.
+
+    :param transform: The transform, a function of a complex argument.
+    :param t: The point at which to evaluate the inverse.
+    :param degree: The degree ``M``.
+    :return: The inverse at ``t``.
+    """
+    M = degree
+    n = 2 * M + 1
+    alpha = 10.0 ** -int(1.38 * degree)
+    T = 2.0 * t
+    gamma = alpha - np.log(10.0 * alpha) / (2.0 * T)
+    fp = np.array([complex(transform(gamma + 1j * np.pi * k / T)) for k in range(n)])
+
+    # quotient-difference table, filled by the rhombus rule
+    e = np.zeros((n, M + 1), dtype=complex)
+    q = np.zeros((2 * M, M), dtype=complex)
+    q[0, 0] = fp[1] / (fp[0] / 2)
+    q[1:, 0] = fp[2:2 * M + 1] / fp[1:2 * M]
+
+    for r in range(1, M + 1):
+        mr = 2 * (M - r) + 1
+        e[:mr, r] = q[1:mr + 1, r - 1] - q[:mr, r - 1] + e[1:mr + 1, r - 1]
+
+        if r < M:
+            mq = 2 * (M - r) + 1
+            q[:mq, r] = q[1:mq + 1, r - 1] * e[1:mq + 1, r] / e[:mq, r]
+
+    # continued-fraction coefficients
+    d = np.empty(n, dtype=complex)
+    d[0] = fp[0] / 2
+    d[1:2 * M:2] = -q[0, :M]
+    d[2:2 * M + 1:2] = -e[0, 1:M + 1]
+
+    # three-term recurrence of the numerator and denominator of the Pade approximant
+    z = np.exp(1j * np.pi * t / T)
+    A = np.zeros(n + 1, dtype=complex)
+    B = np.ones(n + 1, dtype=complex)
+    A[1] = d[0]
+
+    for i in range(1, 2 * M):
+        A[i + 1] = A[i] + d[i] * A[i - 1] * z
+        B[i + 1] = B[i] + d[i] * B[i - 1] * z
+
+    # improved remainder of the continued fraction
+    h = (1 + (d[2 * M - 1] - d[2 * M]) * z) / 2
+    rem = h * np.expm1(0.5 * np.log1p(d[2 * M] * z / h))
+    A[n] = A[2 * M] + rem * A[2 * M - 1]
+    B[n] = B[2 * M] + rem * B[2 * M - 1]
+
+    return float(np.exp(gamma * t) / T * (A[n] / B[n]).real)
 
 
 #: Starting Fourier truncation of the Euler inversion, refined by ``_NestedConditional._calibrate``.

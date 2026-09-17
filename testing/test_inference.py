@@ -606,7 +606,7 @@ class InferenceTestCase(TestCase):
             do_bootstrap=False,
             cache=True,
             coal=coal,
-            loss=lambda coal, observation: float(np.sum((coal.jsfs.mean - observation) ** 2)),
+            loss=lambda coal, observation: float(np.sum((coal.jsfs.mean.data - observation.data) ** 2)),
             resample=lambda obs, rng: obs
         ) | kwargs
 
