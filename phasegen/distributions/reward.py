@@ -30,13 +30,14 @@ logger = logging.getLogger('phasegen')
 class RewardDistribution(CallableDistributionFunctions):
     r"""
     Distribution of the accumulated reward :math:`R` from time 0 to absorption, with the notation of
-    :class:`~phasegen.distributions.PhaseTypeDistribution`. It is returned by
-    :meth:`Coalescent.distribution() <phasegen.distributions.Coalescent.distribution>`,
-    :meth:`PhaseTypeDistribution.distribution() <phasegen.distributions.PhaseTypeDistribution.distribution>` and the
-    ``bin()`` methods of the spectra, and it supplies the ``cdf``, ``pdf`` and ``quantile`` of every phase-type
-    distribution except :class:`~phasegen.distributions.TreeHeightDistribution`. The mean and variance are exact
-    moments, and the ``cdf``, ``pdf`` and ``quantile`` numerically invert the transform :math:`\varphi` of
-    :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>`.
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. It is returned by :meth:`Coalescent.distribution()
+    <phasegen.distributions.Coalescent.distribution>`, :meth:`PhaseTypeDistribution.distribution()
+    <phasegen.distributions.PhaseTypeDistribution.distribution>` and the ``bin()`` methods of the spectra. The mean and
+    variance of :math:`R` are exact moments, but its distribution has no closed matrix form. The transform
+    :math:`\varphi` given by :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>` is exact,
+    requires a single linear solve and determines the distribution uniquely, so the ``cdf``, ``pdf`` and ``quantile``
+    are obtained by inverting it numerically. The tree height is the exception, as its distribution follows directly
+    from matrix exponentials (see :class:`~phasegen.distributions.TreeHeightDistribution`).
 
     .. rubric:: Fourier-cosine expansion
 
