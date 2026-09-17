@@ -210,7 +210,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     @cached_property
     def _time_scale(self) -> float:
-        """The accumulated-reward inversion time-scale (average Ne at ``t = 0``; ``1.0`` outside the large-N regime).
+        """The accumulated-reward inversion time scale, the inverse of the largest transition rate or ``1.0`` near it.
         Rescales the LST inversion to keep the reward-shifted generator well-conditioned for large-N demographies; the
         transform value is invariant (see :func:`~phasegen.distributions.reward.time_scale`)."""
         from .reward import time_scale
@@ -410,8 +410,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         Each trajectory accumulates the reward :math:`R_{\ell d}` of every locus :math:`\ell` and deme :math:`d`, as
         restricted by the marginals :attr:`loci` and :attr:`demes`. The per-locus and per-deme marginals sum these
-        over demes and over loci. The total sums over demes and over loci, except for the tree height, which takes
-        the maximum over loci. All breakdowns share the trajectories, so their covariances are estimated jointly.
+        over demes and over loci. The total sums over demes and over loci, except for the tree height, which is the
+        maximum over loci of the per-locus heights, each summed over demes. All breakdowns share the trajectories, so their covariances are estimated jointly.
 
         :param n_samples: Number of trajectories.
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
@@ -749,8 +749,11 @@ class _ExpmFunction(_HazardGrid):
     _n_probe_octaves: int = 30
     _n_probe_per_octave: int = 16
 
-    #: Cumulative-hazard step between the segment bounds of the second pass.
+    #: Step between the segment bounds of the second pass, in cumulative hazard above one and in its logarithm below.
     _segment_hazard_step: float = 1.0
+
+    #: Smallest cumulative hazard that bounds a segment of the second pass.
+    _min_segment_hazard: float = float(np.finfo(float).eps)
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """The grid over ``[0, t_max]``, built once. The arguments are ignored, the grid always spans the support."""
@@ -770,8 +773,11 @@ class _ExpmFunction(_HazardGrid):
         x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
         h_probe = np.maximum.accumulate(self._hazard(cdf_probe))
 
-        # pass 2 (resolve): segment bounds at equal steps of that hazard, plus the epoch kinks
-        levels = np.arange(0.0, h_probe[-1], self._segment_hazard_step)
+        # pass 2 (resolve): segment bounds at equal steps of that hazard above one and at equal steps of its logarithm
+        # below, down to the smallest resolved hazard, plus the epoch kinks
+        step = self._segment_hazard_step
+        h_min = max(h_probe[h_probe > 0][0], self._min_segment_hazard)
+        levels = np.concatenate([np.exp(np.arange(np.log(h_min), 0.0, step)), np.arange(1.0, h_probe[-1], step)])
         bounds = set(np.interp(levels, h_probe, x_probe))
         bounds |= {e.start_time for e in d._get_epochs_until_unbounded() if 0.0 < e.start_time < t_max}
         bounds = sorted(bounds | {0.0, t_max})
@@ -799,20 +805,22 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
         if not isinstance(d.reward, TreeHeightReward):
             raise NotImplementedError("CDF not implemented for non-default rewards.")
 
-        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        ta = np.asarray(t, dtype=float)
 
         if np.any(ta < 0):
             raise ValueError("Negative values are not allowed.")
 
-        # the sweep is monotone in time, so evaluate in sorted order and restore the caller's order afterwards
-        order = np.argsort(ta)
-        probs = np.empty_like(ta)
-        probs[order] = d._sweep(ta[order])[0]
+        # the sweep is monotone in time, so evaluate the flattened points in sorted order and restore the caller's
+        # order and shape afterwards
+        flat = ta.ravel()
+        order = np.argsort(flat)
+        probs = np.empty_like(flat)
+        probs[order] = d._sweep(flat[order])[0]
 
         if np.isnan(probs).any():
             d._logger.critical("NaN values in CDF. This is likely due to an ill-conditioned rate matrix.")
 
-        return probs if np.ndim(t) > 0 else float(probs[0])
+        return probs.reshape(ta.shape) if ta.ndim > 0 else float(probs[0])
 
 
 class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
@@ -858,16 +866,17 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
         if not isinstance(d.reward, TreeHeightReward):
             raise NotImplementedError("PDF not implemented for non-default rewards.")
 
-        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        ta = np.asarray(t, dtype=float)
 
         if np.any(ta < 0):
             raise ValueError("Negative values are not allowed.")
 
-        order = np.argsort(ta)
-        dens = np.empty_like(ta)
-        dens[order] = d._sweep(ta[order])[1]
+        flat = ta.ravel()
+        order = np.argsort(flat)
+        dens = np.empty_like(flat)
+        dens[order] = d._sweep(flat[order])[1]
 
-        return dens if np.ndim(t) > 0 else float(dens[0])
+        return dens.reshape(ta.shape) if ta.ndim > 0 else float(dens[0])
 
 
 class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
@@ -900,7 +909,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         e^{\mathbf{T}_1 \Delta_1} \cdots e^{\mathbf{T}_{\ell - 1} \Delta_{\ell - 1}}\,
         e^{\mathbf{T}_\ell (x - t_{\ell - 1})},
 
-    and the density uses the absorption rates :math:`\mathbf{q}_\ell` of that epoch.
+    and the density uses the absorption rates :math:`\mathbf{q}_\ell` of that epoch. At a boundary
+    :math:`x = t_\ell` the density uses :math:`\mathbf{q}_\ell`, the absorption rates of the epoch ending there.
 
     .. rubric:: Implementation
 
@@ -911,8 +921,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     - The quantile is read from the cumulative-hazard grid of :class:`~phasegen.distributions.QuantileFunction` on
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
       <phasegen.distributions.TreeHeightDistribution.t_max>`. A first pass over octaves below :math:`t_\mathrm{max}`
-      locates the rise of the CDF, and the grid nodes are then spread over segments of equal cumulative hazard, with
-      the epoch boundaries as nodes.
+      locates the rise of the CDF. The grid nodes are then spread over segments whose cumulative hazard grows by a
+      constant factor below one and by a constant step above, with the epoch boundaries as nodes.
     - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 
     .. rubric:: References
@@ -994,10 +1004,17 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         #: End time
         self.end_time: float | None = end_time
 
+    #: Largest row-sum norm of ``S tau`` exponentiated in one step by ``_propagate``.
+    _max_step_norm: float = 1e3
+
     def _propagate(self, w: np.ndarray, tau: float) -> np.ndarray:
         """
         Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
-        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it.
+        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
+        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step leaves the
+        transient entries unchanged. The absorbing states never feed the transient ones, so those entries are then
+        stationary, and the CDF and density they carry are final. This makes ``tau`` of any size, infinity included,
+        a finite number of exponentials.
 
         :param w: The row vector to advance.
         :param tau: Time to advance by, within the current epoch.
@@ -1007,12 +1024,25 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             return w
 
         S = self.state_space.S
+        norm = float(abs(S).sum(axis=1).max())
+        h = self._max_step_norm / norm if norm > 0 else tau
 
-        # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
-        if self.state_space.k >= Settings.expm_action_min_dim:
-            return Backend.expm_multiply((sp.csr_matrix(S) * tau).T.tocsr(), w)
+        while tau > 0:
+            step = min(tau, h)
 
-        return w @ expm(self._dense_rate_matrix() * tau)
+            # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
+            if self.state_space.k >= Settings.expm_action_min_dim:
+                v = Backend.expm_multiply((sp.csr_matrix(S) * step).T.tocsr(), w)
+            else:
+                v = w @ expm(self._dense_rate_matrix() * step)
+
+            stationary = np.array_equal(v * self._e, w * self._e)
+            w, tau, h = v, tau - step, 2 * h
+
+            if stationary:
+                break
+
+        return w
 
     @cached_property
     def _e(self) -> np.ndarray:
@@ -1023,18 +1053,20 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     def _cum(self, w: np.ndarray) -> float:
         """
-        The CDF carried by the propagated state distribution ``w``, see ``_sweep``.
+        The CDF carried by the propagated state distribution ``w``, the absorbed share of its mass, see ``_sweep``.
+        Summing the absorbed entries keeps the relative precision of a small CDF.
 
         :param w: The propagated row vector.
         :return: Cumulative probability.
         """
-        return float(1 - w @ self._e)
+        return float(w @ (1 - self._e) / w.sum())
 
     def _sweep_to(self, w: np.ndarray, u_prev: float, u: float, epoch: 'Epoch') -> np.ndarray:
         """
         Advance the row vector from ``u_prev`` to ``u``, crossing whatever epoch boundaries lie between (the rate
         matrix changes at each, so the exponential is taken piecewise). Leaves the state space updated to the epoch
-        containing ``u``, whose rate matrix the caller needs to read off the density.
+        whose interval ends at or after ``u``, whose rate matrix the caller needs to read off the density, so that a
+        ``u`` on a boundary takes the epoch ending there.
 
         :param w: The row vector at ``u_prev``.
         :param u_prev: Time the vector is currently at.
@@ -1063,9 +1095,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         r"""
         The exact CDF and density at the ascending times ``t``, in one pass. The state distribution
-        :math:`\mathbf{p}(x)` is propagated through the epochs, and at each time :math:`F = 1 - \mathbf{p}\,\mathbf{h}`
-        and :math:`f = \mathbf{p}\,(-\mathbf{S}_\ell\,\mathbf{h})` are read off, with :math:`\mathbf{h}` the indicator
-        of the transient states (``_e``) and :math:`\ell` the current epoch (``TreeHeightDistribution``).
+        :math:`\mathbf{p}(x)` is propagated through the epochs, and at each time
+        :math:`F = \mathbf{p}\,(\mathbf{1} - \mathbf{h}) / \mathbf{p}\,\mathbf{1}` and
+        :math:`f = \mathbf{p}\,(-\mathbf{S}_\ell\,\mathbf{h})` are read off, with :math:`\mathbf{h}` the indicator of
+        the transient states (``_e``), :math:`\mathbf{1}` the vector of ones and :math:`\ell` the epoch
+        ``_sweep_to`` leaves the state space in (``TreeHeightDistribution``).
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.
@@ -1078,7 +1112,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         for i, u in enumerate(t):
             w = self._sweep_to(w, u_prev, float(u), epoch)
-            epoch = self.demography.get_epoch(float(u))
+            epoch = self.state_space.epoch
 
             cdf[i] = self._cum(w)
             pdf[i] = float(w @ self._exit_rates())
@@ -1090,14 +1124,14 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         The exact CDF and density on roughly ``n`` nodes, spread uniformly *within* each segment of ``bounds``, with
         every bound landing exactly on a node. The node budget is split equally between segments, so the segmentation
-        is what grades the nodes (see ``_ExpmFunction._build_cdf_grid``, which chooses segments of equal
-        cumulative hazard).
+        is what grades the nodes (see ``_ExpmFunction._build_cdf_grid``, which chooses the segments by cumulative
+        hazard).
 
         Uniform within a segment is what makes this affordable at large ``n``: when the segment lies within a single
         epoch the propagator ``exp(S dt)`` is the same for every step, so the dense path forms one exponential per
         segment and applies it repeatedly rather than one per node. A segment that straddles an epoch boundary cannot
         share one propagator (the rate matrix changes at the boundary), so each of its steps is taken piecewise via
-        :meth:`_sweep_to`. The segment boundaries (equal cumulative hazard) do not align with the epoch boundaries, so
+        :meth:`_sweep_to`. The segment boundaries (set by cumulative hazard) do not align with the epoch boundaries, so
         this case does arise; it is rare, so the per-segment fast path is kept for the common one.
 
         :param bounds: Ascending segment boundaries, the first of which the propagation starts from.

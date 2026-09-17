@@ -25,20 +25,24 @@ class LocusConfig:
 
         :param n: Number of loci. Either 1 or 2.
         :param n_unlinked: Number of lineages that are initially unlinked between loci. Defaults to 0 meaning that all
-            lineages are initially linked between loci so that the loci are completely linked.
+            lineages are initially linked between loci so that the loci are completely linked. It must not exceed the
+            number of lineages.
         :param recombination_rate: Recombination rate between loci.
+        :raises ValueError: If ``n`` is not a positive integer, ``n_unlinked`` is not a non-negative integer, or the
+            recombination rate is negative.
+        :raises NotImplementedError: If ``n`` exceeds 2.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-        if n < 1:
-            raise ValueError("Number of loci must be at least 1.")
+        if n < 1 or not float(n).is_integer():
+            raise ValueError(f"Number of loci must be a positive integer, got {n}.")
 
         if n > 2:
             raise NotImplementedError("Only 1 or 2 loci are currently supported.")
 
-        if n_unlinked < 0:
-            raise ValueError("Number of unlinked lineages must be non-negative.")
+        if n_unlinked < 0 or not float(n_unlinked).is_integer():
+            raise ValueError(f"Number of unlinked lineages must be a non-negative integer, got {n_unlinked}.")
 
         if recombination_rate < 0:
             raise ValueError("Recombination rate must be non-negative.")
@@ -68,7 +72,7 @@ class LocusConfig:
             return np.ones(s.k)
 
         # number of lineages linked between loci
-        n_linked = max(s.lineage_config.n - self.n_unlinked, 0)
+        n_linked = s.lineage_config.n - self.n_unlinked
 
         # sum over demes and lineage blocks, and require all loci to have ``n_linked`` linked lineages
         return (s.linked.sum(axis=(2, 3)) == n_linked).all(axis=1).astype(int)

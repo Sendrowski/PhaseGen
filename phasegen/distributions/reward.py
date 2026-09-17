@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Smallest atom treated as a positive probability. The probe at ``_s_inf`` exceeds a zero atom by up to about 1e-8.
+_ATOM_FLOOR = 1e-6
+
 
 class RewardDistribution(CallableDistributionFunctions):
     r"""
@@ -144,9 +147,9 @@ class RewardDistribution(CallableDistributionFunctions):
 
     @property
     def _time_scale(self) -> float:
-        """The inversion time-scale (average Ne at ``t = 0``; ``1.0`` outside the large-N regime), read straight from
-        the host. Decoupled from :attr:`_setup` so the conditional flavours -- whose ``lst`` is a nested transform
-        with no state-space reward to bind -- can scale their cumulant/quantile step without invoking ``_setup``.
+        """The inversion time scale of :func:`time_scale`, read straight from the host. Decoupled from :attr:`_setup` so
+        the conditional flavours -- whose ``lst`` is a nested transform with no state-space reward to bind -- can scale
+        their atom probe and inversion contour without invoking ``_setup``.
 
         Deliberately *not* defaulted. Every flavour binds ``_host`` in its constructor, so a missing one means the
         attribute is being read too early -- and a default of 1.0 would answer that with a plausible number rather
@@ -163,11 +166,11 @@ class RewardDistribution(CallableDistributionFunctions):
         of a joint).
 
         Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        which go like :math:`1/\tau`, so a hard-coded :math:`s` is only large in the :math:`\tau \sim 1` regime. On
-        a small-N demography (:math:`\tau = 10^{-6}`) :math:`\varphi(10^8)` has not decayed at all and reports a 1.9%
-        atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry); it needs
-        :math:`s \sim 10^{12}` to converge. Probing at :math:`10^8/\tau` keeps :math:`s` the same large multiple of
-        the rate scale in every regime.
+        and :math:`1/\tau` bounds the fastest of them, so a hard-coded :math:`s` is only large in the
+        :math:`\tau \sim 1` regime. On a small-N demography :math:`\varphi(10^8)` has not decayed at all and reports a
+        1.9% atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry). Probing at
+        :math:`10^8/\tau` keeps :math:`s` at least the same large multiple of every rate in every regime, so the probe
+        exceeds the atom by at most about :math:`10^{-8}` for a reward of order one per unit time.
         """
         return 1e8 / self._time_scale
 
@@ -175,12 +178,9 @@ class RewardDistribution(CallableDistributionFunctions):
     def mean(self) -> float:
         r"""Mean :math:`\mathbb{E}[R]` of the accumulated reward, evaluated by
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`."""
-        reward = getattr(self, 'reward', None)
-        if reward is None:
-            return float(self._cumulants()[0])
         # go through the moment engine directly: a spectrum host overrides ``moment`` to return a whole SFS, which
         # would break ``float()`` for a single-bin reward
-        return float(MomentEvaluator.moment(self._host, k=1, rewards=(reward,), center=False))
+        return float(MomentEvaluator.moment(self._host, k=1, rewards=(self.reward,), center=False))
 
     @cached_property
     def var(self) -> float:
@@ -233,7 +233,8 @@ class RewardDistribution(CallableDistributionFunctions):
         - The exponentials are formed densely. The last-epoch system is solved by a sparse LU factorization from
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
           transient states on, and by a dense one below.
-        - For a mean population size at time 0 far from 1, time is measured in units of that size, which leaves
+        - Transient states that the initial vector cannot reach in any epoch carry no mass and are left out.
+        - When the largest transition rate is far from 1, time is measured in units of its inverse, which leaves
           :math:`\varphi` unchanged and keeps the shifted matrices well scaled.
 
         .. rubric:: References
@@ -278,32 +279,68 @@ class RewardDistribution(CallableDistributionFunctions):
         function objects (the :class:`~phasegen.distributions.base._LSTFunction` family) for their plot titles."""
         return f"{self.label} {base}" if self.label else base
 
+    @property
+    def _rms(self) -> float:
+        r"""The root mean square :math:`\sqrt{\mathbb{E}[R^2]}` from the exact moments, the scale of the step of
+        :meth:`_cumulants`."""
+        return float(np.sqrt(self.var + self.mean ** 2))
+
+    #: Step of :meth:`_cumulants` relative to the root mean square, set by the precision of the transform.
+    _cumulant_step: float = 1e-4
+
     def _cumulants(self) -> tuple:
-        r"""Mean and variance of the accumulated reward from the LST near 0 (:math:`\varphi(0) = 1`):
-        :math:`c_1 = -\varphi'(0)`, :math:`c_2 = \varphi''(0) - \varphi'(0)^2`. Cheap (three transform evaluations);
-        used to set the COS / plot range. The
-        finite-difference step is scaled by ``1/tau`` (``tau ~`` the reward scale for large N) so that ``h * R`` stays
-        small and ``phi(-h) = E[e^{h R}]`` does not overflow for large-N demographies."""
-        h = 1e-4 / self._time_scale
+        r"""Mean and variance of the accumulated reward from the transform near 0 (:math:`\varphi(0) = 1`):
+        :math:`c_1 = -\varphi'(0)`, :math:`c_2 = \varphi''(0) - \varphi'(0)^2`, by central differences with the step
+        :math:`h = \epsilon / \sqrt{\mathbb{E}[R^2]}` for the relative step :math:`\epsilon` of ``_cumulant_step``.
+        The step keeps ``phi(-h) = E[e^{h R}]`` inside the region of convergence unless a tail slower than ``1/h``
+        carries a negligible mass. A reward that is zero almost surely takes the time scale in place of the root mean
+        square."""
+        h = self._cumulant_step / (self._rms or self._time_scale)
         d1 = (self.lst(h).real - self.lst(-h).real) / (2 * h)
         d2 = (self.lst(h).real - 2.0 + self.lst(-h).real) / h ** 2
-        return -d1, max(d2 - d1 ** 2, 1e-12)
+        return -d1, max(d2 - d1 ** 2, 0.0)
 
     def _range(self, scale: float = 12.0) -> float:
-        r"""An upper end for the support (:math:`\mathbb{E}[R] + \text{scale}\cdot\operatorname{std}(R)`), for the COS
-        interval and default plot grids."""
-        c1, c2 = self._cumulants()
-        return float(c1 + scale * np.sqrt(c2))
+        r"""An upper end for the support, :math:`\mathbb{E}[R] + \text{scale}\cdot\operatorname{std}(R)` from the
+        exact moments, for the cosine window and default plot grids. A reward that is zero almost surely takes the
+        time scale.
+
+        :raises NotImplementedError: If the reward is not a scalar reward.
+        :raises ValueError: If the reward is negative.
+        """
+        _ = self._setup  # validates the reward before the moment engine reads it
+        return float(self.mean + scale * self.std) or self._time_scale
 
 
 def _build_epoch_data(host) -> dict:
     """
-    The reward-independent ingredients of the accumulated-reward transform: the transient states, the initial
-    vector and the per-epoch transient sub-generators. Shared across all bins of a spectrum (the generators depend
-    only on the state space and demography, not on which reward is accumulated), so it is built once on the host.
+    The reward-independent ingredients of the accumulated-reward transform: the transient states reachable from the
+    initial vector, the initial vector and the per-epoch transient sub-generators on those states. Shared across all
+    bins of a spectrum (the generators depend only on the state space and demography, not on which reward is
+    accumulated), so it is built once on the host.
     """
     ss = host.state_space
-    idx = np.where(~ss.absorbing)[0]
+    transient = np.where(~ss.absorbing)[0]
+
+    blocks = []
+    for epoch in host._get_epochs_until_unbounded():
+        ss.update_epoch(epoch)
+        host._check_numerical_stability(ss.S, 0)
+        blocks.append((host._transient_block(transient, sparse=True), epoch.start_time, epoch.end_time))
+
+    # the states that carry mass in some epoch: the closure of the initial support under each epoch's transitions in
+    # turn. The others, such as migration targets of a zero rate, may never absorb and would make the last-epoch
+    # system singular at s = 0.
+    reach = np.asarray(ss.alpha)[transient] > 0
+    for T, _, _ in blocks:
+        adj = (T != 0).T.tocsr()
+        while True:
+            nxt = reach | (adj @ reach > 0)
+            if np.array_equal(nxt, reach):
+                break
+            reach = nxt
+
+    idx = transient[reach]
     alpha = np.asarray(ss.alpha)[idx].astype(float)
     nt = len(idx)
     # ``sparse`` gates the sparse matrix build and the sparse block-triangular LU of the final-epoch solve (which is
@@ -314,10 +351,9 @@ def _build_epoch_data(host) -> dict:
     sparse = nt >= Settings.closed_form_sparse_min_states
 
     T_epochs = []
-    for epoch in host._get_epochs_until_unbounded():
-        ss.update_epoch(epoch)
-        host._check_numerical_stability(ss.S, 0)
-        T_epochs.append((host._transient_block(idx, sparse=sparse), epoch.start_time, epoch.end_time))
+    for T, t0, t1 in blocks:
+        sub = T[reach][:, reach]
+        T_epochs.append((sub.tocsc() if sparse else sub.toarray(), t0, t1))
 
     # the block-triangular ordering of the final (unbounded) epoch's sub-generator depends only on its sparsity
     # pattern, which is fixed across the many shifted solves of the de Hoog inversion; compute it once here so the
@@ -327,25 +363,17 @@ def _build_epoch_data(host) -> dict:
     return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs, lu_perm=lu_perm)
 
 
-def _avg_ne_at_zero(host) -> float:
-    """Average effective population size across populations at ``t = 0`` (the demography's first epoch)."""
-    try:
-        sizes = [float(v) for v in host.demography.get_epochs([0.0])[0].pop_sizes.values()]
-        return float(np.mean(sizes)) if sizes else 1.0
-    except Exception:
-        return 1.0
-
-
 def time_scale(host) -> float:
     """
     The time unit of the transform, described at :meth:`RewardDistribution.lst()
-    <phasegen.distributions.RewardDistribution.lst>`: the mean population size at time 0 when it lies outside
-    ``[1e-2, 1e2]``, and 1 otherwise.
+    <phasegen.distributions.RewardDistribution.lst>`: the inverse of the largest total transition rate of a transient
+    state reachable from the initial vector, over all epochs, when it lies outside ``[1e-2, 1e2]``, and 1 otherwise.
 
-    :param host: The phase-type distribution whose demography sets the unit.
+    :param host: The phase-type distribution whose state space and demography set the unit.
     :return: The time unit.
     """
-    tau = _avg_ne_at_zero(host)
+    rate = max(float(np.max(-np.asarray(T.diagonal()), initial=0.0)) for T, _, _ in host._reward_epoch_data['T_epochs'])
+    tau = 1.0 / rate if rate > 0 else 1.0
     return tau if (tau > 1e2 or tau < 1e-2) else 1.0
 
 
@@ -667,11 +695,15 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return RewardDistribution(self._host, self.reward_a if which == 'a' else self.reward_b)
 
     @cached_property
-    def _is_diagonal(self) -> bool:
-        """Whether both reward vectors agree on every transient state, so ``R_a = R_b`` almost surely and the law has
-        no density on the plane."""
+    def _ratio(self) -> Optional[float]:
+        """The constant ``c > 0`` with ``r_a = c r_b`` on every transient state, so that ``R_a = c R_b`` almost surely
+        and the law has no density on the plane, or ``None`` when the reward vectors are not proportional or one of
+        them vanishes."""
         st = self._setup
-        return np.array_equal(st['ra'], st['rb'])
+        na, nb = st['ra'].max(initial=0.0), st['rb'].max(initial=0.0)
+        if na > 0 and nb > 0 and np.allclose(st['ra'] * nb, st['rb'] * na, rtol=1e-12, atol=0.0):
+            return float(na / nb)
+        return None
 
     def moment(self, order_a: int = 1, order_b: int = 1, center: bool = False) -> float:
         r"""
@@ -692,6 +724,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
         ))
 
     @cached_property
+    def _rms(self) -> dict:
+        r"""The exact root mean squares :math:`\sqrt{\mathbb{E}[R_a^2]}` and :math:`\sqrt{\mathbb{E}[R_b^2]}`, keyed
+        ``'a'`` and ``'b'``."""
+        return dict(a=float(np.sqrt(self.moment(2, 0))), b=float(np.sqrt(self.moment(0, 2))))
+
+    @cached_property
     def mean(self) -> np.ndarray:
         r"""The pair of marginal means :math:`(\mathbb{E}[R_a], \mathbb{E}[R_b])`."""
         return np.array([self.moment(1, 0), self.moment(0, 1)])
@@ -705,9 +743,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         r"""The Pearson correlation
         :math:`\operatorname{corr}(R_a, R_b) = \operatorname{Cov}(R_a, R_b)/\sqrt{\operatorname{Var}(R_a)\,
         \operatorname{Var}(R_b)}` between :math:`R_a` and :math:`R_b`."""
-        va = self.marginal('a')._cumulants()[1]
-        vb = self.marginal('b')._cumulants()[1]
-        return float(self.cov() / np.sqrt(va * vb))
+        return float(self.cov() / np.sqrt(self.marginal('a').var * self.marginal('b').var))
 
     # ------------------------------------------------------------------------------------------------------------
     # joint CDF and density (2D Fourier-cosine), documented at JointCDF and JointDensity
@@ -757,9 +793,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
         n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
-        ca, va = self.marginal('a')._cumulants()
-        cb, vb = self.marginal('b')._cumulants()
-        ba, bb = ca + scale * np.sqrt(va), cb + scale * np.sqrt(vb)
+        ba, bb = self.marginal('a')._range(scale), self.marginal('b')._range(scale)
         ua = np.arange(n_terms) * np.pi / ba
         ub = np.arange(n_terms) * np.pi / bb
 
@@ -818,6 +852,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
             _ = self._cos2d_wiggle_check
         xs = np.atleast_1d(np.asarray(xs, dtype=float))
         ys = np.atleast_1d(np.asarray(ys, dtype=float))
+        # the spline evaluates strictly increasing points, mapped back to the caller's order and repetitions
+        ux, ix = np.unique(xs, return_inverse=True)
+        uy, iy = np.unique(ys, return_inverse=True)
         n = max(6, self._cos2d_pdf_grid)
         gx = np.linspace(0.0, max(float(xs.max()), 1e-9) * 1.1, n)
         gy = np.linspace(0.0, max(float(ys.max()), 1e-9) * 1.1, n)
@@ -827,7 +864,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         F[1:, 1:] = self._cc_box(gx[1:], gy[1:])
         dens = (F[2:, 2:] - F[2:, :-2] - F[:-2, 2:] + F[:-2, :-2]) / (4.0 * hx * hy)
         k = min(3, dens.shape[0] - 1)
-        out = RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k)(xs, ys)
+        out = RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k)(ux, uy)[np.ix_(ix, iy)]
         out[xs < 0, :] = 0.0
         out[:, ys < 0] = 0.0
         return out
@@ -852,10 +889,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         return Ix @ st['A'] @ Iy.T                                       # (len_x, len_y)
 
     def _cdf_grid(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """The joint CDF of ``JointCDF`` on the outer grid ``xs x ys``, zero where either threshold is negative."""
+        """The joint CDF of ``JointCDF`` on the outer grid ``xs x ys``, zero where either threshold is negative and
+        within ``[0, 1]`` everywhere."""
         xs, ys = np.asarray(xs, float), np.asarray(ys, float)
         g_a, g_b = self._cos_axis('a', ys), self._cos_axis('b', xs)
-        out = g_b[:, None] + g_a[None, :] - self._atoms['both0'] + self._cc_box(xs, ys)
+        out = np.clip(g_b[:, None] + g_a[None, :] - self._atoms['both0'] + self._cc_box(xs, ys), 0.0, 1.0)
         out[xs < 0, :] = 0.0
         out[:, ys < 0] = 0.0
         return out
@@ -873,8 +911,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``value`` is negative, if ``value`` is zero and the
             conditioning reward has a negligible atom, or if the density of the conditioning reward at ``value`` is
             below the resolution of the inversion.
-        :raises NotImplementedError: If both rewards agree on every transient state, so that the conditional is a point
-            mass at ``value``, or on a windowed coalescent.
+        :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
+            that the conditional is a point mass, or on a windowed coalescent.
 
         .. versionadded:: 2.0
         """
@@ -882,8 +920,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
             raise ValueError("`on` must be 'a' or 'b'.")
         if value is None or value < 0:
             raise ValueError("`value` must be non-negative.")
-        if self._is_diagonal:
-            raise NotImplementedError("The conditional of a self-pair is a point mass at `value` (R_a = R_b a.s.).")
+        if self._ratio is not None:
+            raise NotImplementedError("The conditional of a pair of proportional rewards is a point mass (R_a = c R_b "
+                                      "almost surely).")
 
         other_name = 'b' if on == 'a' else 'a'
 
@@ -917,11 +956,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param n_points: Number of Gauss-Legendre nodes per conditioning reward.
         :param tol: Relative error above which a warning is logged.
         :return: The relative error between the two sides of the identity per conditioning reward, keyed ``'a'`` and
-            ``'b'``, infinite when no conditional could be constructed, or an empty dictionary when both rewards agree
-            on every transient state.
+            ``'b'``, infinite when no conditional could be constructed, or an empty dictionary when one reward is a
+            constant multiple of the other on every transient state.
         """
-        if self._is_diagonal:
-            return {}  # R_a == R_b a.s.; the conditional is a point mass, nothing to integrate
+        if self._ratio is not None:
+            return {}  # R_a = c R_b a.s., the conditional is a point mass
 
         x, w = np.polynomial.legendre.leggauss(n_points)
         us, ws = 0.5 * (x + 1.0), 0.5 * w  # map [-1, 1] -> [0, 1]
@@ -929,7 +968,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         out = {}
         for on, other in (('a', 'b'), ('b', 'a')):
             marg_on, marg_other = self.marginal(on), self.marginal(other)
-            lhs = float(marg_other._cumulants()[0])  # E[R_other] from the (reliable) ordinary marginal
+            lhs = float(marg_other.mean)
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
 
             values, weights, skipped = [], [], []
@@ -948,7 +987,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
             # the quadrature over the constructed nodes, renormalised to their total weight
             rhs = (1.0 - p0) * float(np.dot(weights, values) / np.sum(weights))
-            if p0 > 1e-6:  # atom term P(R_on = 0) E[R_other | R_on = 0]
+            if p0 >= _ATOM_FLOOR:  # atom term P(R_on = 0) E[R_other | R_on = 0]
                 rhs += p0 * float(self.conditional(on, 0.0)._cumulants()[0])
 
             rel = abs(rhs - lhs) / max(abs(lhs), 1e-12)
@@ -992,10 +1031,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param n_y: Number of evaluation points :math:`y`.
         :param tol: Deviation, an absolute probability, above which a warning is logged.
         :return: The deviation per conditioning reward, keyed ``'a'`` and ``'b'``, infinite when no conditional could be
-            constructed, or an empty dictionary when both rewards agree on every transient state.
+            constructed, or an empty dictionary when one reward is a constant multiple of the other on every transient
+            state.
         """
-        if self._is_diagonal:
-            return {}  # R_a == R_b a.s.; the conditional is a point mass, nothing to integrate
+        if self._ratio is not None:
+            return {}  # R_a = c R_b a.s., the conditional is a point mass
 
         x, w = np.polynomial.legendre.leggauss(n_points)
         us, ws = 0.5 * (x + 1.0), 0.5 * w  # map [-1, 1] -> [0, 1]
@@ -1025,7 +1065,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
             # the quadrature over the constructed nodes, renormalised to their total weight
             rhs = (1.0 - p0) * (np.asarray(weights) @ np.asarray(cdfs)) / np.sum(weights)
-            if p0 > 1e-6:  # atom term P(R_on = 0) F(y | R_on = 0)
+            if p0 >= _ATOM_FLOOR:  # atom term P(R_on = 0) F(y | R_on = 0)
                 rhs = rhs + p0 * np.asarray(self.conditional(on, 0.0).cdf(ys), dtype=float)
 
             dev = float(np.max(np.abs(rhs - lhs)))
@@ -1066,7 +1106,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param n_nodes: Number of Gauss-Legendre nodes, ``None`` for the default.
         :return: The window average, a float for a scalar statistic and an array of the statistic's shape otherwise.
         :raises ValueError: If the window reaches zero, where the conditioning reward may have an atom.
-        :raises NotImplementedError: If both rewards agree on every transient state.
+        :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state.
         """
         n_nodes = self._WINDOW_QUAD_NODES if n_nodes is None else n_nodes
         lo, hi = value - half_width, value + half_width
@@ -1126,11 +1166,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param curves: Number of conditioning values per conditioning reward at which the conditional density is also
             evaluated and stored in ``conditional_densities``, for inspection only.
         :return: The largest scaled error per conditioning reward, keyed ``'a'`` and ``'b'``, infinite when no
-            conditional could be constructed, or an empty dictionary when both rewards agree on every transient state.
+            conditional could be constructed, or an empty dictionary when one reward is a constant multiple of the
+            other on every transient state.
         """
         us = np.linspace(*self._COND_CHECK_SPAN, n_points) if quantiles is None else np.asarray(quantiles, float)
-        if self._is_diagonal:
-            return {}  # R_a == R_b a.s.; the conditional is a point mass
+        if self._ratio is not None:
+            return {}  # R_a = c R_b a.s., the conditional is a point mass
 
         out = {}
         #: per-axis ``(quantiles, exact, nested, errors)`` series of the last run, for the comparison plots. The
@@ -1215,11 +1256,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param k: Highest moment order :math:`k`.
         :param quantiles: Levels within the continuous part of the conditioning reward, in :math:`(0, 1)`.
         :return: The largest scaled error over conditioning values and orders per conditioning reward, keyed ``'a'``
-            and ``'b'``, infinite when no conditional could be constructed, or an empty dictionary when both rewards
-            agree on every transient state.
+            and ``'b'``, infinite when no conditional could be constructed, or an empty dictionary when one reward is a
+            constant multiple of the other on every transient state.
         """
         us = np.linspace(*self._COND_CHECK_SPAN, n_points) if quantiles is None else np.asarray(quantiles, float)
-        if self._is_diagonal:
+        if self._ratio is not None:
             return {}
 
         out = {}
@@ -1340,6 +1381,16 @@ class ConditionalRewardDistribution(RewardDistribution):
     """
     #: The conditioning value. Overridden by ``_NestedConditional``, the atom conditions on ``R_on = 0``.
     _value: float = 0.0
+
+    #: Relative step of the cumulant differences, larger than for an exact transform because the conditional transform
+    #: is a numerical inversion with fewer correct digits.
+    _cumulant_step: float = 1e-3
+
+    @property
+    def _rms(self) -> float:
+        r"""The exact root mean square :math:`\sqrt{\mathbb{E}[R_o^2]}` of the unconditional other reward, the scale of
+        the step of :meth:`_cumulants`."""
+        return self._joint._rms['b' if self._on == 'a' else 'a']
 
     def lst(self, s: complex) -> complex:
         r"""
@@ -1499,7 +1550,7 @@ class _AtomConditional(ConditionalRewardDistribution):
 
     def __init__(self, joint: 'JointRewardDistribution', on: str, label: str = '') -> None:
         atom = joint._atoms['a0' if on == 'a' else 'b0']
-        if atom < 1e-9:
+        if atom < _ATOM_FLOOR:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
         self._joint = joint
         # bound before ``_s_inf`` is read, which scales the probe by the host's time scale

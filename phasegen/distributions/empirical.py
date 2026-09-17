@@ -618,12 +618,13 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         :param samples: Realisations per locus, deme and replicate, of shape ``(loci, demes, N)``.
         :param pops: List of population names.
-        :param locus_agg: Aggregation over the locus axis that forms the total, the sum by default.
+        :param locus_agg: Aggregation over the locus axis of the per-locus totals, which sum over demes, forming the
+            total. The sum by default, the maximum for the tree height.
         """
-        over_loci = locus_agg(samples).astype(float)
+        over_loci = samples.sum(axis=0).astype(float)
         over_demes = samples.sum(axis=1).astype(float)
 
-        super().__init__(over_loci.sum(axis=0))
+        super().__init__(locus_agg(over_demes).astype(float))
 
         #: Population names
         self.pops = pops
@@ -637,10 +638,10 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
-            #: Covariance matrix for the demes
+            #: Covariance matrix for the demes, of the per-deme samples summed over loci
             self.pops_cov: np.ndarray = np.cov(over_loci, bias=True)
 
-            #: Correlation matrix for the demes
+            #: Correlation matrix for the demes, of the per-deme samples summed over loci
             self.pops_corr: np.ndarray = np.corrcoef(over_loci)
 
             #: Correlation matrix for the loci
@@ -1400,15 +1401,26 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
     each quantity is attributed to the deme a lineage occupies through time (walking the coalescence and migration
     events). Only validated for relatively simple scenarios."""
 
-    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, samples: dict) -> None:
+    def __init__(
+            self,
+            n_loci: int,
+            n_pops: int,
+            num_replicates: int,
+            sample_size: int,
+            samples: dict,
+            axis: np.ndarray
+    ) -> None:
         self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
         self._samples = samples
         self._sample_size = sample_size
 
+        #: Deme axis, in the order of ``samples``, of each msprime population id.
+        self._axis = axis
+
     def process_tree(self, i, j, tree, ts, ctx) -> None:
-        samples, sample_size = self._samples, self._sample_size
+        samples, sample_size, axis = self._samples, self._sample_size, self._axis
 
         lineages = np.array(list(samples.values()))
         t_coal = ts.tables.nodes.time[sample_size:]
@@ -1418,7 +1430,7 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
         time = 0
 
         # population state per leave
-        pop_states = {n: tree.population(n) for n in range(sample_size)}
+        pop_states = {n: axis[tree.population(n)] for n in range(sample_size)}
 
         # iterate over coalescence events
         for coal_time in t_coal:
@@ -1435,9 +1447,9 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
                     self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
 
                 # update lineages with migrations
-                lineages[ts.migrations_source[i_migration]] -= 1
-                lineages[ts.migrations_dest[i_migration]] += 1
-                pop_states[ts.migrations_node[i_migration]] = ts.migrations_dest[i_migration]
+                lineages[axis[ts.migrations_source[i_migration]]] -= 1
+                lineages[axis[ts.migrations_dest[i_migration]]] += 1
+                pop_states[ts.migrations_node[i_migration]] = axis[ts.migrations_dest[i_migration]]
 
                 i_migration += 1
                 time += delta
@@ -1453,13 +1465,13 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
                 self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
 
             # reduce by number of coalesced lineages
-            lineages[tree.population(node + 1)] -= len(tree.get_children(node + 1)) - 1
+            lineages[axis[tree.population(node + 1)]] -= len(tree.get_children(node + 1)) - 1
 
             # delete children from pop_states
             [pop_states.__delitem__(n) for n in tree.get_children(node + 1)]
 
             # add parent to pop_states
-            pop_states[node + 1] = tree.population(node + 1)
+            pop_states[node + 1] = axis[tree.population(node + 1)]
 
             time += delta
             node += 1
@@ -1569,7 +1581,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
-        :param seed: Random seed.
+        :param seed: Integer random seed, wrapped into msprime's range :math:`[1, 2^{32} - 1]`. ``None`` draws fresh
+            entropy.
         """
         super().__init__(
             n=n,
@@ -1644,6 +1657,16 @@ class MsprimeCoalescent(AbstractCoalescent):
         if isinstance(self.model, DiracCoalescent):
             return ms.DiracCoalescent(psi=self.model.psi, c=self.model.c)
 
+    def _msprime_seed(self, offset: int = 0) -> Optional[int]:
+        """
+        The msprime seed of :attr:`seed` plus ``offset``, wrapped into msprime's range :math:`[1, 2^{32} - 1]`, which it
+        leaves unchanged.
+
+        :param offset: Offset added to the seed, the batch index of a simulation.
+        :return: The msprime seed, ``None`` for fresh entropy.
+        """
+        return None if self.seed is None else (self.seed + offset - 1) % (2 ** 32 - 1) + 1
+
     @cache
     def simulate(self) -> None:
         """
@@ -1663,7 +1686,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         compute_jsfs = self.lineage_config.n_pops > 1 and self.locus_config.n == 1
         jsfs_max_order = self._jsfs_max_order
         jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
-        name_to_index = {name: i for i, name in enumerate(self.demography.pop_names)}
+
+        # deme axes follow ``lineage_config.pop_names``, msprime population ids follow the demography
+        name_to_index = {name: i for i, name in enumerate(self.lineage_config.pop_names)}
+        axis = np.array([name_to_index[pop.name] for pop in demography.populations])
         n_total = self.n_total = num_replicates * self.n_threads
         # retain a capped subset of per-replicate joint SFS branch lengths (the moments use all replicates; the
         # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
@@ -1697,7 +1723,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
             # is recorded either directly from each tree or, with migration recording, from the migration history
             n_loci = self.locus_config.n
-            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, samples)
+            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, samples, axis)
                           if self.record_migration
                           else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
             jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)
@@ -1743,7 +1769,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # parallelize over threads
         batches = parallelize(
             func=simulate_batch,
-            data=[self.seed + i if self.seed is not None else None for i in range(self.n_threads)],
+            data=[self._msprime_seed(i) for i in range(self.n_threads)],
             parallelize=self.parallelize,
             batch_size=num_replicates,
             desc="Simulating trees",
@@ -1852,7 +1878,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return EmpiricalPhaseTypeDistribution(
             self.heights,
-            pops=self.demography.pop_names,
+            pops=self.lineage_config.pop_names,
             locus_agg=lambda x: x.max(axis=0)
         )
 
@@ -1863,7 +1889,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeDistribution(self.heights, pops=self.demography.pop_names)
+        return EmpiricalPhaseTypeDistribution(self.heights, pops=self.lineage_config.pop_names)
 
     @cached_property
     def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:
@@ -1872,7 +1898,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.demography.pop_names)
+        return EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.lineage_config.pop_names)
 
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
@@ -1884,7 +1910,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         return EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=self.sfs_lengths,
             mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
-            pops=self.demography.pop_names,
+            pops=self.lineage_config.pop_names,
             sfs_dist=UnfoldedSFSDistribution
         )
 
@@ -1910,7 +1936,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         return EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=lengths.T,
             mutations=mutations.T if self.simulate_mutations else None,
-            pops=self.demography.pop_names,
+            pops=self.lineage_config.pop_names,
             sfs_dist=FoldedSFSDistribution
         )
 
@@ -1965,7 +1991,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=model,
                 ploidy=1,
                 num_replicates=self.num_replicates,
-                random_seed=self.seed,
+                random_seed=self._msprime_seed(),
         )):
             t0, t1 = ts.at(0.5), ts.at(1.5)
             left = np.zeros(n + 1)
@@ -2006,7 +2032,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates,
-                random_seed=self.seed,
+                random_seed=self._msprime_seed(),
         )):
             sample_sets = [ts.samples(population=i) for i in range(len(pops))]
 
@@ -2045,7 +2071,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates,
-                random_seed=self.seed,
+                random_seed=self._msprime_seed(),
         )):
             sample_sets = [ts.samples(population=i) for i in idx]
             values[k] = getattr(ts, kind)(sample_sets, mode='branch')

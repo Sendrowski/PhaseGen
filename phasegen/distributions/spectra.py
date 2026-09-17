@@ -228,11 +228,43 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         pass
 
+    def _bin_index(self, i: int) -> int:
+        """
+        Validate a frequency class of the spectrum array.
+
+        :param i: The frequency class, an integer from 0 to :math:`n`.
+        :return: The frequency class as an integer.
+        :raises ValueError: If ``i`` is not an integer from 0 to :math:`n`.
+        """
+        n = self.lineage_config.n
+
+        if isinstance(i, bool) or not float(i).is_integer() or not 0 <= i <= n:
+            raise ValueError(f"The frequency class must be an integer from 0 to {n}, got {i}.")
+
+        return int(i)
+
+    def _polymorphic_bin(self, i: int) -> int:
+        """
+        Validate a polymorphic frequency class, one with a branch-length distribution.
+
+        :param i: The frequency class.
+        :return: The frequency class as an integer.
+        :raises ValueError: If ``i`` is not one of the polymorphic classes of this spectrum.
+        """
+        indices = self._get_indices()
+
+        if self._bin_index(i) not in indices:
+            raise ValueError(
+                f"The frequency class must be a polymorphic class from {indices[0]} to {indices[-1]}, got {i}."
+            )
+
+        return int(i)
+
     def _bin_distribution(self, i: int) -> 'RewardDistribution':
         """The reward distribution of SFS bin ``i`` under this spectrum's reward, cached so the expensive cosine / LST
         fit behind its cdf / pdf / quantile is built once and reused across repeated calls and across the three
         curves, rather than rebuilt on every ``sfs.cdf(t)``. Honors :attr:`Settings.cache`."""
-        i = int(i)
+        i = self._polymorphic_bin(i)
 
         if not Settings.cache:
             return self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
@@ -272,19 +304,19 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             rewards = (self.reward,) * k
 
         effective_start = self.tree_height.start_time if start_time is None else start_time
+        effective_end = self.tree_height.end_time if end_time is None else end_time
 
         # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
         # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
-        # the transient solve across bins); only for the plain mean (k=1, default reward, no custom end time) and when
-        # flattening does not apply (flattening reduces the state space and wins). A non-zero start time is handled by
-        # subtracting the occupation up to it (occupation is additive in time). Other cases fall through to the
-        # per-bin path.
+        # the transient solve across bins); only for the plain mean (k=1, default reward, accumulation until
+        # absorption) and when flattening does not apply (flattening reduces the state space and wins). A non-zero
+        # start time is handled by subtracting the occupation up to it (occupation is additive in time). Other cases
+        # fall through to the per-bin path.
         if (
                 Settings.closed_form_last_epoch and
                 not self._flattening_applies(k) and
                 k == 1 and
-                end_time is None and
-                self.tree_height.end_time is None and
+                (effective_end is None or np.isinf(effective_end)) and
                 rewards == (self.reward,)
         ):
             occupation = self._occupation_times()
@@ -517,6 +549,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param i: The frequency class.
         :return: The distribution of :math:`L_i`.
+        :raises ValueError: If ``i`` is not a polymorphic frequency class of this spectrum.
         """
         d = self._bin_distribution(i)
         d.label = f"SFS bin {int(i)}"
@@ -525,13 +558,21 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
         r"""
         Joint distribution of the branch lengths :math:`L_i` and :math:`L_j` of frequency classes :math:`i` and
-        :math:`j` within one genealogy, as a :class:`~phasegen.distributions.JointRewardDistribution`.
+        :math:`j` within one genealogy, as a :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards
+        are combined with the reward of this spectrum, as for :meth:`UnfoldedSFSDistribution.bin()
+        <phasegen.distributions.UnfoldedSFSDistribution.bin>`.
 
         :param i: The first frequency class.
         :param j: The second frequency class.
         :return: The joint distribution of :math:`(L_i, L_j)`.
+        :raises ValueError: If ``i`` or ``j`` is not a polymorphic frequency class of this spectrum.
         """
-        jd = super().joint_distribution(self._get_sfs_reward(i), self._get_sfs_reward(j))
+        i, j = self._polymorphic_bin(i), self._polymorphic_bin(j)
+
+        jd = super().joint_distribution(
+            CombinedReward([self.reward, self._get_sfs_reward(i)]),
+            CombinedReward([self.reward, self._get_sfs_reward(j)])
+        )
         jd.label = f"SFS bins ({i}, {j})"
         return jd
 
@@ -594,18 +635,23 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param center: Whether to center the moment around the mean.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
-        :return: The kth SFS (cross)-moment accumulations at the ith site-frequency count
+        :return: The kth SFS (cross)-moment accumulations at the ith site-frequency count, a float for a single time
+            and an array for a sequence of times.
         """
         if rewards is None:
             rewards = [self.reward] * k
 
-        return super().accumulate(
+        scalar = np.ndim(end_times) == 0
+
+        accumulation = super().accumulate(
             k=k,
-            end_times=end_times,
+            end_times=[end_times] if scalar else end_times,
             rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
             center=center,
             permute=permute
         )
+
+        return float(accumulation[0]) if scalar else accumulation
 
     @cached_property
     def _cov_batched(self) -> Optional[TwoSFS]:
@@ -697,9 +743,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param i: The ith frequency count
         :param j: The jth frequency count
-        :return: covariance
+        :return: The covariance, zero if a class is not polymorphic in this spectrum.
+        :raises ValueError: If ``i`` or ``j`` is not an integer from 0 to :math:`n`.
         """
-        if i in (0, self.lineage_config.n) or j in (0, self.lineage_config.n):
+        i, j = self._bin_index(i), self._bin_index(j)
+
+        if i not in self._get_indices() or j not in self._get_indices():
             return 0
 
         return super().moment(
@@ -735,9 +784,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         :param i: The ith frequency count
         :param j: The jth frequency count
-        :return: Correlation coefficient
+        :return: The correlation coefficient, zero if a class is not polymorphic in this spectrum.
+        :raises ValueError: If ``i`` or ``j`` is not an integer from 0 to :math:`n`.
         """
-        if i in (0, self.lineage_config.n) or j in (0, self.lineage_config.n):
+        i, j = self._bin_index(i), self._bin_index(j)
+
+        if i not in self._get_indices() or j not in self._get_indices():
             return 0
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
@@ -753,35 +805,35 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param theta: The mutation rate :math:`\theta`.
         :return: The stacked matrices :math:`\mathbf{G}_j` and the vector :math:`\mathbf{g}`.
         """
-        # get non-absorbing states
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
 
-        e = self.state_space.e[non_absorbing]
-        R = np.array([self._get_sfs_reward(i)._get(self.state_space) for i in range(1, n + 1)])[:, non_absorbing]
-        r_total = R.T @ np.ones(n)
+        R = np.array([
+            CombinedReward([self.reward, self._get_sfs_reward(i)])._get(self.state_space) for i in range(1, n + 1)
+        ])[:, non_absorbing]
 
         S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-        I = np.eye(S.shape[0])
+        S = S.toarray() if sp.issparse(S) else np.asarray(S)
 
-        P_total = np.linalg.inv(I - np.diag(1 / r_total) / theta @ S)
-        p_total = (I - P_total) @ e
-        P = np.array([P_total @ np.diag(R[i] / r_total) for i in range(n)])
+        # resolvent (theta diag(r_total) - T)^{-1}, with r_total the summed class rewards
+        U = np.linalg.inv(theta * np.diag(R.sum(axis=0)) - S)
 
-        return P, p_total
+        P = theta * U[None, :, :] * R[:, None, :]
+        g = U @ (-S @ np.ones(S.shape[0]))
+
+        return P, g
 
     def _assert_no_window(self) -> None:
         """Guard the mutational-configuration path against a bounded accumulation window. The configuration
         probabilities are computed over the full to-absorption state-space rate matrix and take no ``start_time`` /
         ``end_time``, so on a windowed host they would silently return the to-absorption result regardless of the
         window. Fail loudly rather than return a value that ignores the configured window."""
-        start = getattr(self.tree_height, 'start_time', 0) or 0
-        end = getattr(self.tree_height, 'end_time', None)
-        if start > 0 or end is not None:
+        if self._windowed:
+            start, end = self.tree_height.start_time, self.tree_height.end_time
             raise NotImplementedError(
                 "get_mutation_config / get_mutation_configs are not implemented for a bounded accumulation window "
                 f"(start_time={start}, end_time={end}): the mutational-configuration probabilities are computed over "
                 "the full to-absorption state space and ignore start_time / end_time, so a windowed result would be "
-                "the to-absorption one regardless. Use start_time=0 and no end_time."
+                "the to-absorption one regardless. Use start_time=0 and no finite end_time."
             )
 
     def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
@@ -791,10 +843,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         A configuration :math:`\mathbf{m} = (m_1, \dots, m_J)` counts the mutations in each of the :math:`J`
         frequency classes, with :math:`J = n - 1` for the unfolded and :math:`J = \lfloor n/2 \rfloor` for the folded
-        spectrum. The reward vector :math:`\mathbf{r}_j` counts the blocks of each state that subtend class :math:`j`,
-        so its accumulated reward :math:`\ell_j` is the total branch length of the class. Given the genealogy, the
-        class counts :math:`Y_j` are independent Poisson variables with means :math:`\theta \ell_j`, where
-        :math:`\theta \ge 0` is the mutation rate per unit of branch length. Hence
+        spectrum. The reward vector :math:`\mathbf{r}_j` holds for each state the number of blocks that subtend class
+        :math:`j`, multiplied by the reward of this spectrum, so its accumulated reward :math:`\ell_j` is the branch
+        length of :meth:`UnfoldedSFSDistribution.bin() <phasegen.distributions.UnfoldedSFSDistribution.bin>`. On a
+        marginal view such as ``sfs.demes['pop_0']``, the branch lengths and hence the configuration probabilities are
+        restricted like the moments of the view. Given the genealogy, the class counts :math:`Y_j` are independent
+        Poisson variables with means :math:`\theta \ell_j`, where :math:`\theta \ge 0` is the mutation rate per unit of
+        branch length. Hence
 
         .. math::
 
@@ -870,13 +925,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             or tripletons and one doubleton.
         :param theta: The mutation rate :math:`\theta` per unit of branch length.
         :return: The probability :math:`\mathbb{P}(\mathbf{Y} = \mathbf{m})`.
-        :raises ValueError: If ``theta`` is negative, or if ``config`` does not have :math:`J` entries or has an entry
-            that is negative or not an integer.
+        :raises ValueError: If ``theta`` is negative or not finite, or if ``config`` does not have :math:`J` entries or
+            has an entry that is negative or not an integer.
         :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
         """
-        # make sure theta is non-negative
-        if theta < 0:
-            raise ValueError("Theta must be greater than or equal to 0.")
+        if not 0 <= theta < np.inf:
+            raise ValueError(f"Theta must be a finite number greater than or equal to 0, got {theta}.")
 
         # the probabilities are to-absorption and ignore a configured window
         self._assert_no_window()
@@ -953,7 +1007,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
         n = len(self._get_configs(self.lineage_config.n, 0)[0])
-        R = [self._get_sfs_reward(i + 1)._get(self.state_space)[non_absorbing] for i in range(n)]
+        R = [
+            CombinedReward([self.reward, self._get_sfs_reward(i + 1)])._get(self.state_space)[non_absorbing]
+            for i in range(n)
+        ]
         r_total = np.sum(R, axis=0)
         alpha = self.state_space.alpha[non_absorbing]
 
@@ -1569,94 +1626,55 @@ class JointSFSDistribution(PhaseTypeDistribution):
     def moment(
             self,
             k: int,
+            rewards: Sequence[Reward] = None,
             start_time: float = None,
             end_time: float = None,
             center: bool = True,
             permute: bool = True
-    ) -> np.ndarray:
+    ) -> JointSFS:
         r"""
         The :math:`k`-th moment of every joint site-frequency spectrum bin, central by default, as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
         :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards, each multiplied with the bin reward. By default, the reward of
+            the distribution for each factor.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :param end_time: The end time :math:`t_\mathrm{end}`. By default, the end time of the distribution, or
             absorption.
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
-        :return: An array of shape :attr:`shape` holding the :math:`k`-th moment of each joint SFS bin.
+        :return: A joint site-frequency spectrum of shape :attr:`shape` holding the :math:`k`-th moment of each bin.
+        :raises ValueError: If the end time precedes the start time, or if the moment is not a number.
         """
-        effective_start = self.tree_height.start_time if start_time is None else start_time
+        k = int(k)
 
-        # batched mean: all joint bins share one occupation-time vector, so the whole joint SFS mean is a single
-        # contraction over the stacked bin rewards (closed form's spectrum path). Only for the plain mean (k=1, no
-        # custom end time); a non-zero start time subtracts the occupation up to it. Other cases fall through to the
-        # per-bin accumulation.
-        if (
-                Settings.closed_form_last_epoch and
-                int(k) == 1 and
-                end_time is None and
-                self.tree_height.end_time is None
-        ):
-            occupation = self._occupation_times()
-            if occupation is not None:
-                m, idx_t = occupation
-                if effective_start > 0:
-                    m = m - self._occupation_times(cap=effective_start)[0]
-                base = np.asarray(self.reward._get(self.state_space), dtype=float)
-                configs = self._get_configs()
-                R = np.column_stack([
-                    (base * np.asarray(JointSFSReward(config)._get(self.state_space), dtype=float))[idx_t]
-                    for config in configs
-                ])
-                values = m @ R
-                out = np.zeros(self.shape)
-                for config, value in zip(configs, values):
-                    out[config] = value
-                return JointSFS(out, pop_names=self.lineage_config.pop_names)
+        if rewards is None:
+            rewards = (self.reward,) * k
 
-        # like the base distribution, a moment is the accumulation over the [start_time, end_time] window
-        if start_time is None:
-            start_time = self.tree_height.start_time
+        if k == 1 and tuple(rewards) == (self.reward,):
+            start = self.tree_height.start_time if start_time is None else start_time
+            end = self.tree_height.end_time if end_time is None else end_time
+            end = np.inf if end is None else end
 
-        if end_time is None:
-            # evaluate the moment to absorption: signal the closed-form path with an infinite end time when it
-            # applies (no explicit end time, accumulation from 0, and absorption certain in the last epoch), but not
-            # when flattening applies (which takes precedence and delegates to the smaller lineage-counting space),
-            # otherwise use the estimated absorption time
-            if (
-                    Settings.closed_form_last_epoch and
-                    not self._flattening_applies(k) and
-                    start_time == 0 and
-                    self.tree_height.end_time is None and
-                    self._absorption_certain_in_last_epoch()
-            ):
-                end_time = np.inf
-            else:
-                end_time = self.tree_height.t_max
+            if end < start:
+                raise ValueError("End time must be greater than or equal to the start time.")
 
-        if start_time > 0 and int(k) == 1:
-            # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
-            acc = self.accumulate(k, [start_time, end_time], center=center, permute=permute)
+            # the mean is additive in time, so every bin is the difference of two batched accumulations
+            acc = self.accumulate(1, [start, end])
             out = acc[..., 1] - acc[..., 0]
-        elif start_time > 0:
-            # for k >= 2 the windowed moment ``E[(Y_b - Y_a)^k]`` is NOT the difference of the cumulative-from-0
-            # moments (that omits the cross terms); accumulate each bin directly over the [start_time, end_time]
-            # window (see MomentEvaluator._accumulate_windowed)
+        else:
             out = np.zeros(self.shape)
             for config in self._get_configs():
-                rewards = tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k))
-                out[config] = float(PhaseTypeDistribution.accumulate(
+                out[config] = PhaseTypeDistribution.moment(
                     self,
                     k=k,
-                    end_times=[end_time],
-                    rewards=rewards,
+                    rewards=tuple(CombinedReward([r, JointSFSReward(config)]) for r in rewards),
+                    start_time=start_time,
+                    end_time=end_time,
                     center=center,
-                    permute=permute,
-                    start_time=start_time
-                )[0])
-        else:
-            out = self.accumulate(k, [end_time], center=center, permute=permute)[..., 0]
+                    permute=permute
+                )
 
         if np.isnan(out).any():
             raise ValueError(
@@ -1716,13 +1734,17 @@ class JointSFSDistribution(PhaseTypeDistribution):
     def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'JointRewardDistribution':
         """
         Joint distribution of the branch lengths of two joint SFS bins within one genealogy, as a
-        :class:`~phasegen.distributions.JointRewardDistribution`.
+        :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards are combined with the reward of this
+        spectrum, as for :meth:`JointSFSDistribution.bin() <phasegen.distributions.JointSFSDistribution.bin>`.
 
         :param config_a: The first descendant configuration, one count per population.
         :param config_b: The second descendant configuration.
         :return: The joint distribution of the two branch lengths.
         """
-        jd = super().joint_distribution(JointSFSReward(tuple(config_a)), JointSFSReward(tuple(config_b)))
+        jd = super().joint_distribution(
+            CombinedReward([self.reward, JointSFSReward(tuple(config_a))]),
+            CombinedReward([self.reward, JointSFSReward(tuple(config_b))])
+        )
         jd.label = f"jSFS bins {tuple(config_a)} x {tuple(config_b)}"
         return jd
 
@@ -2065,13 +2087,19 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         r"""
         Joint distribution of the branch length :math:`L^0_i` of frequency class :math:`i` at locus 0 and the branch
         length :math:`L^1_j` of frequency class :math:`j` at locus 1, as a
-        :class:`~phasegen.distributions.JointRewardDistribution`.
+        :class:`~phasegen.distributions.JointRewardDistribution`. Both locus rewards are combined with the reward of
+        this spectrum, as for
+        :attr:`TwoLocusSFSDistribution.mean <phasegen.distributions.TwoLocusSFSDistribution.mean>`.
 
         :param i: The locus-0 frequency class.
         :param j: The locus-1 frequency class.
         :return: The joint distribution of :math:`(L^0_i, L^1_j)`.
         """
-        jd = PhaseTypeDistribution.joint_distribution(self, TwoLocusSFSReward(0, i), TwoLocusSFSReward(1, j))
+        jd = PhaseTypeDistribution.joint_distribution(
+            self,
+            CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),
+            CombinedReward([self.reward, TwoLocusSFSReward(1, j)])
+        )
         jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
         return jd
 

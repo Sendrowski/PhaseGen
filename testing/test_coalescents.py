@@ -990,14 +990,14 @@ class CoalescentTestCase(TestCase):
         diagonal = c.total_branch_length.joint_distribution(
             pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward()
         )
-        self.assertTrue(diagonal._is_diagonal)
+        self.assertEqual(diagonal._ratio, 1.0)
         with self.assertRaises(NotImplementedError):
             diagonal.pdf.plot(show=False)
         with self.assertRaises(NotImplementedError):
             diagonal.pdf(1.0, 2.0)
 
         off_diagonal = c.sfs.joint_distribution(1, 2)
-        self.assertFalse(off_diagonal._is_diagonal)
+        self.assertIsNone(off_diagonal._ratio)
         off_diagonal.pdf.plot(show=False)  # must not raise
 
     def test_plot_accumulation_center_permute(self):

@@ -25,6 +25,18 @@ class Norm(ABC):
         """
         pass
 
+    @staticmethod
+    def _check_shapes(a: np.ndarray, b: np.ndarray) -> None:
+        """
+        Check that two compared arrays have the same shape.
+
+        :param a: An array.
+        :param b: Another array.
+        :raises ValueError: If the shapes differ.
+        """
+        if np.shape(a) != np.shape(b):
+            raise ValueError(f'Compared values must have the same shape, got {np.shape(a)} and {np.shape(b)}.')
+
 
 class LNorm(Norm):
     """
@@ -38,14 +50,15 @@ class LNorm(Norm):
     vector distance and not an induced matrix norm.
     """
 
-    def __init__(self, p: int) -> None:
+    def __init__(self, p: float) -> None:
         """
         Initialize the class with the provided parameters.
 
-        :param p: The order of the norm. see :func:`numpy.linalg.norm` for details.
+        :param p: The order of the norm, any real number or :math:`\\pm\\infty`, as for vectors in
+            :func:`numpy.linalg.norm`.
         """
         #: The order of the norm.
-        self.p: int = np.inf if np.isinf(p) else int(p)
+        self.p: float = float(p)
 
     def compute(self, a: float | np.ndarray, b: float | np.ndarray) -> float | int:
         """
@@ -54,7 +67,12 @@ class LNorm(Norm):
         :param a: A value.
         :param b: Another value.
         :return: A numerical value representing the difference between the two values.
+        :raises ValueError: If the two values differ in shape.
         """
+        a = np.asarray(a)
+        b = np.asarray(b)
+        self._check_shapes(a, b)
+
         # flatten so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise vector distance
         # rather than a matrix norm
         return np.linalg.norm(np.ravel(a - b), ord=self.p)
@@ -128,15 +146,17 @@ class PoissonLikelihood(Likelihood):
         :param observed: Observed value or values.
         :param modelled: Modelled value or values.
         :return: A numerical value representing the difference between the two values.
+        :raises ValueError: If the observed and modelled values differ in shape.
         """
         # special case: single value
         if not isinstance(observed, Iterable) or not isinstance(modelled, Iterable):
             return self.compute(observed=[observed], modelled=[modelled])
 
-        return - _Likelihood.log_poisson(
-            mu=np.array(list(modelled)),
-            k=np.array(list(observed))
-        ).sum()
+        observed = np.array(list(observed))
+        modelled = np.array(list(modelled))
+        self._check_shapes(observed, modelled)
+
+        return - _Likelihood.log_poisson(mu=modelled, k=observed).sum()
 
 
 class MultinomialLikelihood(Likelihood):
@@ -163,9 +183,12 @@ class MultinomialLikelihood(Likelihood):
         :param observed: Observed counts per category.
         :param modelled: Modelled values (will be normalized to probabilities).
         :return: Negative log-likelihood as a float.
+        :raises ValueError: If the observed and modelled values differ in shape.
         """
         observed = np.array(list(observed))
         modelled = np.array(list(modelled))
+        self._check_shapes(observed, modelled)
+
         modelled = modelled / max(modelled.sum(), np.finfo(float).tiny)
 
         # floor the probabilities before the log so a category the model assigns zero probability yields a large

@@ -192,3 +192,18 @@ def test_f4_nonzero_matches_tskit_branch_mode_tree():
     ana = coal.f4('pop_0', 'pop_2', 'pop_1', 'pop_3')
     assert ana > 1                                            # genuinely nonzero (guards against trivial pass)
     assert ana == pytest.approx(np.mean(f4), abs=0.05)
+
+
+def test_fst_respects_start_time():
+    """
+    The pairwise sub-coalescents behind F_ST and the f-statistics received ``end_time`` but not ``start_time``, so a
+    coalescent windowed at ``start_time=1`` returned the unwindowed F_ST of 1/3.
+    """
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    c = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo, start_time=1.0, end_time=2.0)
+
+    t_within = pg.Coalescent(n={'a': 2, 'b': 0}, demography=demo, start_time=1.0, end_time=2.0).tree_height.mean
+    t_between = pg.Coalescent(n={'a': 1, 'b': 1}, demography=demo, start_time=1.0, end_time=2.0).tree_height.mean
+
+    assert c.fst == pytest.approx(1 - t_within / t_between, rel=1e-8)
+    assert c.f2('a', 'b') == pytest.approx(2 * t_between - 2 * t_within, rel=1e-8)

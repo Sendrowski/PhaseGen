@@ -18,21 +18,6 @@ import phasegen as pg
 from phasegen.distributions.empirical import EmpiricalDistribution, EmpiricalSFSDistribution
 from phasegen.settings import Settings
 
-_PLOT_SETTINGS = (
-    'plot_endpoint_quantile', 'plot_n_grid', 'plot_joint_pdf_n_grid', 'plot_joint_pdf_surface_n_grid',
-    'plot_joint_cdf_n_grid', 'plot_demography_end_time', 'plot_demography_n_grid', 'plot_inference_quantile',
-    'plot_inference_n_grid'
-)
-
-
-@pytest.fixture(autouse=True)
-def _restore_plot_settings():
-    saved = {name: getattr(Settings, name) for name in _PLOT_SETTINGS}
-    yield
-    for name, value in saved.items():
-        setattr(Settings, name, value)
-    plt.close('all')
-
 
 def test_curve_plot_data_is_the_evaluated_function_and_what_plot_draws():
     """For the exact tree height, an accumulated reward and a single SFS bin, the curve is the function evaluated on

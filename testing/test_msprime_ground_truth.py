@@ -55,6 +55,47 @@ class MsprimeGroundTruthTestCase(TestCase):
         assert np.isfinite(ms.f3('pop_0', 'pop_1', 'pop_2'))
         assert np.isfinite(ms.f4('pop_0', 'pop_1', 'pop_2', 'pop_3'))
 
+    def test_deme_axes_follow_the_lineage_configuration(self):
+        """
+        Per-deme msprime statistics must be indexed by ``lineage_config.pop_names``, the order of the exact joint SFS,
+        also when it differs from the demography order. The joint SFS indexed the lineage-order shape by demography
+        order, which transposed its axes or raised IndexError, and the migration statistics charged lineage counts to
+        the wrong deme, so the per-deme branch lengths went negative.
+        """
+        demography = lambda: pg.Demography(pop_sizes={'a': {0: 1}, 'b': {0: 2}},
+                                           migration_rates={('a', 'b'): {0: 0.5}, ('b', 'a'): {0: 0.5}})
+
+        coal = pg.Coalescent(n={'b': 2, 'a': 1}, demography=demography())
+        self.assertEqual(coal.lineage_config.pop_names, ['b', 'a'])
+        jsfs = coal.to_msprime(num_replicates=2000, parallelize=False, n_threads=1, seed=1).jsfs
+        exact = np.asarray(coal.jsfs.mean.data)
+        se = jsfs.samples.std(axis=0) / np.sqrt(jsfs.n_samples)
+        self.assertEqual(jsfs.data.shape, exact.shape)
+        np.testing.assert_array_less(np.abs(jsfs.data - exact), 4 * se + 1e-12)
+
+        coal = pg.Coalescent(n={'b': 2}, demography=demography(), loci=2, recombination_rate=0)
+        ms = coal.to_msprime(num_replicates=2000, parallelize=False, n_threads=1, seed=1, record_migration=True)
+        self.assertTrue(np.isfinite(ms.tree_height.mean))
+        for pop, dist in ms.total_branch_length.demes.items():
+            self.assertTrue(np.all(dist.samples >= 0))
+            se = dist.samples.std() / np.sqrt(dist.n_samples)
+            self.assertAlmostEqual(dist.mean, coal.total_branch_length.demes[pop].mean, delta=4 * se)
+
+    def test_seed_zero_is_wrapped_into_the_msprime_range(self):
+        """
+        Every integer seed must be usable, and seeds inside msprime's range must pass through unchanged. msprime
+        rejects the seed 0, so ``seed=0`` raised ValueError for every statistic.
+        """
+        ms = self._ms(pg.Coalescent(n=3))
+        ms.seed = 0
+
+        self.assertEqual(ms._msprime_seed(), 2 ** 32 - 1)
+        self.assertEqual(ms._msprime_seed(1), 1)
+        self.assertTrue(np.isfinite(ms.tree_height.mean))
+
+        ms.seed = 42
+        self.assertEqual(ms._msprime_seed(3), 45)
+
     def test_two_locus_statistics(self):
         """Two-locus SFS ground truth under recombination."""
         ms = self._ms(pg.Coalescent(n=2, loci=2, recombination_rate=1.0))

@@ -45,16 +45,6 @@ def _count_closed_form_calls():
             setattr(_pgd.PhaseTypeDistribution, name, originals[name])
 
 
-@pytest.fixture(autouse=True)
-def _restore_flag():
-    """Restore the closed-form / path-selection settings after each test."""
-    prev = (Settings.closed_form_last_epoch, Settings.expm_action_min_dim,
-            Settings.closed_form_sparse_min_states)
-    yield
-    (Settings.closed_form_last_epoch, Settings.expm_action_min_dim,
-     Settings.closed_form_sparse_min_states) = prev
-
-
 def _both(fn):
     """Evaluate ``fn`` with the closed form off then on, returning both arrays."""
     Settings.closed_form_last_epoch = False
@@ -267,3 +257,26 @@ class ClosedFormLastEpochTestCase(TestCase):
         assert coal.tree_height._absorption_certain_in_last_epoch() is True
         off, on = _both(lambda: coal.tree_height.mean)
         np.testing.assert_allclose(on, off, rtol=1e-8)
+
+
+@pytest.mark.parametrize("sparse", [False, True], ids=["dense-cf", "sparse-cf"])
+def test_closed_form_finite_epochs_exact_at_large_population_size(sparse):
+    """
+    The finite epochs preceding the closed-form last epoch are balanced, so the third moment of a three-epoch
+    demography scales exactly as ``N ** 3`` and two identical epochs agree with one. The unbalanced dense Van Loan
+    exponential lost digits roughly like ``N ** k``, returning 0.084 instead of 0.233 for ``moment(3) / N ** 3`` at
+    ``N = 1e8``.
+    """
+    Settings.closed_form_last_epoch = True
+    Settings.closed_form_sparse_min_states = _LO if sparse else _HI
+
+    def third_moment(N: float, sizes: dict) -> float:
+        demography = pg.Demography(pop_sizes={'pop_0': {t * N: s * N for t, s in sizes.items()}})
+        return pg.Coalescent(n=4, demography=demography).tree_height.moment(3) / N ** 3
+
+    three_epochs = {0: 1.0, 0.3: 2.0, 0.8: 0.5}
+    reference = third_moment(1.0, three_epochs)
+
+    for N in (1e8, 1e10):
+        np.testing.assert_allclose(third_moment(N, three_epochs), reference, rtol=1e-9)
+        np.testing.assert_allclose(third_moment(N, {0: 1.0, 0.3: 1.0}), third_moment(N, {0: 1.0}), rtol=1e-9)

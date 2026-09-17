@@ -70,6 +70,29 @@ def test_to_empirical_per_deme_and_locus_match_analytic():
         assert e2.loci[locus].mean == pytest.approx(th2.loci[locus].mean, rel=0.03)
 
 
+def test_empirical_deme_covariance_matches_the_deme_distributions():
+    """
+    ``demes.cov`` must be the covariance of the per-deme samples that ``demes`` holds, and its standard error must be
+    computed from them. For the tree height the matrix was built from the maximum over loci while the deme
+    distributions sum over loci, so its diagonal was about half their variance.
+    """
+    dem = pg.Demography(pop_sizes={'a': {0: 1}, 'b': {0: 1}}, migration_rates={('a', 'b'): {0: 0.5}, ('b', 'a'): {0: 0.5}})
+    th = pg.Coalescent(n={'a': 2, 'b': 1}, demography=dem, loci=2, recombination_rate=1.0).tree_height
+    e = th.to_empirical(2000, seed=SEED)
+
+    per_deme = np.array([e.demes[p].samples for p in e.pops])
+
+    np.testing.assert_allclose(e.demes.cov, np.cov(per_deme, bias=True), rtol=1e-12)
+    np.testing.assert_allclose(np.diag(e.demes.cov), [e.demes[p].var for p in e.pops], rtol=1e-12)
+
+    e._cache_standard_errors()
+    np.testing.assert_allclose(
+        e._standard_errors['demes.cov'],
+        e._matrix_block_standard_error(per_deme, lambda x: np.cov(x, bias=True), 100),
+        rtol=1e-12
+    )
+
+
 def test_to_empirical_sfs2_cross_moment():
     """The empirical two-locus cross-moment reproduces the analytic two-locus SFS entry."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
@@ -436,3 +459,20 @@ def test_msprime_sfs_without_simulated_mutations_has_no_mutation_configs():
     ms._drop()
     with pytest.raises(ValueError, match="no mutation counts"):
         _ = ms.sfs.mutation_configs
+
+
+def test_empirical_tree_height_total_is_the_maximum_of_the_per_locus_heights():
+    """The empirical total aggregated over loci before summing over demes, so the tree height was the sum over demes
+    of the deepest locus in each deme. The tree height of several loci is the deepest per-locus height, and a
+    locus's height is the sum over demes of the time its lineages spend there. With one locus spending its whole
+    height in each deme, the old total doubled the height."""
+    from phasegen.distributions.empirical import EmpiricalPhaseTypeDistribution
+
+    # shape (loci, demes, replicates): locus 0 spends 3 in deme a, locus 1 spends 3 in deme b
+    samples = np.array([[[3.0], [0.0]], [[0.0], [3.0]]])
+
+    tree_height = EmpiricalPhaseTypeDistribution(samples, pops=['a', 'b'], locus_agg=lambda x: x.max(axis=0))
+    total = EmpiricalPhaseTypeDistribution(samples, pops=['a', 'b'])
+
+    assert tree_height.mean == 3.0
+    assert total.mean == 6.0

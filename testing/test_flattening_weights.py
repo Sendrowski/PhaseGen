@@ -17,13 +17,6 @@ from phasegen.rewards import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _restore_flatten():
-    prev = Settings.flatten_block_counting
-    yield
-    Settings.flatten_block_counting = prev
-
-
 def _traversal_weights(state_space, reward, n):
     """
     Reference: the original flattening weights, obtained by traversing the block-counting state space and weighting

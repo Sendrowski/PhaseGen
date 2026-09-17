@@ -276,7 +276,7 @@ def test_joint_cdf_plot_grid_honours_diagonal_reduction():
     the grid disagreed with ``__call__`` (max abs error ~0.009) and was not constant along ``min(x, y)``.
     """
     d = pg.Coalescent(n=3).joint_distribution(pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())
-    assert d._is_diagonal
+    assert d._ratio == 1.0
 
     xs = np.array([1.0, 2.0, 3.0])
     ys = np.array([1.0, 2.0, 3.0])
@@ -391,3 +391,53 @@ def test_jsfs_matches_moments(name):
 
     # moments is a diffusion approximation, so allow a small absolute tolerance on the normalized spectrum
     np.testing.assert_allclose(jsfs, np.array(reference['jsfs']), atol=0.01, err_msg=f"Mismatch for config {name}")
+
+
+def test_jsfs_moment_infinite_end_time(two_pop_coalescent):
+    """
+    An explicit infinite end time is accumulation until absorption. jsfs.moment passed it on unresolved, which
+    exponentiated over an infinite step and raised ValueError for the mean and for windowed moments.
+    """
+    jsfs = two_pop_coalescent.jsfs
+
+    np.testing.assert_allclose(
+        np.asarray(jsfs.moment(k=1, end_time=np.inf).data), np.asarray(jsfs.mean.data), rtol=1e-10, atol=1e-12
+    )
+
+    for k in (1, 2):
+        np.testing.assert_allclose(
+            np.asarray(jsfs.moment(k=k, start_time=0.3, end_time=np.inf).data),
+            np.asarray(jsfs.moment(k=k, start_time=0.3).data),
+            rtol=1e-8,
+            atol=1e-12
+        )
+
+
+def test_jsfs_demes_cov(two_pop_coalescent):
+    """
+    jsfs.demes.get_cov, cov and corr must evaluate, and the deme covariances of a bin must sum to its variance, since
+    the deme branch lengths partition the bin branch length. JointSFSDistribution.moment took no rewards, so all three
+    raised TypeError.
+    """
+    jsfs = two_pop_coalescent.jsfs
+    pops = jsfs.lineage_config.pop_names
+
+    total = sum(np.asarray(jsfs.demes.get_cov(p, q).data) for p in pops for q in pops)
+
+    np.testing.assert_allclose(total, np.asarray(jsfs.var.data), rtol=1e-8, atol=1e-12)
+    assert np.asarray(jsfs.demes.cov).shape == (len(pops), len(pops)) + jsfs.shape
+    assert np.asarray(jsfs.demes.corr).shape == (len(pops), len(pops)) + jsfs.shape
+
+
+def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescent):
+    """
+    The joint distribution of two bins of a deme view must carry the view's reward, so its marginal means and
+    covariance equal those of the view. It used the bare bin rewards and so described the full joint spectrum.
+    """
+    view = two_pop_coalescent.jsfs.demes['pop_0']
+    a, b = (1, 0), (0, 1)
+
+    jd = view.joint_distribution(a, b)
+
+    np.testing.assert_allclose(jd.mean, [view.mean.data[a], view.mean.data[b]], rtol=1e-10)
+    np.testing.assert_allclose(jd.cov(), view.get_cov(a, b), rtol=1e-8)

@@ -119,6 +119,30 @@ class NormTestCase(unittest.TestCase):
         self.assertAlmostEqual(pg.L1Norm().compute(3.0, 7.0), 4.0, places=12)
         self.assertAlmostEqual(pg.LInfNorm().compute(3.0, 7.0), 4.0, places=12)
 
+    def test_LNorm_passes_order_to_numpy_unchanged(self):
+        """
+        ``LNorm`` must use a fractional or negative infinite order as given. The order was truncated to an integer,
+        so ``LNorm(1.5)`` computed the L1 norm and ``LNorm(0.5)`` counted nonzero entries, and ``-inf`` became
+        ``+inf``.
+        """
+        a = np.array([1.0, 4.0, 2.0])
+        b = np.array([0.0, 1.0, 1.5])
+
+        for p in [1.5, 0.5, -np.inf, np.inf, 2]:
+            self.assertAlmostEqual(np.linalg.norm(a - b, ord=p), pg.LNorm(p).compute(a, b), places=12)
+
+    def test_shape_mismatch_raises_value_error(self):
+        """
+        Observed and modelled values of different shapes must raise ValueError. A length-1 observation was
+        broadcast against a longer modelled spectrum and gave a finite, meaningless loss.
+        """
+        for compute in [pg.PoissonLikelihood().compute, pg.MultinomialLikelihood().compute, pg.L2Norm().compute]:
+            with self.assertRaises(ValueError):
+                compute([5.], [1., 2., 3.])
+
+            with self.assertRaises(ValueError):
+                compute([1., 2., 3.], [5.])
+
     def test_poisson_likelihood(self):
         """
         Test the Poisson likelihood.

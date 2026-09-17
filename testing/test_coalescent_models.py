@@ -180,6 +180,15 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(c.get_rate(4, 1), c.c * comb(4, 4) * c.psi ** 4 * (1 - c.psi) ** 0)
         self.assertAlmostEqual(c.get_rate(4, 0), 0)
 
+    def test_dirac_coalescent_rejects_non_positive_rate(self):
+        """
+        A non-positive rate ``c`` of multiple merger events raises. A negative ``c`` was accepted and produced negative
+        off-diagonal multiple-merger rates, so moments were computed from an invalid generator.
+        """
+        for c in (-0.5, 0):
+            with self.assertRaisesRegex(ValueError, "rate c of multiple merger events must be positive"):
+                pg.DiracCoalescent(psi=0.5, c=c)
+
     def test_equality(self):
         """
         Test equality.

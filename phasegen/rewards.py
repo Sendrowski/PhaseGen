@@ -357,6 +357,49 @@ class SFSReward(BlockCountingReward, ABC):
         """
         self.index = int(index)
 
+    @abstractmethod
+    def _block_sizes(self, n: int) -> List[int]:
+        """
+        The block sizes, i.e. the numbers of subtended samples, that this bin counts. The bin index is an entry
+        ``0, ..., n`` of the spectrum, and the entries without polymorphic blocks count none.
+
+        :param n: The number of lineages.
+        :return: The distinct block sizes, empty for an entry without polymorphic blocks.
+        :raises ValueError: if the index lies outside ``0, ..., n``.
+        """
+        pass
+
+    def _check_index(self, n: int) -> None:
+        """
+        Check that the bin index is an entry ``0, ..., n`` of the spectrum.
+
+        :param n: The number of lineages.
+        :raises ValueError: if the index is out of range.
+        """
+        if not 0 <= self.index <= n:
+            raise ValueError(
+                f"{self.__class__.__name__} index must lie in 0, ..., {n} for {n} lineages, got {self.index}."
+            )
+
+    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        :raises: NotImplementedError if the state space is not supported
+        :raises ValueError: if the index lies outside ``0, ..., n``
+        """
+        if isinstance(state_space, BlockCountingStateSpace):
+            blocks = np.array(self._block_sizes(state_space.lineage_config.n), dtype=int) - 1
+
+            # sum over demes, loci and the selected blocks
+            return state_space.lineages[:, :, :, blocks].sum(axis=(1, 2, 3))
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
     def __hash__(self) -> int:
         """
         Calculate the hash of the class name and the index.
@@ -370,62 +413,49 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
     r"""
     Reward for one bin of the unfolded site-frequency spectrum: the count of branches subtending exactly ``index``
     samples, :math:`r_{\text{SFS},k}(i) = a_k(i)` with :math:`k = \text{index}` and :math:`a_k(i)` the number of
-    :math:`k`-subtending blocks in state :math:`i`.
+    :math:`k`-subtending blocks in state :math:`i`. The index lies in :math:`0, \dots, n`, and the monomorphic
+    bins :math:`0` and :math:`n` have zero reward.
     """
 
-    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _block_sizes(self, n: int) -> List[int]:
         """
-        Get the reward vector.
+        The block size that this bin counts.
 
-        :param state_space: state space
-        :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :param n: The number of lineages.
+        :return: The block size ``index``, or none for the monomorphic bins ``0`` and ``n``.
+        :raises ValueError: if the index lies outside ``0, ..., n``.
         """
-        if isinstance(state_space, BlockCountingStateSpace):
-            # sum over demes and loci, and select block
-            return state_space.lineages[:, :, :, self.index - 1].sum(axis=(1, 2))
+        self._check_index(n)
 
-        raise NotImplementedError(
-            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-        )
+        return [self.index] if 0 < self.index < n else []
 
 
 class FoldedSFSReward(SFSReward, BlockCountingReward):
     r"""
     Reward for one bin of the folded site-frequency spectrum: the count of branches subtending ``index`` or
     :math:`n - \text{index}` samples, :math:`r(i) = a_\text{index}(i) + a_{n-\text{index}}(i)` (the two mirror
-    classes summed, and a single class when they coincide).
+    classes summed, and a single class when they coincide). The index lies in :math:`0, \dots, n`, and the bins
+    :math:`0` and :math:`\lfloor n/2 \rfloor + 1, \dots, n` have zero reward.
     """
 
-    def _get_indices(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _block_sizes(self, n: int) -> List[int]:
         """
-        Get the indices of the blocks that make up the folded SFS bin.
+        The block sizes that this bin counts.
 
-        :param state_space: state space
-        :return: indices
+        :param n: The number of lineages.
+        :return: The block sizes ``index`` and ``n - index``, ``index`` alone when they coincide, or none for the bins
+            ``0`` and ``n // 2 + 1, ..., n``.
+        :raises ValueError: if the index lies outside ``0, ..., n``.
         """
-        if self.index == state_space.lineage_config.n - self.index:
-            return np.array([self.index - 1])
+        self._check_index(n)
 
-        return np.array([self.index - 1, state_space.lineage_config.n - self.index - 1])
+        if not 0 < self.index <= n // 2:
+            return []
 
-    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
-        """
-        Get the reward vector.
+        if self.index == n - self.index:
+            return [self.index]
 
-        :param state_space: state space
-        :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
-        """
-        if isinstance(state_space, BlockCountingStateSpace):
-            blocks = self._get_indices(state_space)
-
-            # sum over demes and loci, and select block
-            return state_space.lineages[:, :, :, blocks].sum(axis=(1, 2, 3))
-
-        raise NotImplementedError(
-            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-        )
+        return [self.index, n - self.index]
 
 
 class StateReward(Reward):
@@ -525,8 +555,8 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
-            # get the index of the population
-            pop_index: int = state_space.epoch.pop_names.index(self.pop)
+            # the deme axis of the state space follows the lineage configuration
+            pop_index: int = state_space.lineage_config.pop_names.index(self.pop)
 
             # fraction of total lineages in the population
             fraction = (state_space.lineages.sum(axis=(1, 3))[:, pop_index] / state_space.lineages.sum(axis=(1, 2, 3)))

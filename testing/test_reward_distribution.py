@@ -18,13 +18,6 @@ from phasegen.settings import Settings
 from phasegen.rewards import UnfoldedSFSReward
 
 
-@pytest.fixture(autouse=True)
-def _restore_settings():
-    saved = (Settings.closed_form_sparse_min_states, Settings.flatten_block_counting)
-    yield
-    Settings.closed_form_sparse_min_states, Settings.flatten_block_counting = saved
-
-
 def _single_epoch_reference_cdf(dist, reward):
     """
     Exact single-epoch CDF: the accumulated reward is phase-type with generator ``diag(1/r) G``, where ``G`` is the
@@ -542,7 +535,7 @@ def test_self_pair_joint_distribution_reduces_to_marginal():
     # an atom-free bin (singletons, L_1 > 0 a.s.) and an atom-bearing bin (bin 3 is empty with positive probability)
     for i in (1, 3):
         jd = coal.sfs.joint_distribution(i, i)
-        assert jd._is_diagonal
+        assert jd._ratio == 1.0
         m = jd.marginal('a')
         for x, y in [(0.5, 1.3), (1.3, 0.5), (0.9, 0.9), (2.0, 0.2)]:
             assert jd.cdf(x, y) == pytest.approx(m.cdf(min(x, y)), abs=1e-9)
@@ -573,7 +566,7 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
     assert jd.marginal('b')._cumulants()[0] == pytest.approx(mean[cb], rel=1e-6)
     assert jd.moment(1, 1) > 0
     assert -1.0 <= jd.corr() <= 1.0
-    assert jsfs.joint_distribution(ca, ca)._is_diagonal
+    assert jsfs.joint_distribution(ca, ca)._ratio == 1.0
 
 
 def test_bin_returns_callable_plottable_1d_distribution():
@@ -1597,3 +1590,177 @@ def test_dehoog_inversion_matches_closed_form_inverses(name, transform, inverse,
 
     for t in points:
         assert abs(_dehoog_invert(transform, t, Settings.dehoog_degree) - inverse(t)) < 1e-9, (name, t)
+
+
+@pytest.mark.parametrize('ne_ancestral', [5e3, 2e4])
+def test_window_and_corr_use_exact_moments_with_a_slow_ancient_epoch(ne_ancestral):
+    """
+    A present-day size of 1 set the time scale to 1 while an ancient epoch of size ``ne_ancestral`` made the slowest
+    tail rate of the reward far smaller than the cumulant step ``1e-4``. ``phi(-h)`` was then evaluated past its pole:
+    the cumulant mean came out negative and the variance clamped to its floor, so the cosine window collapsed and every
+    quantile was negative (``-7.2`` at ``2e4``), and ``corr`` reported ``4e20``. Near the threshold (``5e3``) the window
+    and ``corr`` (0.889 against 0.853) were biased.
+    """
+    from phasegen.rewards import TreeHeightReward
+
+    coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={0: 1.0, 0.5: ne_ancestral}))
+    rd = coal.distribution(TreeHeightReward())
+    q = np.array([0.5, 0.9])
+
+    assert rd._range() == pytest.approx(rd.mean + 12.0 * rd.std, rel=1e-12)
+    assert np.all(rd.quantile(np.array([0.1, 0.5, 0.9])) >= 0.0)
+    np.testing.assert_allclose(rd.quantile(q), coal.tree_height.quantile(q), rtol=1e-2)
+
+    c1, c2 = rd._cumulants()
+    assert c1 == pytest.approx(rd.mean, rel=1e-6)
+    assert c2 == pytest.approx(rd.var, rel=1e-3)
+
+    j = coal.sfs.joint_distribution(1, 2)
+    exact = j.cov() / np.sqrt(j.marginal('a').var * j.marginal('b').var)
+    assert j.corr() == pytest.approx(exact, rel=1e-12)
+    assert 0.8 < j.corr() < 0.9
+
+
+def test_transform_drops_states_the_initial_vector_cannot_reach():
+    """
+    A demography naming a deme without samples and without migration produced migration targets of rate zero, such as
+    one lineage in each deme. They never absorb, so the last-epoch system was singular at ``s = 0``: ``lst(0)`` was
+    NaN and ``total_branch_length.cdf`` raised ``ValueError: array must not contain infs or NaNs``.
+    """
+    coal = pg.Coalescent(n={'a': 2, 'b': 0}, demography=pg.Demography(pop_sizes={'a': {0: 1.0}, 'b': {0: 1.0}}))
+    reference = pg.Coalescent(n=2).total_branch_length
+
+    assert coal.total_branch_length._reward_distribution.lst(0.0) == pytest.approx(1.0, abs=1e-12)
+    assert coal.total_branch_length.cdf(1.0) == pytest.approx(reference.cdf(1.0), abs=1e-9)
+    assert coal.total_branch_length.quantile(0.5) == pytest.approx(reference.quantile(0.5), rel=1e-6)
+
+
+def test_time_scale_ignores_an_unsampled_deme():
+    """
+    The time scale was the mean size over all demes at time 0, including an unsampled source deme of size ``1e7``.
+    The atom probe ``1e8 / tau = 20`` then reported a spurious atom (``cdf(0) = 0.048`` for bin 2, whose atom is 0,
+    and ``quantile(0.02) = 0``), and the cumulant step became roundoff, collapsing the cosine window at the mean so that
+    the CDF at the exact quantiles 0.1, 0.5 and 0.9 read 0.17, 0.78 and 0.98.
+    """
+    from phasegen.rewards import TreeHeightReward
+
+    demography = pg.Demography(pop_sizes={'a': 1.0, 'b': 1e7}, migration_rates={('b', 'a'): 1.0, ('a', 'b'): 0.0})
+    coal = pg.Coalescent(n={'a': 3, 'b': 0}, demography=demography)
+    rd = coal.distribution(TreeHeightReward())
+    q = np.array([0.1, 0.5, 0.9])
+
+    assert rd._time_scale == 1.0
+    np.testing.assert_allclose(rd.cdf(coal.tree_height.quantile(q)), q, atol=1e-3)
+
+    bin2 = coal.sfs.bin(2)
+    assert bin2.cdf(0.0) < 1e-6
+    assert bin2.quantile(0.02) > 0.0
+
+
+def test_exact_node_march_stays_local(monkeypatch):
+    """
+    The march of the de Hoog nodes jumped a whole cosine window when its density estimate was not positive. With
+    ``dehoog_tail_quantile = 0`` the anchor sits at 0, where the tree-height density vanishes for ``n = 4``, and the
+    second node landed at the window end, giving a median of 0.73 against 1.23. Behind a sharp bottleneck one
+    non-monotone de Hoog node gave a negative secant and the march jumped from 1.503 to 3.06, putting the 0.999
+    quantile at 1.76 against 1.505.
+    """
+    from phasegen.rewards import TreeHeightReward
+
+    coal = pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={0: 1, 1.5: 1e-3}))
+    q = np.array([0.99, 0.999])
+    np.testing.assert_allclose(coal.distribution(TreeHeightReward()).quantile(q), coal.tree_height.quantile(q),
+                               rtol=1e-2)
+
+    monkeypatch.setattr(Settings, 'dehoog_tail_quantile', 0.0)
+    coal = pg.Coalescent(n=4)
+    rd = coal.distribution(TreeHeightReward())
+    assert rd.quantile(0.5) == pytest.approx(coal.tree_height.quantile(0.5), rel=1e-4)
+    assert rd.cdf(1.0) == pytest.approx(coal.tree_height.cdf(1.0), abs=1e-4)
+
+
+def test_joint_density_accepts_unsorted_and_repeated_points():
+    """The joint density evaluated its spline on the caller's points, which must be strictly increasing, so an
+    unsorted query such as ``pdf([2, 1], [1, 0.5])`` raised ``ValueError``."""
+    j = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    xs, ys = np.array([1.0, 2.0]), np.array([0.5, 1.0])
+    ref = j.pdf(xs, ys)
+
+    np.testing.assert_allclose(j.pdf(xs[::-1], ys[::-1]), ref[::-1, ::-1], rtol=1e-12)
+    np.testing.assert_allclose(j.pdf(np.array([2.0, 1.0, 2.0]), ys), ref[[1, 0, 1], :], rtol=1e-12)
+
+
+def test_conditioning_on_a_zero_probability_atom_raises():
+    """The guard refused atoms below ``1e-9``, beneath the ``O(1e-8)`` bias of the atom probe for a reward with a
+    positive density at 0, so conditioning on ``L_2 = 0`` for ``n = 4`` (every tree has a cherry) or on ``L_2 = 0`` for
+    ``n = 3`` built a conditional on an event of probability zero."""
+    with pytest.raises(ValueError, match='zero probability'):
+        pg.Coalescent(n=4).sfs.joint_distribution(2, 3).conditional('a', 0.0)
+    with pytest.raises(ValueError, match='zero probability'):
+        pg.Coalescent(n=3).sfs.joint_distribution(1, 2).conditional('b', 0.0)
+
+    # a real atom still conditions: P(L_3 = 0) = 1/3 for n = 4
+    assert pg.Coalescent(n=4).sfs.joint_distribution(2, 3).conditional('b', 0.0).mean > 0
+
+
+def test_proportional_rewards_are_singular():
+    """
+    Only identical reward vectors were recognised as a law on a line. For ``n = 2`` the total branch length is twice
+    the tree height, yet the joint density returned a finite ridge of 1.63 and the conditional built a nested inversion
+    of a point mass.
+    """
+    from phasegen.rewards import TreeHeightReward, TotalBranchLengthReward
+
+    j = pg.Coalescent(n=2).joint_distribution(TotalBranchLengthReward(), TreeHeightReward())
+    assert j._ratio == pytest.approx(2.0)
+
+    with pytest.raises(NotImplementedError):
+        j.pdf([2.0], [0.3, 1.0])
+    with pytest.raises(NotImplementedError):
+        j.conditional('a', 2.0)
+    assert j.check_total_expectation() == {}
+
+    tbl = j.marginal('a')
+    for x, y in [(1.0, 2.0), (3.0, 0.5), (2.0, 1.0)]:
+        assert j.cdf(x, y) == pytest.approx(tbl.cdf(min(x, 2.0 * y)), abs=1e-9)
+
+
+def test_density_integrates_to_the_cdf_increments_near_a_jump():
+    """The density of a reward distribution was the hazard slope from ``np.gradient``, interpolated between the grid's
+    nodes, which mixes the slopes of neighbouring segments. Next to a near-discontinuity, where a flat stretch of nodes
+    meets a steep one, it put far more mass into a segment than the CDF rises there (total branch length of a
+    2-epoch rapid decline, ``n = 2``: 0.59 against 0.006 on one segment), and roundoff-level changes to the
+    transform, such as the sparse instead of the dense LU, halved or doubled the scenario's pdf metric. The density
+    must integrate to the CDF increment on every segment of the grid, under either solver."""
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.001}})
+    x_max = 2.1
+    gl_x, gl_w = np.polynomial.legendre.leggauss(64)
+
+    for sparse_min in (256, 0):
+        Settings.closed_form_sparse_min_states = sparse_min
+        d = pg.Coalescent(n=2, demography=demography).total_branch_length._reward_distribution
+
+        # the tail grid grows lazily with the largest query, so fix it first and test the segments inside the range
+        d.cdf(2 * x_max)
+        nodes, _ = d.cdf._cdf_grid(x_max=2 * x_max)
+        nodes = nodes[(nodes >= 1.9) & (nodes <= x_max)]
+        lo, hi = nodes[:-1], nodes[1:]
+        keep = hi > lo
+        lo, hi = lo[keep], hi[keep]
+
+        # Gauss-Legendre inside each segment, where the density is smooth
+        mid, half = (lo + hi) / 2, (hi - lo) / 2
+        pts = mid[:, None] + half[:, None] * gl_x[None, :]
+        integral = half * (np.asarray(d.pdf(pts.ravel())).reshape(pts.shape) @ gl_w)
+
+        np.testing.assert_allclose(integral, np.asarray(d.cdf(hi)) - np.asarray(d.cdf(lo)), atol=1e-10)
+
+
+def test_joint_cdf_surface_stays_within_the_unit_interval():
+    """The atom and axis terms of the joint CDF cancel to roundoff at the origin, which left values such as -5e-37 on
+    the plotted surface of the bottleneck example in the User Guide and made R's ``persp`` warn that the surface
+    extends beyond its box. The joint CDF must lie within ``[0, 1]`` everywhere."""
+    coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
+    z = np.asarray(coal.sfs.joint_distribution(1, 2).cdf._plot_data(surface=True).z)
+
+    assert z.min() >= 0.0 and z.max() <= 1.0

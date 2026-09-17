@@ -5,6 +5,7 @@ Test LocusConfig class.
 from testing import TestCase
 
 import numpy as np
+import pytest
 
 import phasegen as pg
 
@@ -95,3 +96,51 @@ class LocusConfigTestCase(TestCase):
         starting = np.array(s.states)[s.locus_config._get_initial_states(s).astype(bool)]
         for state in starting:
             np.testing.assert_array_equal(state.linked, [[[2]], [[2]]])
+
+
+@pytest.mark.parametrize("kwargs", [dict(n=1.9), dict(n=2, n_unlinked=1.5), dict(n=2, n_unlinked=-1)])
+def test_locus_config_non_integral_or_negative_counts_raise(kwargs):
+    """
+    LocusConfig checked only the bounds of the raw values and then truncated with ``int``, so ``n=1.9`` became one
+    locus and ``n_unlinked=1.5`` became 1.
+    """
+    with pytest.raises(ValueError):
+        pg.LocusConfig(**kwargs)
+
+
+def test_coalescent_non_integral_number_of_loci_raises():
+    """
+    A numeric ``loci`` was truncated with ``int`` before it reached LocusConfig, so ``loci=1.9`` gave one locus.
+    """
+    with pytest.raises(ValueError):
+        pg.Coalescent(n=3, loci=1.9)
+
+    assert pg.Coalescent(n=3, loci=2.0).locus_config.n == 2
+
+
+def test_n_unlinked_exceeding_lineages_raises():
+    """
+    ``n_unlinked`` larger than the number of lineages was accepted: the lineage-counting space clamped it, while the
+    numba two-locus block-counting builder wrote to block index -1 and built a corrupted 113-state space whose tree
+    height (2.167 for two lineages) disagreed with the lineage-counting one (1.458).
+    """
+    with pytest.raises(ValueError, match="unlinked lineages"):
+        pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, n_unlinked=3, recombination_rate=1.0))
+
+    c = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, n_unlinked=2, recombination_rate=1.0))
+    assert c._two_locus_tree_height.mean == pytest.approx(c.tree_height.mean, rel=1e-8)
+
+
+def test_coalescent_recombination_rate_override_is_validated():
+    """
+    With a LocusConfig passed as ``loci``, the ``recombination_rate`` override was assigned directly and skipped the
+    non-negativity check, so a negative rate gave a negative tree-height variance.
+    """
+    loci = pg.LocusConfig(n=2)
+
+    with pytest.raises(ValueError, match="non-negative"):
+        pg.Coalescent(n=3, loci=loci, recombination_rate=-1.0)
+
+    c = pg.Coalescent(n=3, loci=loci, recombination_rate=0.5)
+    assert c.locus_config.recombination_rate == 0.5
+    assert loci.recombination_rate == 0

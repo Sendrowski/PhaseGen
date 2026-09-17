@@ -3,6 +3,7 @@ Lineage configuration
 """
 
 import logging
+import numbers
 from typing import Dict, List, Iterable
 
 import numpy as np
@@ -22,21 +23,23 @@ class LineageConfig:
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
             By default, the populations are named 'pop_0', 'pop_1', etc.
+        :raises TypeError: If a lineage count is not a number.
+        :raises ValueError: If a lineage count is negative or not integral, or fewer than two lineages are given.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
         if isinstance(n, dict):
             # we have a dictionary
-            n_lineages = {k: int(v) for k, v in n.items()}
+            n_lineages = {k: self._to_count(v) for k, v in n.items()}
 
         elif isinstance(n, Iterable):
             # we have an iterable
-            n_lineages = {f"pop_{i}": int(n) for i, n in enumerate(n)}
+            n_lineages = {f"pop_{i}": self._to_count(n) for i, n in enumerate(n)}
 
         else:
             # assume we have a scalar
-            n_lineages = dict(pop_0=int(n))
+            n_lineages = dict(pop_0=self._to_count(n))
 
         #: Number of lineages per deme.
         self.lineages: np.ndarray = np.array(list(n_lineages.values()))
@@ -52,6 +55,24 @@ class LineageConfig:
 
         #: Names of populations.
         self.pop_names: List[str] = list(n_lineages.keys())
+
+    @staticmethod
+    def _to_count(value: int | float) -> int:
+        """
+        Convert a lineage count to an integer.
+
+        :param value: The lineage count, a non-negative integral number.
+        :return: The lineage count as an integer.
+        :raises TypeError: If the value is not a number.
+        :raises ValueError: If the value is negative or not integral.
+        """
+        if not isinstance(value, numbers.Real):
+            raise TypeError(f"Lineage counts must be numbers, got {type(value).__name__}.")
+
+        if value < 0 or not float(value).is_integer():
+            raise ValueError(f"Lineage counts must be non-negative integers, got {value}.")
+
+        return int(value)
 
     @property
     def lineage_dict(self) -> Dict[str, int]:

@@ -16,14 +16,6 @@ from phasegen.state_space import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _restore_numba_setting():
-    """Restore the global numba setting after each test."""
-    prev = Settings.use_numba
-    yield
-    Settings.use_numba = prev
-
-
 def _demography(pop_sizes, migration_rate=1.0):
     """Two-or-more-deme demography with symmetric migration (or a single deme with no migration)."""
     from itertools import product

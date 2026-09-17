@@ -231,9 +231,9 @@ class MomentEvaluator:
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
           the strongly connected components of the transition graph so that the factors stay nearly triangular.
         - The closed form requires :attr:`Settings.closed_form_last_epoch
-          <phasegen.settings.Settings.closed_form_last_epoch>`, no end time and a zero start time. Otherwise the last
-          epoch is integrated up to :attr:`TreeHeightDistribution.t_max
-          <phasegen.distributions.TreeHeightDistribution.t_max>`.
+          <phasegen.settings.Settings.closed_form_last_epoch>`, accumulation until absorption from a zero start time,
+          and certain absorption from every transient state of the last epoch. Otherwise the last epoch is integrated
+          up to :attr:`TreeHeightDistribution.t_max <phasegen.distributions.TreeHeightDistribution.t_max>`.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
           mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
@@ -257,39 +257,30 @@ class MomentEvaluator:
         :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :param end_time: The end time :math:`t_\mathrm{end}`. By default, the end time of the distribution, or
-            absorption.
+            absorption. An infinite end time accumulates until absorption.
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
-        :raises ValueError: If the population sizes and migration rates are too far apart for a reliable evaluation,
-            or if the moment is not a number.
+        :raises ValueError: If the start time is negative or exceeds the end time, if the population sizes and
+            migration rates are too far apart for a reliable evaluation, or if the moment is not a number.
         """
         if start_time is None:
             start_time = self.tree_height.start_time
 
         if end_time is None:
-            # signal the closed form (and the batched paths it enables) with an infinite end time for the moment to
-            # absorption: no explicit end time, accumulation from 0, and either flattening applies — which delegates
-            # to the lineage-counting space, always absorption-certain for the single-population standard coalescent,
-            # so the closed form applies there too — or absorption is certain in the last epoch. The ``or`` is
-            # short-circuited so the (block-space-building) absorption check is skipped when flattening applies.
-            # Otherwise fall back to the estimated absorption time.
-            if (
-                    Settings.closed_form_last_epoch and
-                    start_time == 0 and
-                    self.tree_height.end_time is None and
-                    (self._flattening_applies(k) or self._absorption_certain_in_last_epoch())
-            ):
-                end_time = np.inf
-            else:
-                end_time = self.tree_height.t_max
+            # an infinite end time accumulates until absorption
+            end_time = np.inf if self.tree_height.end_time is None else self.tree_height.end_time
+
+        if start_time < 0:
+            raise ValueError("Start time must be greater than or equal to 0.")
 
         if start_time > 0 and np.isinf(end_time):
-            # the windowed accumulation has no closed-form to-absorption branch (that exists only for start_time == 0),
-            # so resolve an infinite end time to the finite absorption estimate, matching the end_time=None windowed
-            # path rather than exponentiating over an infinite step (which yields NaN)
-            end_time = self.tree_height.t_max
+            # a window opening after almost sure absorption raises in TreeHeightDistribution.t_max
+            end_time = self._get_time_to_absorption()
+
+        if end_time < start_time:
+            raise ValueError("End time must be greater than equal start time.")
 
         if start_time > 0 and int(k) == 1:
             # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
@@ -561,7 +552,9 @@ class MomentEvaluator:
         The block sizes an SFS reward counts: ``[i]`` for an unfolded bin ``i``, ``[i, n - i]`` for a folded bin
         (just ``[i]`` when ``i == n - i``). A :class:`~phasegen.rewards.CombinedReward` is unwrapped when it is a
         product of unit rewards and a single SFS reward (as built by the SFS moment path). Returns ``None`` for
-        anything else.
+        anything else, including the bins without polymorphic blocks, which fall back to the block-counting traversal.
+
+        :raises ValueError: if the SFS bin index lies outside ``0, ..., n``.
         """
         if isinstance(reward, CombinedReward):
             non_unit = [r for r in reward.rewards if not isinstance(r, UnitReward)]
@@ -569,19 +562,9 @@ class MomentEvaluator:
                 return None
             reward = non_unit[0]
 
-        if isinstance(reward, FoldedSFSReward):
-            i = reward.index
-            sizes = [i] if i == n - i else [i, n - i]
-        elif isinstance(reward, UnfoldedSFSReward):
-            sizes = [reward.index]
-        else:
-            return None
+        if isinstance(reward, (FoldedSFSReward, UnfoldedSFSReward)):
+            return reward._block_sizes(n) or None
 
-        # only the polymorphic bins (block sizes 1..n-1) are handled in closed form; the monomorphic corners
-        # (size n via the index-1 wraparound, whose only contribution is the k=1 grand-MRCA / absorbing state) fall
-        # back to the block-counting traversal
-        if all(1 <= b <= n - 1 for b in sizes):
-            return sizes
         return None
 
     @_make_hashable
@@ -610,11 +593,15 @@ class MomentEvaluator:
         elif len(rewards) != k:
             raise ValueError(f"Number of rewards must be {k}.")
 
-        end_times = np.array(end_times)
+        end_times = np.array(end_times, dtype=float)
+
+        if np.any(end_times < 0):
+            raise ValueError("Negative end times are not allowed.")
 
         # windowed accumulation: propagate the entry distribution to the window start, then run the Van Loan
         # accumulation over ``[start_time, t]`` (the correct k >= 2 windowed moment, not m_end - m_start)
         if start_time > 0:
+            end_times = np.where(np.isinf(end_times), self._get_time_to_absorption(), end_times)
             return self._accumulate_windowed(k, float(start_time), end_times, rewards)
 
         # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost)
@@ -622,15 +609,19 @@ class MomentEvaluator:
             self._logger.debug("accumulate (k=%d): flattened block-counting", k)
             return self._accumulate_flattened(k, end_times, rewards)
 
-        # closed-form evaluation of the moment to absorption (signalled by an infinite end time): the final
-        # unbounded epoch is solved directly instead of exponentiating over the estimated absorption time
-        if Settings.closed_form_last_epoch and end_times.size == 1 and np.isinf(end_times.flat[0]):
-            self._logger.debug("accumulate (k=%d): closed-form last epoch", k)
-            return np.array([self._accumulate_closed_form(k, rewards)])
+        # infinite end times accumulate until absorption, in closed form when absorption is certain in the last
+        # epoch and otherwise over the estimated absorption time
+        infinite = np.isinf(end_times)
+        if infinite.any():
+            if Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch():
+                self._logger.debug("accumulate (k=%d): closed-form last epoch", k)
+                moments = np.empty(end_times.shape)
+                moments[infinite] = self._accumulate_closed_form(k, rewards)
+                if not infinite.all():
+                    moments[~infinite] = self._accumulate(k, tuple(end_times[~infinite]), rewards)
+                return moments
 
-        # check for negative values
-        if np.any(end_times < 0):
-            raise ValueError("Negative end times are not allowed.")
+            end_times = np.where(infinite, self._get_time_to_absorption(), end_times)
 
         # sort array in ascending order but keep track of original indices
         t_sorted: Collection[float] = np.sort(end_times)
@@ -935,6 +926,18 @@ class MomentEvaluator:
 
         return moments
 
+    def _get_time_to_absorption(self) -> float:
+        """
+        The estimated time of almost sure absorption, over which an infinite end time is integrated when the closed
+        form does not apply.
+
+        :return: The time of almost sure absorption.
+        """
+        if self.tree_height.end_time is None:
+            return self.tree_height.t_max
+
+        return self.tree_height._get_absorption_time()
+
     def _get_epochs_until_unbounded(self) -> List['Epoch']:
         """
         Materialize the demographic epochs up to and including the final, unbounded epoch (``end_time == inf``).
@@ -1057,13 +1060,17 @@ class MomentEvaluator:
             )
         solve = self._lu_solver(-T, use_action)
 
+        # the j-th block of the extended vector is stored divided by lamb ** (k - j), which balances the Van Loan
+        # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end
+        lamb = self._get_regularization_factor(self.state_space.S)
+
         # reward diagonals restricted to the transient states (the off-diagonal Van Loan reward blocks are diagonal)
         r_t = [np.asarray(r._get(self.state_space), dtype=float)[idx_t] for r in rewards]
 
         nu = [None] * (k + 1)
         nu[k] = e[idx_t]
         for j in range(k - 1, -1, -1):
-            nu[j] = solve(r_t[j] * nu[j + 1])
+            nu[j] = solve(r_t[j] * nu[j + 1]) / lamb
 
         z = np.zeros((k + 1) * n)
         for j in range(k + 1):
@@ -1073,9 +1080,9 @@ class MomentEvaluator:
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
             self.state_space.update_epoch(epoch)
-            S = self.state_space.S
+            S = self.state_space.S * lamb
             self._check_numerical_stability(S, i_epoch)
-            tau = epoch.end_time - epoch.start_time
+            tau = (epoch.end_time - epoch.start_time) / lamb
 
             if use_action:
                 r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
@@ -1091,7 +1098,7 @@ class MomentEvaluator:
         alpha_ext = np.zeros((k + 1) * n)
         alpha_ext[:n] = self.state_space.alpha
 
-        return factorial(k) * float(alpha_ext @ z)
+        return factorial(k) * lamb ** k * float(alpha_ext @ z)
 
     def _flattening_applies(self, k: int) -> bool:
         """
@@ -1140,6 +1147,20 @@ class MomentEvaluator:
         end_times = np.asarray(end_times, dtype=float)
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
+
+        # infinite end times take the occupation until absorption, in closed form when absorption is certain in the
+        # last epoch, where the absorbing states carry no occupation
+        infinite = np.isinf(end_times)
+        if infinite.any():
+            occupation = self._occupation_times() if Settings.closed_form_last_epoch else None
+            if occupation is not None:
+                out = np.zeros((len(end_times), self.state_space.k))
+                out[np.ix_(infinite, occupation[1])] = occupation[0]
+                if not infinite.all():
+                    out[~infinite] = self._mean_occupation_grid(end_times[~infinite])
+                return out
+
+            end_times = np.where(infinite, self._get_time_to_absorption(), end_times)
 
         order = np.argsort(end_times)
         t_sorted = end_times[order]

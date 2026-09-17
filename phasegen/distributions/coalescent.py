@@ -52,10 +52,11 @@ class AbstractCoalescent(ABC):
             :class:`~phasegen.lineage.LineageConfig` object can be passed.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param loci: Number of loci or locus configuration.
-        :param recombination_rate: Recombination rate.
+        :param recombination_rate: Recombination rate. If given, it overrides the rate of ``loci``.
         :param demography: Demography.
         :param end_time: Time when to end the computation. If ``None``, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
         """
         self._logger = logger.getChild(self.__class__.__name__)
 
@@ -77,21 +78,17 @@ class AbstractCoalescent(ABC):
             # copy so filling in missing populations never mutates the caller-supplied demography
             demography = copy.deepcopy(demography)
 
-        # set up locus configuration (accept a numeric number of loci, including the float that reticulate passes
-        # from R, or a LocusConfig)
-        if isinstance(loci, (int, float)):
-            #: Locus configuration
-            self.locus_config: LocusConfig = LocusConfig(
-                n=int(loci),
-                recombination_rate=recombination_rate if recombination_rate is not None else 0
-            )
-        else:
-            # copy so setting the recombination rate never mutates the caller-supplied locus configuration
-            #: Locus configuration
-            self.locus_config: LocusConfig = copy.deepcopy(loci)
+        # accept a number of loci (including the float that reticulate passes from R) or a locus configuration
+        if not isinstance(loci, LocusConfig):
+            loci = LocusConfig(n=loci)
 
-            if recombination_rate is not None:
-                self.locus_config.recombination_rate = recombination_rate
+        # a new, validated locus configuration, so the caller-supplied one is never mutated
+        #: Locus configuration
+        self.locus_config: LocusConfig = LocusConfig(
+            n=loci.n,
+            n_unlinked=loci.n_unlinked,
+            recombination_rate=loci.recombination_rate if recombination_rate is None else recombination_rate
+        )
 
         # population names present in the population configuration but not in the demography
         initial_sizes = {p: {0: 1} for p in self.lineage_config.pop_names if p not in demography.pop_names}
@@ -109,8 +106,8 @@ class AbstractCoalescent(ABC):
                 f"Adding these populations with population size of 1."
             )
 
-        # determine population names that are present in the demography but not in the population configuration
-        unspecified_lineages = set(demography.pop_names) - set(self.lineage_config.pop_names)
+        # population names present in the demography but not in the population configuration, in demography order
+        unspecified_lineages = [p for p in demography.pop_names if p not in self.lineage_config.pop_names]
 
         # warn if population names are present in the demography but not in the population configuration
         if len(unspecified_lineages) > 0:
@@ -121,6 +118,12 @@ class AbstractCoalescent(ABC):
             )
 
         self.lineage_config = LineageConfig(self.lineage_config.lineage_dict | {p: 0 for p in unspecified_lineages})
+
+        if self.locus_config.n_unlinked > self.lineage_config.n:
+            raise ValueError(
+                f"The number of unlinked lineages ({self.locus_config.n_unlinked}) must not exceed the number of "
+                f"lineages ({self.lineage_config.n})."
+            )
 
         #: Coalescent model
         self.model: CoalescentModel = model
@@ -444,6 +447,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             n=counts,
             demography=self.demography,
             model=self.model,
+            start_time=self.start_time,
             end_time=self.end_time
         ).tree_height.mean
 
@@ -541,8 +545,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         Select the smallest state space jointly compatible with the given rewards -- the reward-compatibility wiring
         shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint_distribution` (all via
         :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
-        every reward must also support it); otherwise the lineage-counting space if all rewards support it, else the
-        block-counting space.
+        every reward must also support it). Otherwise the lineage-counting space is used if all rewards support it,
+        then the two-locus block-counting space if all rewards support it, else the block-counting space.
 
         :param rewards: The rewards to be accumulated jointly.
         :return: The state space supporting all the rewards.
@@ -559,6 +563,9 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         if Reward.support(LineageCountingStateSpace, rewards):
             return self.lineage_counting_state_space
+
+        if Reward.support(TwoLocusBlockCountingStateSpace, rewards):
+            return self.two_locus_block_counting_state_space
 
         return self.block_counting_state_space
 

@@ -4,6 +4,7 @@ Demographic events and demography class.
 
 import itertools
 import logging
+import numbers
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from .caching import cached_property
@@ -63,22 +64,22 @@ class Demography:
             pop_sizes = {}
 
         # assuming a single population with constant size if a float is given
-        elif isinstance(pop_sizes, (float, int)):
+        elif isinstance(pop_sizes, numbers.Real):
             pop_sizes = {'pop_0': {0: pop_sizes}}
 
         # assuming a single population if only a dictionary of time to size is given
-        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.keys())[0], (float, int)):
+        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.keys())[0], numbers.Real):
             pop_sizes = {'pop_0': pop_sizes}
 
         # assuming constant population sizes if only a dictionary of population to size is given
-        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.values())[0], (float, int)):
+        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.values())[0], numbers.Real):
             pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
 
         if migration_rates is None:
             migration_rates = {}
 
         # wrap migration rate in dictionary if only one time per migration pair is given
-        elif isinstance(migration_rates, dict) and migration_rates and isinstance(list(migration_rates.values())[0], (float, int)):
+        elif isinstance(migration_rates, dict) and migration_rates and isinstance(list(migration_rates.values())[0], numbers.Real):
             migration_rates = {(p, q): {0: r} for (p, q), r in migration_rates.items()}
 
         #: The logger instance
@@ -226,8 +227,19 @@ class Demography:
                 # adjust end time
                 e._broadcast(epoch)
 
-            # apply the events to the epoch
-            [e._apply(epoch) for e in self.events]
+            # apply the rate changes, then isolate the derived population of every split before any split sets its
+            # drain rate, so that the epoch does not depend on the order of events sharing a start time
+            splits = [e for e in self.events if isinstance(e, PopulationSplit)]
+
+            for e in self.events:
+                if not isinstance(e, PopulationSplit):
+                    e._apply(epoch)
+
+            for e in splits:
+                e._isolate(epoch)
+
+            for e in splits:
+                e._apply(epoch)
 
             yield epoch
             prev = epoch
@@ -846,7 +858,7 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
             from population `pop_i` to population `pop_j` at time `time1` etc. or alternatively a single float
             if the migration rate is constant over time.
         """
-        if isinstance(rate, (float, int)):
+        if isinstance(rate, numbers.Real):
             rate = {0: rate}
 
         rate = {(p, q): rate for p in pops for q in pops if p != q}
@@ -902,24 +914,32 @@ class PopulationSplit(DiscreteDemographicEvent):
         #: Migration rate multiplier.
         self.multiplier: float = multiplier
 
-    def _apply(self, epoch: Epoch) -> None:
+    def _isolate(self, epoch: Epoch) -> None:
         """
-        Apply the demographic event to the given epoch if applicable.
+        Switch off all migration into and out of the derived populations if the split falls into the epoch, so that,
+        backward in time, no lineage enters a drained derived population. :class:`Demography` isolates the derived
+        populations of all splits before it applies any of them.
 
         :param epoch: Epoch.
         """
-        # if epoch is contained in the event
         if epoch.start_time <= self.start_time < epoch.end_time:
             for p in self.derived:
-                # switch off all other migration into and out of the derived population so that, backward in time,
-                # no lineage enters the (now drained) derived population
                 for q in epoch.pop_names:
                     if q != p:
                         epoch.migration_rates[(p, q)] = 0
                         epoch.migration_rates[(q, p)] = 0
 
-                # specify high backward-in-time migration rate from the derived to the ancestral population, so that
-                # all lineages move from the derived into the ancestral population *fast enough*
+    def _apply(self, epoch: Epoch) -> None:
+        """
+        Set the drain rate from each derived population to the ancestral population if the split falls into the
+        epoch. The rate uses the population sizes of the epoch, so it must be applied after the rate changes and after
+        :meth:`PopulationSplit._isolate() <phasegen.demography.PopulationSplit._isolate>` of every split.
+
+        :param epoch: Epoch.
+        """
+        if epoch.start_time <= self.start_time < epoch.end_time:
+            for p in self.derived:
+                # high backward-in-time migration rate so that all lineages move to the ancestral population quickly
                 epoch.migration_rates[(p, self.ancestral)] = epoch.pop_sizes[p] * self.multiplier
 
 

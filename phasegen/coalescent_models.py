@@ -412,11 +412,15 @@ class DiracCoalescent(MultipleMergerCoalescent):
         :param c: The rate of potential multiple merger events.
         :param scale_time: Whether to scale coalescence time as described in
             :class:`msprime.DiracCoalescent`. If `False`, the timescale is set to N.
+        :raises ValueError: If ``psi`` is not strictly between 0 and 1, or if ``c`` is not positive.
         """
         super().__init__()
 
         if not 0 < psi < 1:
             raise ValueError("Psi must be between 0 and 1.")
+
+        if not c > 0:
+            raise ValueError("The rate c of multiple merger events must be positive.")
 
         #: The fraction of the population replaced by offspring in one large reproduction event.
         self.psi: float = psi

@@ -145,6 +145,73 @@ class DistributionTestCase(TestCase):
 
         np.testing.assert_allclose(got, ref, rtol=1e-8, atol=1e-10)
 
+    def test_tree_height_cdf_and_pdf_keep_the_shape_of_2d_input(self):
+        """
+        The tree-height cdf and pdf must accept an array of any shape and return values of that shape. They sorted the
+        unflattened input, so a 2-D array was sorted row by row, indexed into a 3-D array and raised a TypeError.
+        """
+        th = pg.Coalescent(n=3).tree_height
+        x = np.array([[0.5, 1.0], [2.0, 0.2]])
+
+        for f in (th.cdf, th.pdf):
+            got = f(x)
+            self.assertEqual(got.shape, x.shape)
+            np.testing.assert_allclose(got, [[f(v) for v in row] for row in x], rtol=1e-12)
+
+    def test_tree_height_pdf_at_an_epoch_boundary_is_independent_of_duplicates(self):
+        """
+        Every copy of a point on an epoch boundary must get the same density, that of the epoch ending there. The
+        sweep looked up the epoch after the boundary for the next point, so a repeated boundary point switched to the
+        density of the following epoch.
+        """
+        th = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 3}})).tree_height
+
+        single = th.pdf(0.5)
+        np.testing.assert_allclose(th.pdf([0.5, 0.5, 0.5]), single, rtol=1e-12)
+        np.testing.assert_allclose(th.pdf([0.4, 0.5, 0.5, 0.6])[1:3], single, rtol=1e-12)
+        self.assertAlmostEqual(single, th.pdf(0.5 - 1e-9), delta=1e-6)
+
+    def test_tree_height_cdf_and_pdf_at_infinity_and_huge_times(self):
+        """
+        The tree-height cdf must be 1 and the pdf 0 at infinity and at finite times far beyond absorption, on the dense
+        and the sparse propagation path. Infinity raised StopIteration from the epoch lookup, and times around 1e100
+        overflowed the matrix exponential to NaN.
+        """
+        from phasegen.settings import Settings
+
+        dim = Settings.expm_action_min_dim
+
+        try:
+            for min_dim in (10 ** 9, 1):
+                Settings.expm_action_min_dim = min_dim
+                th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 0.5}})).tree_height
+
+                x = np.array([1.0, 1e300, np.inf])
+                cdf, pdf = th.cdf(x), th.pdf(x)
+
+                self.assertAlmostEqual(cdf[0], th.cdf(1.0), delta=1e-14)
+                np.testing.assert_array_equal(cdf[1:], 1.0)
+                np.testing.assert_allclose(pdf[1:], 0.0, atol=1e-300)
+                self.assertEqual(th.cdf(np.inf), 1.0)
+        finally:
+            Settings.expm_action_min_dim = dim
+
+    def test_tree_height_quantile_resolves_the_lower_tail(self):
+        """
+        The tree-height quantile must invert the exact CDF in the lower tail and return 0 at level 0. The grid gave a
+        full segment to the region where the CDF cancelled to zero and spread only a few hundred uniform nodes over the
+        whole body below a cumulative hazard of 1, so the quantile at 1e-6 was 7% low and the quantile at 0 was 1e-5.
+        """
+        from scipy.optimize import brentq
+
+        th = pg.Coalescent(n=4).tree_height
+
+        self.assertEqual(th.quantile(0), 0)
+
+        for q in [1e-10, 1e-6, 1e-4, 1e-2, 0.5]:
+            root = np.exp(brentq(lambda lx: th.cdf(np.exp(lx)) - q, -30, np.log(th.t_max), xtol=1e-14))
+            self.assertAlmostEqual(th.quantile(q) / root, 1, delta=1e-4)
+
     def test_quantile(self):
         """
         The quantile is the inverse of the CDF. It reads the hazard grid, whose nodes are exact matrix-exponential
@@ -599,3 +666,134 @@ class DistributionTestCase(TestCase):
             p_unfolded = [coal.sfs.get_mutation_config(config=u, theta=1) for u in coal.fsfs._unfold(config)]
 
             self.assertAlmostEqual(p_folded, sum(p_unfolded))
+
+    def test_get_mutation_config_restricted_by_spectrum_reward(self):
+        """
+        The configuration probabilities of a reward-restricted spectrum must be computed from the class branch lengths
+        under the spectrum's reward, on the single-epoch and the several-epoch path. Both paths used the unrestricted
+        class rewards, so a deme view returned the probabilities of the full spectrum. Checked against the exact
+        identity for a constant reward of 2, which equals the full spectrum at twice the mutation rate, and against
+        E[prod_j Pois(m_j; theta L_j)] over sampled deme branch lengths within four standard errors.
+        """
+        from scipy.stats import poisson
+
+        migration = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
+        theta = 0.7
+
+        for pop_sizes in [
+            {'pop_0': 1, 'pop_1': 1},
+            {'pop_0': {0: 1, 0.5: 0.3, 1.5: 2}, 'pop_1': {0: 1, 0.5: 1.5, 1.5: 0.7}}
+        ]:
+            sfs = pg.Coalescent(
+                n={'pop_0': 2, 'pop_1': 2},
+                demography=pg.Demography(pop_sizes=pop_sizes, migration_rates=migration)
+            ).sfs
+
+            scaled = pg.distributions.UnfoldedSFSDistribution(
+                state_space=sfs.state_space,
+                tree_height=sfs.tree_height,
+                demography=sfs.demography,
+                reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
+            )
+
+            for config in [(0, 0, 0), (1, 0, 1), (2, 1, 0)]:
+                self.assertAlmostEqual(
+                    scaled.get_mutation_config(config, theta), sfs.get_mutation_config(config, 2 * theta), places=12
+                )
+
+            deme = sfs.demes['pop_0']
+            lengths = deme.sample(200000, seed=3)[:, 1:4]
+
+            for config in [(0, 0, 0), (1, 0, 0), (0, 1, 1)]:
+                weights = np.prod([poisson.pmf(config[j], theta * lengths[:, j]) for j in range(3)], axis=0)
+                se = weights.std() / np.sqrt(len(weights))
+
+                self.assertLess(abs(deme.get_mutation_config(config, theta) - weights.mean()), 4 * se)
+
+    def test_sfs_joint_distribution_restricted_by_spectrum_reward(self):
+        """
+        The joint distribution of two bins of a deme view must carry the view's reward, so its marginal means and
+        covariance equal the view's bin means and covariance. It used the bare bin rewards and so described the full
+        spectrum.
+        """
+        migration = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
+        coal = pg.Coalescent(
+            n={'pop_0': 2, 'pop_1': 1},
+            demography=pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates=migration)
+        )
+        deme = coal.sfs.demes['pop_0']
+
+        jd = deme.joint_distribution(1, 2)
+
+        np.testing.assert_allclose(jd.mean, np.asarray(deme.mean.data)[[1, 2]], rtol=1e-10)
+        self.assertAlmostEqual(jd.cov(), deme.cov.data[1, 2], places=10)
+
+    def test_sfs_accumulate_infinite_end_time(self):
+        """
+        An infinite end time accumulates until absorption on the batched spectrum paths. The batched mean
+        accumulation exponentiated over an infinite step and returned NaN, while the per-bin path returned the mean.
+        """
+        migration = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}
+        demography = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates=migration)
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=demography)
+        mean = np.asarray(coal.sfs.mean.data)
+
+        np.testing.assert_allclose(coal.sfs.accumulate(1, [np.inf])[:, 0], mean, rtol=1e-10)
+        np.testing.assert_allclose(coal.sfs.accumulate(1, [1.0, np.inf])[:, 1], mean, rtol=1e-10)
+        np.testing.assert_allclose(np.asarray(coal.sfs.moment(1, end_time=np.inf).data), mean, rtol=1e-10)
+        np.testing.assert_allclose(
+            np.asarray(pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=demography, end_time=np.inf).sfs.mean.data),
+            mean,
+            rtol=1e-10
+        )
+
+    def test_sfs_bin_index_validation(self):
+        """
+        Bin indices must be integers of the spectrum. The folded spectrum aliased classes above n // 2 onto their
+        mirror bins, so fsfs.bin(3) for n = 4 was bin 1 and fsfs.get_corr(1, 3) was 1, and non-integer indices were
+        truncated.
+        """
+        coal = pg.Coalescent(n=4)
+
+        for dist, i in [(coal.fsfs, 3), (coal.fsfs, 1.7), (coal.sfs, 2.5), (coal.sfs, 4), (coal.sfs, 0)]:
+            with self.assertRaises(ValueError):
+                dist.bin(i)
+
+        with self.assertRaises(ValueError):
+            coal.fsfs.joint_distribution(1, 3)
+
+        for i, j in [(1.5, 1), (1, 5), (-1, 1)]:
+            with self.assertRaises(ValueError):
+                coal.fsfs.get_cov(i, j)
+            with self.assertRaises(ValueError):
+                coal.fsfs.get_corr(i, j)
+
+        self.assertEqual(coal.fsfs.get_cov(1, 3), coal.fsfs.cov.data[1, 3])
+        self.assertEqual(coal.fsfs.get_corr(1, 3), 0)
+        self.assertAlmostEqual(coal.fsfs.bin(2.0).mean, coal.fsfs.mean.data[2])
+
+    def test_get_mutation_config_infinite_end_time_and_invalid_theta(self):
+        """
+        An infinite end time is accumulation until absorption, so the configuration probabilities must equal those
+        without an end time. The guard rejected it as a bounded window. A theta of NaN or infinity must raise, where
+        NaN passed the negativity check and returned NaN.
+        """
+        expected = pg.Coalescent(n=3).sfs.get_mutation_config((1, 0), 1.0)
+
+        self.assertAlmostEqual(pg.Coalescent(n=3, end_time=np.inf).sfs.get_mutation_config((1, 0), 1.0), expected)
+
+        for theta in [np.nan, np.inf]:
+            with self.assertRaises(ValueError):
+                pg.Coalescent(n=4).sfs.get_mutation_config((0, 0, 0), theta)
+
+    def test_get_accumulation_scalar_end_time(self):
+        """
+        A scalar end time must return a float equal to the one-element accumulation. The scalar was passed on to an
+        iteration and raised TypeError.
+        """
+        sfs = pg.Coalescent(n=4).sfs
+
+        value = sfs.get_accumulation(1, 1, 0.5)
+
+        self.assertIsInstance(value, float)
+        self.assertAlmostEqual(value, sfs.get_accumulation(1, 1, [0.5])[0], places=12)

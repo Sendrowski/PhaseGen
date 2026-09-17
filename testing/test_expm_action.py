@@ -16,14 +16,6 @@ DENSE = 10 ** 9
 ACTION = 0
 
 
-@pytest.fixture(autouse=True)
-def _restore_threshold():
-    """Restore the global threshold after each test."""
-    prev = Settings.expm_action_min_dim
-    yield
-    Settings.expm_action_min_dim = prev
-
-
 def _demography(pop_sizes, migration_rate=1.0, two_epoch=False):
     from itertools import product
 

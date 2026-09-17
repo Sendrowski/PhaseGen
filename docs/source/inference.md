@@ -283,7 +283,7 @@ inf.to_file(out)
 ```
 
 +++ {"tags": ["python-only"]}
-In ``run_bootstrap.py``, we load the inference object from the file, create a bootstrap sample and run the inference for it. This will use the specified resampling function to resample the SFS.
+In ``run_bootstrap.py``, we load the inference object from the file, create the bootstrap sample of this job and run the inference for it.
 
 ```python
 import phasegen as pg
@@ -293,7 +293,7 @@ out = snakemake.output[0]
 
 inf = pg.Inference.from_file(file)
 
-bootstrap = inf.create_bootstrap()
+bootstrap = inf.create_bootstrap(index=int(snakemake.wildcards.i))
 
 bootstrap.run()
 
@@ -325,7 +325,7 @@ inf.to_file(out)
 +++ {"tags": ["r-only"]}
 In a production setting the bootstraps are typically distributed across a cluster, for instance with a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow. In such a workflow, one rule sets up the inference and performs the initial run ({meth}`~phasegen.inference.Inference.to_file`), a second rule loads it ({meth}`~phasegen.inference.Inference.from_file`), creates a single bootstrap and runs it, and a final rule merges the bootstrap results back into the main inference object. Below we demonstrate the same API in a single notebook, running the bootstraps in a serial loop rather than as parallel cluster jobs.
 
-Two points are specific to using `phasegen` from R. First, `create_bootstrap` and `to_file` serialize the `coal`, `loss` and `resample` callbacks, so we define them as Python functions (via `reticulate::py_run_string`) rather than R closures, which do not survive that round-trip. Second, we accumulate the bootstrap objects in memory and merge them directly, rather than reloading each from its file, so their optimizer results stay intact.
+From R, the `coal`, `loss` and `resample` callbacks must be Python functions, defined via `reticulate::py_run_string`, because `create_bootstrap` and `to_file` serialize them and R closures do not survive that round-trip.
 
 ```{code-cell} r
 # the model, loss and resampling callbacks, defined in Python so they survive serialization
@@ -370,14 +370,14 @@ inf$to_file(path)
 ```
 
 +++ {"tags": ["r-only"]}
-Each bootstrap is created from the inference object with {meth}`~phasegen.inference.Inference.create_bootstrap`, which resamples the observation using the provided `resample` callback, and is then run independently. On a cluster each iteration of this loop would instead be a separate job that loads ``inference.json``, creates one bootstrap, runs it and writes its own file. Here we reload the saved object once and run the replicates serially.
+Each bootstrap is created from the inference object with {meth}`~phasegen.inference.Inference.create_bootstrap`, which resamples the observation using the provided `resample` callback, and is then run independently. On a cluster each iteration of this loop would instead be a separate job that loads ``inference.json``, creates the bootstrap of its index, runs it and writes its own file. Here we reload the saved object once and run the replicates serially.
 
 ```{code-cell} r
 :tags: [remove-output]
 inf <- pg$Inference$from_file(path)
 
 boots <- lapply(seq_len(20L), function(i) {
-    b <- inf$create_bootstrap()
+    b <- inf$create_bootstrap(index = i)
     b$run()
     b
 })

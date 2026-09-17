@@ -53,18 +53,20 @@ def _close_figures():
 
 
 @pytest.fixture(autouse=True)
-def _restore_closed_form_setting():
+def _restore_settings():
     """
-    Snapshot and restore ``Settings.closed_form_last_epoch`` around every test, so tests that pin it (e.g. to
-    validate the matrix-exponential path) do not leak the value into later tests.
+    Snapshot every public ``Settings`` attribute before each test and restore it afterwards, so a test that pins a
+    solver threshold, a construction path or an inversion parameter cannot change the result of a later test in the
+    same worker.
     """
     import phasegen as pg
 
-    original = pg.Settings.closed_form_last_epoch
+    original = {k: v for k, v in vars(pg.Settings).items() if not k.startswith('_') and not callable(v)}
 
     yield
 
-    pg.Settings.closed_form_last_epoch = original
+    for k, v in original.items():
+        setattr(pg.Settings, k, v)
 
 
 @pytest.fixture(scope="session")

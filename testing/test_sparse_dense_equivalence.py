@@ -25,23 +25,6 @@ from phasegen.state_space import (
 _HUGE = 10 ** 9
 
 
-@pytest.fixture(autouse=True)
-def _restore_settings():
-    """Restore the sparse/dense thresholds (and numba) after each test."""
-    saved = {
-        name: getattr(Settings, name)
-        for name in (
-            'use_numba',
-            'dense_rate_matrix_max_states',
-            'expm_action_min_dim',
-            'closed_form_sparse_min_states',
-        )
-    }
-    yield
-    for name, value in saved.items():
-        setattr(Settings, name, value)
-
-
 def _demography(pop_sizes, migration_rate=1.0):
     """Single-deme (no migration) or multi-deme symmetric-migration demography."""
     from itertools import product

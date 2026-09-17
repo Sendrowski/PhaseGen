@@ -536,3 +536,58 @@ class DemographyTestCase(TestCase):
         self.assertEqual(epochs[0].pop_sizes['pop_B'], 1)
         self.assertEqual(epochs[1].pop_sizes['pop_A'], 2)
         self.assertEqual(epochs[1].pop_sizes['pop_B'], 3)
+
+
+@pytest.mark.parametrize("order", [0, 1])
+def test_chained_population_splits_at_same_time_independent_of_order(order):
+    """
+    Two splits at the same time chaining ``a -> b -> c`` were applied in list order, and a later split zeroed the
+    drain an earlier split had set into its derived population. With ``[a -> b, b -> c]`` the rate ``a -> b`` was 0,
+    lineages in ``a`` could never leave, and the tree height raised a non-absorption error.
+    """
+    events = [pg.PopulationSplit(1, 'a', 'b'), pg.PopulationSplit(1, 'b', 'c')]
+    d = pg.Demography(pop_sizes={'a': 1., 'b': 1., 'c': 1.}, events=events[::1 - 2 * order])
+
+    rates = list(islice(d.epochs, 2))[1].migration_rates
+    assert {k: v for k, v in rates.items() if v} == {('a', 'b'): 100.0, ('b', 'c'): 100.0}
+
+    th = pg.Coalescent(n={'a': 1, 'b': 0, 'c': 1}, demography=d).tree_height.mean
+    assert th == pytest.approx(2.02, abs=1e-6)
+
+
+@pytest.mark.parametrize("order", [0, 1])
+def test_population_split_uses_same_time_pop_size_change(order):
+    """
+    The drain rate of a split was computed from the derived population size at the moment the split was applied, so
+    a PopSizeChange of that population at the same time counted only when listed before the split (rate 1000 rather
+    than 100).
+    """
+    events = [pg.PopulationSplit(1, 'b', 'c'), pg.PopSizeChange('b', time=1, size=10)]
+    d = pg.Demography(pop_sizes={'b': 1., 'c': 1.}, events=events[::1 - 2 * order])
+
+    assert list(islice(d.epochs, 2))[1].migration_rates[('b', 'c')] == 1000
+
+
+@pytest.mark.parametrize("kwargs, reference", [
+    (dict(pop_sizes=dict(zip(['a', 'b'], np.array([1, 2])))), dict(pop_sizes={'a': 1, 'b': 2})),
+    (dict(pop_sizes=np.int64(2)), dict(pop_sizes=2)),
+    (dict(pop_sizes=np.float32(2)), dict(pop_sizes=2.0)),
+    (dict(pop_sizes={0: np.float32(1), np.int64(1): np.int64(2)}), dict(pop_sizes={0: 1, 1: 2})),
+    (
+            dict(pop_sizes={'a': 1., 'b': 1.}, migration_rates={('a', 'b'): np.int64(1), ('b', 'a'): np.int64(1)}),
+            dict(pop_sizes={'a': 1., 'b': 1.}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    ),
+])
+def test_demography_accepts_numpy_scalars(kwargs, reference):
+    """
+    The shorthand forms of ``pop_sizes`` and ``migration_rates`` were detected with ``isinstance(x, (float, int))``,
+    which numpy scalars other than ``np.float64`` fail, so they were misread as nested time dictionaries and crashed.
+    """
+    epochs = list(islice(pg.Demography(**kwargs).epochs, 3))
+    expected = list(islice(pg.Demography(**reference).epochs, 3))
+
+    assert len(epochs) == len(expected)
+
+    for e, r in zip(epochs, expected):
+        assert e.pop_sizes == r.pop_sizes
+        assert e.migration_rates == r.migration_rates

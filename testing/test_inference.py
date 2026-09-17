@@ -90,23 +90,118 @@ class InferenceTestCase(TestCase):
 
         self.assertNotEqual(first, second)
 
-    def test_add_bootstrap_tolerates_unreprable_result(self):
+    def get_fast_inference_with_estimate(self, kwargs: dict = {}) -> pg.Inference:
         """
-        add_bootstrap must not crash when a bootstrap's OptimizeResult repr raises, as a scipy result restored
-        from a jsonpickle round-trip can on some scipy versions ("max() arg is an empty sequence").
-        """
-        class _ReprRaises(OptimizeResult):
-            def __repr__(self):
-                raise ValueError('max() arg is an empty sequence')
+        Get the fast inference with a stored estimate and optimization result, as after ``run()``.
 
+        :param kwargs: Additional keyword arguments.
+        """
+        inf = self.get_fast_inference(kwargs)
+        inf.params_inferred = {'t': 1.3, 'Ne': 0.2}
+        inf.loss_inferred = 1.0
+        inf.result = OptimizeResult(x=np.array([1.3, 0.2]), fun=1.0, success=True, nit=3, message='converged')
+
+        return inf
+
+    def test_create_bootstrap_reloaded_jobs_resample_independently(self):
+        """
+        Cluster jobs that each reload the same saved Inference and call ``create_bootstrap()`` or ``create_run()``
+        must not replay the restored generator state, which gave every job the identical resample and child seed and
+        collapsed the bootstrap variance to zero. With a job index the replicate is reproducible across reloads.
+        """
+        json = self.get_fast_inference_with_estimate(dict(seed=None)).to_json()
+        jobs = [pg.Inference.from_json(json) for _ in range(3)]
+
+        observations = [tuple(job.create_bootstrap().observation.data) for job in jobs]
+        self.assertEqual(3, len(set(observations)))
+        self.assertEqual(3, len({job.create_run().seed for job in jobs}))
+
+        indexed = [tuple(job.create_bootstrap(index=i).observation.data) for i, job in enumerate(jobs)]
+        self.assertEqual(3, len(set(indexed)))
+
+        reloaded = [tuple(pg.Inference.from_json(json).create_bootstrap(index=i).observation.data) for i in range(3)]
+        self.assertEqual(indexed, reloaded)
+
+        self.assertEqual(
+            pg.Inference.from_json(json).create_run(index=5).x0,
+            pg.Inference.from_json(json).create_run(index=5).x0
+        )
+
+    def test_create_bootstrap_starts_from_estimate(self):
+        """
+        ``create_bootstrap`` must start the replicate from the estimate, as ``bootstrap()`` does, not from the
+        original start point, from which a manual replicate on a flat loss surface returned ``x0`` unchanged.
+        """
+        inf = self.get_fast_inference_with_estimate()
+
+        bootstrap = inf.create_bootstrap()
+
+        self.assertEqual({'t': 1.3, 'Ne': 0.2}, bootstrap.x0)
+        self.assertNotEqual(inf.x0, bootstrap.x0)
+
+        with self.assertRaises(RuntimeError):
+            self.get_fast_inference().create_bootstrap()
+
+    def test_add_run_and_add_bootstrap_merge_reloaded_inference(self):
+        """
+        ``add_run`` must merge an Inference reloaded from JSON. The jsonpickle round trip of the scipy
+        ``OptimizeResult`` added an empty ``__dict__`` item, on which ``str(result)`` raised ValueError.
+        """
         inf = self.get_fast_inference()
-        boot = self.get_fast_inference()
-        boot.loss_inferred = 1.0
-        boot.params_inferred = {'t': 0.5, 'Ne': 0.5}
-        boot.result = _ReprRaises()
+        run = pg.Inference.from_json(self.get_fast_inference_with_estimate().to_json())
 
-        inf.add_bootstrap(boot)
-        self.assertEqual(len(inf.bootstraps), 1)
+        self.assertIsInstance(run.result, OptimizeResult)
+        self.assertNotIn('__dict__', run.result)
+
+        inf.add_run(run)
+        inf.add_bootstrap(run)
+
+        self.assertEqual(1.0, inf.loss_inferred)
+        self.assertEqual(1, len(inf.runs))
+        self.assertEqual(1, len(inf.bootstraps))
+
+    def test_opts_do_not_alias_default_opts(self):
+        """
+        Changing the options of one instance in place must not change ``Inference.default_opts``, which every later
+        instance constructed without ``opts`` inherited.
+        """
+        inf = self.get_fast_inference()
+        inf.opts['maxiter'] = 1
+
+        self.assertEqual({}, pg.Inference.default_opts)
+        self.assertEqual({}, self.get_fast_inference().opts)
+
+    def test_add_bootstraps_accepts_parameter_dicts(self):
+        """
+        ``add_bootstraps`` must accept dictionaries of parameters as documented, which raised AttributeError.
+        """
+        inf = self.get_fast_inference()
+
+        inf.add_bootstraps([{'t': 1.0, 'Ne': 0.3}, {'Ne': 0.4, 't': 1.1}])
+
+        np.testing.assert_array_equal([[1.0, 0.3], [1.1, 0.4]], inf._bootstrap_values)
+        self.assertTrue(inf.bootstraps.loss.isna().all())
+
+        with self.assertRaises(ValueError):
+            inf.add_bootstrap({'t': 1.0})
+
+    def test_sampled_x0_independent_of_cache_setting(self):
+        """
+        A sampled start point must be drawn once per instance. With ``Settings.cache = False`` every access to
+        ``x0`` drew a new point, so the reported start differed from the one used and seeded results depended on
+        the cache setting.
+        """
+        cached = self.get_fast_inference(dict(x0=None, seed=1)).x0
+
+        pg.Settings.cache = False
+        try:
+            inf = self.get_fast_inference(dict(x0=None, seed=1))
+            first, second = inf.x0, inf.x0
+        finally:
+            pg.Settings.cache = True
+
+        self.assertEqual(first, second)
+        self.assertEqual(cached, first)
 
     def test_fast_inference_run_bootstrap_and_plots(self):
         """

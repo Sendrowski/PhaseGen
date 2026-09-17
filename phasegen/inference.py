@@ -49,6 +49,9 @@ class Inference(Serializable):
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
     default_opts = dict()
 
+    #: Static for backward compatibility with serialized objects that lack the attribute.
+    _entropy: int | None = None
+
     def __init__(
             self,
             bounds: Dict[str, Tuple[float, float]],
@@ -115,9 +118,6 @@ class Inference(Serializable):
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
 
-        #: Dictionary of initial numeric guesses for parameters to optimize.
-        self._x0: Dict[str, float] | None = x0
-
         #: Dictionary of tuples representing the bounds for each parameter in x0.
         self.bounds: Dict[str, Tuple[float, float]] = bounds
 
@@ -151,18 +151,20 @@ class Inference(Serializable):
         #: Seed for the random number generator.
         self.seed: int | None = None if seed is None else int(seed)
 
+        #: Entropy of the random number generator, from which the generators of created runs and bootstraps derive.
+        self._entropy: int = np.random.SeedSequence(self.seed).entropy
+
         #: Random number generator.
-        self._rng: np.random.Generator = np.random.default_rng(seed)
+        self._rng: np.random.Generator = np.random.default_rng(np.random.SeedSequence(self._entropy))
+
+        #: Dictionary of initial numeric guesses for parameters to optimize, sampled within the bounds if not given.
+        self._x0: Dict[str, float] = self._sample() if x0 is None else x0
 
         #: Whether to cache the state spaces
         self.cache: bool = cache
 
-        if opts is None:
-            #: Optimization options
-            self.opts: Dict = self.default_opts
-        else:
-            #: Optimization options
-            self.opts: Dict = self.default_opts | opts
+        #: Optimization options
+        self.opts: Dict = self.default_opts | (opts or {})
 
         #: Optimization method
         self.method_mle: str = method_mle
@@ -202,14 +204,11 @@ class Inference(Serializable):
         """
         return list(self.bounds.keys())
 
-    @cached_property
+    @property
     def x0(self) -> Dict[str, float]:
         """
         Initial parameters.
         """
-        if self._x0 is None:
-            return self._sample()
-
         # x0 must cover every bounds parameter: `_sample()`-generated runs always span all bounds keys, so a partial
         # x0 would make the first run optimize a lower-dimensional subspace than the rest (a ragged run set that
         # crashes or mislabels params). Fail early rather than silently drop the missing dimensions.
@@ -237,6 +236,10 @@ class Inference(Serializable):
 
         state = copy.deepcopy({key: value for key, value in self.__dict__.items() if key not in callables})
 
+        # a plain dict, as jsonpickle encodes the instance dictionary of an OptimizeResult as an additional item
+        if state['result'] is not None:
+            state['result'] = dict(state['result'])
+
         for key in callables:
             state[f'{key}_pickled'] = dill.dumps(self.__dict__[key])
 
@@ -249,6 +252,9 @@ class Inference(Serializable):
         :param state: State of the object.
         """
         self.__dict__.update(state)
+
+        if self.result is not None:
+            self.result = OptimizeResult(self.result)
 
         for key in ['coal', 'loss', 'resample']:
             setattr(self, key, dill.loads(state[f'{key}_pickled']))
@@ -826,29 +832,42 @@ class Inference(Serializable):
 
         return ax
 
-    def create_run(self, x0: Dict[str, float] = None) -> 'Inference':
+    def _spawn(self, index: int | None) -> 'Inference':
+        """
+        Copy this Inference object with an independent random number generator.
+
+        :param index: Index of the copy. Copies with distinct indices have independent generators that are
+            reproducible from :attr:`seed`, or from the entropy drawn at construction if no seed was given. ``None``
+            draws fresh entropy.
+        :return: Inference object.
+        """
+        other = copy.deepcopy(self)
+        other.__dict__.pop('_state_spaces', None)
+
+        if index is None:
+            sequence = np.random.SeedSequence()
+        else:
+            sequence = np.random.SeedSequence(self._entropy, spawn_key=(int(index),))
+
+        other.seed = int(sequence.generate_state(1)[0])
+        other._entropy = other.seed
+        other._rng = np.random.default_rng(np.random.SeedSequence(other._entropy))
+
+        return other
+
+    def create_run(self, x0: Dict[str, float] = None, index: int = None) -> 'Inference':
         """
         Create a new Inference object which can be run independently. This is useful when parallelizing runs on a
         cluster. You can add performed runs by using the :meth:`add_run` method.
 
-        :param x0: Initial parameters.
+        :param x0: Initial parameters. By default, they are sampled within the bounds.
+        :param index: Index of the run, such as a cluster job index. Runs with distinct indices sample independent
+            start points, reproducibly from :attr:`seed` and across reloads of a saved Inference object. By default,
+            each call draws fresh entropy.
         :return: Inference object.
         """
-        other = copy.deepcopy(self)
-
-        other._x0 = x0
-
-        # drop any materialized cache copied over by the deepcopy so the new `_x0` is honored (a non-data
-        # `cached_property` in the instance `__dict__` would otherwise shadow it)
-        other.__dict__.pop('x0', None)
-        other.__dict__.pop('_state_spaces', None)
-
-        # give the child an independent RNG drawn from this instance's RNG so that repeated calls sample distinct
-        # start points; add_run keeps only the lowest-loss run, which is pointless if every run starts identically.
-        # This must precede _check_x0_within_bounds, which materializes and caches the sampled x0.
-        other.seed = int(self._rng.integers(0, 2 ** 32 - 1))
-        other._rng = np.random.default_rng(other.seed)
-
+        other = self._spawn(index)
+        other._x0 = other._sample() if x0 is None else x0
         other._check_x0_within_bounds()
 
         return other
@@ -886,47 +905,57 @@ class Inference(Serializable):
         for inference in inferences:
             self.add_run(inference)
 
-    def create_bootstrap(self, n_runs: int = 1) -> 'Inference':
+    def create_bootstrap(self, n_runs: int = 1, index: int = None) -> 'Inference':
         """
-        Resample the observation and return a new Inference object with the resampled observation.
+        Resample the observation and return a new Inference object with the resampled observation, whose optimization
+        starts from the estimate :attr:`params_inferred` as in :meth:`bootstrap`.
         This is useful when parallelizing bootstraps on a cluster. You can add performed bootstraps
         by using the :meth:`add_bootstrap` method.
 
-        :return: Resampled observation.
+        :param n_runs: Number of optimization runs. The first run starts from the estimate and any further runs from
+            start points sampled within the bounds.
+        :param index: Index of the bootstrap replicate, such as a cluster job index. Replicates with distinct indices
+            resample independently, reproducibly from :attr:`seed` and across reloads of a saved Inference object. By
+            default, each call draws fresh entropy.
+        :return: Inference object with the resampled observation.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
-        other = copy.deepcopy(self)
+        if not self.params_inferred:
+            raise RuntimeError('The main optimization must be run first (call run()).')
 
-        other.observation = self.resample(other.observation, self._rng)
+        other = self._spawn(index)
+        other._x0 = dict(self.params_inferred)
+        other.observation = self.resample(self.observation, other._rng)
         other.n_runs = n_runs
 
         return other
 
-    def add_bootstrap(self, bootstrap: 'Inference') -> None:
+    def add_bootstrap(self, bootstrap: 'Inference' | Dict[str, float]) -> None:
         """
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
-        :param bootstrap: Either an Inference object or a dictionary of inferred parameters.
-        :raises RuntimeError: If the main optimization has not been run yet.
+        :param bootstrap: Either an Inference object or a dictionary of inferred parameters. A dictionary is added
+            with a missing loss and result.
+        :raises RuntimeError: If the provided Inference object has not been run yet.
+        :raises ValueError: If the dictionary keys differ from the parameter names.
         """
-        if bootstrap.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call run()).')
+        if isinstance(bootstrap, Inference):
+            if bootstrap.loss_inferred is None:
+                raise RuntimeError('The provided Inference object must be run first (call run()).')
 
-        # a scipy OptimizeResult restored from a jsonpickle round-trip (e.g. a bootstrap reloaded from file on a
-        # cluster) can come back empty, and its __repr__ then raises ("max() arg is an empty sequence"); fall back to
-        # a plain dict repr so a reloaded bootstrap still merges.
-        try:
-            result_repr = str(bootstrap.result)
-        except ValueError:
-            result_repr = repr(dict(bootstrap.result))
+            row = bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
+        else:
+            if set(bootstrap.keys()) != set(self.param_names):
+                raise ValueError(f'Bootstrap parameters {list(bootstrap.keys())} must match {self.param_names}.')
 
-        # add bootstrap parameters
-        self.bootstraps.loc[len(self.bootstraps)] = (
-                bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=result_repr)
-        )
+            row = dict(bootstrap) | dict(loss=np.nan, result=None)
+
+        self.bootstraps.loc[len(self.bootstraps)] = row
 
     def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]) -> None:
         """
-        Add bootstraps from an iterable of Inference objects.
+        Add bootstraps from an iterable of Inference objects or dictionaries of inferred parameters by calling
+        :meth:`Inference.add_bootstrap() <phasegen.inference.Inference.add_bootstrap>` on each.
 
         :param data: Iterable of Inference objects or dictionaries of inferred parameters.
         """

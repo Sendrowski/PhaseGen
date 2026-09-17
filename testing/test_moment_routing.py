@@ -18,18 +18,6 @@ from phasegen.distributions import PhaseTypeDistribution
 from phasegen.distributions._moments import MomentEvaluator
 
 
-@pytest.fixture(autouse=True)
-def _restore_settings():
-    saved = {
-        name: getattr(Settings, name)
-        for name in ('flatten_block_counting', 'closed_form_last_epoch', 'expm_action_min_dim',
-                     'closed_form_sparse_min_states', 'dense_rate_matrix_max_states')
-    }
-    yield
-    for name, value in saved.items():
-        setattr(Settings, name, value)
-
-
 def _spy(method):
     """Patch a MomentEvaluator method with a pass-through spy and return the mock (call-counting)."""
     return patch.object(PhaseTypeDistribution, method, autospec=True,
@@ -290,3 +278,56 @@ def test_windowed_moment_infinite_end_time_matches_to_absorption():
     # pre-fix: end_time=np.inf exponentiated over an infinite step in the windowed Van Loan loop and raised
     # ValueError('NaN value encountered when computing moment. This is likely due to an ill-conditioned rate matrix.')
     assert np.isclose(c.moment(k=2, start_time=0.5, end_time=np.inf), c.moment(k=2, start_time=0.5), rtol=1e-5)
+
+
+@pytest.mark.parametrize("closed_form", [True, False], ids=["closed-form", "matrix-exponential"])
+def test_infinite_end_time_in_grid_accumulates_until_absorption(closed_form):
+    """An infinite end time accumulates until absorption on every path, including a grid that also holds finite
+    times and the batched spectrum mean. It previously reached the closed form only as the sole end time, and the
+    matrix exponential over an infinite step returned NaN."""
+    Settings.closed_form_last_epoch = closed_form
+
+    th = pg.Coalescent(n=2).tree_height
+    np.testing.assert_allclose(th.accumulate(1, [1.0, np.inf]), [1 - np.exp(-1), 1.0], rtol=1e-6)
+    np.testing.assert_allclose(th.accumulate(2, [np.inf, 1.0])[0], th.var, rtol=1e-6)
+
+    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
+    np.testing.assert_allclose(beta.tree_height.accumulate(1, [1.0, np.inf])[1], beta.tree_height.mean, rtol=1e-6)
+    np.testing.assert_allclose(beta.sfs.accumulate(1, [np.inf, 1.0])[:, 0], beta.sfs.mean.data, rtol=1e-6)
+
+
+def test_explicit_infinite_end_time_without_certain_absorption_in_last_epoch():
+    """``moment(end_time=np.inf)`` with a zero start time resolves like ``end_time=None`` when some transient state
+    of the last epoch cannot be absorbed (an isolated empty deme), instead of factorizing the singular ``-T`` and
+    raising a NaN error."""
+    demography = pg.Demography(pop_sizes={'a': {0: 1.0}, 'b': {0: 1.0}})
+    th = pg.Coalescent(n={'a': 2, 'b': 0}, demography=demography).tree_height
+
+    np.testing.assert_allclose(th.moment(1, end_time=np.inf), th.mean, rtol=1e-12)
+    np.testing.assert_allclose(th.mean, 1.0, rtol=1e-6)
+
+
+@pytest.mark.parametrize("k", [1, 2])
+def test_moment_rejects_invalid_window(k):
+    """A reversed window or a negative start time raises instead of returning a negative mean, a zero second
+    moment, or silently treating the negative start as 0."""
+    th = pg.Coalescent(n=2).tree_height
+
+    with pytest.raises(ValueError, match="End time must be greater than equal start time"):
+        th.moment(k, start_time=0.8, end_time=0.2)
+
+    with pytest.raises(ValueError, match="Start time must be greater than or equal to 0"):
+        th.moment(k, start_time=-1.0, end_time=0.5)
+
+
+def test_two_locus_rewards_route_to_two_locus_state_space():
+    """
+    State-space routing chose only among the joint, lineage-counting and block-counting spaces, so two-locus rewards
+    fell through to the block-counting space, which raised NotImplementedError for two loci.
+    """
+    from phasegen.rewards import TwoLocusSFSReward
+
+    c = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    m = c.moment(2, [TwoLocusSFSReward(0, 1), TwoLocusSFSReward(1, 1)], center=False)
+
+    assert m == pytest.approx(np.asarray(c.sfs2.mean.data)[1, 1], rel=1e-8)

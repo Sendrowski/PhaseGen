@@ -9,8 +9,6 @@ Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A
 (:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`).
 """
 from abc import ABC, abstractmethod
-from typing import Literal
-
 import numpy as np
 import scipy
 
@@ -78,15 +76,25 @@ class SciPyExpmBackend(ExpmBackend):
         matrices, such as :class:`JaxExpmBackend`, which is both efficient and lightweight to install.
     """
 
-    def __init__(self, precision: Literal['np.float32', 'np.float64'] = np.float64) -> None:
+    def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
         """
         Initialize the backend.
 
-        :param precision: Precision of the matrix exponential, defaults to double precision. A lower precision may be
-            faster but much more prone to numerical issues, so please use with caution.
+        :param precision: Floating-point precision of the matrix exponential and its action, as a NumPy floating type
+            such as ``np.float32`` or ``np.float64``, or its name such as ``'float32'``. Defaults to double precision.
+            A lower precision may be faster but is much more prone to numerical issues.
+        :raises TypeError: If ``precision`` is not a NumPy floating-point type.
         """
-        #: Precision of the matrix exponential
-        self.precision = precision
+        try:
+            dtype = np.dtype(precision)
+        except TypeError:
+            dtype = None
+
+        if dtype is None or dtype.kind != 'f':
+            raise TypeError(f"Precision must be a NumPy floating-point type such as np.float64, got {precision!r}.")
+
+        #: Precision of the matrix exponential and its action
+        self.precision: np.dtype = dtype
 
     def compute(self, m: np.ndarray) -> np.ndarray:
         """
@@ -109,7 +117,7 @@ class SciPyExpmBackend(ExpmBackend):
         """
         from scipy.sparse.linalg import expm_multiply
 
-        return expm_multiply(a, b)
+        return expm_multiply(a.astype(self.precision), np.asarray(b, dtype=self.precision))
 
 
 class JaxExpmBackend(ExpmBackend):

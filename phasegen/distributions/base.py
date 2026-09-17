@@ -303,25 +303,29 @@ class _HazardGrid:
         return np.interp(self._hazard(q), hazard, nodes)
 
     def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
-        r"""The derivative of :meth:`_interp_cdf`'s map: :math:`f = \mathrm{d}F/\mathrm{d}x = S\,\mathrm{d}H/\mathrm{d}x`,
-        the survival :math:`S = 1 - F` times the hazard rate. Non-negative by construction, so it cannot inherit the
-        raw cosine sum's Gibbs negativity.
+        r"""The derivative of :meth:`_interp_cdf`'s map: on the segment :math:`[x_i, x_{i+1})` holding ``t``,
+        :math:`f = e^{-H(x)}\,(H_{i+1} - H_i)/(x_{i+1} - x_i)`, so integrating the density over any segment gives
+        exactly the CDF increment there. Non-negative since the hazard is non-decreasing, and zero outside the nodes.
 
         :param t: Points to evaluate at.
         :param nodes: The grid's nodes.
         :param hazard: The cumulative hazard on them.
         :return: The density at ``t``.
         """
+        t = np.asarray(t, dtype=float)
+
         if len(nodes) < 2:
-            # a degenerate grid (a near-total atom at 0, whose mass sits above the tail cut) leaves no interval to
-            # differentiate the hazard over: np.gradient needs at least two nodes. The continuous density is
-            # negligible there (the mass is in the atom), so it is zero.
-            return np.zeros_like(np.asarray(t, dtype=float))
+            # a grid of a single node (a near-total atom at 0) has no segment, so the continuous density is zero
+            return np.zeros_like(t)
 
-        # below the support (t < nodes[0] = 0) the density is 0; np.interp would otherwise clamp to the first node
-        h = np.interp(t, nodes, hazard, left=0.0)
+        widths = np.diff(nodes)
+        slopes = np.divide(np.diff(hazard), widths, out=np.zeros_like(widths), where=widths > 0)
 
-        return np.exp(-h) * np.interp(t, nodes, np.gradient(hazard, nodes), left=0.0)
+        # segment holding t, with the last node closing the last segment
+        i = np.clip(np.searchsorted(nodes, t, side='right') - 1, 0, len(widths) - 1)
+        inside = (t >= nodes[0]) & (t <= nodes[-1])
+
+        return np.where(inside, np.exp(-np.interp(t, nodes, hazard, left=0.0)) * slopes[i], 0.0)
 
 
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
@@ -351,6 +355,9 @@ class _LSTFunction(_HazardGrid):
 
     #: Step :math:`\eta_F` of the exact nodes in probability, which resolves the body when the tail level is low.
     _cdf_step: float = 0.01
+
+    #: Largest factor by which a step between exact nodes exceeds the previous one.
+    _step_growth: float = 2.0
 
     #: CDF level :math:`1 - \epsilon` the exact nodes reach unless a query reaches further, and their maximum number.
     _tail_target: float = 1.0 - 1e-6
@@ -466,28 +473,29 @@ class _LSTFunction(_HazardGrid):
 
     def _exact_step(self, nodes: list) -> float:
         """
-        The step to the next exact node described at ``RewardDistribution``, the finer of ``_hazard_step`` in
-        cumulative hazard and ``_cdf_step`` in probability divided by the local density. The density is the slope of the
-        cosine grid for the first step and the secant of the last two nodes afterwards, so the nodes do not depend on
+        The step to the next exact node: the increment in probability, the finer of ``_hazard_step`` in cumulative
+        hazard and ``_cdf_step``, divided by the local density, and at most a local limit. For the first step the
+        density is the slope of the cosine grid at the anchor and the limit is the distance along that grid to the
+        incremented level. Afterwards the density is the secant of the last two nodes and the limit is
+        ``_step_growth`` times the last step. A density that is not positive takes the limit. The nodes do not depend on
         the queries.
 
-        :param nodes: The ``(x, F)`` nodes so far, ascending.
+        :param nodes: The ``(x, F)`` nodes so far, ascending, with ``F < 1`` at the last.
         :return: The step to the next node.
         """
         x, cdf = nodes[-1]
-        survival = 1.0 - cdf
+        increment = min(self._hazard_step * (1.0 - cdf), self._cdf_step)
 
         if len(nodes) == 1:
             xs, cs = self._cos_cdf_grid
             density = float(np.interp(x, xs, np.gradient(cs, xs)))
+            limit = float(np.interp(cdf + increment, cs, xs)) - x
         else:
             x_prev, cdf_prev = nodes[-2]
-            density = (cdf - cdf_prev) / (x - x_prev) if x > x_prev else 0.0
+            density = (cdf - cdf_prev) / (x - x_prev)
+            limit = self._step_growth * (x - x_prev)
 
-        if density <= 0 or survival <= 0:
-            return float(self._cos_coeffs['b'])
-
-        return float(min(min(self._hazard_step * survival, self._cdf_step) / density, self._cos_coeffs['b']))
+        return float(min(increment / density, limit)) if density > 0 else limit
 
     def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
         """
@@ -872,8 +880,8 @@ class JointDensity(_JointFunction, DensityFunction):
         :param x: Value(s) :math:`x_j` of :math:`R_a`, a scalar or a 1D array.
         :param y: Value(s) :math:`y_l` of :math:`R_b`, a scalar or a 1D array.
         :return: An array of shape ``(len(x), len(y))``, or a float for a single pair.
-        :raises NotImplementedError: If both rewards agree on every transient state, so that the law has no density on
-            the plane, or if the coalescent has a bounded accumulation window.
+        :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
+            that the law has no density on the plane, or if the coalescent has a bounded accumulation window.
         """
         xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
         f = self._grid_values(xs, ys)
@@ -882,10 +890,11 @@ class JointDensity(_JointFunction, DensityFunction):
     def _grid_values(self, xs, ys) -> 'np.ndarray':
         d = self._distribution
         # guarded here so that plot() and plot_surface(), which call _grid_values directly, refuse as well
-        if d._is_diagonal:
-            raise NotImplementedError("The joint density is singular when both rewards are identical (R_a = R_b "
-                                      "almost surely): the law lives on the diagonal and has no 2D density. Use "
-                                      "cdf(x, y) = marginal CDF at min(x, y), or the 1D marginal density.")
+        if d._ratio is not None:
+            raise NotImplementedError("The joint density is singular when one reward is a constant multiple c of the "
+                                      "other (R_a = c R_b almost surely): the law lives on a line and has no 2D "
+                                      "density. Use cdf(x, y) = marginal CDF of R_a at min(x, c y), or the 1D marginal "
+                                      "density.")
         raw = d._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
         d._warn_if_negative(raw, 'joint density (cosine)')
         return np.clip(raw, 0.0, None)
@@ -936,8 +945,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
       linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
     - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
       on wider windows, as for the marginal CDF of a :class:`~phasegen.distributions.RewardDistribution`.
-    - When both rewards agree on every transient state, :math:`R_a = R_b` almost surely and
-      :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, y))`.
+    - When :math:`\mathbf{r}_a = c\,\mathbf{r}_b` on every transient state for a constant :math:`c > 0`,
+      :math:`R_a = c R_b` almost surely and :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, c y))`.
     - Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
       :math:`F(x, \infty)` departs from the marginal CDF near the origin.
 
@@ -963,9 +972,9 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     def _grid_values(self, xs, ys) -> 'np.ndarray':
         # reduced here so that plot() and plot_surface(), which call _grid_values directly, draw the same CDF
         d = self._distribution
-        if d._is_diagonal:
+        if d._ratio is not None:
             m = d.marginal('a')
-            t = np.minimum.outer(xs, ys)
+            t = np.minimum.outer(xs, d._ratio * ys)
             # the CDF vanishes below 0 and equals the atom P(R = 0) at 0
             p0 = float(d._atoms['both0'])
             return np.array([[0.0 if tt < 0.0 else p0 if tt == 0.0 else float(m.cdf(tt)) for tt in row] for row in t])

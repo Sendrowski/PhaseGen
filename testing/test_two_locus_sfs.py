@@ -19,13 +19,6 @@ MODELS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _restore_numba():
-    prev = Settings.use_numba
-    yield
-    Settings.use_numba = prev
-
-
 def _two_sfs(n, r, model=None):
     """Mean two-locus SFS data array."""
     kwargs = {} if model is None else dict(model=model)
@@ -567,3 +560,19 @@ def test_two_locus_joint_distribution_vs_msprime():
             x = float(jd.marginal('a').quantile(qa))
             y = float(jd.marginal('b').quantile(qb))
             assert abs(jd.cdf(x, y) - ms2.joint_cdf(i, j, x, y)) < 0.02
+
+
+def test_two_locus_joint_distribution_restricted_by_spectrum_reward():
+    """
+    The joint distribution of the two locus bins must carry the reward of the spectrum. It used the bare locus
+    rewards, so a constant reward of 2 left the means unchanged instead of doubling them.
+    """
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2
+    scaled = pg.distributions.TwoLocusSFSDistribution(
+        state_space=sfs2.state_space,
+        tree_height=sfs2.tree_height,
+        demography=sfs2.demography,
+        reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
+    )
+
+    np.testing.assert_allclose(scaled.joint_distribution(1, 2).mean, 2 * sfs2.joint_distribution(1, 2).mean, rtol=1e-10)
