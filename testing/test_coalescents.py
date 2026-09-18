@@ -1696,7 +1696,9 @@ class CoalescentTestCase(TestCase):
 
     def test_sample_empirical_pdf(self):
         """
-        Test empirical PDF sampling against exact PDF.
+        The sampled mean of an SFS bin agrees with its exact moment. The sampler is seeded and the tolerance clears
+        four standard errors of the sampled mean: at 10,000 unseeded draws the relative standard error is 2.5%, so
+        the previous 5% threshold sat at two standard errors and failed about one run in twenty.
         """
         coal = pg.Coalescent(
             n=10,
@@ -1709,11 +1711,12 @@ class CoalescentTestCase(TestCase):
         exact = coal.moment(1, (pg.UnfoldedSFSReward(2),))
 
         with pg.Settings.set_pbar():
-            empirical = coal._sample(10000, (pg.UnfoldedSFSReward(2),)).mean()
+            empirical = coal.sfs.sample(100000, seed=42)[:, 2].mean()
 
+        # 100,000 draws give a relative standard error of about 0.8%
         rel_diff = np.abs(empirical - exact) / exact
 
-        self.assertLessEqual(rel_diff, 0.05)
+        self.assertLessEqual(rel_diff, 0.032)
 
     def test_sample_empirical_cdf(self):
         """
@@ -1811,21 +1814,25 @@ class CoalescentTestCase(TestCase):
 
     def test_compare_state_reward_flattened(self):
         """
-        Test that flattened state rewards match the original state rewards.
+        Test that flattened state rewards match the original state rewards. The absorbing state is excluded: the
+        accumulation runs until absorption and therefore never occupies an absorbing state, so a reward with mass
+        there is rejected rather than accumulated. The engine did not return the mathematical value zero for it but
+        the time the finite epochs spend absorbed, measured for ``n = 4`` as 0 with a single epoch, 0.0092 with one
+        redundant identical boundary and 1.5896 with three.
         """
         # this exercises the block-counting flatten path, which the closed-form moment evaluation would bypass
         pg.Settings.closed_form_last_epoch = False
 
         coal = pg.Coalescent(n=10)
-        k = coal.block_counting_state_space.k
+        transient = np.where(~coal.block_counting_state_space.absorbing)[0]
 
         pg.Settings.flatten_block_counting = True
-        flattened = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in range(k)]
+        flattened = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in transient]
         self.assertTrue('_state_probs' in coal.block_counting_state_space.__dict__)
 
         coal = pg.Coalescent(n=10)
         pg.Settings.flatten_block_counting = False
-        original = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in range(k)]
+        original = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in transient]
         self.assertFalse('_state_probs' in coal.block_counting_state_space.__dict__)
 
         np.testing.assert_array_almost_equal(flattened, original)
@@ -1921,3 +1928,64 @@ class CoalescentTestCase(TestCase):
         three_ton = indices.index(3)
         self.assertEqual(finite_frac[three_ton], 0.0)
         self.assertTrue(np.all(np.delete(finite_frac, three_ton) == 1.0))
+
+
+def test_discretized_demography_with_infinite_end_time_terminates():
+    """
+    A discretized event caps every epoch at its next discretization step, so with the default infinite end time the
+    demography has infinitely many epochs and none of them is unbounded. Every moment materialized epochs until an
+    unbounded one appeared and therefore never returned. Epoch consumption must stop once absorption is almost sure,
+    with the remainder treated as the last epoch.
+    """
+    def build() -> pg.Coalescent:
+        return pg.Coalescent(n=2, demography=pg.Demography(events=[pg.ExponentialPopSizeChanges(
+            initial_size={'pop_0': 1.0}, growth_rate=1.0, start_time=0.0, step_size=0.5
+        )]))
+
+    coal = build()
+    epochs = coal.tree_height._get_epochs_until_unbounded()
+
+    # the epochs stop at the first one beginning at or after the time of almost sure absorption
+    assert np.isinf(epochs[-1].end_time)
+    assert epochs[-1].start_time == coal.tree_height.t_max
+    assert len(epochs) == int(np.ceil(coal.tree_height.t_max / 0.5)) + 1
+
+    # the closed-form last epoch (the default) and the matrix exponential up to the absorption time must agree
+    pg.Settings.closed_form_last_epoch = False
+    reference = build().tree_height.mean
+    pg.Settings.closed_form_last_epoch = True
+
+    assert coal.tree_height.mean == pytest.approx(reference, rel=1e-10)
+
+    # the sampler and the mutation configurations consume the same epochs
+    assert np.isfinite(pg.Coalescent(n=4, demography=coal.demography).tree_height.sample(10, seed=0)).all()
+    assert 0 < pg.Coalescent(n=4, demography=coal.demography).sfs.get_mutation_config((1, 0, 0), theta=1.0) < 1
+
+
+def test_accumulate_starts_at_the_configured_start_time():
+    """
+    ``accumulate`` hard-defaulted its start time to zero, so on a coalescent with a positive start time it
+    accumulated over a window no other method used: ``accumulate(1, [2.0])`` returned the from-zero 1.3305 where
+    ``moment(1, end_time=2.0)`` returned 0.8414, and the accumulation curve converged to the from-zero 2(1 - 1/n)
+    rather than to ``tree_height.mean``.
+    """
+    coal = pg.Coalescent(n=5, start_time=0.5)
+    t_max = coal.tree_height.t_max
+
+    assert coal.accumulate(1, [2.0])[0] == pytest.approx(coal.moment(1, end_time=2.0), rel=1e-10)
+    assert coal.tree_height.accumulate(2, [2.0])[0] == pytest.approx(coal.tree_height.moment(2, end_time=2.0),
+                                                                     rel=1e-10)
+    assert coal.tree_height.accumulate(1, [t_max])[0] == pytest.approx(coal.tree_height.mean, rel=1e-10)
+
+    # an end time at or before the start time accumulates nothing
+    assert coal.tree_height.accumulate(1, [0.2])[0] == 0
+
+    # the spectrum takes the same window, through its batched occupation grid
+    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [2.0]))[:, 0],
+                               np.asarray(coal.sfs.moment(1, end_time=2.0).data), rtol=1e-10)
+    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [t_max]))[:, 0],
+                               np.asarray(coal.sfs.mean.data), rtol=1e-10)
+
+    # a coalescent without a window is unaffected
+    ref = pg.Coalescent(n=5)
+    assert ref.accumulate(1, [2.0])[0] == pytest.approx(ref.moment(1, end_time=2.0), rel=1e-10)

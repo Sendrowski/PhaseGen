@@ -15,6 +15,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 import scipy.sparse.csgraph as csg
 from ..coalescent_models import StandardCoalescent
+from ..demography import Epoch
 from ..expm import Backend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
@@ -23,7 +24,7 @@ from ..state_space import BlockCountingStateSpace
 from ._common import _make_hashable
 
 if TYPE_CHECKING:
-    from ..demography import Demography, Epoch
+    from ..demography import Demography
     from ..lineage import LineageConfig
     from ..locus import LocusConfig
     from ..state_space import StateSpace
@@ -50,6 +51,7 @@ class MomentEvaluator:
     locus_config: 'LocusConfig'
     _logger: logging.Logger
     _absorption_certain_cache: Optional[bool]
+    _epochs_cache: Optional[List[Epoch]]
 
     @staticmethod
     def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
@@ -290,7 +292,8 @@ class MomentEvaluator:
                 end_times=[start_time, end_time],
                 rewards=rewards,
                 center=center,
-                permute=permute
+                permute=permute,
+                start_time=0.0
             )
 
             m = float(m_end - m_start)
@@ -314,7 +317,8 @@ class MomentEvaluator:
                 end_times=[end_time],
                 rewards=rewards,
                 center=center,
-                permute=permute
+                permute=permute,
+                start_time=0.0
             )[0])
 
         if np.isnan(m):
@@ -390,11 +394,12 @@ class MomentEvaluator:
             rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True,
-            start_time: float = 0.0
+            start_time: float = None
     ) -> np.ndarray:
         r""" The :math:`k`-th moment accumulated from the start time :math:`t_\mathrm{start}` to each end time
         :math:`t_\mathrm{end}` in ``end_times``, as described in :meth:`PhaseTypeDistribution.moment()
-        <phasegen.distributions.PhaseTypeDistribution.moment>`.
+        <phasegen.distributions.PhaseTypeDistribution.moment>`. An end time at or before
+        :math:`t_\mathrm{start}` accumulates no reward.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
@@ -402,10 +407,13 @@ class MomentEvaluator:
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
-        :param start_time: The start time :math:`t_\mathrm{start}`. By default, ``0``.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: The moment at each end time.
         """
         k = int(k)
+
+        if start_time is None:
+            start_time = self.tree_height.start_time
 
         if rewards is None:
             rewards = [self.reward] * k
@@ -608,6 +616,8 @@ class MomentEvaluator:
         if self._flattening_applies(k):
             self._logger.debug("accumulate (k=%d): flattened block-counting", k)
             return self._accumulate_flattened(k, end_times, rewards)
+
+        Reward._check_accumulable(self.state_space, rewards)
 
         # infinite end times accumulate until absorption, in closed form when absorption is certain in the last
         # epoch and otherwise over the estimated absorption time
@@ -938,17 +948,45 @@ class MomentEvaluator:
 
         return self.tree_height._get_absorption_time()
 
-    def _get_epochs_until_unbounded(self) -> List['Epoch']:
+    def _get_epochs_until_unbounded(self) -> List[Epoch]:
         """
-        Materialize the demographic epochs up to and including the final, unbounded epoch (``end_time == inf``).
+        Materialize the demographic epochs up to and including the one taken to hold until absorption. The iteration
+        stops at an epoch with an infinite end time, or at the first epoch beginning at or after the time of almost
+        sure absorption (``TreeHeightDistribution.t_max`` without an accumulation window), whose rates are then
+        extended over the remaining time.
 
         :return: List of epochs, the last of which is unbounded.
         """
-        epochs = []
+        # the epochs depend only on the demography and the absorption time, both fixed for the distribution, while
+        # the closed form queries them once per moment and an SFS evaluates many bins
+        if getattr(self, '_epochs_cache', None) is not None:
+            return self._epochs_cache
+
+        epochs, t_absorption = [], None
+
         for epoch in self.demography.epochs:
-            epochs.append(epoch)
+
             if epoch.end_time == np.inf:
+                epochs.append(epoch)
                 break
+
+            # the bound costs an absorption-time search, so it is evaluated only once a finite epoch requires it
+            if t_absorption is None:
+                t_absorption = self._get_time_to_absorption()
+
+            if epoch.start_time >= t_absorption:
+                epochs.append(Epoch(
+                    start_time=epoch.start_time,
+                    end_time=np.inf,
+                    pop_sizes=epoch.pop_sizes,
+                    migration_rates=epoch.migration_rates
+                ))
+                break
+
+            epochs.append(epoch)
+
+        self._epochs_cache = epochs
+
         return epochs
 
     def _absorption_certain_in_last_epoch(self) -> bool:
@@ -1135,18 +1173,28 @@ class MomentEvaluator:
         S = self.state_space.S
         return np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
 
-    def _mean_occupation_grid(self, end_times: Sequence[float]) -> np.ndarray:
+    def _mean_occupation_grid(self, end_times: Sequence[float], start_time: float = None) -> np.ndarray:
         """
-        Expected time spent in each state of ``E`` up to each end time, threaded across epochs with the augmented
-        generator ``[[S, I], [0, 0]]`` of ``PhaseTypeDistribution.moment``, for the batched mean accumulation of a
-        spectrum.
+        Expected time spent in each state of ``E`` over ``[start_time, t]`` for each end time ``t``, threaded across
+        epochs with the augmented generator ``[[S, I], [0, 0]]`` of ``PhaseTypeDistribution.moment``, for the batched
+        mean accumulation of a spectrum. A positive start time subtracts the occupation up to it.
 
         :param end_times: Times at which to evaluate the occupation.
+        :param start_time: Time from which to accumulate. By default, the start time of the distribution.
         :return: Array of shape ``(len(end_times), n_states)``.
         """
         end_times = np.asarray(end_times, dtype=float)
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
+
+        if start_time is None:
+            start_time = self.tree_height.start_time
+
+        if start_time > 0:
+            return (
+                    self._mean_occupation_grid(np.maximum(end_times, start_time), start_time=0.0) -
+                    self._mean_occupation_grid([start_time], start_time=0.0)
+            )
 
         # infinite end times take the occupation until absorption, in closed form when absorption is certain in the
         # last epoch, where the absorbing states carry no occupation
@@ -1157,7 +1205,7 @@ class MomentEvaluator:
                 out = np.zeros((len(end_times), self.state_space.k))
                 out[np.ix_(infinite, occupation[1])] = occupation[0]
                 if not infinite.all():
-                    out[~infinite] = self._mean_occupation_grid(end_times[~infinite])
+                    out[~infinite] = self._mean_occupation_grid(end_times[~infinite], start_time=0.0)
                 return out
 
             end_times = np.where(infinite, self._get_time_to_absorption(), end_times)

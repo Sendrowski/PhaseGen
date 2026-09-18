@@ -418,6 +418,14 @@ def test_jsfs_demes_cov(two_pop_coalescent):
     jsfs.demes.get_cov, cov and corr must evaluate, and the deme covariances of a bin must sum to its variance, since
     the deme branch lengths partition the bin branch length. JointSFSDistribution.moment took no rewards, so all three
     raised TypeError.
+
+    That summation identity is ``Var(sum_p X_p)`` for the per-deme branch lengths ``X_p`` of a bin, so it is the same
+    number under any relabelling of the demes, and the other two assertions checked only shapes. A mis-attribution
+    inside ``MarginalDemeDistributions.get_cov`` -- looking each deme up one position along the canonical deme axis,
+    which would corrupt every per-deme covariance and correlation of the tree height, total branch length, SFS and
+    joint SFS alike -- left the whole of this file and testing/test_rewards.py green. The diagonal entries are pinned
+    against each deme's own variance, computed by a separate call of the moment engine, and the two demes here differ
+    by up to 0.436 in that diagonal, so a permutation of the deme axis breaks it.
     """
     jsfs = two_pop_coalescent.jsfs
     pops = jsfs.lineage_config.pop_names
@@ -427,6 +435,25 @@ def test_jsfs_demes_cov(two_pop_coalescent):
     np.testing.assert_allclose(total, np.asarray(jsfs.var.data), rtol=1e-8, atol=1e-12)
     assert np.asarray(jsfs.demes.cov).shape == (len(pops), len(pops)) + jsfs.shape
     assert np.asarray(jsfs.demes.corr).shape == (len(pops), len(pops)) + jsfs.shape
+
+    cov = np.asarray(jsfs.demes.cov)
+    corr = np.asarray(jsfs.demes.corr)
+    variances = [np.asarray(jsfs.demes[p].var.data) for p in pops]
+
+    # the demes are told apart: they differ in population size, so their bin variances differ
+    assert np.abs(variances[0] - variances[1]).max() > 0.1
+
+    for i, p in enumerate(pops):
+        np.testing.assert_allclose(np.asarray(jsfs.demes.get_cov(p, p).data), variances[i], rtol=1e-8, atol=1e-12)
+        np.testing.assert_allclose(cov[i, i], variances[i], rtol=1e-8, atol=1e-12)
+
+    # the off-diagonal correlation is built from the same two demes as the off-diagonal covariance
+    off = np.asarray(jsfs.demes.get_cov(pops[0], pops[1]).data)
+    np.testing.assert_allclose(cov[0, 1], off, rtol=1e-8, atol=1e-12)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        expected = off / np.sqrt(variances[0] * variances[1])
+    finite = np.isfinite(expected)
+    np.testing.assert_allclose(corr[0, 1][finite], expected[finite], rtol=1e-8, atol=1e-12)
 
 
 def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescent):

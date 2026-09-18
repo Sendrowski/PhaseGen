@@ -465,14 +465,63 @@ def test_empirical_tree_height_total_is_the_maximum_of_the_per_locus_heights():
     """The empirical total aggregated over loci before summing over demes, so the tree height was the sum over demes
     of the deepest locus in each deme. The tree height of several loci is the deepest per-locus height, and a
     locus's height is the sum over demes of the time its lineages spend there. With one locus spending its whole
-    height in each deme, the old total doubled the height."""
+    height in each deme, the old total doubled the height.
+
+    The test went through a hand-built ``EmpiricalPhaseTypeDistribution`` whose ``locus_agg`` it passed itself, so it
+    pinned only the order of the two aggregations and never the choice made by
+    ``TreeHeightDistribution._empirical_locus_agg``, which is what makes ``tree_height.to_empirical`` a tree height
+    rather than a total. Replacing that override with the base-class sum over loci left the whole file green while
+    the empirical two-locus tree height for ``n = 3`` rose from 1.685 to 2.658 against an exact 1.685."""
     from phasegen.distributions.empirical import EmpiricalPhaseTypeDistribution
 
-    # shape (loci, demes, replicates): locus 0 spends 3 in deme a, locus 1 spends 3 in deme b
-    samples = np.array([[[3.0], [0.0]], [[0.0], [3.0]]])
+    # the public path: the two-locus tree height of the library's own sampler against the exact mean
+    th = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).tree_height
+    e = th.to_empirical(N_SAMPLES, seed=SEED)
+    se = e.samples.std(ddof=1) / np.sqrt(N_SAMPLES)
+
+    assert abs(e.mean - th.mean) < 4 * se
+    for locus in (0, 1):
+        se_locus = e.loci[locus].samples.std(ddof=1) / np.sqrt(N_SAMPLES)
+        assert abs(e.loci[locus].mean - th.loci[locus].mean) < 4 * se_locus
+
+    # the sum over loci, which the base class would have taken, is far outside that band
+    assert e.loci[0].mean + e.loci[1].mean > e.mean + 100 * se
+
+    # shape (loci, demes, replicates), asymmetric in both axes so that exchanging them changes every aggregate:
+    # per-locus totals 3 + 1 = 4 and 0 + 4 = 4, per-deme totals 3 + 0 = 3 and 1 + 4 = 5
+    samples = np.array([[[3.0], [1.0]], [[0.0], [4.0]]])
 
     tree_height = EmpiricalPhaseTypeDistribution(samples, pops=['a', 'b'], locus_agg=lambda x: x.max(axis=0))
     total = EmpiricalPhaseTypeDistribution(samples, pops=['a', 'b'])
 
-    assert tree_height.mean == 3.0
-    assert total.mean == 6.0
+    # the maximum over loci of the per-locus totals, not the sum over demes of the per-deme maxima (7), not the
+    # maximum over demes of the per-deme totals (5), and not the sum over loci (8)
+    assert tree_height.mean == 4.0
+    assert total.mean == 8.0
+    assert [tree_height.loci[locus].mean for locus in (0, 1)] == [4.0, 4.0]
+    assert [tree_height.demes[pop].mean for pop in ('a', 'b')] == [3.0, 5.0]
+
+
+def test_msprime_statistics_come_from_one_simulation_without_caching():
+    """``MsprimeCoalescent.simulate`` was memoized with ``phasegen.caching.cache``, which stores nothing under
+    ``Settings.cache = False``, so the memo could not act as the run-once latch it was being used as. Every statistic
+    re-ran the ancestry simulation and overwrote the arrays in place, and with the default ``seed=None`` two
+    statistics then described two different tree sets: ``tree_height.mean`` and ``total_tree_height.mean``, which are
+    the same number by construction for a single locus and a single deme, came out as 1.5071 and 1.4905, and
+    repeated access to one statistic returned different numbers."""
+    pg.Settings.cache = False
+    try:
+        ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False)  # seed=None
+
+        assert ms.tree_height.mean == ms.total_tree_height.mean
+        assert ms.tree_height.mean == ms.tree_height.mean
+
+        # _touch must persist the statistics it touched, so that _drop reaches the same objects
+        ms._touch()
+        touched = ms.tree_height
+        ms._drop()
+
+        assert ms.tree_height is touched
+        assert ms.heights is None
+    finally:
+        pg.Settings.cache = True

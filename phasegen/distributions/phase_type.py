@@ -523,7 +523,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         end_times, lam_epochs = [], []
         indptr_list, neighbours_list, cum_list = [], [], []
         nnz = 0
-        for ei, epoch in enumerate(self.demography.epochs):
+        for ei, epoch in enumerate(self._get_epochs_until_unbounded()):
             self.state_space.update_epoch(epoch)
             S = sp.csr_matrix(self.state_space.S, dtype=float)
             lam = -S.diagonal()  # (k,) exit rates
@@ -542,8 +542,6 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             neighbours_list.append(cols)
             cum_list.append(within + (ei * k + rows))  # band-shift by global row id -> globally sorted
             nnz += cols.size
-            if epoch.end_time == np.inf:
-                break
 
         end_times = np.array(end_times)  # (E,)
         lam_epochs = np.array(lam_epochs)  # (E, k)

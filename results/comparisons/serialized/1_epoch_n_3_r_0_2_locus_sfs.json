@@ -17,8 +17,7 @@
             "sfs2": {
                 "pairwise": {
                     "[(1, 2), (2, 2)]": {
-                        "cdf": 0.022,
-                        "pdf": 0.22
+                        "cdf": 0.022
                     }
                 },
                 "mean": 0.009
@@ -54,6 +53,7 @@
     },
     "n_assertions": 0,
     "runtimes": {},
+    "_ms_statistics": {},
     "ms": {
         "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
@@ -86,7 +86,8 @@
                 "py/object": "numpy.ndarray",
                 "data": [
                     3
-                ]
+                ],
+                "dtype": "int64"
             },
             "n": 3,
             "n_pops": 1,
@@ -124,6 +125,7 @@
         "mutations": null,
         "jsfs_moments": null,
         "jsfs_samples": null,
+        "n_total": null,
         "num_replicates": 200000,
         "mutation_rate": null,
         "n_threads": 1,
@@ -160,7 +162,8 @@
                         0.0,
                         0.0
                     ]
-                ]
+                ],
+                "dtype": "float64"
             },
             "_left": null,
             "_right": null,
@@ -198,7 +201,8 @@
                                 4.362986325972373,
                                 4.561303886243844,
                                 4.7596214465153155
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -228,7 +232,8 @@
                                 2.7577632065443343,
                                 2.8831160795690765,
                                 3.008468952593819
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -908,7 +913,8 @@
                                     0.917795,
                                     0.92338
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -1588,7 +1594,8 @@
                                     0.009453059664191826,
                                     0.010860962167365212
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         }
                     ]
                 },
@@ -1624,7 +1631,8 @@
                                 2.7577632065443343,
                                 2.8831160795690765,
                                 3.008468952593819
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -1654,7 +1662,8 @@
                                 2.7577632065443343,
                                 2.8831160795690765,
                                 3.008468952593819
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -2334,7 +2343,8 @@
                                     0.94328,
                                     0.95
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -3014,7 +3024,8 @@
                                     0.21383101278911745,
                                     0.4276620255782357
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         }
                     ]
                 }

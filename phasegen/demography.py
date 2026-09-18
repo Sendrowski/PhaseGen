@@ -888,10 +888,10 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param time: Time of the split.
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
-        :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population is
-            set to :math:`m = c\,N`, the population size :math:`N` of the derived population times the multiplier
-            :math:`c`. It should be large enough that the lineages move to the ancestral population within a time that
-            is negligible on the coalescent time scale.
+        :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
+            is set to :math:`m = c / N`, the multiplier :math:`c` divided by the population size :math:`N` of the
+            derived population. It should be large enough that the lineages move to the ancestral population within
+            a time that is negligible on the coalescent time scale.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -939,8 +939,9 @@ class PopulationSplit(DiscreteDemographicEvent):
         """
         if epoch.start_time <= self.start_time < epoch.end_time:
             for p in self.derived:
-                # high backward-in-time migration rate so that all lineages move to the ancestral population quickly
-                epoch.migration_rates[(p, self.ancestral)] = epoch.pop_sizes[p] * self.multiplier
+                # the drain rate is a multiple of the coalescence rate 1 / N of the derived population, so that
+                # lineages leave it before they coalesce in it
+                epoch.migration_rates[(p, self.ancestral)] = self.multiplier / epoch.pop_sizes[p]
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

@@ -52,6 +52,9 @@ class Inference(Serializable):
     #: Static for backward compatibility with serialized objects that lack the attribute.
     _entropy: int | None = None
 
+    #: Static for backward compatibility with serialized objects whose initial guess was not materialized.
+    _x0: Dict[str, float] | None = None
+
     def __init__(
             self,
             bounds: Dict[str, Tuple[float, float]],
@@ -207,8 +210,11 @@ class Inference(Serializable):
     @property
     def x0(self) -> Dict[str, float]:
         """
-        Initial parameters.
+        Initial parameters, sampled within the bounds when none were given.
         """
+        if self._x0 is None:
+            self._x0 = self._sample()
+
         # x0 must cover every bounds parameter: `_sample()`-generated runs always span all bounds keys, so a partial
         # x0 would make the first run optimize a lower-dimensional subspace than the rest (a ragged run set that
         # crashes or mislabels params). Fail early rather than silently drop the missing dimensions.

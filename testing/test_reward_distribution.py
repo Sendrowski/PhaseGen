@@ -1764,3 +1764,60 @@ def test_joint_cdf_surface_stays_within_the_unit_interval():
     z = np.asarray(coal.sfs.joint_distribution(1, 2).cdf._plot_data(surface=True).z)
 
     assert z.min() >= 0.0 and z.max() <= 1.0
+
+
+def test_joint_density_does_not_depend_on_the_other_points_of_the_query():
+    """The finite-difference grid of the joint density spanned the queried range with a fixed node count, so the width
+    of the cell the density is averaged over grew with the largest queried point. For ``n = 4`` the density of the
+    (tree height, total branch length) pair at ``(1, 3)`` was 0.3176 evaluated alone, 0.3068 when ``(3, 8)`` shared the
+    call and 0.0162 when ``(100, 300)`` did, against a mixed central difference of the CDF of 0.3185."""
+    from phasegen.rewards import TreeHeightReward, TotalBranchLengthReward
+
+    j = pg.Coalescent(n=4).joint_distribution(TreeHeightReward(), TotalBranchLengthReward())
+
+    alone = float(j.pdf(1.0, 3.0))
+    xs, ys = np.array([0.5, 1.0, 3.0, 100.0]), np.array([2.0, 3.0, 8.0, 300.0])
+    within_a_batch = float(np.asarray(j.pdf(xs, ys))[1, 1])
+
+    assert alone == within_a_batch
+
+    # the mixed central difference of the CDF, which is evaluated per point and so cannot depend on the query
+    h = 0.02
+    F = np.asarray(j.cdf(np.array([1.0 - h, 1.0 + h]), np.array([3.0 - h, 3.0 + h])))
+    reference = (F[1, 1] - F[1, 0] - F[0, 1] + F[0, 0]) / (4 * h * h)
+
+    assert alone == pytest.approx(reference, rel=0.02)
+
+    # every point of the batch agrees with its own single-point evaluation, including the near-origin one whose
+    # cell width the companion point (100, 300) used to inflate by a factor of 100
+    for i, x in enumerate(xs[:-1]):
+        for k, y in enumerate(ys[:-1]):
+            assert float(np.asarray(j.pdf(xs, ys))[i, k]) == float(j.pdf(float(x), float(y)))
+
+
+def test_atom_probe_is_equivariant_under_scaling_the_reward():
+    """The atom probe was ``1e8 / tau`` with ``tau`` built from the rates alone, so it ignored the magnitude of the
+    reward. Multiplying the ``n = 4`` tree-height reward by ``1e-8`` made the probe report an atom of 0.32 for a
+    continuous law: the CDF was off by up to 0.28, the density was identically zero at the lower points and
+    ``quantile(0.1)`` was 0. Scaling a reward by ``c > 0`` must leave the law unchanged up to the same scaling,
+    ``F_{cR}(ct) = F_R(t)``."""
+    from phasegen.rewards import CustomReward, TreeHeightReward
+
+    coal = pg.Coalescent(n=4)
+    unscaled = coal.tree_height.distribution(TreeHeightReward())
+    ts = np.array([0.3, 0.8, 1.5, 3.0])
+    probs = np.array([0.1, 0.5, 0.9])
+    cdf_ref = np.array([unscaled.cdf(t) for t in ts])
+    pdf_ref = np.array([unscaled.pdf(t) for t in ts])
+    quantile_ref = np.array([unscaled.quantile(p) for p in probs])
+
+    for c in (1e3, 1e-3, 1e-6, 1e-8, 1e-9):
+        scaled = coal.tree_height.distribution(CustomReward(lambda ss, m=c: m * TreeHeightReward()._get(ss)))
+
+        assert scaled.lst(scaled._s_inf).real == pytest.approx(0.0, abs=1e-12)  # the tree height has no atom
+        np.testing.assert_allclose([scaled.cdf(t * c) for t in ts], cdf_ref, atol=1e-9)
+        np.testing.assert_allclose([scaled.pdf(t * c) * c for t in ts], pdf_ref, rtol=1e-6)
+        np.testing.assert_allclose([scaled.quantile(p) / c for p in probs], quantile_ref, rtol=1e-6)
+
+    # a genuinely atomic reward keeps its atom: bin 3 of n = 4 is empty unless the tree is a caterpillar
+    assert pg.Coalescent(n=4).sfs.bin(3).lst(pg.Coalescent(n=4).sfs.bin(3)._s_inf).real == pytest.approx(1 / 3, abs=1e-7)

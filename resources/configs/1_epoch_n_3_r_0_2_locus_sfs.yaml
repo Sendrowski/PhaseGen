@@ -12,7 +12,8 @@ comparisons:
   tolerance:
     sfs2:
       pairwise:
+        # at r = 0 the two loci are perfectly linked, so the two bins are the same random variable and their joint
+        # law has no density: only the CDF exists, through the diagonal reduction
         '[(1, 2), (2, 2)]':
           cdf: 0.022
-          pdf: 0.22
       mean: 0.009

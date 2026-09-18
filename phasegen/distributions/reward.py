@@ -165,14 +165,13 @@ class RewardDistribution(CallableDistributionFunctions):
         The :math:`s \to \infty` probe used for the atom :math:`\Pr(R = 0) = \varphi(\infty)` (and the axis atoms
         of a joint).
 
-        Scaled by the inversion time scale, *not* a fixed number: the transform decays on the scale of the rates,
-        and :math:`1/\tau` bounds the fastest of them, so a hard-coded :math:`s` is only large in the
-        :math:`\tau \sim 1` regime. On a small-N demography :math:`\varphi(10^8)` has not decayed at all and reports a
-        1.9% atom for a doubleton bin whose atom is exactly 0 (every binary tree has a cherry). Probing at
-        :math:`10^8/\tau` keeps :math:`s` at least the same large multiple of every rate in every regime, so the probe
-        exceeds the atom by at most about :math:`10^{-8}` for a reward of order one per unit time.
+        The argument :math:`s` is conjugate to :math:`R`, so the probe is
+        :math:`10^8/\min(\tau, \sqrt{\mathbb{E}[R^2]})`, with :math:`\tau` the inversion time scale of
+        ``_time_scale`` and :math:`\sqrt{\mathbb{E}[R^2]}` the root mean square of ``_rms``. This keeps :math:`sR` at
+        the same large multiple in every regime. A reward that is zero almost surely takes the time scale in place of
+        the root mean square.
         """
-        return 1e8 / self._time_scale
+        return 1e8 / min(self._time_scale, self._rms or self._time_scale)
 
     @cached_property
     def mean(self) -> float:
@@ -514,8 +513,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @property
     def _s_inf(self) -> float:
-        r"""The atom probe :math:`10^8/\tau`, scaled like ``RewardDistribution._s_inf``."""
-        return 1e8 / self._time_scale
+        r"""The atom probe :math:`10^8/\min(\tau, \sqrt{\mathbb{E}[R_a^2]}, \sqrt{\mathbb{E}[R_b^2]})`, scaled like
+        ``RewardDistribution._s_inf``. One probe serves both axes."""
+        scales = [v for v in (self._time_scale, self._rms['a'], self._rms['b']) if v > 0]
+        return 1e8 / min(scales)
 
     #: Bivariate function objects. A joint has no quantile function.
     _pdf_function = JointDensity
@@ -529,8 +530,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
     #: window coarsens the resolution ``b / n_terms`` near the origin, a narrower one truncates tail mass.
     _cos2d_window_scale: float = 5.0
 
-    #: Per-axis node count of the finite-difference grid of the density (:math:`m` in ``JointDensity``).
-    _cos2d_pdf_grid: int = 50
+    #: Per-axis node count of the finite-difference grid of the density (:math:`m` in ``JointDensity``), spread over
+    #: the window of the expansion. The step ``b / (m - 1)`` sets the width of the cell the density is averaged over.
+    _cos2d_pdf_grid: int = 800
 
     def __init__(self, dist: 'PhaseTypeDistribution', reward_a: Reward, reward_b: Reward) -> None:
         """
@@ -842,12 +844,27 @@ class JointRewardDistribution(CallableDistributionFunctions):
             )
         return err
 
-    def _density(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
-        """The continuous density of ``JointDensity`` on the outer grid ``xs x ys``: the mixed central difference of
-        ``_cc_box`` on a coarse uniform grid spanning the queried range, interpolated by a bicubic spline. A spline's
-        analytic mixed derivative or a fine grid overshoots near the origin, the coarse cell average does not."""
+    @cached_property
+    def _density_grid(self) -> dict:
+        """The bicubic spline of ``JointDensity`` through the mixed central difference of ``_cc_box``, and the interior
+        nodes it is built on. The grid is uniform over the cosine window ``ba`` x ``bb``, so a density value does not
+        depend on the queried grid."""
         from scipy.interpolate import RectBivariateSpline
 
+        st = self._cos2d
+        n = max(6, self._cos2d_pdf_grid)
+        gx, gy = np.linspace(0.0, st['ba'], n), np.linspace(0.0, st['bb'], n)
+        hx, hy = gx[1] - gx[0], gy[1] - gy[0]
+        # box CDF on the grid (vanishes on the axes), then the mixed central second difference at the interior nodes
+        F = np.zeros((n, n))
+        F[1:, 1:] = self._cc_box(gx[1:], gy[1:])
+        dens = (F[2:, 2:] - F[2:, :-2] - F[:-2, 2:] + F[:-2, :-2]) / (4.0 * hx * hy)
+        k = min(3, dens.shape[0] - 1)
+        return dict(spline=RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k), gx=gx[1:-1], gy=gy[1:-1])
+
+    def _density(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """The continuous density of ``JointDensity`` on the outer grid ``xs x ys``, read off the spline of
+        ``_density_grid``. The cosine expansion holds no mass beyond its window, so the density vanishes there."""
         if Settings.check_inversions:
             _ = self._cos2d_wiggle_check
         xs = np.atleast_1d(np.asarray(xs, dtype=float))
@@ -855,18 +872,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         # the spline evaluates strictly increasing points, mapped back to the caller's order and repetitions
         ux, ix = np.unique(xs, return_inverse=True)
         uy, iy = np.unique(ys, return_inverse=True)
-        n = max(6, self._cos2d_pdf_grid)
-        gx = np.linspace(0.0, max(float(xs.max()), 1e-9) * 1.1, n)
-        gy = np.linspace(0.0, max(float(ys.max()), 1e-9) * 1.1, n)
-        hx, hy = gx[1] - gx[0], gy[1] - gy[0]
-        # box CDF on the grid (vanishes on the axes), then the mixed central second difference at the interior nodes
-        F = np.zeros((n, n))
-        F[1:, 1:] = self._cc_box(gx[1:], gy[1:])
-        dens = (F[2:, 2:] - F[2:, :-2] - F[:-2, 2:] + F[:-2, :-2]) / (4.0 * hx * hy)
-        k = min(3, dens.shape[0] - 1)
-        out = RectBivariateSpline(gx[1:-1], gy[1:-1], dens, kx=k, ky=k)(ux, uy)[np.ix_(ix, iy)]
-        out[xs < 0, :] = 0.0
-        out[:, ys < 0] = 0.0
+        g, st = self._density_grid, self._cos2d
+        gx, gy = g['gx'], g['gy']
+        out = g['spline'](np.clip(ux, gx[0], gx[-1]), np.clip(uy, gy[0], gy[-1]))[np.ix_(ix, iy)]
+        out[(xs < 0) | (xs > st['ba']), :] = 0.0
+        out[:, (ys < 0) | (ys > st['bb'])] = 0.0
         return out
 
     @staticmethod
@@ -1552,10 +1562,10 @@ class _AtomConditional(ConditionalRewardDistribution):
         atom = joint._atoms['a0' if on == 'a' else 'b0']
         if atom < _ATOM_FLOOR:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
+        # the sub-transform is probed where the atom dividing it was measured, so that ``lst(0) = 1`` exactly
+        big = joint._s_inf
         self._joint = joint
-        # bound before ``_s_inf`` is read, which scales the probe by the host's time scale
         self._host = joint._host
-        big = self._s_inf
         self.state_space = joint._host.state_space
         self._on = on
         self._atom = atom

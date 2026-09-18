@@ -651,6 +651,75 @@ class Comparison(Serializable):
 
         return avg
 
+    #: Gauss-Legendre nodes per cell and axis used to integrate an exact joint density over a 2-D comparison cell.
+    #: Lower than the 1-D start because the rule is a tensor product and the grid holds every cell's nodes at once.
+    _CELL_QUAD_NODES_2D = 8
+
+    #: Nodes per cell and axis beyond which a 2-D cell's integral is accepted as it stands.
+    _CELL_QUAD_MAX_NODES_2D = 64
+
+    @classmethod
+    def _cell_average_2d(cls, f, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """
+        The exact joint density ``f`` averaged over the grid cell centred on each node :math:`(x_i, y_j)`, namely
+        :math:`[x_{i-1}, x_{i+1}] \\times [y_{j-1}, y_{j+1}]`, one-sided at the two ends of each axis, the 2-D
+        counterpart of :meth:`_cell_average`. Cells whose integral is still moving are refined until it settles.
+
+        :param f: The exact joint density, a callable of two 1-D arrays returning the outer grid
+            ``(len(x), len(y))``.
+        :param xs: Grid of the first reward.
+        :param ys: Grid of the second reward.
+        :return: The cell averages, of shape ``(len(xs), len(ys))``.
+        """
+        (lox, hix), (loy, hiy) = cls._centred_cells(xs), cls._centred_cells(ys)
+        areas = np.outer(hix - lox, hiy - loy)
+
+        n_nodes = cls._CELL_QUAD_NODES_2D
+        probe = cls._quadrature_2d(f, lox, hix, loy, hiy, n_nodes // 2)
+        avg = cls._quadrature_2d(f, lox, hix, loy, hiy, n_nodes)
+
+        # as in one dimension, the coarser rule is the error estimate, not the answer: where the two agree the density
+        # is resolved, and where they do not the cell holds a feature the rule cannot see
+        while np.any(np.abs(avg - probe) * areas > cls._CELL_QUAD_TOL) and n_nodes < cls._CELL_QUAD_MAX_NODES_2D:
+            probe, n_nodes = avg, n_nodes * 2
+            avg = cls._quadrature_2d(f, lox, hix, loy, hiy, n_nodes)
+
+        return avg
+
+    @staticmethod
+    def _centred_cells(t: np.ndarray) -> tuple:
+        """The lower and upper edges of the grid cell centred on each node of ``t``, one-sided at the two ends.
+
+        :param t: The grid, strictly increasing.
+        :return: ``(lower edges, upper edges)``, each of ``len(t)``.
+        """
+        t = np.asarray(t, dtype=float)
+
+        return np.concatenate([t[:1], t[:-1]]), np.concatenate([t[1:], t[-1:]])
+
+    @staticmethod
+    def _quadrature_2d(f, lox: np.ndarray, hix: np.ndarray, loy: np.ndarray, hiy: np.ndarray,
+                       n_nodes: int) -> np.ndarray:
+        """Tensor-product Gauss-Legendre average of ``f`` over every cell ``[lox, hix) x [loy, hiy)``.
+
+        :param f: The joint density, a callable of two 1-D arrays returning the outer grid.
+        :param lox: Lower cell edges along the first axis.
+        :param hix: Upper cell edges along the first axis.
+        :param loy: Lower cell edges along the second axis.
+        :param hiy: Upper cell edges along the second axis.
+        :param n_nodes: Nodes per cell and axis.
+        :return: The cell averages, of shape ``(len(lox), len(loy))``.
+        """
+        x, w = np.polynomial.legendre.leggauss(n_nodes)
+        nodes_x = 0.5 * (hix - lox)[:, None] * (x[None, :] + 1.0) + lox[:, None]
+        nodes_y = 0.5 * (hiy - loy)[:, None] * (x[None, :] + 1.0) + loy[:, None]
+
+        z = np.asarray(f(nodes_x.ravel(), nodes_y.ravel()), dtype=float)
+        z = z.reshape(len(lox), n_nodes, len(loy), n_nodes)
+
+        # the two 0.5 * (hi - lo) Jacobians cancel the two 1 / (hi - lo) of the average
+        return 0.25 * np.einsum('injm,n,m->ij', z, w, w)
+
     @staticmethod
     def _unconverged(moved: np.ndarray, cells: np.ndarray) -> np.ndarray:
         """The cells still to refine: those whose integral moved, in any bin of a per-bin density.
@@ -1266,6 +1335,9 @@ class Comparison(Serializable):
         ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
         ``cdf`` and ``pdf`` requested in ``tols`` it asserts the worst element-wise difference over the grid and (when
         visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference.
+
+        The CDF is read pointwise on both sides, the density as the average over the grid cell centred on each node,
+        through :meth:`_cell_average_2d` on the analytic side.
         """
         i, j = pair
         jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
@@ -1297,7 +1369,8 @@ class Comparison(Serializable):
             xs_d, ys_d = xs, ys
             ms_grid = (cdf_ms if kind == 'cdf' else pdf_ms)
             grid_ms = np.asarray(ms_grid, dtype=float)
-            grid_ph = np.asarray(jd.cdf(xs_d, ys_d) if kind == 'cdf' else jd.pdf(xs_d, ys_d), dtype=float)
+            grid_ph = (np.asarray(jd.cdf(xs_d, ys_d), dtype=float) if kind == 'cdf'
+                       else self._cell_average_2d(jd.pdf, xs_d, ys_d))
 
             xs_p, ys_p = xs_d[sx], ys_d[sy]
             grid_ph, grid_ms = grid_ph[sx, sy], grid_ms[sx, sy]

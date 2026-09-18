@@ -6,7 +6,7 @@ statistics from the sampled realisations.
 
 import logging
 from collections import defaultdict
-from ..caching import cached_property, cache
+from ..caching import cached_property
 from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
@@ -1667,11 +1667,14 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         return None if self.seed is None else (self.seed + offset - 1) % (2 ** 32 - 1) + 1
 
-    @cache
     def simulate(self) -> None:
         """
-        Simulate data using msprime.
+        Simulate data using msprime, once per instance, so that every statistic describes the same tree sequences.
+        A subsequent call returns without simulating while the data are held.
         """
+        if self.heights is not None:
+            return
+
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
         samples = self.lineage_config.lineage_dict
@@ -1829,13 +1832,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        t = self._get_cached_times(self.tree_height)
-
-        self.tree_height._touch(t)
-        self.total_tree_height._touch(self._get_cached_times(self.total_tree_height))
-        self.total_branch_length._touch(self._get_cached_times(self.total_branch_length))
-        self.sfs._touch(self._get_cached_times(self.sfs))
-        self.fsfs._touch(self._get_cached_times(self.fsfs))
+        # force-persist the statistics: _touch/_drop is the serialization contract and must hold even under
+        # Settings.cache = False, where the getter would otherwise rebuild them without storing
+        for name in ('tree_height', 'total_tree_height', 'total_branch_length', 'sfs', 'fsfs'):
+            dist = self.__dict__[name] = getattr(self, name)
+            dist._touch(self._get_cached_times(dist))
 
         # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
         # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and

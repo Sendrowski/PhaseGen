@@ -376,8 +376,9 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def sfs2(self) -> TwoLocusSFSDistribution:
         """
-        Two-locus site-frequency spectrum under recombination, returned as a :class:`~sfsutils.spectrum.TwoLocusSFS`.
-        Requires exactly two loci (``loci=2``) and a single population.
+        Two-locus site-frequency spectrum distribution under recombination, whose moments are
+        :class:`~sfsutils.spectrum.TwoLocusSFS` objects. Requires exactly two loci (``loci=2``) and a single
+        population.
 
         .. note::
             The two-locus state space grows quickly with the sample size, so this is only practical for small ``n``.

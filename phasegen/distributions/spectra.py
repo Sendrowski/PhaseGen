@@ -1015,15 +1015,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         alpha = self.state_space.alpha[non_absorbing]
 
         epochs = []
-        for epoch in self.demography.epochs:
+        for epoch in self._get_epochs_until_unbounded():
             self.state_space.update_epoch(epoch)
             S = self.state_space.S[non_absorbing, :][:, non_absorbing]  # sparse-safe slice
             S = S.toarray() if sp.issparse(S) else np.asarray(S)
             e = -S @ np.ones(S.shape[0])  # coalescent absorption-rate vector (state_space.e is the all-ones vector)
             tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
             epochs.append((S, e, tau))
-            if tau is None:
-                break
 
         # leave the state space in the first epoch for any subsequent caller that assumes it
         self.state_space.update_epoch(self.demography.get_epoch(0))
@@ -1661,7 +1659,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
                 raise ValueError("End time must be greater than or equal to the start time.")
 
             # the mean is additive in time, so every bin is the difference of two batched accumulations
-            acc = self.accumulate(1, [start, end])
+            acc = self.accumulate(1, [start, end], start_time=0.0)
             out = acc[..., 1] - acc[..., 0]
         else:
             out = np.zeros(self.shape)
@@ -1804,17 +1802,19 @@ class JointSFSDistribution(PhaseTypeDistribution):
             k: int,
             end_times: Iterable[float],
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = None
     ) -> np.ndarray:
         r"""
-        The :math:`k`-th moment of every joint site-frequency spectrum bin accumulated up to each end time
-        :math:`t_\mathrm{end}` in ``end_times``, as described in
+        The :math:`k`-th moment of every joint site-frequency spectrum bin accumulated from the start time
+        :math:`t_\mathrm{start}` to each end time :math:`t_\mathrm{end}` in ``end_times``, as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: Array of shape :attr:`shape` ``+ (len(end_times),)`` with the moment of each bin over time.
         """
         k = int(k)
@@ -1824,7 +1824,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         # batched mean accumulation (k=1): all configs share the occupation-up-to-t grid m(t), so the whole joint
         # accumulation is one contraction m_grid @ R over the stacked config rewards
         if k == 1 and not self._flattening_applies(1):
-            m_grid = self._mean_occupation_grid(end_times)
+            m_grid = self._mean_occupation_grid(end_times, start_time=start_time)
             ss = self.state_space
             R = np.column_stack([
                 np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(ss), dtype=float)
@@ -1840,7 +1840,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
                     end_times=end_times,
                     rewards=tuple(CombinedReward([self.reward, JointSFSReward(config)]) for _ in range(k)),
                     center=center,
-                    permute=permute
+                    permute=permute,
+                    start_time=start_time
                 )
                 for config in configs
             ])

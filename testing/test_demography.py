@@ -565,7 +565,7 @@ def test_population_split_uses_same_time_pop_size_change(order):
     events = [pg.PopulationSplit(1, 'b', 'c'), pg.PopSizeChange('b', time=1, size=10)]
     d = pg.Demography(pop_sizes={'b': 1., 'c': 1.}, events=events[::1 - 2 * order])
 
-    assert list(islice(d.epochs, 2))[1].migration_rates[('b', 'c')] == 1000
+    assert list(islice(d.epochs, 2))[1].migration_rates[('b', 'c')] == 10
 
 
 @pytest.mark.parametrize("kwargs, reference", [
@@ -591,3 +591,27 @@ def test_demography_accepts_numpy_scalars(kwargs, reference):
     for e, r in zip(epochs, expected):
         assert e.pop_sizes == r.pop_sizes
         assert e.migration_rates == r.migration_rates
+
+
+def test_population_split_drain_rate_dominates_coalescence_at_any_population_size():
+    """
+    The drain rate of a split was ``N * multiplier`` while a pair coalesces at ``1 / N``, so the drain stopped
+    dominating coalescence as ``N`` fell below one and lineages coalesced inside the drained derived population:
+    with both demes of size ``N`` and both lineages sampled in the derived one, the model is a single population of
+    size ``N``, yet ``E[T_MRCA] / N`` grew from 1.006 at ``N = 1`` to 2.19 at ``N = 0.01``.
+    """
+    scaled = []
+
+    for N in (1.0, 0.1, 0.01):
+        d = pg.Demography(
+            pop_sizes={'a': {0: N}, 'b': {0: N}},
+            events=[pg.PopulationSplit(time=0.5 * N, derived='a', ancestral='b')]
+        )
+
+        assert list(islice(d.epochs, 2))[1].migration_rates[('a', 'b')] == 100 / N
+
+        scaled += [pg.Coalescent(n={'a': 2, 'b': 0}, demography=d).tree_height.mean / N]
+
+    assert scaled[0] == pytest.approx(1, rel=0.01)
+    assert scaled[1] == pytest.approx(scaled[0], rel=1e-8)
+    assert scaled[2] == pytest.approx(scaled[0], rel=1e-8)

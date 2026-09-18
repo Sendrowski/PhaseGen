@@ -8,7 +8,7 @@ from ..caching import cached_property
 from typing import Any, Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
 from ..expm import Backend
-from ..rewards import DemeReward, LocusReward, CombinedReward
+from ..rewards import RestrictedReward
 from ..settings import Settings
 
 if TYPE_CHECKING:
@@ -856,7 +856,7 @@ class JointDensity(_JointFunction, DensityFunction):
     no density.
 
     The density is the mixed central difference of the continuous part :math:`C` of
-    :class:`~phasegen.distributions.JointCDF` on a coarse uniform grid with steps :math:`h_x` and :math:`h_y`,
+    :class:`~phasegen.distributions.JointCDF` on a uniform grid with steps :math:`h_x` and :math:`h_y`,
 
     .. math::
 
@@ -867,8 +867,10 @@ class JointDensity(_JointFunction, DensityFunction):
 
     .. rubric:: Implementation
 
-    - The grid spans the queried range and a bicubic spline interpolates between its nodes, so a value depends slightly
-      on the other points of the same call.
+    - The grid spans the cosine window :math:`[0, b_a] \times [0, b_b]` of
+      :class:`~phasegen.distributions.JointCDF`, so the steps are properties of the distribution and a value depends
+      only on its own point. A bicubic spline interpolates between the nodes. The expansion holds no mass beyond its
+      window, where the density is therefore zero.
     - Negative values are set to zero, with a warning under :attr:`Settings.check_inversions
       <phasegen.settings.Settings.check_inversions>`.
     """
@@ -1264,7 +1266,7 @@ class MarginalLocusDistributions(MarginalDistributions):
                 state_space=self.dist.state_space,
                 tree_height=self.dist.tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, LocusReward(locus)])
+                reward=RestrictedReward(self.dist.reward, locus=locus)
             )
 
         return loci
@@ -1286,8 +1288,8 @@ class MarginalLocusDistributions(MarginalDistributions):
         return self.dist.moment(
             k=2,
             rewards=(
-                CombinedReward([self.dist.reward, LocusReward(locus1)]),
-                CombinedReward([self.dist.reward, LocusReward(locus2)])
+                RestrictedReward(self.dist.reward, locus=locus1),
+                RestrictedReward(self.dist.reward, locus=locus2)
             ),
             center=True
         )
@@ -1340,8 +1342,8 @@ class MarginalLocusDistributions(MarginalDistributions):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
         return self.dist.joint_distribution(
-            CombinedReward([self.dist.reward, LocusReward(locus1)]),
-            CombinedReward([self.dist.reward, LocusReward(locus2)])
+            RestrictedReward(self.dist.reward, locus=locus1),
+            RestrictedReward(self.dist.reward, locus=locus2)
         )
 
 
@@ -1400,7 +1402,7 @@ class MarginalDemeDistributions(MarginalDistributions):
                 state_space=self.dist.state_space,
                 tree_height=self.dist.tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, DemeReward(pop)])
+                reward=RestrictedReward(self.dist.reward, pop=pop)
             )
 
         return demes
@@ -1419,8 +1421,8 @@ class MarginalDemeDistributions(MarginalDistributions):
         return self.dist.moment(
             k=2,
             rewards=(
-                CombinedReward([self.dist.reward, DemeReward(pop1)]),
-                CombinedReward([self.dist.reward, DemeReward(pop2)])
+                RestrictedReward(self.dist.reward, pop=pop1),
+                RestrictedReward(self.dist.reward, pop=pop2)
             ),
             center=True
         )

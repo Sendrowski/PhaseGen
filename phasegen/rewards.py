@@ -8,7 +8,7 @@ complex statistics and their distributions.
 """
 
 from abc import abstractmethod, ABC
-from typing import List, Callable, Tuple, Dict, Iterable, Type
+from typing import List, Callable, Tuple, Iterable, Type
 
 import numpy as np
 
@@ -31,10 +31,30 @@ class Reward(ABC):
         """
         pass
 
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
+        r"""
+        The reward resolved by locus and deme, of shape ``(n_states, n_loci, n_demes)``, entry :math:`(i, l, d)`
+        being the share of the reward of state :math:`i` carried by locus :math:`l` and deme :math:`d`, as summed by
+        :class:`RestrictedReward`. By default the reward is split in proportion to the lineages at each locus and
+        deme, counting only the loci that carry more than one lineage, and vanishes on the absorbing states.
+
+        :param state_space: state space
+        :return: reward parts
+        """
+        # lineages per locus and deme, of the loci that have not yet reached their MRCA
+        weights = state_space.lineages.sum(axis=3) * (state_space.lineages.sum(axis=(2, 3)) > 1)[:, :, None]
+
+        total = weights.sum(axis=(1, 2))
+        shares = weights / np.where(total > 0, total, 1)[:, None, None]
+
+        rewards = np.asarray(self._get(state_space), dtype=float) * ~state_space.absorbing
+
+        return rewards[:, None, None] * shares
+
     def __hash__(self) -> int:
         """
         Get the hash for the reward.
-        
+
         :return: hash.
         """
         # hash the class name as this class is stateless.
@@ -96,6 +116,28 @@ class Reward(ABC):
         :return: True if the rewards support the state space, False otherwise
         """
         return all([reward.supports(state_space) for reward in rewards])
+
+    @staticmethod
+    def _check_accumulable(state_space: StateSpace, rewards: Iterable['Reward']) -> None:
+        r"""
+        Check that the rewards vanish on the absorbing states of the state space. The reward accumulated up to
+        absorption is determined by the transient entries alone, so a reward with mass on an absorbing state is
+        rejected.
+
+        :param state_space: The state space the rewards are resolved against.
+        :param rewards: The rewards to accumulate.
+        :raises ValueError: If a reward is non-zero on an absorbing state.
+        """
+        for reward in rewards:
+            values = np.asarray(reward._get(state_space), dtype=float)[state_space.absorbing]
+
+            if np.any(values != 0):
+                raise ValueError(
+                    f"Reward {reward.__class__.__name__} is non-zero on {int(np.sum(values != 0))} of the "
+                    f"{len(values)} absorbing states, so it does not define an accumulation until absorption. "
+                    f"Combine it with a reward that vanishes on the absorbing states, such as "
+                    f"{TreeHeightReward.__name__} or {TotalBranchLengthReward.__name__}."
+                )
 
     @staticmethod
     def requires_joint_state_space(rewards: Iterable['Reward']) -> bool:
@@ -245,7 +287,31 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
         return hash((self.__class__.__name__, self.locus, self.count))
 
 
-class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
+class _LocusHeightReward(Reward, ABC):
+    """
+    Base class for rewards whose part at a locus is the height of that locus.
+
+    :meta private:
+    """
+
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
+        r"""
+        The unit reward of a segregating locus split across the demes in proportion to the lineages residing in them,
+        :math:`r_{l,d}(i) = \mathbb{1}\{n_l(i) > 1\} n_{l,d}(i) / n_l(i)`, where :math:`n_{l,d}(i)` is the number of
+        lineages of state :math:`i` at locus :math:`l` in deme :math:`d` and :math:`n_l(i)` their sum over demes.
+
+        :param state_space: state space
+        :return: reward parts
+        """
+        lineages = state_space.lineages.sum(axis=3)
+        per_locus = lineages.sum(axis=2)
+
+        shares = lineages / np.where(per_locus > 0, per_locus, 1)[:, :, None]
+
+        return shares * (per_locus > 1)[:, :, None] * ~state_space.absorbing[:, None, None]
+
+
+class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     r"""
     Reward for tree height: unit reward on transient states and zero on the absorbing set :math:`B`,
     :math:`r_\text{height}(i) = \mathbb{1}\{i \notin B\}`, so the accumulated reward is the time to absorption. Note
@@ -280,7 +346,7 @@ class TreeHeightReward(LineageCountingReward, BlockCountingReward, JointBlockCou
         )
 
 
-class TotalTreeHeightReward(LineageCountingReward, BlockCountingReward):
+class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward):
     r"""
     Reward based on tree height, unit reward per non-absorbing locus,
     :math:`r(i) = \sum_l \mathbb{1}\{\text{locus } l \text{ has } > 1 \text{ lineage in } i\}`. When using multiple
@@ -533,9 +599,9 @@ class LineageReward(LineageCountingReward, JointBlockCountingReward):
 class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     r"""
     Reward the fraction of lineages residing in a specific deme,
-    :math:`r(i) = (\#\text{ lineages of } i \text{ in the deme}) / (\#\text{ lineages in } i)`. Taking the product
-    of this reward with another reward will result in a reward that only considers the specified deme. Use
-    :class:`SumReward` to marginalize over several demes.
+    :math:`r(i) = (\#\text{ lineages of } i \text{ in the deme}) / (\#\text{ lineages in } i)`. Combining this reward
+    with another reward through :class:`CombinedReward` restricts that reward to the deme, locus by locus, as
+    :class:`RestrictedReward` does. Use :class:`SumReward` to marginalize over several demes.
     """
 
     def __init__(self, pop: str) -> None:
@@ -579,7 +645,8 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
 class LocusReward(LineageCountingReward):
     """
     Reward states in which the given locus is still segregating (an indicator that the locus holds more than one
-    lineage). Taking the product of this reward with another reward restricts that reward to the specified locus.
+    lineage). Combining this reward with another reward through :class:`CombinedReward` restricts that reward to the
+    locus, as :class:`RestrictedReward` does.
     """
 
     def __init__(self, locus: int) -> None:
@@ -645,35 +712,6 @@ class BlockCountingUnitReward(BlockCountingReward):
         return np.ones(state_space.k)
 
 
-class TotalBranchLengthLocusReward(LocusReward, LineageCountingReward):
-    """
-    Reward for total branch length per locus. This is needed as the taking the product of
-    :class:`TotalBranchLengthReward` and :class:`LocusReward` will not work as expected (see
-    :class:`CombinedReward`).
-    """
-
-    def _get(self, state_space: StateSpace) -> np.ndarray:
-        """
-        Get the reward vector.
-
-        :param state_space: state space
-        :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
-        """
-        if isinstance(state_space, LineageCountingStateSpace):
-            # number of branches for focal locus
-            n_branches = state_space.lineages.sum(axis=(2, 3))[:, self.locus]
-
-            # no reward for loci with less than two branches
-            n_branches[n_branches < 2] = 0
-
-            return n_branches
-
-        raise NotImplementedError(
-            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-        )
-
-
 class CompositeReward(Reward, ABC):
     """
     Base class for composite rewards.
@@ -737,14 +775,96 @@ class SumReward(CompositeReward):
         return np.sum([r._get(state_space) for r in self.rewards], axis=0)
 
 
+class RestrictedReward(CompositeReward):
+    r"""
+    A reward restricted to a locus, to a deme, or to both. The parts :math:`r_{l,d}` into which the reward resolves
+    by locus :math:`l` and deme :math:`d` are summed over the other index, so that the restriction to locus
+    :math:`l` is :math:`\sum_d r_{l,d}` and the restriction to deme :math:`d` is :math:`\sum_l r_{l,d}`.
+    """
+
+    def __init__(self, reward: Reward, locus: int = None, pop: str = None) -> None:
+        """
+        Initialize the reward.
+
+        :param reward: The reward to restrict.
+        :param locus: The locus index to restrict to, ``None`` for no restriction by locus.
+        :param pop: The population id to restrict to, ``None`` for no restriction by deme.
+        """
+        super().__init__([reward])
+
+        self.locus: int = None if locus is None else int(locus)
+        self.pop: str = pop
+
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
+        """
+        The parts of the wrapped reward, those outside the restricted locus and deme set to zero.
+
+        :param state_space: state space
+        :return: reward parts
+        :raises ValueError: if the locus or the population does not exist
+        :raises NotImplementedError: if the state space does not resolve the loci
+        """
+        parts = np.array(self.rewards[0]._get_parts(state_space), dtype=float)
+
+        if self.locus is not None:
+            if parts.shape[1] != state_space.locus_config.n:
+                raise NotImplementedError(
+                    f'State space {state_space.__class__.__name__} does not resolve loci, so the reward '
+                    f'{self.rewards[0].__class__.__name__} cannot be restricted to locus {self.locus}.'
+                )
+
+            if not 0 <= self.locus < parts.shape[1]:
+                raise ValueError(f"Locus {self.locus} does not exist.")
+
+            parts[:, np.arange(parts.shape[1]) != self.locus, :] = 0
+
+        if self.pop is not None:
+            if self.pop not in state_space.lineage_config.pop_names:
+                raise ValueError(f"Population {self.pop} does not exist.")
+
+            # the deme axis of the state space follows the lineage configuration
+            pop_index = state_space.lineage_config.pop_names.index(self.pop)
+
+            parts[:, :, np.arange(parts.shape[2]) != pop_index] = 0
+
+        return parts
+
+    def _get(self, state_space: StateSpace) -> np.ndarray:
+        """
+        Get the reward vector.
+
+        :param state_space: state space
+        :return: reward vector
+        """
+        return self._get_parts(state_space).sum(axis=(1, 2))
+
+    def supports(self, state_space: Type[StateSpace]) -> bool:
+        """
+        Check if the reward supports the given state space. A restriction by locus requires a state space whose
+        locus axis resolves the loci.
+
+        :param state_space: state space
+        :return: True if the reward supports the state space, False otherwise
+        """
+        if self.locus is not None and state_space is not LineageCountingStateSpace:
+            return False
+
+        return super().supports(state_space)
+
+    def __hash__(self) -> int:
+        """
+        Calculate the hash of the class name, the wrapped reward, the locus and the population name.
+
+        :return: hash
+        """
+        return hash((self.__class__.__name__, hash(self.rewards[0]), self.locus, self.pop))
+
+
 class CombinedReward(ProductReward):
     """
-    Class extending ProductReward to allow for more intuitive combination of rewards.
+    The product of several rewards, in which a :class:`DemeReward` or :class:`LocusReward` member acts on the
+    product of the remaining members as the restriction of :class:`RestrictedReward`.
     """
-    #: Dictionary of reward combinations
-    combinations: Dict[Tuple[Reward, Reward], Callable[[Reward, Reward], Reward]] = {
-        (TotalBranchLengthReward, LocusReward): lambda r1, r2: TotalBranchLengthLocusReward(r2.locus)
-    }
 
     def __init__(self, rewards: List[Reward]) -> None:
         """
@@ -752,25 +872,27 @@ class CombinedReward(ProductReward):
 
         :param rewards: Rewards to combine
         """
-        # copy so we never mutate (or alias) the caller's list
-        rewards = list(rewards)
+        restrictions = [r for r in rewards if isinstance(r, (DemeReward, LocusReward))]
 
-        # replace rewards with combined rewards if possible
-        for (c1, c2), comb in CombinedReward.combinations.items():
-            # keep looping until we have no rewards to combine
-            while any([isinstance(r, c1) for r in rewards]) and any([isinstance(r, c2) for r in rewards]):
-                # get first occurrence of r1 and r2
-                r1 = next(r for r in rewards if isinstance(r, c1))
-                r2 = next(r for r in rewards if isinstance(r, c2))
+        if not restrictions:
+            # copy so we never mutate (or alias) the caller's list
+            super().__init__(list(rewards))
+            return
 
-                # remove first occurrence of r1 and r2
-                rewards.remove(r1)
-                rewards.remove(r2)
+        rest = [r for r in rewards if not isinstance(r, (DemeReward, LocusReward))]
 
-                # add combined reward
-                rewards.append(comb(r1, r2))
+        if not rest:
+            combined = UnitReward()
+        else:
+            combined = rest[0] if len(rest) == 1 else ProductReward(rest)
 
-        super().__init__(rewards)
+        for restriction in restrictions:
+            if isinstance(restriction, DemeReward):
+                combined = RestrictedReward(combined, pop=restriction.pop)
+            else:
+                combined = RestrictedReward(combined, locus=restriction.locus)
+
+        super().__init__([combined])
 
 
 class CustomReward(Reward):

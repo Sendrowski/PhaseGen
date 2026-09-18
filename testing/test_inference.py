@@ -349,6 +349,32 @@ class InferenceTestCase(TestCase):
         with self.assertRaises(RuntimeError):
             inf.bootstrap()
 
+    def test_x0_of_a_payload_without_a_start_point_is_sampled_on_restore(self):
+        """
+        The start point moved from the ``x0`` accessor into ``__init__``, and ``__init__`` never runs on
+        deserialization. Every payload written before that whose ``x0`` had not been given carries ``_x0: None``, so
+        ``x0`` (and with it ``run()``, ``add_run()`` and ``bootstrap()``) raised
+        ``TypeError: argument of type 'NoneType' is not iterable``.
+        """
+        inf = self.get_fast_inference(dict(x0=None, seed=1))
+
+        state = inf.__getstate__()
+        state['_x0'] = None  # what a payload written before the start point moved into __init__ restores
+
+        restored = pg.Inference.__new__(pg.Inference)
+        restored.__setstate__(state)
+
+        x0 = restored.x0
+
+        self.assertEqual(set(restored.bounds), set(x0))
+        for key, (lower, upper) in restored.bounds.items():
+            self.assertTrue(lower <= x0[key] <= upper)
+
+        # the sampled point is drawn once and then kept, so run() starts where x0 reports
+        self.assertEqual(x0, restored.x0)
+        restored.run()
+        self.assertTrue(np.isfinite(restored.loss_inferred))
+
     def test_partial_x0_raises_value_error(self):
         """
         Regression for the scan-2 finding: an x0 that does not cover every bounds parameter must raise, rather than
