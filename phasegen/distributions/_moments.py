@@ -34,8 +34,9 @@ expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 #: Sentinel for the ``perm`` argument of ``MomentEvaluator._lu_solver`` meaning "compute the block-triangular ordering
-#: from ``A``". Callers factorizing one sparsity pattern at many diagonal shifts precompute the ordering once.
-_AUTO_PERM = object()
+#: from ``A``". Callers factorizing one sparsity pattern at many diagonal shifts precompute the ordering once. It is
+#: recognised by value, the ordering itself being an array or ``None``.
+_AUTO_PERM = 'auto'
 
 
 class MomentEvaluator:
@@ -147,7 +148,7 @@ class MomentEvaluator:
         :return: Callable ``b -> x`` solving ``A x = b``.
         """
         if sparse:
-            if perm is _AUTO_PERM:
+            if isinstance(perm, str):
                 perm = MomentEvaluator._block_triangular_order(A)
             if perm is None:
                 return spla.splu(sp.csc_matrix(A)).solve
@@ -264,8 +265,9 @@ class MomentEvaluator:
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
-        :raises ValueError: If the start time is negative or exceeds the end time, if the population sizes and
-            migration rates are too far apart for a reliable evaluation, or if the moment is not a number.
+        :raises ValueError: If the start time is negative, exceeds the end time, or lies beyond the time of almost
+            sure absorption, if the population sizes and migration rates are too far apart for a reliable
+            evaluation, or if the moment is not a number.
         """
         if start_time is None:
             start_time = self.tree_height.start_time
@@ -278,8 +280,13 @@ class MomentEvaluator:
             raise ValueError("Start time must be greater than or equal to 0.")
 
         if start_time > 0 and np.isinf(end_time):
-            # a window opening after almost sure absorption raises in TreeHeightDistribution.t_max
-            end_time = self._get_time_to_absorption()
+            t_absorption = self._get_time_to_absorption()
+
+            if start_time > t_absorption:
+                raise ValueError(
+                    f"The window start time ({start_time:.1f}) lies beyond the time of almost sure absorption "
+                    f"({t_absorption:.1f}), so the accumulation window is empty."
+                )
 
         if end_time < start_time:
             raise ValueError("End time must be greater than equal start time.")
@@ -606,18 +613,19 @@ class MomentEvaluator:
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
 
+        # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost) and
+        # re-enters this method on the lineage-counting state space, where the flattened reward is checked
+        if start_time <= 0 and self._flattening_applies(k):
+            self._logger.debug("accumulate (k=%d): flattened block-counting", k)
+            return self._accumulate_flattened(k, end_times, rewards)
+
+        Reward._check_accumulable(self.state_space, rewards)
+
         # windowed accumulation: propagate the entry distribution to the window start, then run the Van Loan
         # accumulation over ``[start_time, t]`` (the correct k >= 2 windowed moment, not m_end - m_start)
         if start_time > 0:
             end_times = np.where(np.isinf(end_times), self._get_time_to_absorption(), end_times)
             return self._accumulate_windowed(k, float(start_time), end_times, rewards)
-
-        # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost)
-        if self._flattening_applies(k):
-            self._logger.debug("accumulate (k=%d): flattened block-counting", k)
-            return self._accumulate_flattened(k, end_times, rewards)
-
-        Reward._check_accumulable(self.state_space, rewards)
 
         # infinite end times accumulate until absorption, in closed form when absorption is certain in the last
         # epoch and otherwise over the estimated absorption time
@@ -962,7 +970,7 @@ class MomentEvaluator:
         if getattr(self, '_epochs_cache', None) is not None:
             return self._epochs_cache
 
-        epochs, t_absorption = [], None
+        epochs, t_absorption, survival, scale, extra = [], None, 0.0, 1.0, 0
 
         for epoch in self.demography.epochs:
 
@@ -973,6 +981,17 @@ class MomentEvaluator:
             # the bound costs an absorption-time search, so it is evaluated only once a finite epoch requires it
             if t_absorption is None:
                 t_absorption = self._get_time_to_absorption()
+                survival = self.tree_height._survival(t_absorption)
+                scale = self.tree_height._get_absorption_scale()
+
+            # an epoch reached after absorption is almost sure stands in for every epoch after it, so it may only be
+            # held where the reward that substitution misplaces is negligible. The count bounds the search, a
+            # demography having infinitely many epochs by design.
+            if (epoch.start_time >= t_absorption and extra < self.tree_height._max_extension_epochs
+                    and not self.tree_height._extension_is_negligible(epoch, survival, scale)):
+                epochs.append(epoch)
+                extra += 1
+                continue
 
             if epoch.start_time >= t_absorption:
                 epochs.append(Epoch(

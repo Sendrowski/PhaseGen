@@ -16,7 +16,7 @@ from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 from ..utils import multiset_permutations
 
-from ._common import _make_hashable
+from ._common import _make_hashable, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 
@@ -299,7 +299,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: A site-frequency spectrum of :math:`k`-th moments.
+        :raises ValueError: if ``k`` is not integral or is smaller than one.
         """
+        k = _validate_order(k)
+
         if rewards is None:
             rewards = (self.reward,) * k
 
@@ -324,9 +327,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
                 m, idx_t = occupation
                 if effective_start > 0:
                     m = m - self._occupation_times(cap=effective_start)[0]
-                base = np.asarray(self.reward._get(self.state_space), dtype=float)
                 R = np.column_stack([
-                    (base * np.asarray(self._get_sfs_reward(i)._get(self.state_space), dtype=float))[idx_t]
+                    np.asarray(
+                        CombinedReward([self.reward, self._get_sfs_reward(i)])._get(self.state_space), dtype=float
+                    )[idx_t]
                     for i in self._get_indices()
                 ])
                 moments = m @ R
@@ -460,7 +464,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             equals the cross-moment only when all rewards are equal.
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
-        k = int(k)
+        k = _validate_order(k)
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
@@ -514,7 +518,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         from ..visualization import _CurveData
 
-        k = int(k)
+        k = _validate_order(k)
         end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
         rewards = (self.reward,) * k if rewards is None else rewards
         indices = self._get_indices()
@@ -670,10 +674,10 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         K, idx_t = two_point
         ss = self.state_space
-        base = np.asarray(self.reward._get(ss), dtype=float)
         indices = self._get_indices()
         R = np.column_stack([
-            (base * np.asarray(self._get_sfs_reward(i)._get(ss), dtype=float))[idx_t] for i in indices
+            np.asarray(CombinedReward([self.reward, self._get_sfs_reward(i)])._get(ss), dtype=float)[idx_t]
+            for i in indices
         ])
 
         sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
@@ -1645,7 +1649,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :return: A joint site-frequency spectrum of shape :attr:`shape` holding the :math:`k`-th moment of each bin.
         :raises ValueError: If the end time precedes the start time, or if the moment is not a number.
         """
-        k = int(k)
+        k = _validate_order(k)
 
         if rewards is None:
             rewards = (self.reward,) * k
@@ -1817,7 +1821,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: Array of shape :attr:`shape` ``+ (len(end_times),)`` with the moment of each bin over time.
         """
-        k = int(k)
+        k = _validate_order(k)
         configs = self._get_configs()
         end_times = np.array(list(end_times))
 
@@ -1872,7 +1876,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         from ..visualization import _CurveData
 
-        k = int(k)
+        k = _validate_order(k)
         end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
         configs = self._get_configs()
         accumulation = self.accumulate(k, end_times, center=center, permute=permute)
@@ -1978,10 +1982,10 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         K, idx_t = two_point
         ss = self.state_space
-        base = np.asarray(self.reward._get(ss), dtype=float)
         configs = self._get_configs()
         R = np.column_stack([
-            (base * np.asarray(JointSFSReward(config)._get(ss), dtype=float))[idx_t] for config in configs
+            np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(ss), dtype=float)[idx_t]
+            for config in configs
         ])
 
         sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
@@ -2156,13 +2160,14 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         idx_t = np.where(~ss.absorbing)[0]
         use_action = len(idx_t) >= Settings.closed_form_sparse_min_states
 
-        base = np.asarray(self.reward._get(ss), dtype=float)
         indices = self._get_indices()
         R0 = np.column_stack([
-            (base * np.asarray(TwoLocusSFSReward(0, i)._get(ss), dtype=float))[idx_t] for i in indices
+            np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(0, i)])._get(ss), dtype=float)[idx_t]
+            for i in indices
         ])
         R1 = np.column_stack([
-            (base * np.asarray(TwoLocusSFSReward(1, j)._get(ss), dtype=float))[idx_t] for j in indices
+            np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(1, j)])._get(ss), dtype=float)[idx_t]
+            for j in indices
         ])
 
         neg_t = -self._transient_block(idx_t, sparse=use_action)

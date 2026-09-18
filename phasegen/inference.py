@@ -236,6 +236,10 @@ class Inference(Serializable):
         directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
         is left untouched.
 
+        The dump is recursive, so that the module-level names a callable references (the package alias, the
+        observation, helper functions) travel with it. A restored callable therefore evaluates against the
+        namespace it was written with, in a worker process started by ``spawn`` and in a later session alike.
+
         :return: State of the object.
         """
         callables = ['coal', 'loss', 'resample']
@@ -247,7 +251,7 @@ class Inference(Serializable):
             state['result'] = dict(state['result'])
 
         for key in callables:
-            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key])
+            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key], recurse=True)
 
         return state
 

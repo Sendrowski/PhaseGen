@@ -9,7 +9,7 @@ fixtures serialized against this module path, can reach them.
 import logging
 
 # noinspection PyUnresolvedReferences
-from sfsutils import Spectrum, Spectra, TwoSFS, TwoLocusSFS, JointSFS  # noqa: F401
+from sfsutils import AbstractSpectrum, Spectrum, Spectra, TwoSFS, TwoLocusSFS, JointSFS  # noqa: F401
 
 logger = logging.getLogger('phasegen').getChild('spectrum')
 

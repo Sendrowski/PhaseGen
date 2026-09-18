@@ -365,3 +365,212 @@ def test_per_deme_tree_height_invariant_to_epoch_splitting():
 
         assert per_deme['a'] == pytest.approx(1.829352321, rel=1e-8)
         assert sum(per_deme.values()) == pytest.approx(c.tree_height.mean, rel=1e-8)
+
+
+@pytest.mark.parametrize("end_time", [1.0, np.inf], ids=["finite-end-time", "until-absorption"])
+@pytest.mark.parametrize("k", [1, 2])
+def test_reward_non_zero_on_absorbing_states_is_rejected_over_a_window(k, end_time):
+    """
+    The guard rejecting a reward with mass on an absorbing state ran only after the windowed early return, so a
+    moment over a window opening after time zero was accepted while the same reward raised on the accumulation from
+    zero. What came back was the deterministic window length raised to the k-th power, the reward accruing after
+    absorption up to the internal absorption-time estimate: ``UnitReward`` gave 4032.25 = (64 - 0.5)**2 for n = 2, 4
+    and 8 alike, 64 being that estimate rather than any property of the coalescent.
+    """
+    c = pg.Coalescent(n=4, start_time=0.5)
+
+    with pytest.raises(ValueError, match="does not define an accumulation until absorption"):
+        c.moment(k, rewards=[pg.rewards.UnitReward()] * k, end_time=end_time, center=False)
+
+    with pytest.raises(ValueError, match="does not define an accumulation until absorption"):
+        c.moment(k, rewards=[pg.StateReward(int(np.where(c.block_counting_state_space.absorbing)[0][0]))] * k,
+                 end_time=end_time, center=False)
+
+
+def test_flattened_accumulation_still_rejects_a_reward_with_absorbing_mass():
+    """
+    The flattening route onto the lineage-counting state space is taken before the absorbing-state guard, so the
+    guard must still reject a reward with mass on an absorbing state there, without building the block-counting
+    state space for the rewards that do vanish on them.
+    """
+    sfs = pg.Coalescent(n=6).sfs
+    assert sfs._flattening_applies(1) is True
+
+    with pytest.raises(ValueError, match="does not define an accumulation until absorption"):
+        sfs._accumulate(1, (np.inf,), (pg.rewards.UnitReward(),))
+
+    assert sfs._accumulate(1, (np.inf,), (pg.rewards.UnfoldedSFSReward(1),))[0] == pytest.approx(2.0, rel=1e-10)
+
+
+def _asymmetric_slow_migration() -> pg.Demography:
+    """Two demes of sizes 1 (``pop_0``) and 2 (``pop_1``) with backward migration rates 0.2 (``pop_0`` to ``pop_1``)
+    and 0.5 (``pop_1`` to ``pop_0``), slow enough that a lineage's deme stays informative about how many samples it
+    subtends."""
+    return pg.Demography(
+        pop_sizes={'pop_0': 1.0, 'pop_1': 2.0},
+        migration_rates={('pop_0', 'pop_1'): 0.2, ('pop_1', 'pop_0'): 0.5}
+    )
+
+
+def _block_count_reward(state_space_type, pop_index: int, blocks) -> pg.CustomReward:
+    """The number of blocks of the given sizes residing in the given deme at the first locus, read straight off the
+    state space as an independent reference for the deme-resolved reward parts."""
+    return pg.CustomReward(
+        lambda s: s.lineages[:, 0, pop_index, blocks].sum(axis=1),
+        supports=lambda t: t is state_space_type
+    )
+
+
+def test_per_deme_sfs_counts_the_blocks_residing_in_the_deme():
+    """
+    The per-deme spectra weighted each frequency class by the global fraction of lineages in the deme,
+    a_j(x) n_d(x) / n(x), instead of counting the class-j blocks that reside in the deme, a_j^(d)(x). Under
+    asymmetric, slow migration the two disagree: for the model below, sfs.demes['pop_0'].mean was
+    [0, 3.3666, 1.9707, 1.10596] and sfs.demes['pop_1'].mean was [0, 2.73957, 1.45575, 0.75109], against the
+    MsprimeCoalescent estimates (200000 replicates, record_migration=True, seed 42)
+    [0, 3.00442, 2.13824, 1.30285] +- [0, 0.00515, 0.00621, 0.0044] and
+    [0, 3.10201, 1.30385, 0.54825] +- [0, 0.00569, 0.00534, 0.0031], a maximum relative deviation of 15.1% and 37.0%
+    (27 to 70 simulation standard errors). The deme-resolved count brings this to 0.49% and 0.63% (0.14 to 1.55
+    standard errors).
+    """
+    c = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_asymmetric_slow_migration())
+    pops = c.lineage_config.pop_names
+    n = c.lineage_config.n
+
+    for pop in pops:
+        i = pops.index(pop)
+
+        unfolded = [
+            c.moment(1, rewards=[_block_count_reward(pg.BlockCountingStateSpace, i, [j - 1])], center=False)
+            for j in range(1, n)
+        ]
+        testing.assert_allclose(np.array(c.sfs.demes[pop].mean.data)[1:n], unfolded, rtol=1e-10)
+
+        folded = [
+            c.moment(
+                1,
+                rewards=[_block_count_reward(pg.BlockCountingStateSpace, i, sorted({j - 1, n - j - 1}))],
+                center=False
+            )
+            for j in range(1, n // 2 + 1)
+        ]
+        testing.assert_allclose(np.array(c.fsfs.demes[pop].mean.data)[1:n // 2 + 1], folded, rtol=1e-10)
+
+    # the per-deme spectra partition the pooled one
+    for spectrum in (c.sfs, c.fsfs):
+        testing.assert_allclose(
+            np.sum([np.array(spectrum.demes[pop].mean.data) for pop in pops], axis=0),
+            np.array(spectrum.mean.data),
+            rtol=1e-10
+        )
+
+    # the fraction-weighted quantity sits far from the deme-resolved one, so the assertion discriminates
+    fraction_weighted = c.moment(
+        1,
+        rewards=[pg.ProductReward([pg.RestrictedReward(pg.TreeHeightReward(), pop='pop_0'), pg.UnfoldedSFSReward(3)])],
+        center=False
+    )
+    assert abs(fraction_weighted - c.sfs.demes['pop_0'].mean.data[3]) > 0.19
+
+
+def test_per_deme_sfs_agrees_between_the_batched_and_the_per_bin_path():
+    """
+    The batched closed-form mean of the spectrum multiplied the distribution's reward by the bin reward directly
+    instead of combining them, so it bypassed the deme-resolved parts and kept returning the fraction-weighted
+    per-deme spectrum ([0, 3.3666, 1.9707, 1.10596] for ``pop_0``) while the per-bin path returned the deme-resolved
+    one ([0, 3.00315, 2.13087, 1.30925]).
+    """
+    demography = _asymmetric_slow_migration()
+    n = {'pop_0': 2, 'pop_1': 2}
+    default = pg.Settings.closed_form_last_epoch
+
+    spectra = {}
+    try:
+        for closed_form in (True, False):
+            pg.Settings.closed_form_last_epoch = closed_form
+            c = pg.Coalescent(n=n, demography=demography)
+            spectra[closed_form] = {
+                pop: (np.array(c.sfs.demes[pop].mean.data), np.array(c.fsfs.demes[pop].mean.data))
+                for pop in c.lineage_config.pop_names
+            }
+    finally:
+        pg.Settings.closed_form_last_epoch = default
+
+    for pop, (sfs, fsfs) in spectra[True].items():
+        testing.assert_allclose(sfs, spectra[False][pop][0], rtol=1e-8)
+        testing.assert_allclose(fsfs, spectra[False][pop][1], rtol=1e-8)
+
+
+def test_per_deme_joint_sfs_counts_the_lineages_residing_in_the_deme():
+    """
+    Weighting a joint SFS bin by DemeReward split the bin by the global fraction of lineages in the deme rather than
+    by the deme the subtending lineages reside in, so the per-deme pieces of bin (1, 0) under the asymmetric,
+    slow-migration model were [1.26932, 0.97259] instead of [1.82762, 0.41428].
+    """
+    c = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_asymmetric_slow_migration())
+    pops = c.lineage_config.pop_names
+    ss = c.joint_block_counting_state_space
+
+    for config in [(1, 0), (0, 1), (1, 1), (2, 0)]:
+        block = ss.block_index[config]
+
+        per_deme = [
+            c.moment(1, rewards=[pg.CombinedReward([pg.DemeReward(pop), pg.JointSFSReward(config)])], center=False)
+            for pop in pops
+        ]
+        expected = [
+            c.moment(
+                1,
+                rewards=[_block_count_reward(pg.JointBlockCountingStateSpace, i, [block])],
+                center=False
+            )
+            for i in range(len(pops))
+        ]
+
+        testing.assert_allclose(per_deme, expected, rtol=1e-10)
+        assert sum(per_deme) == pytest.approx(c.jsfs.mean[config], rel=1e-10)
+
+
+def test_deme_restricted_tree_height_is_refused_for_multiple_loci():
+    """
+    The shared parts of the height rewards sum, over loci and demes, to the total tree height reward rather than to
+    the tree height reward, so a deme restriction of TreeHeightReward silently returned the total tree height: for
+    two loci at recombination rate 1 with n = 3 and a single deme, where the restriction is vacuous,
+    CombinedReward([TreeHeightReward(), DemeReward('pop_0')]) gave 2.6666666666666665, the exact two-locus
+    E[sum of the per-locus heights], instead of the tree height 1.6852380952380952. The per-locus restriction, which
+    needs these parts, is unaffected.
+    """
+    c = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    pop = c.lineage_config.pop_names[0]
+
+    for reward in (
+            pg.RestrictedReward(pg.TreeHeightReward(), pop=pop),
+            pg.CombinedReward([pg.TreeHeightReward(), pg.DemeReward(pop)])
+    ):
+        with pytest.raises(NotImplementedError, match='does not decompose additively over the 2 loci'):
+            c.moment(1, rewards=[reward])
+
+    # the per-locus height, and the per-locus height restricted to the only deme, are the single-locus E[T_MRCA]
+    for reward in (
+            pg.RestrictedReward(pg.TreeHeightReward(), locus=0),
+            pg.RestrictedReward(pg.RestrictedReward(pg.TreeHeightReward(), locus=0), pop=pop),
+            pg.CombinedReward([pg.TreeHeightReward(), pg.LocusReward(0), pg.DemeReward(pop)]),
+            pg.CombinedReward([pg.TreeHeightReward(), pg.DemeReward(pop), pg.LocusReward(0)])
+    ):
+        assert c.moment(1, rewards=[reward]) == pytest.approx(4 / 3, rel=1e-12)
+
+    # the rewards that are additive over loci are unaffected, and their restriction to the only deme is the identity
+    for reward, expected in (
+            (pg.TotalTreeHeightReward(), 2 * 4 / 3),
+            (pg.TotalBranchLengthReward(), 2 * 3.0)
+    ):
+        assert c.moment(1, rewards=[pg.CombinedReward([reward, pg.DemeReward(pop)])]) == pytest.approx(
+            c.moment(1, rewards=[reward]), rel=1e-12
+        )
+        assert c.moment(1, rewards=[reward]) == pytest.approx(expected, rel=1e-12)
+
+    # with a single locus the deme restriction of the tree height reward is the tree height itself
+    single = pg.Coalescent(n=3)
+    assert single.moment(
+        1, rewards=[pg.CombinedReward([pg.TreeHeightReward(), pg.DemeReward(single.lineage_config.pop_names[0])])]
+    ) == pytest.approx(single.tree_height.mean, rel=1e-12)

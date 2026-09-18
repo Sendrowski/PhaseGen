@@ -39,3 +39,51 @@ def test_parallelize_setting_runs_sequentially(monkeypatch):
     result = utils.parallelize(func=lambda x: 2 * x, data=[1, 2, 3], parallelize=True, pbar=False)
 
     np.testing.assert_array_equal(result, [2, 4, 6])
+
+
+def _read_worker_config(_) -> tuple:
+    """
+    Report the configuration a worker process sees, and a quantity that depends on it.
+
+    :param _: Ignored.
+    :return: The values of three settings, the name and precision of the registered backend, and the mean tree height
+        of the standard coalescent of four lineages.
+    """
+    import phasegen as pg
+
+    return (
+        Settings.dehoog_degree,
+        Settings.closed_form_last_epoch,
+        Settings.max_state_space_size,
+        type(pg.Backend.backend).__name__,
+        str(pg.Backend.backend.precision),
+        float(pg.Coalescent(n=4).tree_height.mean)
+    )
+
+
+def test_parallelize_workers_inherit_settings_and_backend():
+    """The ``spawn`` start method re-imports the package in each worker, which reverted every ``Settings`` attribute
+    and the registered matrix exponentiation backend to its declared default. A computation performed in a worker
+    therefore ran under a configuration the caller had not asked for: ``max_state_space_size`` no longer bounded the
+    state space, and a backend registered with single precision was replaced by the double-precision default, which
+    moved the mean tree height in the eighth significant digit."""
+    import phasegen as pg
+
+    original = pg.Backend.backend
+
+    Settings.dehoog_degree = 4
+    Settings.closed_form_last_epoch = False
+    Settings.max_state_space_size = 12345
+    pg.Backend.register(pg.SciPyExpmBackend(precision=np.float32))
+
+    try:
+        expected = _read_worker_config(0)
+        results = utils.parallelize(func=_read_worker_config, data=[0, 1], parallelize=True, pbar=False, dtype=object)
+    finally:
+        pg.Backend.register(original)
+
+    assert expected[:5] == (4, False, 12345, 'SciPyExpmBackend', 'float32')
+
+    for result in results:
+        assert tuple(result[:5]) == expected[:5]
+        np.testing.assert_allclose(float(result[5]), expected[5], rtol=1e-12)

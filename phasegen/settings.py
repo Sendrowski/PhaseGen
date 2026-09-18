@@ -132,6 +132,16 @@ class Settings(metaclass=_SettingsMeta):
     #: use the cosine expansion throughout.
     dehoog_tail_quantile: Optional[float] = 0.98
 
+    #: Number of terms :math:`K` of the cosine expansion of an accumulated-reward distribution, as described at
+    #: :class:`~phasegen.distributions.RewardDistribution`. It resolves features down to the window width divided by
+    #: :math:`K`, at a cost linear in it, and :attr:`check_inversions` reports an expansion it does not resolve.
+    #: Conditional distributions use half of it.
+    cos_terms: int = 384
+
+    #: Number of terms :math:`N` per axis of the 2D cosine expansion of a joint accumulated-reward distribution, as
+    #: described at :class:`~phasegen.distributions.JointCDF`. The cost is quadratic in it.
+    cos_terms_2d: int = 128
+
     #: Whether to log a warning when a numerical inversion looks imprecise, such as a non-monotone cosine CDF (see
     #: :class:`~phasegen.distributions.RewardDistribution`). Set to ``False`` to silence these checks.
     check_inversions: bool = True

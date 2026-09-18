@@ -181,9 +181,8 @@ def test_joint_inversion_sparse_matches_dense(label, make):
     def setup(cf_min):
         Settings.dense_rate_matrix_max_states = _HUGE  # storage stays dense; only the final-solve LU path varies
         Settings.closed_form_sparse_min_states = cf_min
-        jd = make()
-        jd._cos2d_terms = 24  # dense/sparse equality holds at any resolution; keep the multi-epoch _cos2d build cheap
-        return jd
+        Settings.cos_terms_2d = 24  # equality holds at any resolution; keep the multi-epoch _cos2d build cheap
+        return make()
 
     jd = setup(_HUGE)  # dense LU
     assert jd._setup['sparse'] is False, f"{label}: dense path not selected"

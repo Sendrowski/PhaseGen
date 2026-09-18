@@ -191,7 +191,10 @@ class CoverageGapsTestCase(TestCase):
         try:
             corr = np.asarray(pg.Coalescent(n=6).sfs.corr.data)
         finally:
-            sp.SFSDistribution._two_point_occupation = original
+            # the method is inherited from the moment-evaluator mixin, so it is removed rather than assigned back:
+            # assigning would leave a shadowing entry in ``SFSDistribution.__dict__`` that later patches of the base
+            # class never reach
+            del sp.SFSDistribution._two_point_occupation
 
         self.assertEqual(calls['n'], 1)  # a single shared solve, not one per var and cov
         np.testing.assert_allclose(corr, reference)

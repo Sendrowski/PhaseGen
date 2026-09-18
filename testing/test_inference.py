@@ -790,3 +790,97 @@ class InferenceTestCase(TestCase):
             weighted_loss.compute(dict(l1=rng.normal(3, 1), l2=rng.normal(1, 1)))
 
         self.assertTrue(1.4 < weighted_loss.compute(dict(l1=3, l2=1)) < 1.6)
+
+    def test_serialized_callbacks_carry_their_module_globals(self):
+        """
+        The ``coal``, ``loss`` and ``resample`` callbacks of a script were dumped without the module-level names they
+        reference, so the restored callbacks resolved those names against whatever ``__main__`` the loading process
+        happened to have. A loader that does not define the writer's package alias raised ``NameError`` on the first
+        call (breaking the documented distributed-bootstrapping workflow and every payload written from R), a loader
+        that bound the same name to something else silently minimised a different objective, and under the ``spawn``
+        start method every ``parallelize=True`` run died in the worker for the same reason.
+        """
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        script = '''
+import json
+import sys
+
+import phasegen as pg
+
+observation = pg.SFS([100, 10, 5, 100])
+seed_max = 1e10
+
+
+def coal(Ne):
+    return pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': Ne}))
+
+
+def loss(dist, obs):
+    return pg.PoissonLikelihood().compute(
+        observed=obs.normalize().polymorphic,
+        modelled=dist.sfs.mean.normalize().polymorphic
+    )
+
+
+def resample(sfs, rng):
+    return sfs.resample(seed=rng.integers(seed_max))
+
+
+if __name__ == '__main__':
+    kwargs = dict(bounds=dict(Ne=(0.1, 2)), x0=dict(Ne=0.5), observation=observation, coal=coal, loss=loss,
+                  resample=resample, n_runs=2, seed=42, pbar=False)
+
+    sequential = pg.Inference(parallelize=False, **kwargs)
+    sequential.run()
+
+    parallel = pg.Inference(parallelize=True, **kwargs)
+    parallel.run()
+
+    sequential.to_file(sys.argv[1])
+
+    print(json.dumps(dict(
+        loss=float(loss(coal(Ne=0.5), observation)),
+        sequential=[float(v) for v in sequential.params_inferred.values()],
+        parallel=[float(v) for v in parallel.params_inferred.values()]
+    )))
+'''
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path_script = os.path.join(tmp, 'writer.py')
+            path_payload = os.path.join(tmp, 'inference.json')
+
+            with open(path_script, 'w') as fh:
+                fh.write(script)
+
+            process = subprocess.run(
+                [sys.executable, path_script, path_payload],
+                capture_output=True,
+                text=True,
+                env=os.environ | {'MPLBACKEND': 'Agg', 'OBJC_DISABLE_INITIALIZE_FORK_SAFETY': 'YES'}
+            )
+
+            self.assertEqual(0, process.returncode, process.stderr)
+
+            written = json.loads(process.stdout.strip().splitlines()[-1])
+
+            restored = pg.Inference.from_file(path_payload)
+
+        # the worker processes minimise the same objective as the calling process
+        np.testing.assert_allclose(written['parallel'], written['sequential'], rtol=1e-10)
+
+        # this process defines neither the alias `pg` nor the observation that the writer's callbacks reference
+        self.assertNotIn('pg', vars(sys.modules['__main__']))
+
+        self.assertAlmostEqual(
+            written['loss'],
+            float(restored.loss(restored.coal(Ne=0.5), restored.observation)),
+            places=12
+        )
+
+        resampled = restored.resample(restored.observation, np.random.default_rng(0))
+
+        self.assertTrue(np.isfinite(restored.loss(restored.coal(Ne=0.5), resampled)))

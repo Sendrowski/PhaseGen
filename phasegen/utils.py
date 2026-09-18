@@ -2,14 +2,85 @@
 Utility functions.
 """
 import itertools
+import logging
 import sys
-from typing import Callable, List, Sequence, Generator, Tuple, Any, Iterable, Iterator
+from types import FunctionType
+from typing import Callable, Dict, List, Sequence, Generator, Tuple, Any, Iterable, Iterator, Optional
 
+import dill
 import multiprocess as mp
 import numpy as np
 from tqdm import tqdm
 
+from .expm import Backend
 from .settings import Settings
+
+logger = logging.getLogger('phasegen')
+
+
+class _ConfiguredCall:
+    """
+    A function together with a snapshot of the process-global configuration of the process that wrapped it, which it
+    applies in the process that calls it.
+
+    The configuration is the public :class:`~phasegen.settings.Settings` attributes and the registered matrix
+    exponentiation backend, both of which a worker started by ``spawn`` holds at the value declared in the package.
+    Applying it immediately before each call also gives it precedence over a module that registers a backend or
+    assigns a setting when the worker imports it.
+    """
+
+    def __init__(self, func: Callable) -> None:
+        """
+        Wrap a function together with the configuration of the calling process.
+
+        :param func: Function to call in the worker process.
+        """
+        #: Function to call.
+        self.func: Callable = func
+
+        #: Values of the settings, by name.
+        self.settings: Dict[str, Any] = {
+            name: getattr(Settings, name) for name, value in vars(Settings).items()
+            if not name.startswith('_') and not isinstance(value, (staticmethod, classmethod, property, FunctionType))
+        }
+
+        #: Registered matrix exponentiation backend, serialized by reference, or ``None`` if it cannot be serialized.
+        self.backend: Optional[bytes] = self._dump_backend()
+
+    @staticmethod
+    def _dump_backend() -> Optional[bytes]:
+        """
+        Serialize the registered matrix exponentiation backend.
+
+        :return: The serialized backend, or ``None`` if it cannot be serialized.
+        """
+        try:
+            # by reference: the backend classes live in the package the worker imports anyway, and serializing them
+            # by value would rebuild the modules they reference in the worker's namespace, replacing objects an
+            # already-imported module holds by identity
+            return dill.dumps(Backend.backend)
+        except Exception as e:
+            logger.warning(
+                'Could not serialize the registered matrix exponentiation backend %r, so the worker processes use '
+                'the default backend instead: %s', Backend.backend, e
+            )
+
+            return None
+
+    def __call__(self, item: Any) -> Any:
+        """
+        Apply the configuration and call the wrapped function.
+
+        :param item: Item passed to the wrapped function.
+        :return: Return value of the wrapped function.
+        """
+        for name, value in self.settings.items():
+            setattr(Settings, name, value)
+
+        if self.backend is not None:
+            Backend.register(dill.loads(self.backend))
+
+        return self.func(item)
 
 
 def parallelize(
@@ -24,6 +95,10 @@ def parallelize(
 ) -> np.ndarray:
     """
     Parallelize given function or execute sequentially.
+
+    Each call in a worker runs under the calling process's :class:`~phasegen.settings.Settings` and its registered
+    matrix exponentiation backend, which the ``spawn`` start method would otherwise reset to their defaults, so that
+    the result does not depend on whether it was computed in the calling process or in a worker.
 
     On macOS the worker pool uses the ``spawn`` start method, not the ``fork`` default of ``multiprocess``.
     Forking a process that has initialized threaded native libraries (numba/llvmlite, and on macOS the
@@ -57,7 +132,7 @@ def parallelize(
         try:
             # consume the lazy imap iterator while the pool is still open
             with ctx.Pool() as pool:
-                return np.array(list(with_pbar(pool.imap(func, data))), dtype=dtype)
+                return np.array(list(with_pbar(pool.imap(_ConfiguredCall(func), data))), dtype=dtype)
         except RuntimeError as e:
             # ``spawn`` re-imports the caller's module in every worker; if the entry point is not import-safe the
             # worker re-runs the top-level code (re-spawning, repeated side effects such as plots) and multiprocessing

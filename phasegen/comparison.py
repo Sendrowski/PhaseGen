@@ -42,6 +42,9 @@ class Comparison(Serializable):
     # Whether to visualize the distributions
     visualize: bool = True
 
+    # Tolerance key the comparison is restricted to, or None to compare every leaf
+    only: str = None
+
     # Whether to show the title of the plot
     show_title: bool = True
 
@@ -1741,6 +1744,26 @@ class Comparison(Serializable):
             for dist, pairs in self._pairwise_surface_pairs(empirical_spec).items():
                 getattr(self.empirical, dist)._cache_joint_surface(pairs)
 
+    @classmethod
+    def _restrict(cls, spec: dict, key: str) -> dict:
+        """
+        The tolerance sub-spec holding only the branches at or below ``key``, so that a comparison can exercise one
+        numerical path across every scenario asserting it. A branch containing no such leaf is dropped entirely.
+
+        :param spec: The tolerance spec, possibly nested.
+        :param key: The key whose branches to keep.
+        :return: The restricted spec.
+        """
+        out = {}
+
+        for name, value in spec.items():
+            if name == key:
+                out[name] = value
+            elif isinstance(value, dict) and (sub := cls._restrict(value, key)):
+                out[name] = sub
+
+        return out
+
     def compare(self, title: str = '') -> None:
         """
         Compare the distributions of the given statistics.
@@ -1756,6 +1779,10 @@ class Comparison(Serializable):
         self._comp_index = 0  # sequential comparison counter, prepended as '#i' to each result message / plot title
 
         tol = self._expand_keys(self.comparisons['tolerance'])
+
+        if self.only is not None:
+            tol = self._restrict(tol, self.only)
+
         empirical_spec = tol.pop('empirical', None)  # the nested self-consistency sub-spec (vs the sampler)
 
         for dist, data in tol.items():

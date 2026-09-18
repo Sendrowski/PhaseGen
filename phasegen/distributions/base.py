@@ -10,6 +10,7 @@ import numpy as np
 from ..expm import Backend
 from ..rewards import RestrictedReward
 from ..settings import Settings
+from ..spectrum import AbstractSpectrum
 
 if TYPE_CHECKING:
     from .reward import JointRewardDistribution
@@ -337,18 +338,28 @@ class _LSTFunction(_HazardGrid):
     ``self._distribution`` (``lst``, ``_invert``, ``_range``, ``_s_inf``). ``_cdf_point`` is the per-point de Hoog CDF
     behind the tail nodes and the conditional support bracket.
     """
-    #: Cosine terms :math:`K` of the first (locating) and second pass.
-    _cos_terms_rough: int = 128
-    _cos_terms: int = 384
-
-    #: Equispaced nodes :math:`N` on which the second expansion is evaluated.
+    #: Equispaced nodes :math:`N` on which the expansion is evaluated.
     _cos_n_grid: int = 8192
+
+    #: CDF level :math:`1 - \delta` at which the second-pass window ends. The expansion discards the mass above it.
+    _cos_tail_target: float = 1.0 - 1e-5
 
     #: Scale factor :math:`\kappa` of the first-pass window :math:`[0, \hat\mu + \kappa \hat\sigma]`.
     _cos_rough_scale: float = 20.0
 
-    #: CDF level :math:`1 - \delta` at which the second-pass window ends. The expansion discards the mass above it.
-    _cos_tail_target: float = 1.0 - 1e-5
+    #: Largest share of the CDF range the last half of the cosine terms may still move before the expansion is
+    #: reported unresolved.
+    _cos_truncation_tol: float = 1e-3
+
+    @property
+    def _cos_terms(self) -> int:
+        """The number of cosine terms, :attr:`~phasegen.settings.Settings.cos_terms`."""
+        return Settings.cos_terms
+
+    @property
+    def _cos_terms_rough(self) -> int:
+        """The number of cosine terms of the locating pass, a third of the second pass."""
+        return max(self._cos_terms // 3, 2)
 
     #: Step :math:`\eta_H` of the exact nodes in cumulative hazard.
     _hazard_step: float = 0.25
@@ -405,12 +416,14 @@ class _LSTFunction(_HazardGrid):
         xs = np.linspace(0.0, rough['b'], 1024)
         cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
         b = float(np.interp(self._cos_tail_target, cdf, xs))
+
         return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
 
     def _fit_cos(self, b: float, n_terms: int) -> dict:
         """
         One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``. The atom is
-        split off above ``1e-9``, and ``_warn_if_nonmonotone`` checks the raw continuous CDF for ringing.
+        split off above ``1e-9``, ``_warn_if_nonmonotone`` checks the raw continuous CDF for ringing and
+        ``_warn_if_unresolved`` checks that the terms have converged.
 
         :param b: The window end.
         :param n_terms: The number of cosine terms.
@@ -434,7 +447,29 @@ class _LSTFunction(_HazardGrid):
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
         d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
 
+        half = max(n_terms // 2, 1)
+        Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
+        self._warn_if_unresolved(float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0), n_terms)
+
         return dict(b=b, w=w, fk=fk, p0=p0)
+
+    def _warn_if_unresolved(self, truncation: float, n_terms: int) -> None:
+        """
+        Warn when the second half of the terms still moves the CDF by more than ``_cos_truncation_tol``. The
+        coefficients do not depend on how many of them are summed, so the difference between the expansion truncated
+        at half the terms and at all of them estimates what the discarded terms would still contribute.
+
+        :param truncation: The largest absolute difference between the two truncations, in probability.
+        :param n_terms: The number of cosine terms summed.
+        """
+        if Settings.check_inversions and truncation > self._cos_truncation_tol:
+            self._distribution._logger.warning(
+                "%s: the cosine expansion is unresolved, the last %d of %d terms still move the CDF by %.2e (bar "
+                "%.0e). The distribution spans scales the window cannot resolve at this many terms. Raise "
+                "Settings.cos_terms, whose cost is linear in it.",
+                self._distribution._titled('COS CDF (truncation)'), n_terms - n_terms // 2, n_terms,
+                truncation, self._cos_truncation_tol
+            )
 
     @staticmethod
     def _eval_cos_cdf(fit: dict, xs: np.ndarray) -> np.ndarray:
@@ -942,7 +977,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     .. rubric:: Implementation
 
     - The window ends are the marginal means plus a fixed multiple of the standard deviations. Lanczos factors damp the
-      ringing of the series without changing the total mass.
+      ringing of the series without changing the total mass. :math:`N` is given by :attr:`Settings.cos_terms_2d
+      <phasegen.settings.Settings.cos_terms_2d>`, at a cost quadratic in it.
     - For a single epoch on a dense state space, the transform values of one frequency :math:`u_j` form a shifted
       linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
     - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
@@ -988,29 +1024,31 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
-class ConditionalDensity(_LSTDensityFunction):
+class _ConditionalCosTerms:
+    """Halves the cosine terms of a conditional expansion, every coefficient of which costs an inner inversion."""
+
+    @property
+    def _cos_terms(self) -> int:
+        """The number of cosine terms, half of :attr:`~phasegen.settings.Settings.cos_terms`."""
+        return max(Settings.cos_terms // 2, 2)
+
+    @property
+    def _cos_terms_rough(self) -> int:
+        """The number of cosine terms of the locating pass, half of the second pass."""
+        return max(self._cos_terms // 2, 2)
+
+
+class ConditionalDensity(_ConditionalCosTerms, _LSTDensityFunction):
     """Density of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
 
-    #: Cosine terms of the conditionals, fewer than for a marginal because every frequency costs an inner inversion.
-    _cos_terms: int = 192
-    _cos_terms_rough: int = 96
 
-
-class ConditionalCDF(_LSTCumulativeDistributionFunction):
+class ConditionalCDF(_ConditionalCosTerms, _LSTCumulativeDistributionFunction):
     """CDF of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
 
-    #: Cosine terms of the conditionals, see ``ConditionalDensity._cos_terms``.
-    _cos_terms: int = 192
-    _cos_terms_rough: int = 96
 
-
-class ConditionalQuantileFunction(_LSTQuantileFunction):
+class ConditionalQuantileFunction(_ConditionalCosTerms, _LSTQuantileFunction):
     """Quantile function of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described
     there."""
-
-    #: Cosine terms of the conditionals, see ``ConditionalDensity._cos_terms``.
-    _cos_terms: int = 192
-    _cos_terms_rough: int = 96
 
 
 
@@ -1172,6 +1210,24 @@ class MarginalDistributions(Mapping, ABC):
     Base class for marginal distributions.
     """
 
+    @staticmethod
+    def _correlation(cov, scale):
+        """
+        The correlation coefficient ``cov / scale``, for a scalar statistic and for a spectrum alike. Where the scale
+        vanishes the coefficient is undefined and ``nan`` is returned, matching the empirical estimator.
+
+        :param cov: The covariance of the two marginals.
+        :param scale: The product of their standard deviations.
+        :return: The correlation coefficient, of the shape of ``cov``.
+        """
+        if isinstance(scale, AbstractSpectrum):
+            s = np.asarray(scale.data, dtype=float)
+            c = np.asarray(cov.data if isinstance(cov, AbstractSpectrum) else cov, dtype=float)
+
+            return type(scale)(np.divide(c, s, out=np.full(s.shape, np.nan), where=s > 0))
+
+        return cov / scale if scale > 0 else float('nan')
+
     @abstractmethod
     @cached_property
     def cov(self) -> np.ndarray:
@@ -1309,12 +1365,13 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         :param locus1: The first locus.
         :param locus2: The second locus.
-        :return: The correlation coefficient.
+        :return: The correlation coefficient, ``nan`` where either locus has zero variance and the coefficient is
+            undefined, matching the empirical estimator.
         """
         locus1 = int(locus1)
         locus2 = int(locus2)
 
-        return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
+        return self._correlation(self.get_cov(locus1, locus2), self.loci[locus1].std * self.loci[locus2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -1442,9 +1499,10 @@ class MarginalDemeDistributions(MarginalDistributions):
 
         :param pop1: The first deme.
         :param pop2: The second deme.
-        :return: The correlation coefficient.
+        :return: The correlation coefficient, ``nan`` where either deme has zero variance and the coefficient is
+            undefined, matching the empirical estimator.
         """
-        return self.get_cov(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
+        return self._correlation(self.get_cov(pop1, pop2), self.demes[pop1].std * self.demes[pop2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:

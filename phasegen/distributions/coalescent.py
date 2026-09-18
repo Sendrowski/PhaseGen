@@ -15,7 +15,7 @@ from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable
+from ._common import _make_hashable, _validate_order
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
@@ -625,7 +625,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
+        :raises ValueError: if ``k`` is not integral or is smaller than one.
         """
+        k = _validate_order(k)
+
         return self._get_dist(k, rewards).moment(
             k=k,
             rewards=rewards,
@@ -702,7 +705,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The moment at each end time.
+        :raises ValueError: if ``k`` is not integral or is smaller than one.
         """
+        k = _validate_order(k)
+
         return self._get_dist(k, rewards).accumulate(
             k=k,
             end_times=end_times,
@@ -743,7 +749,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
+        :raises ValueError: if ``k`` is not integral or is smaller than one.
         """
+        k = _validate_order(k)
+
         return self._get_dist(k, rewards).plot_accumulation(
             k=k,
             end_times=end_times,

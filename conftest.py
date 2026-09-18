@@ -21,3 +21,18 @@ import os
 
 for _var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS'):
     os.environ.setdefault(_var, '1')
+
+
+def pytest_addoption(parser):
+    """
+    Register the comparison-restriction option.
+
+    :param parser: The pytest argument parser.
+    """
+    parser.addoption(
+        '--compare-only',
+        default=None,
+        metavar='KEY',
+        help="restrict every scenario comparison to the tolerance branches under KEY, e.g. --compare-only=cosine, so "
+             "that one numerical path is exercised across the scenarios asserting it and nothing else is evaluated"
+    )

@@ -46,6 +46,7 @@ testpaths = ["testing"]
 addopts = "--durations=25 --durations-min=1.0"
 markers = [
     "slow: marks tests as slow, e.g. msprime comparisons or large state spaces (deselect with '-m \"not slow\"')",
+    "cosine: marks scenarios asserting a Fourier-cosine inverted curve, which Settings.cos_terms governs (select with '-m cosine')",
 ]
 
 [build-system]

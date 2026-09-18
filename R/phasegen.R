@@ -352,11 +352,11 @@ line_plot <- function(data, xlab, ylab, title, legend = NULL, step = FALSE, unde
   n_series <- nlevels(data$series)
 
   if (is.null(data$linewidth)) {
-    data$linewidth <- 0.5
+    data$linewidth <- rep(0.5, nrow(data))
   }
 
   if (is.null(data$alpha)) {
-    data$alpha <- 1
+    data$alpha <- rep(1, nrow(data))
   }
 
   style <- ggplot2::aes(linewidth = .data$linewidth, alpha = .data$alpha)

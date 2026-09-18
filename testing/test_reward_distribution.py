@@ -797,8 +797,8 @@ def test_empirical_sfs_distribution_functions_plot():
 
 
 def test_cos_inversion_imprecision_warning(caplog):
-    """The cosine inversion warns (via the logger) when it is likely imprecise
-    (ringing it cannot resolve / window too small), and stays silent on well-behaved curves."""
+    """The cosine inversion warns (via the logger) when it is likely imprecise (ringing, or a body too narrow
+    against the window for the terms summed), and stays silent on well-behaved curves."""
     import logging
 
     # the package logger does not propagate to root (where caplog listens), so capture it directly
@@ -812,12 +812,15 @@ def test_cos_inversion_imprecision_warning(caplog):
         d.cdf(np.linspace(0, d._range(), 100))
         d.pdf(np.linspace(0, d._range(), 100))
         assert 'residual ripple' not in caplog.text
+        assert 'truncation' not in caplog.text
 
-        # a genuinely under-resolved case (a heavy-tailed bin whose spread-out bulk the cosine series cannot fully
-        # resolve even with the support-matched window) warns (via the shared non-monotonicity guard)
+        # a heavy-tailed bin whose body is narrow against the window the tail forces, which the terms summed at the
+        # default cannot resolve
+        pg.Settings.cos_terms = 64  # the autouse fixture restores it
         e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
         e.distribution(reward=e._get_sfs_reward(5)).cdf(np.linspace(0, 50, 100))
-        assert 'residual ripple' in caplog.text
+        assert 'truncation' in caplog.text
+        assert 'Settings.cos_terms' in caplog.text
     finally:
         pg_logger.removeHandler(caplog.handler)
 

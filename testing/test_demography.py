@@ -559,11 +559,11 @@ def test_chained_population_splits_at_same_time_independent_of_order(order):
 def test_population_split_uses_same_time_pop_size_change(order):
     """
     The drain rate of a split was computed from the derived population size at the moment the split was applied, so
-    a PopSizeChange of that population at the same time counted only when listed before the split (rate 1000 rather
-    than 100).
+    a PopSizeChange of that population at the same time counted only when listed before the split, leaving the rate
+    at the value implied by the pre-change size.
     """
     events = [pg.PopulationSplit(1, 'b', 'c'), pg.PopSizeChange('b', time=1, size=10)]
-    d = pg.Demography(pop_sizes={'b': 1., 'c': 1.}, events=events[::1 - 2 * order])
+    d = pg.Demography(pop_sizes={'b': 1., 'c': 100.}, events=events[::1 - 2 * order])
 
     assert list(islice(d.epochs, 2))[1].migration_rates[('b', 'c')] == 10
 
@@ -615,3 +615,40 @@ def test_population_split_drain_rate_dominates_coalescence_at_any_population_siz
     assert scaled[0] == pytest.approx(1, rel=0.01)
     assert scaled[1] == pytest.approx(scaled[0], rel=1e-8)
     assert scaled[2] == pytest.approx(scaled[0], rel=1e-8)
+
+
+def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_the_epoch():
+    """
+    The drain rate of a split was ``multiplier / N_derived``, a fixed multiple of the coalescence rate of the derived
+    population alone, so a split into a smaller ancestral population left the lineages in the drained derived
+    population for a stretch that is long on the ancestral coalescent clock: with both lineages sampled in a derived
+    population of size 100 and a split at time 0 into an ancestral population of size 0.01, the model is a single
+    population of size 0.01, yet ``E[T_MRCA]`` came out as 1.5025, a factor of 150 too large. The preceding formula
+    ``N_derived * multiplier`` failed in the opposite regime, and a rate taken from the two populations of the split
+    alone failed for splits chained through an intermediate population of a larger size, where ``E[T_MRCA]`` of the
+    chain below came out as 0.0250 rather than 0.01.
+    """
+    for N_derived, N_ancestral in ((100.0, 0.01), (0.01, 100.0), (1.0, 1.0)):
+        d = pg.Demography(
+            pop_sizes={'a': N_derived, 'b': N_ancestral},
+            events=[pg.PopulationSplit(time=0, derived='a', ancestral='b')]
+        )
+
+        assert next(d.epochs).migration_rates[('a', 'b')] == 100 / min(N_derived, N_ancestral)
+
+        mean = pg.Coalescent(n={'a': 2, 'b': 0}, demography=d).tree_height.mean
+
+        assert mean == pytest.approx(N_ancestral, rel=0.02)
+
+    chained = pg.Demography(
+        pop_sizes={'a': 1.0, 'b': 1.0, 'c': 0.01},
+        events=[pg.PopulationSplit(time=0, derived='a', ancestral='b'),
+                pg.PopulationSplit(time=0, derived='b', ancestral='c')]
+    )
+
+    rates = next(chained.epochs).migration_rates
+    assert {k: v for k, v in rates.items() if v} == {('a', 'b'): 10000.0, ('b', 'c'): 10000.0}
+
+    mean = pg.Coalescent(n={'a': 2, 'b': 0, 'c': 0}, demography=chained).tree_height.mean
+
+    assert mean == pytest.approx(0.01, rel=0.05)

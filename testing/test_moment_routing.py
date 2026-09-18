@@ -331,3 +331,30 @@ def test_two_locus_rewards_route_to_two_locus_state_space():
     m = c.moment(2, [TwoLocusSFSReward(0, 1), TwoLocusSFSReward(1, 1)], center=False)
 
     assert m == pytest.approx(np.asarray(c.sfs2.mean.data)[1, 1], rel=1e-8)
+
+
+def test_windowed_mean_accumulates_until_absorption_not_until_the_absorption_estimate():
+    """
+    ``moment`` replaced an infinite end time by the internal absorption-time estimate whenever the start time was
+    positive, closing the window ``[start_time, inf)`` at that estimate. For the Dirac coalescent below the estimate
+    fell well below the mean tree height, so the evaluated window covered about a tenth of the intended span and the
+    mean total branch length came back as 9.3777e10 against 1.5476e12 from an explicit end time far beyond
+    absorption, a factor of 16.5.
+    """
+    from phasegen.distributions.phase_type import TreeHeightDistribution
+
+    model = pg.DiracCoalescent(psi=0.5, c=1.0)
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1e6}})
+    start_time = 5e11
+
+    def total_branch_length(**kwargs) -> float:
+        return pg.Coalescent(n=4, model=model, demography=demography, **kwargs).total_branch_length.mean
+
+    windowed = total_branch_length(start_time=start_time)
+    reference = total_branch_length(end_time=1e14) - total_branch_length(end_time=start_time)
+
+    assert windowed == pytest.approx(reference, rel=1e-9)
+
+    # the estimate bounds only where the window may open, not how far the accumulation runs
+    with patch.object(TreeHeightDistribution, '_get_absorption_time', lambda self: start_time):
+        assert total_branch_length(start_time=start_time) == pytest.approx(windowed, rel=1e-12)

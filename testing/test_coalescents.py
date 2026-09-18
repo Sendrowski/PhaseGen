@@ -1947,7 +1947,7 @@ def test_discretized_demography_with_infinite_end_time_terminates():
 
     # the epochs stop at the first one beginning at or after the time of almost sure absorption
     assert np.isinf(epochs[-1].end_time)
-    assert epochs[-1].start_time == coal.tree_height.t_max
+    assert epochs[-2].start_time < coal.tree_height.t_max <= epochs[-1].start_time
     assert len(epochs) == int(np.ceil(coal.tree_height.t_max / 0.5)) + 1
 
     # the closed-form last epoch (the default) and the matrix exponential up to the absorption time must agree
@@ -1989,3 +1989,77 @@ def test_accumulate_starts_at_the_configured_start_time():
     # a coalescent without a window is unaffected
     ref = pg.Coalescent(n=5)
     assert ref.accumulate(1, [2.0])[0] == pytest.approx(ref.moment(1, end_time=2.0), rel=1e-10)
+
+
+def test_epoch_truncation_keeps_every_epoch_carrying_probability_mass():
+    """
+    ``_get_epochs_until_unbounded`` stops at the first epoch beginning at or after the time of almost sure
+    absorption and extends that epoch's rates over the remaining time. Given an absorption time at which absorption
+    is genuine, the truncated epoch list must describe the same model as the full demography: with a time at which
+    most of the mass was still unabsorbed, the two epochs after it were discarded and the mean tree height came out
+    as 1499.999 against 6.0000005 from an explicit end time past absorption.
+    """
+    from phasegen.distributions.phase_type import TreeHeightDistribution
+
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1e-6, 1e-12: 1e3, 3: 1e3, 6: 1e-6}})
+
+    # the population contracts to 1e-6 at t = 6, so no mass survives to t = 8
+    with patch.object(TreeHeightDistribution, '_get_absorption_time', lambda self: 8.0):
+        coal = pg.Coalescent(n=4, demography=demography)
+        epochs = coal.tree_height._get_epochs_until_unbounded()
+        mean = coal.tree_height.mean
+
+    assert [e.start_time for e in epochs] == [0, 1e-12, 3.0, 6.0]
+    assert np.isinf(epochs[-1].end_time)
+
+    reference = pg.Coalescent(n=4, demography=demography, end_time=20.0).tree_height.mean
+    assert mean == pytest.approx(reference, rel=1e-9)
+
+
+def test_moment_accepts_an_integral_float_order_and_rejects_a_non_integral_one():
+    """
+    ``Coalescent.moment`` and ``SFSDistribution.moment`` built their default rewards by replicating a sequence with
+    the raw order, so a float order raised ``TypeError: can't multiply sequence by non-int of type 'float'`` where
+    ``PhaseTypeDistribution.moment`` accepted it. R numerics are doubles unless suffixed with ``L``, so ``coal$moment(2)``
+    failed. The lenient paths in turn truncated a non-integral order silently, returning the order-2 moment for
+    ``k = 2.5``.
+    """
+    coal = pg.Coalescent(n=4)
+
+    assert coal.moment(2.0) == pytest.approx(coal.moment(2), rel=1e-12)
+    assert coal.sfs.moment(2.0).data[1] == pytest.approx(coal.sfs.moment(2).data[1], rel=1e-12)
+    assert coal.accumulate(2.0, [1.0])[0] == pytest.approx(coal.accumulate(2, [1.0])[0], rel=1e-12)
+    assert coal.sfs.accumulate(2.0, [1.0])[1][0] == pytest.approx(coal.sfs.accumulate(2, [1.0])[1][0], rel=1e-12)
+
+    for call in (coal.moment, coal.sfs.moment):
+        with pytest.raises(ValueError, match='must be an integer'):
+            call(2.5)
+
+        with pytest.raises(ValueError, match='must be at least 1'):
+            call(0)
+
+        with pytest.raises(TypeError, match='must be an integer'):
+            call('2')
+
+
+def test_epoch_extension_keeps_consuming_while_a_later_epoch_would_misplace_the_accumulation():
+    """
+    Almost sure absorption is a statement about probability alone, and the accumulated reward has a time scale the
+    probability does not carry. The epoch reached at the absorption estimate stands in for every epoch after it, so
+    with 1e-15 of the mass still transient and an epoch whose own absorption time is 1e18, the substitution
+    misplaced 4.25 of expected tree height, returning 5.248354 where the exact value is 1. The surviving mass is
+    read off the propagated state vector because ``1 - cdf`` underflows to exactly zero there.
+    """
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 40: 1e18, 70: 1e18, 100: 1e-9}})
+
+    coal = pg.Coalescent(n=2, demography=demography)
+    bounded = pg.Coalescent(n=2, demography=demography, end_time=1e3)
+
+    assert float(coal.tree_height.mean) == pytest.approx(float(bounded.tree_height.mean), rel=1e-9)
+
+    # the epoch whose rates are held until absorption is the one whose own time scale makes the remainder negligible
+    assert coal.tree_height._get_epochs_until_unbounded()[-1].start_time == 100.0
+
+    # 1 - cdf cannot see the surviving mass that drives the error, so the criterion may not be built on it
+    assert 1 - float(coal.tree_height.cdf(coal.tree_height.t_max)) == 0.0
+    assert 0 < coal.tree_height._survival(coal.tree_height.t_max) < 1e-15

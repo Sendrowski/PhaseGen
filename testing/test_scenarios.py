@@ -78,6 +78,9 @@ configs = [
     '1_epoch_2_loci_n_4_r_1_larger_N',
     '1_epoch_2_loci_n_2_r_1_larger_N',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    # migration slow against coalescence, so a lineage's deme of residence is informative about how many samples it
+    # subtends and the per-deme spectra discriminate how a frequency class is attributed to a deme
+    '1_epoch_migration_slow_asymmetric_2_each_n_6',
     '2_epoch_varying_migration_low_coalescence',
     '1_epoch_beta_n_2_alpha_1_5',
     '1_epoch_2_loci_n_3_r_1',
@@ -168,6 +171,17 @@ class ScenariosTestCase(TestCase):
     #: Whether assert that compared statistics are within specified tolerance
     do_assertion: bool = True
 
+    #: Tolerance key every comparison is restricted to, from ``--compare-only``. ``None`` compares every leaf.
+    compare_only: str = None
+
+
+@pytest.fixture(autouse=True)
+def _compare_only(request):
+    """Apply ``--compare-only`` to the scenarios of this module."""
+    ScenariosTestCase.compare_only = request.config.getoption('--compare-only')
+
+    yield
+
 
 def get_filenames(path) -> List[str]:
     """
@@ -196,6 +210,7 @@ def generate_tests(config: str):
         c = Comparison.from_file(f"results/comparisons/serialized/{config}.json")
 
         c.do_assertion = ScenariosTestCase.do_assertion
+        c.only = ScenariosTestCase.compare_only
         c.visualize = True
         #c.figure_path = f"results/graphs/comparisons/{config}"
         c.show_title = True
@@ -254,11 +269,30 @@ slow_configs = [
     '1_epoch_4_pops_tree_beta',
 ]
 
+def configs_asserting(key: str) -> List[str]:
+    """
+    The configs whose tolerance block contains ``key``, i.e. whose scenario asserts that kind of leaf. Used to mark
+    the scenarios a numerical setting reaches, so its cost and accuracy can be measured on those alone rather than
+    on the whole suite.
+
+    :param key: The tolerance key, e.g. ``cosine``.
+    :return: Config names, in the order of ``configs``.
+    """
+    return [c for c in configs if f'{key}:' in Path(f'resources/configs/{c}.yaml').read_text()]
+
+
+#: Scenarios asserting a curve obtained by the Fourier-cosine inversion, which is what
+#: ``Settings.cos_terms`` governs. Select them with ``pytest -m cosine``.
+cosine_configs = configs_asserting('cosine')
+
 for config in configs:
     test = generate_tests(config)
 
     if config in slow_configs:
         test = pytest.mark.slow(test)
+
+    if config in cosine_configs:
+        test = pytest.mark.cosine(test)
 
     setattr(ScenariosTestCase, f'test_{config}', test)
 

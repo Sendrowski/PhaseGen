@@ -61,8 +61,9 @@ class RewardDistribution(CallableDistributionFunctions):
 
         A_j = \frac{2}{\beta}\, \mathrm{Re}\, \frac{\varphi(-\mathrm{i} j \pi / \beta) - p_0}{1 - p_0}.
 
-    These :math:`K` transform evaluations give the whole curve. The expansion reaches 1 at :math:`\beta`, so the mass
-    beyond the window is lost.
+    These :math:`K` transform evaluations give the whole curve, and :math:`K` is given by
+    :attr:`Settings.cos_terms <phasegen.settings.Settings.cos_terms>`. The expansion reaches 1 at :math:`\beta`, so
+    the mass beyond the window is lost, and it resolves features no narrower than :math:`\beta / K`.
 
     .. rubric:: Tail
 
@@ -85,13 +86,16 @@ class RewardDistribution(CallableDistributionFunctions):
     .. rubric:: Implementation
 
     - The window is chosen in two passes. A first expansion over several standard deviations of :math:`R` locates the
-      support, and the second window ends where the first expansion comes close to 1.
+      support, and the second window ends where the first expansion comes close to 1. The window width is what the
+      expansion resolves, no feature narrower than :math:`\beta / K`.
     - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
       :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
       above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
     - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
-      the expansion is not monotone, a sign of a feature it cannot resolve.
+      the expansion is not monotone, and when the last :math:`K/2` terms still move the CDF, which a distribution
+      whose body is narrow against its window does. Raising :attr:`Settings.cos_terms
+      <phasegen.settings.Settings.cos_terms>` resolves it, at a cost linear in :math:`K`.
 
     .. rubric:: References
 
@@ -523,9 +527,6 @@ class JointRewardDistribution(CallableDistributionFunctions):
     _cdf_function = JointCDF
     _quantile_function = None
 
-    #: Number of cosine terms per axis of the 2D Fourier-cosine expansion (:math:`N` in ``JointCDF``).
-    _cos2d_terms: int = 128
-
     #: Window scale of the 2D expansion, ``mean + scale * std`` per axis (:math:`\kappa` in ``JointCDF``). A wider
     #: window coarsens the resolution ``b / n_terms`` near the origin, a narrower one truncates tail mass.
     _cos2d_window_scale: float = 5.0
@@ -793,7 +794,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _cos2d(self) -> dict:
         """The coefficient matrix ``A``, windows ``ba``, ``bb`` and frequencies ``ua``, ``ub`` of the 2D cosine
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
-        n_terms, scale, big = self._cos2d_terms, self._cos2d_window_scale, self._s_inf
+        n_terms, scale, big = Settings.cos_terms_2d, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
         ba, bb = self.marginal('a')._range(scale), self.marginal('b')._range(scale)
         ua = np.arange(n_terms) * np.pi / ba

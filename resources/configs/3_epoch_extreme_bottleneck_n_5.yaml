@@ -53,7 +53,9 @@ comparisons:
       tajimas_d: 0.004
       cosine:
         pdf: 0.009
-        cdf: 0.002
+        # at the reference's own noise: four times the peak binomial standard error of 1e6 replicates is 0.002, and
+        # the diff does not fall as the expansion is refined (0.00206 at 1536 terms, 0.00238 at 3072)
+        cdf: 0.0031
         quantile: 0.004
       # no ``moments`` here: the derivative identity is not a trustworthy reference on this demography. It disagrees
       # with the conditional by 12-21%, and it is the identity that is wrong -- f_a(v) is minuscule in the tail of a

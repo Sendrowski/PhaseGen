@@ -1,0 +1,63 @@
+n:
+  pop_0: 2
+  pop_1: 2
+  pop_2: 2
+num_replicates: 1000000
+record_migration: true
+# migration slow against coalescence and asymmetric in both rates and population sizes, so that a lineage's deme of
+# residence is informative about how many samples it subtends. Under fast migration the per-deme spectra are
+# insensitive to how a frequency class is attributed to a deme.
+migration_rates:
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 0.3
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 0.4
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_2'
+  : 0: 0.1
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_0'
+  : 0: 1.5
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_2'
+  : 0: 0.6
+  ? !!python/tuple
+  - 'pop_2'
+  - 'pop_1'
+  : 0: 1.0
+pop_sizes:
+  pop_0:
+    0: 1.5
+  pop_1:
+    0: 0.5
+  pop_2:
+    0: 1
+model: standard
+seed: 42
+comparisons:
+  tolerance:
+    tree_height:
+      demes:
+        mean: 0.0031
+      mean: 0.0024
+      var: 0.0097
+    total_branch_length:
+      demes:
+        mean: 0.0024
+      mean: 0.0019
+      var: 0.0083
+    sfs:
+      demes:
+        mean: 0.013
+      mean: 0.0081
+    fsfs:
+      demes:
+        mean: 0.0095
+      mean: 0.0071

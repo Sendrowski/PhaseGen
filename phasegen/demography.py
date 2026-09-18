@@ -889,9 +889,10 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
         :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
-            is set to :math:`m = c / N`, the multiplier :math:`c` divided by the population size :math:`N` of the
-            derived population. It should be large enough that the lineages move to the ancestral population within
-            a time that is negligible on the coalescent time scale.
+            is set to :math:`m = c / \min_i N_i`, the multiplier :math:`c` divided by the smallest population size
+            :math:`N_i` of the epoch the split falls into, so that :math:`m` is a multiple of the fastest coalescence
+            rate of the epoch. It should be large enough that the lineages move to the ancestral population within a
+            time that is negligible on the coalescent time scale.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -938,10 +939,12 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param epoch: Epoch.
         """
         if epoch.start_time <= self.start_time < epoch.end_time:
+            # the drain rate is a multiple of the fastest coalescence rate of the epoch, 1 / min(N), so that the
+            # lineages leave the derived populations before any coalescence the split displaces
+            rate = self.multiplier / min(epoch.pop_sizes.values())
+
             for p in self.derived:
-                # the drain rate is a multiple of the coalescence rate 1 / N of the derived population, so that
-                # lineages leave it before they coalesce in it
-                epoch.migration_rates[(p, self.ancestral)] = self.multiplier / epoch.pop_sizes[p]
+                epoch.migration_rates[(p, self.ancestral)] = rate
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

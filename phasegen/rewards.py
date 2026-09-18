@@ -21,6 +21,10 @@ class Reward(ABC):
     Base class for reward generation.
     """
 
+    #: Whether :meth:`_get_parts` resolves the locus and deme the rewarded lineages reside in, rather than splitting
+    #: the reward in proportion to the lineage counts.
+    _resolves_residence: bool = False
+
     @abstractmethod
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -205,6 +209,8 @@ class JointSFSReward(JointBlockCountingReward):
     :math:`r(i) = \#\{\text{lineages in } i \text{ with descendant vector } \mathbf{c}\}`.
     """
 
+    _resolves_residence = True
+
     def __init__(self, config: Tuple[int, ...]) -> None:
         """
         Initialize the reward.
@@ -233,6 +239,28 @@ class JointSFSReward(JointBlockCountingReward):
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
         )
 
+    def _get_parts(self, state_space: JointBlockCountingStateSpace) -> np.ndarray:
+        r"""
+        The lineages with this descendant vector resolved by the locus and deme they reside in,
+        :math:`r_{l,d}(i) = \#\{\text{lineages of } i \text{ at locus } l \text{ in deme } d \text{ with descendant
+        vector } \mathbf{c}\}`.
+
+        :param state_space: state space
+        :return: reward parts
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
+                state_space, TwoLocusBlockCountingStateSpace):
+            index = state_space.block_index[self.config]
+
+            parts = state_space.lineages[:, :, :, index].astype(float)
+
+            return parts * ~state_space.absorbing[:, None, None]
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
     def __hash__(self) -> int:
         """
         Calculate the hash of the class name and the descendant vector.
@@ -250,6 +278,8 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
     regardless of how many they subtend at the other locus. The two-locus SFS is obtained as the cross-moment
     :math:`\mathbb{E}[R_a R_b]` of two such rewards, one per locus.
     """
+
+    _resolves_residence = True
 
     def __init__(self, locus: int, count: int) -> None:
         """
@@ -273,6 +303,26 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
             # select the blocks whose descendant count at this locus equals ``count`` and sum over them
             mask = state_space.block_vectors[:, self.locus] == self.count
             return state_space.lineages[:, :, :, mask].sum(axis=(1, 2, 3))
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def _get_parts(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
+        r"""
+        The lineages counted by this bin resolved by the deme they reside in, :math:`r_{l,d}(i)` being the number of
+        lineages of state :math:`i` in deme :math:`d` whose descendant count at ``locus`` equals ``count``.
+
+        :param state_space: state space
+        :return: reward parts
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
+            mask = state_space.block_vectors[:, self.locus] == self.count
+
+            parts = state_space.lineages[:, :, :, mask].sum(axis=3).astype(float)
+
+            return parts * ~state_space.absorbing[:, None, None]
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -415,6 +465,8 @@ class SFSReward(BlockCountingReward, ABC):
     :meta private:
     """
 
+    _resolves_residence = True
+
     def __init__(self, index: int) -> None:
         """
         Initialize the reward.
@@ -461,6 +513,28 @@ class SFSReward(BlockCountingReward, ABC):
 
             # sum over demes, loci and the selected blocks
             return state_space.lineages[:, :, :, blocks].sum(axis=(1, 2, 3))
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def _get_parts(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+        r"""
+        The blocks counted by this bin resolved by the locus and deme they reside in,
+        :math:`r_{l,d}(i) = \sum_{b \in B} a^{(l,d)}_b(i)`, where :math:`B` are the block sizes of the bin and
+        :math:`a^{(l,d)}_b(i)` is the number of blocks of size :math:`b` in state :math:`i` at locus :math:`l` in
+        deme :math:`d`.
+
+        :param state_space: state space
+        :return: reward parts
+        :raises: NotImplementedError if the state space is not supported
+        """
+        if isinstance(state_space, BlockCountingStateSpace):
+            blocks = np.array(self._block_sizes(state_space.lineage_config.n), dtype=int) - 1
+
+            parts = state_space.lineages[:, :, :, blocks].sum(axis=3).astype(float)
+
+            return parts * ~state_space.absorbing[:, None, None]
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -759,6 +833,31 @@ class ProductReward(CompositeReward):
         """
         return np.prod([r._get(state_space) for r in self.rewards], axis=0)
 
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
+        r"""
+        The parts of the single factor that resolves the residence of the rewarded lineages, multiplied by the values
+        of the remaining factors, :math:`r_{l,d}(i) = r^{(m)}_{l,d}(i) \prod_{j \neq m} r_j(i)` for the resolving
+        factor :math:`m`. Without such a factor, or with several of them, the residence is not determined by the
+        factors and the default split applies.
+
+        :param state_space: state space
+        :return: reward parts
+        """
+        resolving = [i for i, r in enumerate(self.rewards) if r._resolves_residence]
+
+        if len(resolving) != 1:
+            return super()._get_parts(state_space)
+
+        others = [np.asarray(r._get(state_space), dtype=float)
+                  for i, r in enumerate(self.rewards) if i != resolving[0]]
+
+        parts = self.rewards[resolving[0]]._get_parts(state_space)
+
+        if not others:
+            return parts
+
+        return parts * np.prod(others, axis=0)[:, None, None]
+
 
 class SumReward(CompositeReward):
     r"""
@@ -802,11 +901,23 @@ class RestrictedReward(CompositeReward):
         :param state_space: state space
         :return: reward parts
         :raises ValueError: if the locus or the population does not exist
-        :raises NotImplementedError: if the state space does not resolve the loci
+        :raises NotImplementedError: if the state space does not resolve the loci, or if the parts of the wrapped
+            reward do not sum to it over the loci
         """
         parts = np.array(self.rewards[0]._get_parts(state_space), dtype=float)
 
-        if self.locus is not None:
+        if self.locus is None:
+            values = np.asarray(self.rewards[0]._get(state_space), dtype=float) * ~state_space.absorbing
+
+            if not np.allclose(parts.sum(axis=(1, 2)), values):
+                raise NotImplementedError(
+                    f"{self.rewards[0].__class__.__name__} does not decompose additively over the "
+                    f"{state_space.locus_config.n} loci, so summing its parts over the loci does not recover it and "
+                    f"the restriction is ill-posed. Restrict to a single locus as well, or use a reward that is "
+                    f"additive over loci such as {TotalTreeHeightReward.__name__} or "
+                    f"{TotalBranchLengthReward.__name__}."
+                )
+        else:
             if parts.shape[1] != state_space.locus_config.n:
                 raise NotImplementedError(
                     f'State space {state_space.__class__.__name__} does not resolve loci, so the reward '
@@ -862,8 +973,9 @@ class RestrictedReward(CompositeReward):
 
 class CombinedReward(ProductReward):
     """
-    The product of several rewards, in which a :class:`DemeReward` or :class:`LocusReward` member acts on the
-    product of the remaining members as the restriction of :class:`RestrictedReward`.
+    The product of several rewards, in which a :class:`DemeReward`, a :class:`LocusReward` or a
+    :class:`RestrictedReward` member restricts the product of the remaining members as :class:`RestrictedReward`
+    does, the restriction of a :class:`RestrictedReward` member acting on its wrapped reward together with them.
     """
 
     def __init__(self, rewards: List[Reward]) -> None:
@@ -872,25 +984,36 @@ class CombinedReward(ProductReward):
 
         :param rewards: Rewards to combine
         """
-        restrictions = [r for r in rewards if isinstance(r, (DemeReward, LocusReward))]
+        loci, pops, rest = [], [], []
 
-        if not restrictions:
+        for reward in rewards:
+            if isinstance(reward, LocusReward):
+                loci.append(reward.locus)
+            elif isinstance(reward, DemeReward):
+                pops.append(reward.pop)
+            elif isinstance(reward, RestrictedReward):
+                loci += [] if reward.locus is None else [reward.locus]
+                pops += [] if reward.pop is None else [reward.pop]
+                rest.append(reward.rewards[0])
+            else:
+                rest.append(reward)
+
+        if not loci and not pops:
             # copy so we never mutate (or alias) the caller's list
             super().__init__(list(rewards))
             return
-
-        rest = [r for r in rewards if not isinstance(r, (DemeReward, LocusReward))]
 
         if not rest:
             combined = UnitReward()
         else:
             combined = rest[0] if len(rest) == 1 else ProductReward(rest)
 
-        for restriction in restrictions:
-            if isinstance(restriction, DemeReward):
-                combined = RestrictedReward(combined, pop=restriction.pop)
-            else:
-                combined = RestrictedReward(combined, locus=restriction.locus)
+        # the loci first, so that the deme restriction of a reward that is not additive over loci stays well posed
+        for locus in loci:
+            combined = RestrictedReward(combined, locus=locus)
+
+        for pop in pops:
+            combined = RestrictedReward(combined, pop=pop)
 
         super().__init__([combined])
 

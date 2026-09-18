@@ -11,7 +11,7 @@ from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..settings import Settings
-from ..spectrum import SFS
+from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
@@ -132,9 +132,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     @cached_property
     def std(self) -> float | SFS:
         """
-        Standard deviation.
+        Standard deviation. A variance that cancellation in the moment solve leaves marginally below zero is read as
+        zero, so the result stays real.
         """
-        return self.var ** 0.5
+        var = self.var
+
+        if isinstance(var, AbstractSpectrum):
+            return type(var)(np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5)
+
+        return max(float(var), 0.0) ** 0.5
 
     @cached_property
     def m2(self) -> float | SFS:
@@ -753,9 +759,29 @@ class _ExpmFunction(_HazardGrid):
     #: Smallest cumulative hazard that bounds a segment of the second pass.
     _min_segment_hazard: float = float(np.finfo(float).eps)
 
+    #: Number of probe intervals of the locating pass that are additionally bounded, the steepest in cumulative
+    #: hazard, and the share of ``_segment_hazard_step`` an interval must gain to qualify.
+    _n_refine: int = 64
+    _refine_hazard_share: float = 0.125
+
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """The grid over ``[0, t_max]``, built once. The arguments are ignored, the grid always spans the support."""
         return self._shared('expm_cdf_grid', self._build_cdf_grid)
+
+    def _steep_bounds(self, nodes: np.ndarray, hazard: np.ndarray) -> set:
+        """
+        The ends of the ``_n_refine`` intervals of ``nodes`` across which the cumulative hazard rises most, among
+        those gaining more than ``_refine_hazard_share`` of ``_segment_hazard_step``.
+
+        :param nodes: Ascending times.
+        :param hazard: Cumulative hazard on them, ascending.
+        :return: Times to bound a segment at.
+        """
+        jumps = np.diff(hazard)
+        steep = np.argsort(jumps)[-self._n_refine:]
+        steep = steep[jumps[steep] > self._segment_hazard_step * self._refine_hazard_share]
+
+        return set(nodes[steep]) | set(nodes[steep + 1])
 
     def _build_cdf_grid(self) -> tuple:
         """
@@ -778,9 +804,13 @@ class _ExpmFunction(_HazardGrid):
         levels = np.concatenate([np.exp(np.arange(np.log(h_min), 0.0, step)), np.arange(1.0, h_probe[-1], step)])
         bounds = set(np.interp(levels, h_probe, x_probe))
         bounds |= {e.start_time for e in d._get_epochs_until_unbounded() if 0.0 < e.start_time < t_max}
-        bounds = sorted(bounds | {0.0, t_max})
 
-        nodes, cdf, _ = d._sweep_uniform(bounds, self._n_grid)
+        # bound the probe intervals across which the hazard rises most: a rise that is narrow in time and gains less
+        # than one step of hazard attracts no level, and the nodes within a segment are uniform in time, so the
+        # interpolated hazard would run straight across it
+        bounds |= self._steep_bounds(x_probe, h_probe)
+
+        nodes, cdf, _ = d._sweep_uniform(sorted(bounds | {0.0, t_max}), self._n_grid)
 
         return nodes, np.maximum.accumulate(self._hazard(cdf))
 
@@ -957,7 +987,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return MarginalDemeDistributions(self)
 
     #: Maximum number of time we double the end time when determining time to almost sure absorption.
-    max_iter: int = 20
+    max_iter: int = 64
 
     #: Probability of almost sure absorption.
     p_absorption: float = 1 - 1e-15
@@ -1193,6 +1223,94 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return t_abs
 
+    def _get_absorption_scale(self) -> float:
+        r"""
+        The time scale of the coalescent, the mean time to absorption under the first epoch held constant,
+
+        .. math::
+            \mathbb{E}[\tau_1] = \boldsymbol{\alpha}_T (-\mathbf{S}_T)^{-1} \mathbf{1},
+
+        with :math:`\boldsymbol{\alpha}_T` the initial distribution on the transient states :math:`T` of the first
+        epoch, :math:`\mathbf{S}_T` its transient sub-generator and :math:`\mathbf{1}` a vector of ones. It is where
+        the doubling search of :meth:`_get_absorption_time` starts and the scale that
+        :meth:`_extension_is_negligible` measures against, and it carries the time scale of the coalescent model
+        itself, which the population size alone does not: the Dirac and Beta rates are divided by :math:`N^2` and by
+        a multiple of :math:`N^{\alpha - 1}` where the Kingman rates are divided by :math:`N`. The mean population
+        size of the first epoch is used instead where that system has no positive solution, as when no state of the
+        first epoch can reach absorption.
+
+        :return: A positive time.
+        """
+        epoch = self.demography.get_epoch(0)
+        times = self._mean_absorption_times(epoch)
+
+        if times.size:
+            transient = np.where(self._e > 0)[0]
+            seed = float(np.asarray(self.state_space.alpha, dtype=float)[transient] @ times)
+
+            if np.isfinite(seed) and seed > 0:
+                return seed
+
+        return float(np.mean(list(epoch.pop_sizes.values())))
+
+    #: Share of the first epoch's absorption scale that holding the final epoch until absorption may misplace, and
+    #: the most epochs consumed past almost sure absorption in search of one that may be held.
+    _extension_tol: float = 1e-8
+    _max_extension_epochs: int = 1000
+
+    def _mean_absorption_times(self, epoch: Epoch) -> np.ndarray:
+        r"""
+        The mean time to absorption from each transient state under ``epoch`` held constant,
+        :math:`(-\mathbf{S}_T)^{-1}\mathbf{1}`, with :math:`\mathbf{S}_T` the transient sub-generator of that epoch
+        and :math:`\mathbf{1}` the vector of ones on the transient states. The state space is left on ``epoch``.
+
+        :param epoch: The epoch whose rates are held.
+        :return: The mean absorption time per transient state, empty where the system has no positive solution.
+        """
+        self.state_space.update_epoch(epoch)
+
+        transient = np.where(self._e > 0)[0]
+        sparse = len(transient) >= Settings.closed_form_sparse_min_states
+
+        try:
+            solve = self._lu_solver(-self._transient_block(transient, sparse=sparse), sparse)
+            times = np.asarray(solve(np.ones(len(transient))), dtype=float)
+        except (np.linalg.LinAlgError, RuntimeError, ValueError):
+            return np.empty(0)
+
+        return times if np.all(np.isfinite(times)) and np.all(times > 0) else np.empty(0)
+
+    def _survival(self, t: float) -> float:
+        """
+        The probability still transient at ``t``, read off the propagated state distribution. This is the quantity
+        the accumulation weighs against the time scale of a later epoch, and ``1 - cdf(t)`` cannot stand in for it:
+        a survival below the double-precision resolution of a number near one reads as exactly zero there while it
+        is still represented here.
+
+        :param t: Time at which to read the survival.
+        :return: The transient probability mass.
+        """
+        epoch = self.demography.get_epoch(0)
+        w = self._sweep_to(np.asarray(self.state_space.alpha, dtype=float), 0.0, float(t), epoch)
+
+        return float(w @ self._e / w.sum())
+
+    def _extension_is_negligible(self, epoch: Epoch, survival: float, scale: float) -> bool:
+        """
+        Whether holding ``epoch`` until absorption misplaces at most ``_extension_tol`` of ``scale``. The reward the
+        extension attributes to the wrong epoch is bounded by the probability still transient at its start times the
+        longest mean absorption time under its own rates, so an epoch whose own time scale dwarfs that probability
+        is not a valid stand-in for the epochs after it.
+
+        :param epoch: The epoch that would be held until absorption.
+        :param survival: Transient probability at the time the extension starts from.
+        :param scale: Time scale the tolerance is taken relative to.
+        :return: Whether the extension is within tolerance.
+        """
+        times = self._mean_absorption_times(epoch)
+
+        return not times.size or survival * float(times.max()) <= self._extension_tol * scale
+
     def _get_absorption_time(self) -> float:
         """
         Get a time estimate for when we have reached absorption almost surely.
@@ -1206,7 +1324,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         self._check_demography_conditioning()
 
-        t = 2 ** int(np.log2(np.mean(list(epoch.pop_sizes.values()))))
+        t = self._get_absorption_scale()
         expansion_factor = 2
 
         w = self._sweep_to(np.asarray(self.state_space.alpha, dtype=float), 0.0, t, epoch)
