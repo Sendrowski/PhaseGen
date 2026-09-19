@@ -351,7 +351,7 @@ def _build_epoch_data(host) -> dict:
     # dense (densifying a sparse block): the only alternative, the expm_multiply *action*, is norm-driven and cannot
     # evaluate the ``s = inf`` (1e8) atom shifts that every inversion needs -- so it has no usable role here (unlike
     # the moment path, which never inverts an atom and gates its action on ``Settings.expm_action_min_dim``).
-    sparse = nt >= Settings.closed_form_sparse_min_states
+    sparse = MomentEvaluator._solve_sparse(nt)
 
     T_epochs = []
     for T, t0, t1 in blocks:

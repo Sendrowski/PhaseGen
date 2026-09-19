@@ -1060,7 +1060,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # matrix-exponential action above ``expm_action_min_dim`` instead of forming the dense exponential. No
         # ``lamb`` reward-regularization applies here: the mutation rates ``theta R_i`` are genuine generator entries
         # (not a separately-accumulated reward), so there is nothing to rescale relative to ``S``.
-        sparse = nt >= Settings.closed_form_sparse_min_states
+        sparse = self._solve_sparse(nt)
         action = nt >= Settings.expm_action_min_dim
 
         def build_generator(S: np.ndarray) -> 'np.ndarray | sp.spmatrix':
@@ -2158,7 +2158,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         ss = self.state_space
         ss.update_epoch(epochs[-1])
         idx_t = np.where(~ss.absorbing)[0]
-        use_action = len(idx_t) >= Settings.closed_form_sparse_min_states
+        use_action = self._solve_sparse(len(idx_t))
 
         indices = self._get_indices()
         R0 = np.column_stack([

@@ -1270,7 +1270,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.state_space.update_epoch(epoch)
 
         transient = np.where(self._e > 0)[0]
-        sparse = len(transient) >= Settings.closed_form_sparse_min_states
+        sparse = self._solve_sparse(len(transient))
 
         try:
             solve = self._lu_solver(-self._transient_block(transient, sparse=sparse), sparse)

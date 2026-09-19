@@ -134,6 +134,20 @@ class MomentEvaluator:
         return np.fromiter((node for c in order for node in members[c]), dtype=int, count=n)
 
     @staticmethod
+    def _solve_sparse(n_transient: int) -> bool:
+        """
+        Whether a linear solve over ``n_transient`` transient states takes the sparse path, at and above
+        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`.
+        Distinct from :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, which
+        governs the matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
+        one decide both, their Van Loan exponential following the sparsity their factorization already takes.
+
+        :param n_transient: Number of transient states the solve is over.
+        :return: Whether to take the sparse path.
+        """
+        return n_transient >= Settings.closed_form_sparse_min_states
+
+    @staticmethod
     def _lu_solver(A, sparse: bool, perm=_AUTO_PERM) -> 'Callable':
         """
         Factorize ``A`` once (sparse SuperLU or dense LU) and return a callable solving ``A x = b``. The sparse path
@@ -1102,7 +1116,7 @@ class MomentEvaluator:
         # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. This is a different
         # quantity from the Van Loan dimension that governs the matrix-exponential path (:attr:`expm_action_min_dim`):
         # the LU only ever sees ``T``, independent of the moment order, so the threshold is on ``len(idx_t)`` alone.
-        use_action = len(idx_t) >= Settings.closed_form_sparse_min_states
+        use_action = self._solve_sparse(len(idx_t))
 
         # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution
         T = self._transient_block(idx_t, sparse=use_action)
@@ -1297,7 +1311,7 @@ class MomentEvaluator:
         absorbing = self.state_space.absorbing
         idx_t = np.where(~absorbing)[0]
         nt = len(idx_t)
-        use_action = nt >= Settings.closed_form_sparse_min_states
+        use_action = self._solve_sparse(nt)
 
         p = np.asarray(self.state_space.alpha)[idx_t].astype(float)
         m = np.zeros(nt)
