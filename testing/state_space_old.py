@@ -1341,10 +1341,6 @@ class Transition:
         """
         Get the rate of a locus coalescence event.
         """
-        # return 0 if locus coalescence is not allowed
-        if not self.state_space.locus_config._allow_coalescence:
-            return 0
-
         # get unlinked lineage counts
         unlinked1 = self.unlinked1[self.diff_linked == -1]
 

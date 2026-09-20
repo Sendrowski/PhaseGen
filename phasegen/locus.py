@@ -56,9 +56,6 @@ class LocusConfig:
         #: Recombination rate.
         self.recombination_rate: float = recombination_rate
 
-        #: Whether to allow coalescence between loci, deprecated
-        self._allow_coalescence: float = True
-
     def _get_initial_states(self, s: 'StateSpace') -> np.ndarray:
         r"""
         Get the unnormalized locus factor of :attr:`StateSpace.alpha <phasegen.state_space.StateSpace.alpha>`, the
@@ -88,5 +85,4 @@ class LocusConfig:
                 self.n == other.n
                 and self.n_unlinked == other.n_unlinked
                 and self.recombination_rate == other.recombination_rate
-                and self._allow_coalescence == other._allow_coalescence
         )
