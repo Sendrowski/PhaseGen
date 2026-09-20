@@ -2,13 +2,17 @@
 Characterization (golden-master) test pinning the raw per-replicate output of :class:`MsprimeCoalescent.simulate`.
 
 This is the guardrail for refactoring the simulation internals (e.g. splitting the monolithic ``simulate_batch``
-loop into per-statistic accumulator components): the simulated arrays -- which are the *ground truth* the entire
-analytic test suite is validated against -- must stay **bit-identical** under a behaviour-preserving refactor.
+loop into per-statistic accumulator components): the simulated arrays, which are the ground truth the entire
+analytic test suite is validated against, must stay identical to within ``RTOL`` under a behaviour-preserving
+refactor. The comparison is a relative tolerance rather than an exact one because floating-point reassociation
+differs between architectures, so a baseline generated on one machine differs from another in the last few bits
+(measured at 3.5e-16 relative, about 1.5 double-precision epsilon, between arm64 macOS and x86-64 Linux), while a
+genuine behavioural change moves the arrays far more than that.
 
 With a fixed ``seed`` and ``n_threads=1, parallelize=False`` the msprime simulation is fully deterministic, so the
 arrays are reproducible run-to-run. A committed baseline (``fixtures/msprime_characterization.npz``) is generated
 from the current code (``REGENERATE=1 pytest ...`` or delete the file) and the test asserts the live output matches
-it exactly. The baseline is tied to the installed msprime version; regenerate it if msprime is upgraded.
+it. The baseline is tied to the installed msprime version; regenerate it if msprime is upgraded.
 """
 import os
 from pathlib import Path
@@ -39,6 +43,10 @@ CONFIGS = {
 FIELDS = ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples')
 
 BASELINE = Path(__file__).parent / 'fixtures' / 'msprime_characterization.npz'
+
+#: Relative tolerance of the baseline comparison, loose enough to absorb cross-architecture rounding and far tighter
+#: than any behavioural change.
+RTOL = 1e-12
 
 
 def _simulate(name: str) -> dict:
@@ -72,10 +80,11 @@ if os.environ.get('REGENERATE') or not BASELINE.exists():
 
 @pytest.mark.parametrize('name', list(CONFIGS), ids=list(CONFIGS))
 def test_simulate_matches_baseline(name):
-    """The deterministic simulation output matches the committed baseline bit-for-bit (per result field)."""
+    """The deterministic simulation output matches the committed baseline to within ``RTOL`` (per result field)."""
     baseline = np.load(BASELINE)
     out = _simulate(name)
     for field, arr in out.items():
         expected = baseline[_key(name, field)]
         assert arr.shape == expected.shape, f"{name}.{field}: shape {arr.shape} != {expected.shape}"
-        np.testing.assert_array_equal(arr, expected, err_msg=f"{name}.{field} drifted from the baseline")
+        np.testing.assert_allclose(arr, expected, rtol=RTOL, atol=0,
+                                   err_msg=f"{name}.{field} drifted from the baseline")
