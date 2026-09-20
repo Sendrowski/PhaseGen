@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Finite penalty substituted for a non-finite loss, large enough that any genuine loss wins the minimisation.
+_LOSS_PENALTY = 1e100
+
 
 class Inference(Serializable):
     r"""
@@ -193,6 +196,11 @@ class Inference(Serializable):
         #: Initial optimization runs
         self.runs: pd.DataFrame = self.bootstraps.copy()
 
+        # an explicit start point outside the box wastes its run, so reject it here rather than at ``create_run``.
+        # A sampled x0 is drawn inside the bounds by construction, so this only validates what the caller passed.
+        if self._x0 is not None:
+            self._check_x0_within_bounds()
+
     def _check_x0_within_bounds(self) -> None:
         """
         Check if the initial parameters are within the specified bounds.
@@ -306,7 +314,12 @@ class Inference(Serializable):
 
         spaces = {}
         for name in self._state_space_names:
-            spaces[name] = getattr(coal, name)
+            # a state space the configuration does not support (block counting with two loci, say) is simply not
+            # cached; the coalescent raises for it only if a loss evaluation actually asks for it
+            try:
+                spaces[name] = getattr(coal, name)
+            except NotImplementedError as e:
+                self._logger.debug("Not caching %s for this configuration: %s", name, e)
 
         return spaces
 
@@ -352,7 +365,7 @@ class Inference(Serializable):
             if not np.isscalar(loss) or not np.isfinite(loss):
                 logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}; '
                                f'substituting a large finite penalty')
-                loss = 1e100
+                loss = _LOSS_PENALTY
 
             data = params_dict | {'loss': loss}
 
@@ -484,9 +497,20 @@ class Inference(Serializable):
         finite = [result for result in results if np.isfinite(result.fun)]
 
         if not finite:
-            raise RuntimeError('None of the optimization runs returned a finite loss.')
+            raise RuntimeError(
+                'None of the optimization runs returned a finite loss. The loss function raised or returned a '
+                'non-finite value at every evaluated point; the preceding warnings name the parameters and the '
+                'underlying error.'
+            )
 
         self.result = min(finite, key=lambda result: result.fun)
+
+        # every evaluation hit the penalty of the loss wrapper, so the reported estimate is the start point
+        if self.result.fun >= _LOSS_PENALTY:
+            self._logger.warning(
+                'The loss was invalid at every evaluated point, so the reported parameters are the start point '
+                'rather than an estimate. The preceding warnings name the parameters and the underlying error.'
+            )
 
         # fetch optimized params
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
@@ -853,6 +877,10 @@ class Inference(Serializable):
         """
         other = copy.deepcopy(self)
         other.__dict__.pop('_state_spaces', None)
+
+        # the spawned object performs a single optimization whose result is merged back with ``add_run``, which reads
+        # only the main result; bootstrapping it would repeat ``n_bootstraps`` fits per job and discard every one
+        other.do_bootstrap = False
 
         if index is None:
             sequence = np.random.SeedSequence()

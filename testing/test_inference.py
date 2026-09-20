@@ -380,16 +380,15 @@ class InferenceTestCase(TestCase):
         Regression for the scan-2 finding: an x0 that does not cover every bounds parameter must raise, rather than
         silently optimize a lower-dimensional subspace on the first run (a ragged run set that crashes or mislabels).
         """
-        inf = pg.Inference(
-            bounds=dict(a=(0, 1), b=(0, 1)),
-            x0=dict(a=0.5),  # missing 'b'
-            coal=lambda a, b: pg.Coalescent(n=2),
-            loss=lambda coal: 0.0,
-        )
-
-        # pre-fix: x0 dropped the missing key silently, so run 0 was 1-D while sampled runs were 2-D
+        # pre-fix: x0 dropped the missing key silently, so run 0 was 1-D while sampled runs were 2-D. The bounds
+        # check now runs at construction, which is where the missing key surfaces.
         with self.assertRaises(ValueError):
-            _ = inf.x0
+            pg.Inference(
+                bounds=dict(a=(0, 1), b=(0, 1)),
+                x0=dict(a=0.5),  # missing 'b'
+                coal=lambda a, b: pg.Coalescent(n=2),
+                loss=lambda coal: 0.0,
+            )
 
     @pytest.mark.slow
     def test_basic_inference(self):
@@ -884,3 +883,90 @@ if __name__ == '__main__':
         resampled = restored.resample(restored.observation, np.random.default_rng(0))
 
         self.assertTrue(np.isfinite(restored.loss(restored.coal(Ne=0.5), resampled)))
+
+    def test_two_locus_inference_runs_with_the_default_cache(self):
+        """The state-space cache is built eagerly from x0, and the block-counting spaces do not exist for two loci,
+        so every loss evaluation raised and the run failed as 'no finite loss'. Spaces the configuration does not
+        support are simply not cached."""
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            x0={'Ne': 1.0},
+            coal=lambda Ne: pg.Coalescent(
+                n=3, loci=2, recombination_rate=1.0,
+                demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})
+            ),
+            loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2),
+            observation=1.5,
+            n_runs=1,
+            pbar=False
+        )
+
+        inf.run()
+
+        self.assertIsNotNone(inf.params_inferred)
+        self.assertLess(inf.loss_inferred, 1e-8)
+
+        # the two-locus coalescent supports only the lineage-counting space, so that is all that is cached
+        self.assertEqual(['lineage_counting_state_space'], list(inf._state_spaces))
+
+    def test_x0_outside_bounds_raises_at_construction(self):
+        """An explicit start point outside the box contributes nothing to the multi-start, so it is rejected where
+        the caller passed it rather than later in create_run."""
+        with self.assertRaises(ValueError):
+            pg.Inference(
+                bounds={'Ne': (0.5, 2.0)},
+                x0={'Ne': 50.0},
+                coal=lambda Ne: pg.Coalescent(n=2),
+                loss=lambda coal, obs: 0.0,
+                observation=1.0
+            )
+
+    def test_spawned_run_does_not_bootstrap(self):
+        """add_run merges only the main result, so a spawned run that inherited do_bootstrap would perform
+        n_bootstraps fits per job and discard every one."""
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            x0={'Ne': 1.0},
+            coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+            loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2),
+            observation=1.0,
+            resample=lambda obs, rng: obs,
+            do_bootstrap=True,
+            n_bootstraps=3,
+            n_runs=1,
+            pbar=False
+        )
+
+        self.assertTrue(inf.do_bootstrap)
+        self.assertFalse(inf.create_run(index=0).do_bootstrap)
+
+    def test_everywhere_invalid_loss_warns_that_the_start_point_is_reported(self):
+        """A loss that is non-finite at every point is replaced by the finite penalty, so the optimizer 'converges'
+        and the start point is presented as an estimate. That must be said out loud."""
+        import logging
+
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            x0={'Ne': 1.0},
+            coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+            loss=lambda coal, obs: float('nan'),
+            observation=1.0,
+            n_runs=1,
+            pbar=False
+        )
+
+        log = logging.getLogger('phasegen')
+        records = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        handler = _Collect()
+        log.addHandler(handler)
+        try:
+            inf.run()
+        finally:
+            log.removeHandler(handler)
+
+        self.assertTrue(any('start point rather than an estimate' in m for m in records), records[-3:])
