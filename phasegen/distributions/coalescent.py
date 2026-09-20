@@ -8,7 +8,6 @@ from typing import List, Tuple, Dict, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
-from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
     from matplotlib import pyplot as plt
     from .empirical import MsprimeCoalescent, SampledCoalescent
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 

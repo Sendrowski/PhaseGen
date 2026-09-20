@@ -11,7 +11,6 @@ from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, S
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from ..demography import Demography
-from ..expm import Backend
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..settings import Settings
@@ -28,7 +27,6 @@ if TYPE_CHECKING:
     import tskit
     from ..visualization import _CurveData
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 

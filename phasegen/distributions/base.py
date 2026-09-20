@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from ..caching import cached_property
 from typing import Any, Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
-from ..expm import Backend
 from ..rewards import RestrictedReward
 from ..settings import Settings
 from ..spectrum import AbstractSpectrum
@@ -18,7 +17,6 @@ if TYPE_CHECKING:
     from .phase_type import PhaseTypeDistribution
     from ..visualization import _CurveData, _SurfaceData
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
