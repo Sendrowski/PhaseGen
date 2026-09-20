@@ -172,31 +172,53 @@ class StateSpaceTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(s.S, expected)
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_2(self):
+    def test_two_locus_block_counting_state_space_generator(self):
         """
-        Test two loci, one deme, two lineages.
+        Two loci, one deme: the generator of the two-locus block-counting state space is well formed for every
+        sample size, with one block per descendant vector ``(a_0, a_1)`` other than ``(0, 0)``.
         """
-        s = pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=2),
-            locus_config=pg.LocusConfig(n=2)
-        )
+        for n in [2, 3, 4]:
+            with self.subTest(n=n):
+                s = pg.TwoLocusBlockCountingStateSpace(
+                    lineage_config=pg.LineageConfig(n=n),
+                    locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+                )
 
-        _ = s.S
+                self.assertEqual((n + 1) ** 2 - 1, s.n_blocks)
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_3(self):
+                # a generator has non-negative off-diagonal rates and rows summing to zero
+                off_diagonal = s.S - np.diag(np.diag(s.S))
+                self.assertTrue((off_diagonal >= 0).all())
+                testing.assert_allclose(s.S.sum(axis=1), 0, atol=1e-12)
+
+                # exactly one initial state, and the process absorbs
+                self.assertAlmostEqual(1, s.alpha.sum())
+                self.assertEqual(1, (s.alpha > 0).sum())
+                self.assertTrue(any(s._is_absorbing(state) for state in s.states))
+
+    def test_two_locus_block_counting_state_space_rejects_multiple_populations(self):
         """
-        Test two loci, one deme, two lineages.
+        Two loci, two demes: the two-locus block-counting state space carries the locus in the role of the
+        population, so migration between demes has no representation and is rejected.
         """
-        s = pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
+        with self.assertRaises(NotImplementedError):
+            pg.TwoLocusBlockCountingStateSpace(
+                lineage_config=pg.LineageConfig([2, 2]),
+                locus_config=pg.LocusConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
+            )
 
-        _ = s.S
-
-        pass
+    def test_block_counting_state_space_rejects_two_loci(self):
+        """
+        The single-locus block-counting state space carries no locus dimension; two loci are served by
+        :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`.
+        """
+        with self.assertRaises(NotImplementedError):
+            pg.BlockCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                locus_config=pg.LocusConfig(n=2)
+            )
 
     @staticmethod
     def test_lineage_counting_state_space_two_loci_one_deme_n_4():
@@ -204,20 +226,6 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, four lineages.
         """
         s = pg.LineageCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            locus_config=pg.LocusConfig(n=2)
-        )
-
-        _ = s.S
-
-        pass
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_4(self):
-        """
-        Test two loci, one deme, four lineages.
-        """
-        s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -237,22 +245,6 @@ class StateSpaceTestCase(TestCase):
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         )
-
-        _ = s.S
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_two_demes_n_4(self):
-        """
-        Test two loci, two demes, four lineages.
-        """
-        s = pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig([2, 2]),
-            locus_config=pg.LocusConfig(n=2),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
-        )
-
-        s._get_rate(223, 400)
 
         _ = s.S
 
@@ -322,7 +314,6 @@ class StateSpaceTestCase(TestCase):
 
         s.plot_rates('scratch/plot_rates', view=False)
 
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -333,11 +324,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_4_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_5_dirac(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -348,11 +336,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_5_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_5_dirac', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac_psi_0_7_c_50(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -363,11 +348,9 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
+    @pytest.mark.slow
     def test_lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5(self):
         """
         Test lineage-counting state space for beta, n = 3, alpha = 1.5.
@@ -379,11 +362,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
     def test_lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5(self):
         """
         Test lineage-counting state space for beta, n = 2, alpha = 1.5.
@@ -395,11 +375,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
     def test_lineage_counting_state_space_kingman_2_loci_n_2(self):
         """
         Test lineage-counting state space for kingman, n = 2, alpha = 1.5.
@@ -410,9 +387,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_kingman_2_loci_n_2')
-
-        pass
+        s.plot_rates('scratch/lineage_counting_state_space_kingman_2_loci_n_2', view=False)
 
     def test_determine_state_space_size(self):
         """
