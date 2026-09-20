@@ -255,6 +255,7 @@ class RewardDistribution(CallableDistributionFunctions):
         """
         self._host._assert_not_windowed()
         st = self._setup
+        _assert_lst_absorbs(self._host)
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
         # exactly but stays well-conditioned for large N (see ``time_scale``)
         return _lst_from_shift((s * st['tau']) * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
@@ -364,6 +365,37 @@ def _build_epoch_data(host) -> dict:
     lu_perm = MomentEvaluator._block_triangular_order(T_epochs[-1][0]) if sparse else None
 
     return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs, lu_perm=lu_perm)
+
+
+def _assert_lst_absorbs(host) -> None:
+    """
+    Raise unless every state carrying mass can still reach absorption in the final epoch, which is what makes the
+    shifted final-epoch system invertible at ``s = 0``. The state selection of :func:`_build_epoch_data` is a forward
+    closure of the initial vector and so cannot establish this; the backward reachability of the moment engine can.
+    Without it the final-epoch solve is singular and the transform is ``nan``, surfacing much later as an opaque
+    failure of the inversion.
+
+    :param host: The phase-type distribution whose state space and demography are checked.
+    :raises ValueError: if some state carrying mass can never reach a common ancestor.
+    """
+    # one backward reachability per host, memoized: an SFS evaluates many bins through the same state space
+    absorbs = getattr(host, '_lst_absorbs_cache', None)
+
+    if absorbs is None:
+        idx = host._reward_epoch_data['idx']
+        host.state_space.update_epoch(host._get_epochs_until_unbounded()[-1])
+        _, reach_absorption = MomentEvaluator._reaches_absorption(host)
+        absorbs = host._lst_absorbs_cache = bool(reach_absorption[idx].all())
+
+    if absorbs:
+        return
+
+    raise ValueError(
+        "The demography does not absorb: some states carrying probability mass can never reach a common "
+        "ancestor in the final (unbounded) epoch, so the accumulated reward has no proper distribution. This "
+        "typically means a deme is isolated or migration is one-way/blocked in the last epoch, leaving lineages "
+        "that can never coalesce. Check the migration structure of the last epoch."
+    )
 
 
 def time_scale(host) -> float:
@@ -576,6 +608,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         st = self._setup
+        _assert_lst_absorbs(self._host)
         # both rewards share the time-scale tau (R -> R/tau): evaluate at s*tau against the tau-scaled generators;
         # the value equals the unscaled joint LST exactly but stays well-conditioned for large N (see ``time_scale``)
         tau = st['tau']
@@ -619,6 +652,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The coefficients :math:`[\Phi_0(s), \ldots, \Phi_J(s)]`.
         """
         st = self._setup
+        _assert_lst_absorbs(self._host)
         tau = st['tau']
         r_on, r_other = (st['ra'], st['rb']) if on == 'a' else (st['rb'], st['ra'])
 
@@ -640,6 +674,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The transform values, one per argument pair.
         """
         st = self._setup
+        _assert_lst_absorbs(self._host)
         tau = st['tau']
         s_a, s_b = np.atleast_1d(s_a), np.atleast_1d(s_b)
         shifts = (np.outer(s_a * tau, st['ra']) + np.outer(s_b * tau, st['rb'])).astype(complex)

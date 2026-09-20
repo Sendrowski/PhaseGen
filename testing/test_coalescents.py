@@ -1430,7 +1430,6 @@ class CoalescentTestCase(TestCase):
         """
         Make sure flattening block counting states works correctly.
         """
-        pg.Backend.register(pg.SciPyExpmBackend())
         pg.Settings.flatten_block_counting = True
         times = np.linspace(0, 30, 10)
         n = 10
@@ -1659,7 +1658,6 @@ class CoalescentTestCase(TestCase):
         """
         Flattening the block counting states for MMCs with two doesn't work.
         """
-        pg.Backend.register(pg.SciPyExpmBackend())
         pg.Settings.flatten_block_counting = True
         n = 10
         model = pg.BetaCoalescent(alpha=1.7)

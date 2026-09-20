@@ -1824,3 +1824,39 @@ def test_atom_probe_is_equivariant_under_scaling_the_reward():
 
     # a genuinely atomic reward keeps its atom: bin 3 of n = 4 is empty unless the tree is a caterpillar
     assert pg.Coalescent(n=4).sfs.bin(3).lst(pg.Coalescent(n=4).sfs.bin(3)._s_inf).real == pytest.approx(1 / 3, abs=1e-7)
+
+
+def test_blocked_final_epoch_raises_instead_of_returning_nan():
+    """A final epoch in which some lineages can never coalesce makes the shifted final-epoch system singular at
+    s = 0. The transform and every inversion built on it must say so. Regression: the transient states were selected
+    by forward reachability from the initial vector, which cannot detect a state that can no longer reach absorption,
+    so the solve returned nan and surfaced as an opaque 'array must not contain infs or NaNs' from the cosine fit."""
+    dem = pg.Demography(
+        pop_sizes={'pop_0': 1.0, 'pop_1': 1.0},
+        migration_rates={('pop_0', 'pop_1'): {0: 1.0, 50.0: 0.0},
+                         ('pop_1', 'pop_0'): {0: 1.0, 50.0: 0.0}}
+    )
+    coal = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=dem)
+
+    with pytest.raises(ValueError, match="does not absorb"):
+        coal.distribution(pg.TreeHeightReward()).lst(0.0)
+
+    with pytest.raises(ValueError, match="does not absorb"):
+        coal.total_branch_length.cdf(1.0)
+
+    with pytest.raises(ValueError, match="does not absorb"):
+        coal.sfs.bin(1).cdf([1.0])
+
+
+def test_migration_barrier_in_a_bounded_epoch_still_works():
+    """The guard keys on the final epoch only: a barrier in a bounded epoch leaves absorption certain afterwards, so
+    the transform must still be evaluated rather than refused."""
+    dem = pg.Demography(
+        pop_sizes={'pop_0': 1.0, 'pop_1': 1.0},
+        migration_rates={('pop_0', 'pop_1'): {0: 0.0, 1.0: 1.0},
+                         ('pop_1', 'pop_0'): {0: 0.0, 1.0: 1.0}}
+    )
+    coal = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=dem)
+
+    assert np.isclose(coal.distribution(pg.TreeHeightReward()).lst(0.0).real, 1.0)
+    assert 0.0 <= coal.total_branch_length.cdf(5.0) <= 1.0

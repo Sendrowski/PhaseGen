@@ -187,7 +187,7 @@ class Demography:
         :return: Demes object.
         :raise ImportError: If msprime is not installed.
         """
-        self.to_msprime().to_demes()
+        return self.to_msprime().to_demes()
 
     @property
     def epochs(self) -> Iterator['Epoch']:

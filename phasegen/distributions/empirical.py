@@ -728,8 +728,6 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
         )
 
-        # TODO this is the covariance in the tree height but phasegen
-        #  provides the covariance in the number of lineages per deme
         demes.cov = self.pops_cov
         demes.corr = self.pops_corr
 

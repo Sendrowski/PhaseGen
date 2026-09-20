@@ -39,7 +39,6 @@ Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/in
    modules/config
    modules/state_space
    modules/spectrum
-   modules/expm
    modules/settings
 
 .. toctree::

@@ -225,10 +225,7 @@ from .norms import (
 from .expm import (
     ExpmBackend,
     Backend,
-    SciPyExpmBackend,
-    TensorFlowExpmBackend,
-    JaxExpmBackend,
-    PyTorchExpmBackend
+    SciPyExpmBackend
 )
 
 from .utils import (
@@ -298,8 +295,5 @@ __all__ = [
     'Backend',
     'ExpmBackend',
     'SciPyExpmBackend',
-    'TensorFlowExpmBackend',
-    'JaxExpmBackend',
-    'PyTorchExpmBackend',
     'Settings',
 ]

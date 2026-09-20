@@ -48,9 +48,9 @@ class ComparisonHelpersTestCase(TestCase):
         self.assertIsNone(Comparison._parse_collection_key('(1, 2)'))  # a bare tuple stays a single pair key
         self.assertEqual(Comparison._parse_collection_key('[1, 3, 9]'), [1, 3, 9])
         self.assertEqual(Comparison._parse_collection_key('[(1, 2), (1, 9)]'), [(1, 2), (1, 9)])
-        # bare-identifier collection (broadcast a sub-spec over inversion modes), which ``ast.literal_eval`` rejects
-        self.assertEqual([s.strip() for s in Comparison._parse_collection_key('[cosine, de_hoog]')],
-                         ['cosine', 'de_hoog'])
+        # bare-identifier collection (broadcast a sub-spec over several keys), which ``ast.literal_eval`` rejects
+        self.assertEqual([s.strip() for s in Comparison._parse_collection_key('[cosine, mean]')],
+                         ['cosine', 'mean'])
 
     def test_expand_keys_broadcasts_and_deep_copies(self):
         """A list key broadcasts its sub-spec over the elements (ints -> bin keys, tuples -> ``"(i, j)"`` keys); a bare

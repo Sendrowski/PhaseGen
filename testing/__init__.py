@@ -46,11 +46,6 @@ prioritize_installed_packages()
 
 import phasegen as pg
 
-# register the expm backend. The coalescent statistics issue many small expm calls (e.g. one per SFS bin), for
-# which SciPy is fastest (TensorFlow's and Jax's per-call overhead makes them slower despite being better for
-# large matrices / GPUs).
-pg.Backend.register(pg.SciPyExpmBackend())
-
 logger = logging.getLogger('phasegen')
 
 logger.info(sys.version)

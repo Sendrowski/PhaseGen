@@ -797,3 +797,32 @@ class DistributionTestCase(TestCase):
 
         self.assertIsInstance(value, float)
         self.assertAlmostEqual(value, sfs.get_accumulation(1, 1, [0.5])[0], places=12)
+
+
+def test_stability_warning_names_the_offending_epoch(caplog):
+    """The ill-conditioning warning exists to say which epoch is ill-conditioned, so the dense multi-epoch
+    accumulation must report the epoch it is currently in. Regression: the check inside the epoch-advancing loop
+    was passed a literal ``0``, so every epoch after the first was reported as epoch 0."""
+    import logging
+
+    dem = pg.Demography(
+        pop_sizes={'pop_0': {0: 1.0, 1.0: 1e-6}, 'pop_1': {0: 1.0, 1.0: 1e-6}},
+        migration_rates={('pop_0', 'pop_1'): {0: 1.0, 1.0: 1e-8},
+                         ('pop_1', 'pop_0'): {0: 1.0, 1.0: 1e-8}}
+    )
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem)
+
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
+    try:
+        caplog.clear()
+        # end times straddling the epoch boundary at t = 1, so the dense loop advances into epoch 1
+        coal.tree_height.accumulate(1, [0.5, 2.0, 5.0])
+    finally:
+        log.removeHandler(caplog.handler)
+
+    named = {r.getMessage().split('epoch ')[1].split(' ')[0]
+             for r in caplog.records if r.levelno >= logging.WARNING and 'Intensity matrix in epoch' in r.getMessage()}
+
+    assert named, "the ill-conditioned demography produced no stability warning"
+    assert '1' in named, f"epoch 1 is the ill-conditioned one but the warning named {sorted(named)}"

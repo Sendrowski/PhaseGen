@@ -337,20 +337,29 @@ class DemographyTestCase(TestCase):
         for epoch1, epoch2 in zip(d1.epochs, d2.epochs):
             self.assertEqual(epoch1, epoch2)
 
-    @pytest.mark.skip(reason="msprime raises error 'migration[0]: invalid migration'")
     def test_to_demes(self):
         """
-        Test converting demography to demes.
+        Test converting a demography to a demes graph. Migration is not covered: msprime's own conversion rejects
+        it with ``migration[0]: invalid migration``, for constant and time-varying rates alike.
+        """
+        d = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.5}, 'pop_1': {0: 2.5}})
+
+        graph = d._to_demes()
+
+        self.assertEqual(sorted(d.pop_names), sorted(deme.name for deme in graph.demes))
+
+    def test_to_demes_with_migration_raises(self):
+        """
+        Migration reaches msprime's demes conversion as an invalid migration, so the wrapper surfaces that rather
+        than returning a graph.
         """
         d = pg.Demography(
-            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5, 1: 0.8}},
-            migration_rates={
-                ('pop_0', 'pop_1'): {0: 1.7, 0.7: 2},
-                ('pop_1', 'pop_0'): {0: 3}
-            }
+            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5}},
+            migration_rates={('pop_0', 'pop_1'): 1.7, ('pop_1', 'pop_0'): 3}
         )
 
-        demes = d.to_demes()
+        with self.assertRaises(ValueError):
+            d._to_demes()
 
     def test_population_split(self):
         """

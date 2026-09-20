@@ -819,8 +819,8 @@ class Comparison(Serializable):
     def _parse_collection_key(k: str) -> list | None:
         """Parse a quoted collection key (``"[...]"`` / ``"{...}"``) into its list of elements, or ``None`` if ``k`` is
         not a collection literal. Beyond the ``ast.literal_eval``-able forms (``"[1, 3, 9]"``, ``"[(1, 3), (2, 3)]"``)
-        this also accepts **bare-identifier** elements (``"[cosine, de_hoog]"``, broadcasting a sub-spec over both
-        inversion modes), which ``ast.literal_eval`` rejects -- those are split on top-level commas and kept as strings.
+        this also accepts **bare-identifier** elements (``"[cosine, mean]"``, broadcasting a sub-spec over both
+        keys), which ``ast.literal_eval`` rejects -- those are split on top-level commas and kept as strings.
         """
         s = k.strip()
         if s[:1] not in ('[', '{') or s[-1:] not in (']', '}'):
@@ -915,10 +915,8 @@ class Comparison(Serializable):
 
         for stat, sub in data.items():
 
-            # an explicit inversion-mode wrapper: route the nested stats through de Hoog or the cosine expansion
-            # (``de_hoog`` -> nested inversion / mode='dehoog'; ``cosine`` -> the fast cosine path / mode='cos'). When
-            # absent (``mode is None``) the original per-statistic default is used, so existing configs are unchanged.
-            if stat in ('de_hoog', 'cosine'):
+            # a ``cosine`` key groups the nested stats under their own tolerances, which ``--compare-only`` selects
+            if stat == 'cosine':
                 self._compare_stat_recursively(ph=ph, ms=ms, data=sub, title=f"{title}: {stat}",
                                                name=f"{name}_{stat}", mode=stat)
 
@@ -1022,11 +1020,11 @@ class Comparison(Serializable):
         distribution vs the cached empirical per-bin curves). The per-statistic metric matches the spectrum-wide
         comparison: the CDF uses the worst absolute difference, the pdf the total variation between the cell-averaged
         densities, and the quantile / mean / var a relative difference.
-        A ``de_hoog`` / ``cosine`` key under the bin routes its sub-stats through that inversion (``mode``).
+        A ``cosine`` key under the bin groups its sub-stats under their own tolerances.
         """
         for stat, tol in tols.items():
-            # an inversion-mode wrapper (``sfs: {i}: {de_hoog|cosine}: {stat}``) routes the bin's curves accordingly
-            if stat in ('de_hoog', 'cosine'):
+            # a tolerance group (``sfs: {i}: {cosine}: {stat}``) nests the bin's own stats
+            if stat == 'cosine':
                 self._compare_sfs_bin(ph=ph, ms=ms, i=i, tols=tol, title=f"{title}: {stat}", name=f"{name}_{stat}",
                                       mode=stat)
                 continue

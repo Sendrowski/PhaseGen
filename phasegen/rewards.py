@@ -441,6 +441,13 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointB
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
+        # the two-locus state space collapses the locus axis into the block vector, so the per-locus lineage counts
+        # below do not exist there (must precede the JointBlockCountingStateSpace branch, which it subclasses)
+        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
+            raise NotImplementedError(
+                f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+            )
+
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             # sum over demes and blocks
             loci = state_space.lineages.sum(axis=(2, 3))

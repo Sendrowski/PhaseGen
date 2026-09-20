@@ -721,7 +721,7 @@ class MomentEvaluator:
 
                     # compute Van Loan matrix for next epoch using regularized intensity matrix
                     S = self._dense_rate_matrix() * lamb
-                    self._check_numerical_stability(S, 0)
+                    self._check_numerical_stability(S, i_epoch)
                     V = self._van_loan_matrix(R, S, k)
 
                 # update with remaining time in current epoch
