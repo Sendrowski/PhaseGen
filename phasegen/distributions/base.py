@@ -412,14 +412,14 @@ class _LSTFunction(_HazardGrid):
     def _build_cos_coeffs(self) -> dict:
         """The two-pass cosine expansion described at ``RewardDistribution``, with the window scale
         ``_cos_rough_scale`` and the tail level ``_cos_tail_target``."""
-        rough = self._fit_cos(self._range(self._cos_rough_scale), self._cos_terms_rough)
+        rough = self._fit_cos(self._range(self._cos_rough_scale), self._cos_terms_rough, warn=False)
         xs = np.linspace(0.0, rough['b'], 1024)
         cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
         b = float(np.interp(self._cos_tail_target, cdf, xs))
 
         return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
 
-    def _fit_cos(self, b: float, n_terms: int) -> dict:
+    def _fit_cos(self, b: float, n_terms: int, warn: bool = True) -> dict:
         """
         One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``. The atom is
         split off above ``1e-9``, ``_warn_if_nonmonotone`` checks the raw continuous CDF for ringing and
@@ -427,6 +427,8 @@ class _LSTFunction(_HazardGrid):
 
         :param b: The window end.
         :param n_terms: The number of cosine terms.
+        :param warn: Whether to report an unresolved expansion. The truncation of the locating pass describes a fit
+            that is discarded, at a term count the caller never chose, so only the returned expansion reports.
         :return: The window end, frequencies, coefficients and atom.
         """
         d = self._distribution
@@ -449,7 +451,8 @@ class _LSTFunction(_HazardGrid):
 
         half = max(n_terms // 2, 1)
         Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
-        self._warn_if_unresolved(float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0), n_terms)
+        if warn:
+            self._warn_if_unresolved(float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0), n_terms)
 
         return dict(b=b, w=w, fk=fk, p0=p0)
 

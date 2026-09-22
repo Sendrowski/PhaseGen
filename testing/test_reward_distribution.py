@@ -1595,6 +1595,23 @@ def test_dehoog_inversion_matches_closed_form_inverses(name, transform, inverse,
         assert abs(_dehoog_invert(transform, t, Settings.dehoog_degree) - inverse(t)) < 1e-9, (name, t)
 
 
+@pytest.mark.parametrize("name, transform, inverse, points", [
+    ("exponential CDF", lambda s: 1 / (s * (s + 1)), lambda t: 1 - np.exp(-t), [0.05, 0.2, 1, 3, 10]),
+    ("gamma density", lambda s: 1 / (s + 1) ** 3, lambda t: t ** 2 * np.exp(-t) / 2, [0.05, 0.5, 2, 8]),
+])
+def test_dehoog_inversion_converges_below_the_default_degree(name, transform, inverse, points):
+    """The accuracy of the inversion must improve with the degree over the whole range of degrees, not only at the
+    default. Regression: the improved remainder divided by ``h`` where the period-2 tail of the continued fraction
+    requires ``h ** 2``, costing one to two digits. At the default degree the contour roundoff floor hides it
+    entirely, so only a lower degree, which ``Settings.dehoog_degree`` is free to take, separates the two forms."""
+    from phasegen.distributions.reward import _dehoog_invert
+
+    # the wrong remainder gives 4.8e-7, 7.1e-9 and 6.2e-11 on the exponential CDF at these degrees
+    for degree, tol in ((6, 5e-7), (8, 1e-9), (10, 1e-11)):
+        error = max(abs(_dehoog_invert(transform, t, degree) - inverse(t)) for t in points)
+        assert error < tol, (name, degree, error)
+
+
 @pytest.mark.parametrize('ne_ancestral', [5e3, 2e4])
 def test_window_and_corr_use_exact_moments_with_a_slow_ancient_epoch(ne_ancestral):
     """

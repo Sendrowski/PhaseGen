@@ -1720,9 +1720,10 @@ def _dehoog_invert(transform, t: float, degree: int) -> float:
         A[i + 1] = A[i] + d[i] * A[i - 1] * z
         B[i + 1] = B[i] + d[i] * B[i - 1] * z
 
-    # improved remainder of the continued fraction
+    # improved remainder of the continued fraction: the period-2 tail u = d_e z / (1 + v), v = d_o z / (1 + u)
+    # solves u^2 + u (1 + (d_o - d_e) z) - d_e z = 0, so u = h (sqrt(1 + d_e z / h^2) - 1)
     h = (1 + (d[2 * M - 1] - d[2 * M]) * z) / 2
-    rem = h * np.expm1(0.5 * np.log1p(d[2 * M] * z / h))
+    rem = h * np.expm1(0.5 * np.log1p(d[2 * M] * z / h ** 2))
     A[n] = A[2 * M] + rem * A[2 * M - 1]
     B[n] = B[2 * M] + rem * B[2 * M - 1]
 
