@@ -1877,3 +1877,44 @@ def test_migration_barrier_in_a_bounded_epoch_still_works():
 
     assert np.isclose(coal.distribution(pg.TreeHeightReward()).lst(0.0).real, 1.0)
     assert 0.0 <= coal.total_branch_length.cdf(5.0) <= 1.0
+
+
+# the sampler draws trajectories through the CTMC, so it is independent of the transform and inversion machinery;
+# the bound is Dvoretzky-Kiefer-Wolfowitz at 1 - 1e-3, sqrt(log(2 / 1e-3) / (2 N)), which is 0.0138 at N = 20000
+_ECDF_SAMPLES = 20000
+_ECDF_BOUND = float(np.sqrt(np.log(2 / 1e-3) / (2 * _ECDF_SAMPLES)))
+
+
+@pytest.mark.parametrize("label, build", [
+    ("standard", lambda: pg.Coalescent(n=4)),
+    ("beta", lambda: pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5))),
+    ("dirac", lambda: pg.Coalescent(n=4, model=pg.DiracCoalescent(psi=0.5, c=1.0))),
+    ("two epochs", lambda: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}}))),
+    ("two demes", lambda: pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=pg.Demography(pop_sizes={'pop_0': 1.0, 'pop_1': 2.0},
+                                 migration_rates={('pop_0', 'pop_1'): 1.0, ('pop_1', 'pop_0'): 1.0}))),
+    ("two loci", lambda: pg.Coalescent(n=3, loci=2, recombination_rate=1.0)),
+])
+def test_per_point_cdf_matches_the_sampler(label, build):
+    """The per-point de Hoog CDF has no comparison config exercising it, so it is pinned against the trajectory
+    sampler, which shares none of the transform machinery."""
+    dist = build().total_branch_length
+    draws = np.asarray(dist.sample(_ECDF_SAMPLES, seed=1))
+    cdf = dist.distribution().cdf
+
+    for t in np.quantile(draws, [0.1, 0.25, 0.5, 0.75, 0.9]):
+        empirical = float(np.mean(draws <= t))
+        assert abs(empirical - cdf._cdf_point(float(t))) < _ECDF_BOUND, (label, float(t), empirical)
+
+
+@pytest.mark.parametrize("i", [1, 2])
+def test_per_point_cdf_of_an_sfs_bin_matches_the_sampler(i):
+    """An SFS bin carries zero-reward states and an atom at zero, which the total branch length does not."""
+    coal = pg.Coalescent(n=5)
+    draws = np.asarray(coal.sfs.sample(_ECDF_SAMPLES, seed=1))[:, i]
+    cdf = coal.sfs.bin(i).cdf
+
+    for t in np.quantile(draws, [0.25, 0.5, 0.75, 0.9]):
+        empirical = float(np.mean(draws <= t))
+        assert abs(empirical - cdf._cdf_point(float(t))) < _ECDF_BOUND, (i, float(t), empirical)
