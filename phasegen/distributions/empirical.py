@@ -2038,15 +2038,25 @@ class MsprimeCoalescent(AbstractCoalescent):
         out = np.zeros((n + 1, n + 1))
         lefts = np.zeros((self.num_replicates, n + 1))   # per-replicate locus-0 / locus-1 SFS branch lengths,
         rights = np.zeros((self.num_replicates, n + 1))  # retained for the joint distribution / cross-moments
+        # lineages that start unlinked between the loci live in the initial state, not in the samples
+        initial_state = None
+        if self.locus_config.n_unlinked > 0:
+            initial_state = _unlinked_initial_state(
+                self.lineage_config.lineage_dict, self.locus_config.n_unlinked, demography
+            )
+
+        placement = (dict(initial_state=initial_state) if initial_state is not None
+                     else dict(samples=self.lineage_config.lineage_dict, sequence_length=2))
+
         for rep, ts in enumerate(ms.sim_ancestry(
-                samples=self.lineage_config.lineage_dict,
-                sequence_length=2,
                 recombination_rate=self.locus_config.recombination_rate,
                 demography=demography,
                 model=model,
                 ploidy=1,
                 num_replicates=self.num_replicates,
+                end_time=self.end_time,
                 random_seed=self._msprime_seed(),
+                **placement
         )):
             t0, t1 = ts.at(0.5), ts.at(1.5)
             left = np.zeros(n + 1)
@@ -2087,6 +2097,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates,
+                end_time=self.end_time,
                 random_seed=self._msprime_seed(),
         )):
             sample_sets = [ts.samples(population=i) for i in range(len(pops))]
@@ -2126,6 +2137,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates,
+                end_time=self.end_time,
                 random_seed=self._msprime_seed(),
         )):
             sample_sets = [ts.samples(population=i) for i in idx]
