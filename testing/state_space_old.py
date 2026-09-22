@@ -1340,7 +1340,18 @@ class Transition:
     def get_rate_locus_coalescence(self) -> float:
         """
         Get the rate of a locus coalescence event.
+
+        :raises NotImplementedError: For a multiple-merger model with more than one locus.
         """
+        # the cross-products below count pairs, which is the standard coalescent's merger rate and no other's. A
+        # multiple merger spanning the linked and unlinked categories, and the coincidence of two loci's lineages,
+        # each need their own Lambda-rate derivation, so this reference declines rather than answer wrongly.
+        if self.n_loci > 1 and not isinstance(self.state_space.model, StandardCoalescent):
+            raise NotImplementedError(
+                f"{type(self.state_space.model).__name__} is not supported for two loci by this reference "
+                "implementation: its mixed and locus coalescence rates are derived for the standard coalescent only."
+            )
+
         # get unlinked lineage counts
         unlinked1 = self.unlinked1[self.diff_linked == -1]
 
@@ -1367,6 +1378,33 @@ class Transition:
         """
         return self.state_space.model._get_timescale(self.get_pop_size_coalescence())
 
+    def _get_restricted_rate(self, n_total: int, n_category: int, n_after: int) -> float:
+        """
+        The rate of a merger confined to one category of lineages (the linked ones, or the unlinked ones at a
+        locus), within a deme holding ``n_total`` lineages at that locus. Used for two loci, where the categories
+        exist; with one locus every lineage is in the same category and the state space's own rate applies.
+
+        Under a Lambda-coalescent every specific k-subset of the ``b`` lineages merges at the same rate
+        ``lambda(b, k)``, and the model reports ``_get_rate(b, k) = C(b, k) lambda(b, k)`` over all subsets. Only
+        the subsets lying inside the category count here, a fraction ``C(l, k) / C(b, k)`` of them. Passing the
+        category count as ``b`` instead, which is what a per-category rate call does, is exact for the standard
+        coalescent, where ``lambda`` does not depend on ``b`` and the ratio collapses to ``C(l, 2)``, and wrong for
+        every model whose merger rate does depend on ``b``.
+
+        :param n_total: Lineages in the deme at this locus.
+        :param n_category: Lineages of the category the merger is confined to.
+        :param n_after: Lineages of that category after the merger.
+        :return: The rate.
+        """
+        k = n_category - n_after + 1
+
+        if k < 2 or n_category < k:
+            return 0
+
+        rate = self.state_space.model._get_rate(b=n_total, k=k)
+
+        return float(rate * comb(n_category, k) / comb(n_total, k))
+
     def get_rate_linked_coalescence(self) -> float:
         """
         Get the rate of a linked coalescence event.
@@ -1389,11 +1427,20 @@ class Transition:
         coalesced with an unlinked singleton. We thus need to keep track of the associations between lineages, which
         means they are no longer exchangeable.
         """
-        return self.state_space._get_coalescent_rate(
-            n=self.state_space.lineage_config.n,
-            s1=self.linked1[0, self.deme_coal],
-            s2=self.linked2[0, self.deme_coal]
-        ) / self.get_scaled_pop_size_coalescence()
+        if self.n_loci > 1:
+            rate = self._get_restricted_rate(
+                n_total=int(self.marginal1[0, self.deme_coal].sum()),
+                n_category=int(self.linked1[0, self.deme_coal][0]),
+                n_after=int(self.linked2[0, self.deme_coal][0])
+            )
+        else:
+            rate = self.state_space._get_coalescent_rate(
+                n=self.state_space.lineage_config.n,
+                s1=self.linked1[0, self.deme_coal],
+                s2=self.linked2[0, self.deme_coal]
+            )
+
+        return rate / self.get_scaled_pop_size_coalescence()
 
         # if (
         #        np.all(self.linked1[:, self.deme_coal] == self.linked1[0, self.deme_coal]) and
@@ -1417,19 +1464,38 @@ class Transition:
         """
         unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
         unlinked2 = self.unlinked2[self.locus_coal_unlinked, self.deme_coal]
+        marginal1 = self.marginal1[self.locus_coal_unlinked, self.deme_coal]
 
-        rate = self.state_space._get_coalescent_rate(
-            n=self.state_space.lineage_config.n,
-            s1=unlinked1,
-            s2=unlinked2
-        )
+        if self.n_loci > 1:
+            rate = self._get_restricted_rate(
+                n_total=int(marginal1.sum()),
+                n_category=int(unlinked1[0]),
+                n_after=int(unlinked2[0])
+            )
+        else:
+            rate = self.state_space._get_coalescent_rate(
+                n=self.state_space.lineage_config.n,
+                s1=unlinked1,
+                s2=unlinked2
+            )
 
         return rate / self.get_scaled_pop_size_coalescence()
 
     def get_rate_mixed_coalescence(self) -> float:
         """
         Get the rate of a mixed coalescence event.
+
+        :raises NotImplementedError: For a multiple-merger model with more than one locus.
         """
+        # the cross-products below count pairs, which is the standard coalescent's merger rate and no other's. A
+        # multiple merger spanning the linked and unlinked categories, and the coincidence of two loci's lineages,
+        # each need their own Lambda-rate derivation, so this reference declines rather than answer wrongly.
+        if self.n_loci > 1 and not isinstance(self.state_space.model, StandardCoalescent):
+            raise NotImplementedError(
+                f"{type(self.state_space.model).__name__} is not supported for two loci by this reference "
+                "implementation: its mixed and locus coalescence rates are derived for the standard coalescent only."
+            )
+
         unlinked1 = self.unlinked1[self.locus_coal_unlinked, self.deme_coal]
         linked1 = self.linked1[self.locus_coal_unlinked, self.deme_coal]
 

@@ -7,7 +7,7 @@ import sys
 from collections import defaultdict
 from testing import TestCase
 from testing import state_space_old
-from testing.state_space_parity import build_old
+from testing.state_space_parity import build_old, old_ordering
 
 import numpy as np
 import pytest
@@ -824,3 +824,47 @@ class StateSpaceTestCase(TestCase):
                 ss.block_configs.append((9, 9))
 
 
+
+
+class LegacyReferenceTestCase(TestCase):
+    """
+    The frozen reference of :mod:`testing.state_space_old` is the baseline the current construction is validated
+    against, so where it cannot be trusted it must say so rather than answer.
+    """
+
+    def test_legacy_two_locus_multiple_merger_declines(self):
+        """
+        Its mixed and locus coalescence rates count pairs, which is the standard coalescent's merger rate and no
+        other's, so two loci under a multiple-merger model must raise rather than return a wrong baseline.
+        """
+        for model in (pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.4, c=2.0)):
+            with self.subTest(model=type(model).__name__):
+                with self.assertRaises(NotImplementedError):
+                    _ = state_space_old.LineageCountingStateSpace(
+                        lineage_config=pg.LineageConfig(n=3),
+                        locus_config=pg.LocusConfig(n=2, recombination_rate=2.0),
+                        model=model
+                    ).S
+
+    def test_legacy_matches_the_current_generator_where_it_is_trusted(self):
+        """
+        Single locus for every model, and two loci under the standard coalescent, must reproduce the current
+        generator exactly. The two-locus merger rate confined to the linked or unlinked lineages is what the
+        per-category rate call used to get wrong, and it is exercised here.
+        """
+        for model in (pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.4, c=2.0)):
+            for loci in (1, 2):
+                if loci == 2 and not isinstance(model, pg.StandardCoalescent):
+                    continue
+
+                for n in (2, 3, 4):
+                    with self.subTest(model=type(model).__name__, loci=loci, n=n):
+                        ss = pg.LineageCountingStateSpace(
+                            lineage_config=pg.LineageConfig(n=n),
+                            locus_config=pg.LocusConfig(n=loci, recombination_rate=2.0 if loci == 2 else 0.0),
+                            model=model
+                        )
+                        order = old_ordering(ss)
+                        old = np.asarray(build_old(ss).S)
+
+                        testing.assert_allclose(np.asarray(ss.S), old[order][:, order], atol=1e-12)
