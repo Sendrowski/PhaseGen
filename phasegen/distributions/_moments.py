@@ -8,7 +8,7 @@ import logging
 from collections import deque
 from ..caching import cache
 from math import comb, factorial
-from typing import List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
+from typing import Dict, List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -51,7 +51,8 @@ class MomentEvaluator:
     lineage_config: 'LineageConfig'
     locus_config: 'LocusConfig'
     _logger: logging.Logger
-    _absorption_certain_cache: Optional[bool]
+    _absorption_certain_cache: Dict[int, bool]
+    _alpha_support_cache: Dict[int, np.ndarray]
     _epochs_cache: Optional[List[Epoch]]
 
     @staticmethod
@@ -1089,14 +1090,54 @@ class MomentEvaluator:
         """
         # the result depends only on the (fixed) last-epoch structure, so memoize it: the closed form queries this
         # once per moment, and an SFS/jSFS evaluates many bins, so recomputing the reachability each time dominated.
-        if getattr(self, '_absorption_certain_cache', None) is not None:
-            return self._absorption_certain_cache
+        # One host serves several state spaces (the lineage-counting one for a tree height, the block-counting one
+        # for a spectrum), so the memo is per state space.
+        cache = self.__dict__.setdefault('_absorption_certain_cache', {})
+        key = id(self.state_space)
+
+        if key in cache:
+            return cache[key]
+
+        support = self._alpha_support()
 
         self.state_space.update_epoch(self._get_epochs_until_unbounded()[-1])
         absorbing, reach = self._reaches_absorption()
 
-        self._absorption_certain_cache = bool(reach[~absorbing].all())
-        return self._absorption_certain_cache
+        # only the states that can carry mass matter. A state the initial vector never reaches, such as a deme
+        # declared with no samples and no migration into it, has no bearing on whether absorption is certain.
+        cache[key] = bool(reach[support & ~absorbing].all())
+        return cache[key]
+
+    def _alpha_support(self) -> np.ndarray:
+        """
+        The states that can carry probability mass: the forward closure of the initial support under each epoch's
+        transitions in turn. Memoized per state space, one host serving several of them.
+
+        :return: Boolean mask over the states of the current state space.
+        """
+        ss = self.state_space
+        cache = self.__dict__.setdefault('_alpha_support_cache', {})
+        key = id(ss)
+
+        if key in cache:
+            return cache[key]
+
+        support = np.asarray(ss.alpha) > 0
+
+        for epoch in self._get_epochs_until_unbounded():
+            ss.update_epoch(epoch)
+            S = ss.S
+            adj = (S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S)))
+            adj = (adj != 0).T.tocsr()
+
+            while True:
+                nxt = support | (adj @ support > 0)
+                if np.array_equal(nxt, support):
+                    break
+                support = nxt
+
+        cache[key] = support
+        return support
 
     def _reaches_absorption(self) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -1165,7 +1206,12 @@ class MomentEvaluator:
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, len(epochs) - 1)
         absorbing = self.state_space.absorbing
-        idx_t = np.where(~absorbing)[0]
+
+        # restrict to the states that can carry mass: a transient state outside the support contributes nothing and
+        # makes ``-T`` singular when it cannot reach absorption. Mass leaves the support nowhere, the support being
+        # a forward closure, so the restricted solve is exact on it.
+        support = self._alpha_support()
+        idx_t = np.where(~absorbing & support)[0]
         idx_a = np.where(absorbing)[0]
         e = np.asarray(self.state_space.e)
 
@@ -1373,7 +1419,8 @@ class MomentEvaluator:
 
         self.state_space.update_epoch(epochs[-1])
         absorbing = self.state_space.absorbing
-        idx_t = np.where(~absorbing)[0]
+        # only the states that can carry mass; see ``_alpha_support``
+        idx_t = np.where(~absorbing & self._alpha_support())[0]
         nt = len(idx_t)
         use_action = self._solve_sparse(nt)
 
@@ -1465,7 +1512,8 @@ class MomentEvaluator:
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, 0)
         absorbing = self.state_space.absorbing
-        idx_t = np.where(~absorbing)[0]
+        # only the states that can carry mass; see ``_alpha_support``
+        idx_t = np.where(~absorbing & self._alpha_support())[0]
 
         neg_t_inv = sla.inv(-self._transient_block(idx_t))
         m = np.asarray(self.state_space.alpha)[idx_t].astype(float) @ neg_t_inv

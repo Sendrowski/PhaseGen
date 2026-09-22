@@ -247,12 +247,14 @@ class _HazardGrid:
         """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
         (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`~phasegen.settings.Settings.cache`."""
         cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
-        # the grid is built for one de Hoog tail cut; if that setting was changed on this live distribution the cached
-        # nodes no longer join the fit at the same place, so discard them and rebuild for the new cut.
-        tail = Settings.dehoog_tail_quantile
-        if cache.get('_tail_quantile', tail) != tail:
+        # the grid is built for one inversion configuration: the tail cut decides where the exact nodes join the fit,
+        # the de Hoog degree the value at each of those nodes, and the term count the fit below them. If any of the
+        # three was changed on this live distribution the cached entries no longer answer the question being asked,
+        # so discard them and rebuild.
+        config = (Settings.dehoog_tail_quantile, Settings.dehoog_degree, Settings.cos_terms)
+        if cache.get('_config', config) != config:
             cache.clear()
-        cache['_tail_quantile'] = tail
+        cache['_config'] = config
         if key in cache:
             return cache[key]
         val = build()

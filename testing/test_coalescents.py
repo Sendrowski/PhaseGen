@@ -1611,21 +1611,31 @@ class CoalescentTestCase(TestCase):
         for k, tv in enumerate(t):
             np.testing.assert_allclose(np.asarray(coal.sfs.cdf(float(tv)).data), arr[k], rtol=1e-9, atol=1e-9)
 
-    def test_cdf_grid_cache_rebuilds_when_tail_cut_changes(self):
-        """The shared CDF-grid cache is tied to the de Hoog tail cut; changing ``Settings.dehoog_tail_quantile`` on a
-        live distribution must discard the stale grid and rebuild for the new cut, not silently reuse it."""
+    def test_cdf_grid_cache_rebuilds_when_the_inversion_settings_change(self):
+        """The shared CDF grid is built for one inversion configuration: the tail cut places the exact nodes, the de
+        Hoog degree sets their values, and the term count the fit below them. Changing any of the three on a live
+        distribution must discard the stale grid and rebuild, not silently reuse it."""
         coal = pg.Coalescent(n=5)
         bd = coal.sfs._bin_distribution(2)
-        orig = pg.Settings.dehoog_tail_quantile
+        originals = (pg.Settings.dehoog_tail_quantile, pg.Settings.dehoog_degree, pg.Settings.cos_terms)
         try:
             _ = bd.quantile(0.9)
-            self.assertEqual(bd.__dict__['_lst_curve_cache']['_tail_quantile'], orig)
+            self.assertEqual(bd.__dict__['_lst_curve_cache']['_config'], originals)
 
-            pg.Settings.dehoog_tail_quantile = 0.9 if orig != 0.9 else 0.95
-            _ = bd.quantile(0.9)
-            self.assertEqual(bd.__dict__['_lst_curve_cache']['_tail_quantile'], pg.Settings.dehoog_tail_quantile)
+            for attr, changed in (
+                    ('dehoog_tail_quantile', 0.9 if originals[0] != 0.9 else 0.95),
+                    ('dehoog_degree', originals[1] + 1),
+                    ('cos_terms', originals[2] * 2)
+            ):
+                setattr(pg.Settings, attr, changed)
+                _ = bd.quantile(0.9)
+                self.assertEqual(
+                    bd.__dict__['_lst_curve_cache']['_config'],
+                    (pg.Settings.dehoog_tail_quantile, pg.Settings.dehoog_degree, pg.Settings.cos_terms),
+                    attr
+                )
         finally:
-            pg.Settings.dehoog_tail_quantile = orig
+            (pg.Settings.dehoog_tail_quantile, pg.Settings.dehoog_degree, pg.Settings.cos_terms) = originals
 
     def test_compare_state_reward_flattened(self):
         """

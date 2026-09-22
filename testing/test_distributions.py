@@ -869,3 +869,26 @@ def test_finite_end_time_moments_do_not_depend_on_call_order():
     for label, value in (('fresh', fresh), ('after lower orders', second), ('after another end time', third)):
         assert value > 0, f"{label}: negative raw moment {value}"
         np.testing.assert_allclose(value, exact, rtol=1e-5, err_msg=label)
+
+
+def test_zero_mass_deme_does_not_decline_the_closed_form():
+    """A deme declared with no samples and no migration into it is unreachable, so it cannot bear on whether
+    absorption is certain. Regression: the gate tested every transient state, so such a deme declined the closed
+    form and routed the moment through the general path, and the answer must agree with the demography that simply
+    omits the empty deme."""
+    sizes = {0: 1.0, 0.5: 1e6}
+
+    with_empty_deme = pg.Coalescent(
+        n={'pop_0': 4, 'pop_1': 0},
+        demography=pg.Demography(pop_sizes={'pop_0': dict(sizes), 'pop_1': dict(sizes)})
+    )
+    twin = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': dict(sizes)}))
+
+    assert with_empty_deme.tree_height._absorption_certain_in_last_epoch()
+
+    for k in (1, 2, 3):
+        np.testing.assert_allclose(
+            with_empty_deme.tree_height.moment(k, center=False),
+            twin.tree_height.moment(k, center=False),
+            rtol=1e-12, err_msg=f"k={k}"
+        )
