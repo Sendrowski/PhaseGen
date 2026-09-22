@@ -1538,6 +1538,51 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
             self.mutations[0, 0, i, tree.get_num_leaves(node)] += 1
 
 
+def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
+    """
+    The initial state of a two-locus simulation in which ``n_unlinked`` of the sampled lineages start unlinked
+    between the loci.
+
+    A sample node is ancestral over the whole sequence, so an unlinked sample cannot be expressed by sampling: it is
+    given one parent per locus, which leaves it a child everywhere and its two parents as the extant lineages, one
+    per locus. That is the configuration a recombination event produces, which is what "unlinked" means here. The
+    unlinked lineages are taken from the demes in the order of ``samples``.
+
+    :param samples: Number of samples per deme, by deme name.
+    :param n_unlinked: Number of lineages starting unlinked between the loci.
+    :param demography: The msprime demography, whose populations the tables must mirror.
+    :return: Tables to start the simulation from.
+    """
+    import tskit
+
+    # the two loci are the unit intervals of a length-two sequence
+    tables = tskit.TableCollection(sequence_length=2)
+    tables.populations.metadata_schema = tskit.MetadataSchema.permissive_json()
+
+    index = {}
+    for population in demography.populations:
+        index[population.name] = tables.populations.add_row(metadata={'name': population.name})
+
+    # the split parents sit just above the samples, msprime requiring a parent to postdate its child
+    split_time = 1e-12
+    remaining = n_unlinked
+
+    for name, count in samples.items():
+        for _ in range(count):
+            node = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, population=index[name])
+
+            if remaining > 0:
+                remaining -= 1
+                locus_0 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
+                locus_1 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
+                tables.edges.add_row(left=0, right=1, parent=locus_0, child=node)
+                tables.edges.add_row(left=1, right=2, parent=locus_1, child=node)
+
+    tables.sort()
+
+    return tables
+
+
 class MsprimeCoalescent(AbstractCoalescent):
     """
     Coalescent whose statistics are estimated from ``msprime`` ancestry simulations, independently of the phase-type
@@ -1674,6 +1719,14 @@ class MsprimeCoalescent(AbstractCoalescent):
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
         samples = self.lineage_config.lineage_dict
+
+        # lineages that start unlinked between the loci have no expression as samples, a sample being ancestral over
+        # the whole sequence; they are set up as an initial state instead (see ``_unlinked_initial_state``)
+        initial_state = None
+        if self.locus_config.n == 2 and self.locus_config.n_unlinked > 0:
+            initial_state = _unlinked_initial_state(
+                samples, self.locus_config.n_unlinked, self.demography.to_msprime()
+            )
         demography = self.demography.to_msprime()
         model = self.get_coalescent_model()
         end_time = self.end_time
@@ -1706,10 +1759,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             import tskit
 
             # simulate trees
-            g: Generator = ms.sim_ancestry(
-                sequence_length=self.locus_config.n,
+            shared = dict(
                 recombination_rate=self.locus_config.recombination_rate,
-                samples=samples,
                 num_replicates=num_replicates,
                 record_migrations=self.record_migration,
                 demography=demography,
@@ -1718,6 +1769,13 @@ class MsprimeCoalescent(AbstractCoalescent):
                 end_time=end_time,
                 random_seed=seed
             )
+            if initial_state is None:
+                g: Generator = ms.sim_ancestry(
+                    sequence_length=self.locus_config.n, samples=samples, **shared
+                )
+            else:
+                # the initial state carries the sequence length and the samples
+                g: Generator = ms.sim_ancestry(initial_state=initial_state, **shared)
 
             # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
             # is recorded either directly from each tree or, with migration recording, from the migration history

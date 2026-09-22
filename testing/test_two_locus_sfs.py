@@ -576,3 +576,22 @@ def test_two_locus_joint_distribution_restricted_by_spectrum_reward():
     )
 
     np.testing.assert_allclose(scaled.joint_distribution(1, 2).mean, 2 * sfs2.joint_distribution(1, 2).mean, rtol=1e-10)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("n_unlinked, exact", [(0, 1.0), (1, 1 / 3), (2, 2 / 9)])
+def test_msprime_honours_n_unlinked(n_unlinked, exact):
+    """``LocusConfig.n_unlinked`` must reach the simulation, so that the exact two-locus path has a ground truth to
+    be checked against. Regression: it was validated and stored but never read, and every sample started ancestral
+    at both loci, so the simulated covariance of the two loci's tree heights was 1 whatever the setting."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=n_unlinked)
+    sim = MsprimeCoalescent(n=pg.LineageConfig(2), loci=loci, num_replicates=100000, seed=3)
+
+    # the marginal at one locus cannot see the initial linkage
+    assert sim.tree_height.loci[0].mean == pytest.approx(1.0, abs=0.02)
+
+    # the covariance between the loci does, and it is what n_unlinked sets
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.03)
+    assert pg.Coalescent(n=pg.LineageConfig(2), loci=loci).tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=1e-9)
