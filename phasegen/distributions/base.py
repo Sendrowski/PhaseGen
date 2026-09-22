@@ -533,6 +533,14 @@ class _LSTFunction(_HazardGrid):
             density = (cdf - cdf_prev) / (x - x_prev)
             limit = self._step_growth * (x - x_prev)
 
+            # the secant is the average density over the span, which sits below the density here whenever the span
+            # covers a flatter region: an anchor at the origin of a distribution with no mass there makes it
+            # arbitrarily small and the step overshoots the increment it is meant to respect. Inside the fit's
+            # window the grid has a local slope to compare against, and the larger density gives the safer step.
+            xs, cs = self._cos_cdf_grid
+            if x <= xs[-1]:
+                density = max(density, float(np.interp(x, xs, np.gradient(cs, xs))))
+
         return float(min(increment / density, limit)) if density > 0 else limit
 
     def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
@@ -570,8 +578,14 @@ class _LSTFunction(_HazardGrid):
             # nothing more about points beyond it either, so it ends the march regardless
             if cdf >= target and (x >= x_max or cdf >= 1.0 - 1e-12):
                 break
-            x = x + self._exact_step(nodes)
-            nodes.append((x, self._cdf_point(x)))
+            x_next = x + self._exact_step(nodes)
+
+            # the step can fall below the spacing of the floats at ``x``, leaving the node where it was. Nothing
+            # further can be resolved there, and a repeated node divides by a zero span in the secant above.
+            if not x_next > x:
+                break
+
+            nodes.append((x_next, self._cdf_point(x_next)))
 
         return nodes
 

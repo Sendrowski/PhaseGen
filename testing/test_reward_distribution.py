@@ -1918,3 +1918,38 @@ def test_per_point_cdf_of_an_sfs_bin_matches_the_sampler(i):
     for t in np.quantile(draws, [0.25, 0.5, 0.75, 0.9]):
         empirical = float(np.mean(draws <= t))
         assert abs(empirical - cdf._cdf_point(float(t))) < _ECDF_BOUND, (i, float(t), empirical)
+
+
+def test_exact_march_tolerates_a_step_below_the_float_spacing():
+    """The march sizes its step from the secant of the last two nodes, and the step can fall below the spacing of
+    the floats at that point, leaving the node where it was. Regression: the repeated node then divided by a zero
+    span and a public cdf / pdf / quantile raised ZeroDivisionError."""
+    coal = pg.Coalescent(
+        n=5,
+        model=pg.DiracCoalescent(psi=0.5, c=3.0),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.1: 0.02}})
+    )
+    dist = coal.sfs.bin(1)
+
+    for x in (0.6, 1.0, 3.0):
+        assert 0.0 <= float(dist.cdf(x)) <= 1.0
+
+    assert np.isfinite(float(dist.quantile(0.99)))
+
+
+@pytest.mark.parametrize("n, sizes", [(8, {0: 1.0, 0.3: 0.05, 1.2: 2.0}), (15, {0: 1.0, 0.5: 0.1})])
+def test_exact_march_respects_its_increment_from_an_anchor_at_the_origin(n, sizes):
+    """With the tail cut at zero the anchor sits at the origin, where a distribution with no mass there makes the
+    secant an average over the flat region and far below the density at the node. Regression: the step then
+    overshot the increment it is meant to respect and the CDF between the nodes was interpolated across the gap,
+    leaving the served curve up to 0.49 from the exact per-point inversion."""
+    original = Settings.dehoog_tail_quantile
+    Settings.dehoog_tail_quantile = 0.0
+    try:
+        dist = pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': dict(sizes)})).total_branch_length
+        point = dist.distribution().cdf
+
+        for x in np.linspace(0.05, float(dist.mean) * 3, 25):
+            assert abs(float(dist.cdf(float(x))) - float(point._cdf_point(float(x)))) < 0.05, x
+    finally:
+        Settings.dehoog_tail_quantile = original
