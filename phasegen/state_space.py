@@ -102,6 +102,15 @@ class StateSpace(ABC):
         #: Locus configuration
         self.locus_config: LocusConfig = locus_config
 
+        # neither config can check this alone: the locus configuration does not know the sample size, and a state
+        # space built directly with more unlinked lineages than there are lineages has no initial state, which
+        # surfaces only once the lazy ``alpha`` is touched, as all-NaN or as a silently oversized space
+        if locus_config.n_unlinked > lineage_config.n:
+            raise ValueError(
+                f"The number of unlinked lineages ({locus_config.n_unlinked}) must not exceed the number of "
+                f"lineages ({lineage_config.n})."
+            )
+
         #: Epoch
         self.epoch: Epoch = epoch
 

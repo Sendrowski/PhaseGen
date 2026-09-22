@@ -209,6 +209,24 @@ class StateSpaceTestCase(TestCase):
                 epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
             )
 
+    def test_state_space_rejects_more_unlinked_lineages_than_lineages(self):
+        """
+        Neither configuration can check this alone: the locus configuration does not know the sample size. Built
+        directly with more unlinked lineages than there are lineages, a state space has no initial state, which
+        showed up only once the lazy ``alpha`` was touched, as all NaN or as a silently oversized space.
+        """
+        for cls in (pg.LineageCountingStateSpace, pg.TwoLocusBlockCountingStateSpace):
+            with self.subTest(state_space=cls.__name__):
+                with self.assertRaises(ValueError):
+                    cls(lineage_config=pg.LineageConfig(n=2), locus_config=pg.LocusConfig(n=2, n_unlinked=3))
+
+        # a valid count still builds, with a proper initial distribution
+        s = pg.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=3),
+            locus_config=pg.LocusConfig(n=2, n_unlinked=2)
+        )
+        self.assertAlmostEqual(1, float(np.asarray(s.alpha).sum()))
+
     def test_block_counting_state_space_rejects_two_loci(self):
         """
         The single-locus block-counting state space carries no locus dimension; two loci are served by
