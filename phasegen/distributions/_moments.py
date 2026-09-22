@@ -369,6 +369,58 @@ class MomentEvaluator:
         # rewards in the Van Loan matrix are of order 1
         return 10 ** - np.log10(rates).mean()
 
+    @staticmethod
+    def _rebase(z: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
+        """
+        Rebase the extended vector from one balancing factor onto another, in place.
+
+        Block ``j`` of ``z`` holds its value divided by ``lamb ** (k - j)``, so changing the factor multiplies block
+        ``j`` by ``(lamb / lamb_new) ** (k - j)``. This is an exact diagonal similarity: it leaves the represented
+        vector unchanged and only moves which power of the factor each block carries.
+
+        :param z: Extended vector of ``(k + 1)`` blocks of length ``n``, modified in place.
+        :param lamb: The factor the blocks are currently stored against.
+        :param lamb_new: The factor to store them against.
+        :param k: The order of the moment.
+        :param n: The number of states, the length of one block.
+        :return: ``lamb_new``, the factor now in force.
+        """
+        if lamb_new == lamb:
+            return lamb
+
+        ratio = lamb / lamb_new
+        for j in range(k + 1):
+            z[j * n:(j + 1) * n] *= ratio ** (k - j)
+
+        return lamb_new
+
+    @staticmethod
+    def _rebase_propagator(Q: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
+        """
+        Rebase the extended propagator from one balancing factor onto another, in place, the matrix counterpart of
+        :meth:`_rebase`.
+
+        Block ``(i, j)`` of ``Q`` carries the factor to the power ``i - j``, so changing the factor multiplies that
+        block by ``(lamb / lamb_new) ** (j - i)``. Like :meth:`_rebase` this is an exact diagonal similarity.
+
+        :param Q: Extended propagator of ``(k + 1) x (k + 1)`` blocks of size ``n``, modified in place.
+        :param lamb: The factor the blocks are currently stored against.
+        :param lamb_new: The factor to store them against.
+        :param k: The order of the moment.
+        :param n: The number of states, the size of one block.
+        :return: ``lamb_new``, the factor now in force.
+        """
+        if lamb_new == lamb:
+            return lamb
+
+        ratio = lamb / lamb_new
+        for i in range(k + 1):
+            for j in range(k + 1):
+                if i != j:
+                    Q[i * n:(i + 1) * n, j * n:(j + 1) * n] *= ratio ** (j - i)
+
+        return lamb_new
+
     def _check_demography_conditioning(self) -> None:
         """
         Fail fast when the population sizes and migration rates of the first epoch span more than double precision,
@@ -718,6 +770,11 @@ class MomentEvaluator:
                     u_prev = epoch.end_time
                     i_epoch, epoch = next(epochs)
                     self.state_space.update_epoch(epoch)
+
+                    # balance each epoch on its own rates, rebasing the propagator accordingly (see ``_rebase``)
+                    lamb = self._rebase_propagator(
+                        Q, lamb, self._get_regularization_factor(self.state_space.S), k, n_states
+                    )
 
                     # compute Van Loan matrix for next epoch using regularized intensity matrix
                     S = self._dense_rate_matrix() * lamb
@@ -1151,6 +1208,13 @@ class MomentEvaluator:
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
             self.state_space.update_epoch(epoch)
+
+            # balance each epoch on its own rates. ``V * tau`` carries the epoch's generator on the diagonal and its
+            # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an
+            # epoch with a different rate scale far from one, and the scaling-and-squaring of the exponential loses
+            # their cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it.
+            lamb = self._rebase(z, lamb, self._get_regularization_factor(self.state_space.S), k, n)
+
             S = self.state_space.S * lamb
             self._check_numerical_stability(S, i_epoch)
             tau = (epoch.end_time - epoch.start_time) / lamb

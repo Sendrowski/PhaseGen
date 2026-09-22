@@ -826,3 +826,46 @@ def test_stability_warning_names_the_offending_epoch(caplog):
 
     assert named, "the ill-conditioned demography produced no stability warning"
     assert '1' in named, f"epoch 1 is the ill-conditioned one but the warning named {sorted(named)}"
+
+
+def test_moments_balance_each_epoch_on_its_own_rates():
+    """A demography whose epochs differ by orders of magnitude in rate scale must still give accurate high-order
+    moments. Regression: one balancing factor was drawn from a single epoch and reused for all of them, and since the
+    Van Loan reward blocks are the only part that carries the factor, the blocks of every other epoch sat far from
+    one and the scaling-and-squaring of the exponential lost their cancellation. The tree height is non-negative, so
+    a negative raw moment is impossible; E[T^4] at n = 10 came back as -8.65e56 against 1.97e13."""
+    # rate scales of 1e3, 1e-4 and 1e2 across three epochs
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 0.01: 1e4, 5e4: 1e-2}})
+
+    # reference values from an independent high-precision coalescent-clock computation
+    expected = {(5, 3): 4.76889365e8, (5, 4): 1.601655e13, (7, 4): 1.8018618e13, (10, 4): 1.9656674e13}
+
+    for (n, k), exact in expected.items():
+        moment = pg.Coalescent(n=n, demography=dem).tree_height.moment(k, center=False)
+
+        assert moment > 0, f"raw moment {k} of a non-negative variable came back negative at n = {n}: {moment}"
+        np.testing.assert_allclose(moment, exact, rtol=1e-5, err_msg=f"n={n}, k={k}")
+
+
+def test_finite_end_time_moments_do_not_depend_on_call_order():
+    """The accumulated moment at a finite end time is a function of its arguments alone. Regression: the extended
+    propagator was carried across epochs against a factor drawn from the first epoch, so round-off amplified by the
+    epoch rate contrast left the same call returning -9.1e11, -1.1e13 or +1.7e12 depending on what had been asked of
+    the object beforehand."""
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 0.01: 1e4, 5e4: 1e-2}})
+    exact = 4.76889365e8
+
+    fresh = pg.Coalescent(n=5, demography=dem).tree_height.moment(3, end_time=1e5, center=False)
+
+    after_lower_orders = pg.Coalescent(n=5, demography=dem)
+    after_lower_orders.tree_height.moment(1, end_time=1e5, center=False)
+    after_lower_orders.tree_height.moment(2, end_time=1e5, center=False)
+    second = after_lower_orders.tree_height.moment(3, end_time=1e5, center=False)
+
+    after_other_end_time = pg.Coalescent(n=5, demography=dem)
+    after_other_end_time.tree_height.moment(3, end_time=2e4, center=False)
+    third = after_other_end_time.tree_height.moment(3, end_time=1e5, center=False)
+
+    for label, value in (('fresh', fresh), ('after lower orders', second), ('after another end time', third)):
+        assert value > 0, f"{label}: negative raw moment {value}"
+        np.testing.assert_allclose(value, exact, rtol=1e-5, err_msg=label)
