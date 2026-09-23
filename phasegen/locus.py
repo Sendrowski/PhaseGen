@@ -24,7 +24,8 @@ class LocusConfig:
         Initialize the locus configuration.
 
         :param n: Number of loci. Either 1 or 2.
-        :param n_unlinked: Number of lineages that are initially unlinked between loci. Defaults to 0 meaning that all
+        :param n_unlinked: Number of lineages that are initially unlinked between loci, taken from the demes in the
+            order of the lineage configuration, each deme filled before the next. Defaults to 0 meaning that all
             lineages are initially linked between loci so that the loci are completely linked. It must not exceed the
             number of lineages.
         :param recombination_rate: Recombination rate between loci.
@@ -68,11 +69,14 @@ class LocusConfig:
             # every lineage is on the same locus
             return np.ones(s.k)
 
-        # number of lineages linked between loci
-        n_linked = s.lineage_config.n - self.n_unlinked
+        # the unlinked lineages are taken from the demes in the order of the lineage configuration, filling each deme
+        # before moving to the next, which fixes the number of linked lineages per deme
+        lineages = np.asarray(s.lineage_config.lineages, dtype=int)
+        unlinked = np.minimum(lineages, np.maximum(self.n_unlinked - np.concatenate([[0], np.cumsum(lineages)[:-1]]), 0))
+        n_linked = lineages - unlinked
 
-        # sum over demes and lineage blocks, and require all loci to have ``n_linked`` linked lineages
-        return (s.linked.sum(axis=(2, 3)) == n_linked).all(axis=1).astype(int)
+        # sum over lineage blocks, and require every locus and deme to carry its number of linked lineages
+        return (s.linked.sum(axis=3) == n_linked).all(axis=(1, 2)).astype(int)
 
     def __eq__(self, other) -> bool:
         """

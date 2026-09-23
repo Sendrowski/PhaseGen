@@ -595,3 +595,19 @@ def test_msprime_honours_n_unlinked(n_unlinked, exact):
     # the covariance between the loci does, and it is what n_unlinked sets
     assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.03)
     assert pg.Coalescent(n=pg.LineageConfig(2), loci=loci).tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=1e-9)
+
+
+@pytest.mark.slow
+def test_msprime_places_unlinked_lineages_as_the_exact_path_does():
+    """The unlinked lineages are taken from the demes in order, each filled before the next, on both sides.
+    Regression: the exact path averaged over every placement while msprime started them in the first deme, so the
+    covariance of the two loci's tree heights was 3.38 exact against 4.82 simulated for samples {a: 2, b: 1}."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 1.0, ('b', 'a'): 1.0})
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=1)
+
+    exact = pg.Coalescent(n={'a': 2, 'b': 1}, demography=dem, loci=loci).tree_height.loci.cov[0, 1]
+    sim = MsprimeCoalescent(n={'a': 2, 'b': 1}, demography=dem, loci=loci, num_replicates=100000, seed=5)
+
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, rel=0.03)
