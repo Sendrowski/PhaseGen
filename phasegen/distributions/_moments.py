@@ -396,6 +396,29 @@ class MomentEvaluator:
         return lamb_new
 
     @staticmethod
+    def _rebase_forward(w: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
+        """
+        Rebase the forward extended vector ``w = alpha_ext Q`` from one balancing factor onto another, in place, the
+        row counterpart of :meth:`_rebase_propagator`. Block ``j`` of ``w`` is row block 0 of ``Q``, so it carries the
+        factor to the power ``-j`` and is multiplied by ``(lamb / lamb_new) ** j``. An exact diagonal similarity.
+
+        :param w: Extended row vector of ``(k + 1)`` blocks of length ``n``, modified in place.
+        :param lamb: The factor the blocks are currently stored against.
+        :param lamb_new: The factor to store them against.
+        :param k: The order of the moment.
+        :param n: The number of states, the length of one block.
+        :return: ``lamb_new``, the factor now in force.
+        """
+        if lamb_new == lamb:
+            return lamb
+
+        ratio = lamb / lamb_new
+        for j in range(1, k + 1):
+            w[j * n:(j + 1) * n] *= ratio ** j
+
+        return lamb_new
+
+    @staticmethod
     def _rebase_propagator(Q: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
         """
         Rebase the extended propagator from one balancing factor onto another, in place, the matrix counterpart of
@@ -855,6 +878,9 @@ class MomentEvaluator:
                 u_prev = epoch.end_time
                 i_epoch, epoch = next(epochs)
                 self.state_space.update_epoch(epoch)
+
+                # balance each epoch on its own rates (see ``_rebase``)
+                lamb = self._rebase_forward(w, lamb, self._get_regularization_factor(self.state_space.S), k, n)
                 Vt = transposed_van_loan()
 
             # remaining time in the current epoch
@@ -975,6 +1001,11 @@ class MomentEvaluator:
                         u_prev = epoch.end_time
                         i_epoch, epoch = next(epochs)
                         self.state_space.update_epoch(epoch)
+
+                        # balance each epoch on its own rates (see ``_rebase``)
+                        lamb = self._rebase_forward(
+                            w, lamb, self._get_regularization_factor(self.state_space.S), k, n
+                        )
                         Vt = transposed_van_loan()
                     w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
                     moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
@@ -997,6 +1028,11 @@ class MomentEvaluator:
                         u_prev = epoch.end_time
                         i_epoch, epoch = next(epochs)
                         self.state_space.update_epoch(epoch)
+
+                        # balance each epoch on its own rates (see ``_rebase``)
+                        lamb = self._rebase_propagator(
+                            Q, lamb, self._get_regularization_factor(self.state_space.S), k, n
+                        )
                         S = self._dense_rate_matrix() * lamb
                         self._check_numerical_stability(S, i_epoch)
                         V = self._van_loan_matrix(R, S, k)

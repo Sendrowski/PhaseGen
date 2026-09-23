@@ -892,3 +892,17 @@ def test_zero_mass_deme_does_not_decline_the_closed_form():
             twin.tree_height.moment(k, center=False),
             rtol=1e-12, err_msg=f"k={k}"
         )
+
+
+def test_windowed_moments_balance_each_epoch_on_its_own_rates():
+    """The windowed accumulation must rebalance at each epoch like the cumulative one. Regression: it kept the factor
+    of the epoch holding the window start, so a window opening in a fast epoch returned E[T^3] = -1.09e13 against
+    4.77e8, and a window starting at 1e-12 disagreed with the cumulative moment it must equal."""
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 0.01: 1e4, 5e4: 1e-2}})
+
+    # reference values from an independent high-precision Van Loan computation of the windowed moments
+    expected = {2: 17425.8153517, 3: 476889103.356}
+
+    for k, exact in expected.items():
+        moment = pg.Coalescent(n=5, demography=dem).tree_height.moment(k, start_time=0.005, end_time=1e5, center=False)
+        np.testing.assert_allclose(moment, exact, rtol=1e-5, err_msg=f"k={k}")
