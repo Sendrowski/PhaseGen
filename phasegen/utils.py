@@ -78,7 +78,7 @@ class _ConfiguredCall:
             setattr(Settings, name, value)
 
         if self.backend is not None:
-            Backend.register(dill.loads(self.backend))
+            Backend.backend = dill.loads(self.backend)
 
         return self.func(item)
 

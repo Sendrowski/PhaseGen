@@ -87,3 +87,22 @@ def test_parallelize_workers_inherit_settings_and_backend():
     for result in results:
         assert tuple(result[:5]) == expected[:5]
         np.testing.assert_allclose(float(result[5]), expected[5], rtol=1e-12)
+
+
+def test_parallel_workers_do_not_warn_about_the_backend(caplog):
+    """The worker restores the caller's matrix-exponential backend. Regression: it did so through the deprecated
+    Backend.register, so every worker logged a deprecation warning the caller never triggered."""
+    import logging
+
+    # the worker side runs in the caller's process here, so its log records reach caplog
+    call = utils._ConfiguredCall(_read_worker_config)
+
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    try:
+        caplog.clear()
+        call(0)
+    finally:
+        log.removeHandler(caplog.handler)
+
+    assert not any('deprecated' in r.getMessage() for r in caplog.records)

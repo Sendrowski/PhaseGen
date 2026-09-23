@@ -61,12 +61,32 @@ class ExpmBackend(ABC):
         return self.compute(a_dense) @ b
 
 
+class TensorFlowExpmBackend(ExpmBackend):
+    """
+    Compute the matrix exponential using TensorFlow, an optional dependency with the installation, GPU and
+    performance notes of :class:`JaxExpmBackend`.
+    """
+
+    def compute(self, m: np.ndarray) -> np.ndarray:
+        """
+        Compute the matrix exponential using TensorFlow.
+
+        :param m: Matrix.
+        :return: Matrix exponential
+        """
+        # noinspection PyUnresolvedReferences
+        import tensorflow as tf
+
+        return tf.linalg.expm(tf.convert_to_tensor(m, dtype=tf.float64)).numpy()
+
+
 class SciPyExpmBackend(ExpmBackend):
     """
     Compute the matrix exponential using SciPy.
 
     .. note::
-        This is the default backend, and the one every call site uses.
+        This is the default backend. Recommended for smaller matrices. Consider switching to other backends for larger
+        matrices, such as :class:`JaxExpmBackend`, which is both efficient and lightweight to install.
     """
 
     def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
@@ -111,6 +131,62 @@ class SciPyExpmBackend(ExpmBackend):
         from scipy.sparse.linalg import expm_multiply
 
         return expm_multiply(a.astype(self.precision), np.asarray(b, dtype=self.precision))
+
+
+class JaxExpmBackend(ExpmBackend):
+    """
+    Compute the matrix exponential using Jax.
+    Note that jax is an optional dependency and thus needs to be installed separately.
+    GPU acceleration may be available depending on the underlying hardware.
+    Tends to be faster than :class:`SciPyExpmBackend` for larger matrices and highly parallelized computations.
+    """
+
+    def __init__(self, max_squarings: int = 2 ** 10) -> None:
+        """
+        Initialize the backend.
+
+        :param max_squarings: Maximum number of squarings (see jax.scipy.linalg.expm).
+        """
+        import jax
+
+        # enable double precision
+        jax.config.update("jax_enable_x64", True)
+
+        #: Maximum number of squarings
+        self.max_squarings = max_squarings
+
+    def compute(self, m: np.ndarray) -> np.ndarray:
+        """
+        Compute the matrix exponential using Jax.
+
+        :param m: Matrix
+        :return: Matrix exponential
+        """
+        import jax
+
+        # casting explicitly to np.float64 to avoid problems with object type
+        return jax.scipy.linalg.expm(m.astype(np.float64), max_squarings=self.max_squarings)
+
+
+class PyTorchExpmBackend(ExpmBackend):
+    """
+    Compute the matrix exponential using PyTorch.
+    Note that PyTorch is an optional dependency and thus needs to be installed separately.
+    GPU acceleration may be available depending on the underlying hardware.
+    """
+
+    def compute(self, m: np.ndarray) -> np.ndarray:
+        """
+        Compute the matrix exponential using PyTorch.
+
+        :param m: Matrix
+        :return: Matrix exponential
+        """
+        # noinspection PyUnresolvedReferences
+        import torch
+
+        # casting explicitly to np.float64 to avoid problems with object type
+        return torch.matrix_exp(torch.tensor(m.astype(np.float64), dtype=torch.float64)).numpy()
 
 
 class Backend(ABC):
