@@ -34,8 +34,8 @@ def test_fst_in_unit_interval_and_decreases_with_migration():
 
 
 def test_requires_two_populations():
-    """F_ST requires at least two populations."""
-    with pytest.raises(ValueError, match="two populations"):
+    """F_ST requires at least two sampled populations."""
+    with pytest.raises(ValueError, match="two sampled populations"):
         pg.Coalescent(n=4).fst
 
 
@@ -207,3 +207,18 @@ def test_fst_respects_start_time():
 
     assert c.fst == pytest.approx(1 - t_within / t_between, rel=1e-8)
     assert c.f2('a', 'b') == pytest.approx(2 * t_between - 2 * t_within, rel=1e-8)
+
+
+def test_fst_ignores_an_unsampled_population():
+    """F_ST averages over the sampled populations, as the simulated ground truth does. Regression: an isolated,
+    unsampled population entered both averages and moved the value from 0.500 to 0.416."""
+    sizes = {'a': 1.0, 'b': 1.0}
+    rates = {('a', 'b'): 0.5, ('b', 'a'): 0.5}
+
+    plain = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(pop_sizes=sizes, migration_rates=rates))
+    ghost = pg.Coalescent(
+        n={'a': 2, 'b': 2, 'c': 0},
+        demography=pg.Demography(pop_sizes=sizes | {'c': 1.0}, migration_rates=rates)
+    )
+
+    assert ghost.fst == pytest.approx(plain.fst, rel=1e-10)

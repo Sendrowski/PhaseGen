@@ -397,26 +397,31 @@ class Coalescent(AbstractCoalescent, Serializable):
             F_{ST} = 1 - \frac{\overline{\mathbb{E}[T_{PP}]}}{\overline{\mathbb{E}[T_{PP'}]}},
 
         where :math:`T_{PP'}` is the coalescence time of one lineage sampled in population :math:`P` and one in
-        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over all populations and the
-        denominator averages :math:`\mathbb{E}[T_{PP'}]` over all unordered pairs :math:`P \ne P'`. Each expectation
-        is the mean tree height of a two-lineage coalescent with the same demography and coalescent model, so the
-        result does not depend on the configured sample sizes or number of loci.
+        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over the populations with at least
+        two sampled lineages and the denominator averages :math:`\mathbb{E}[T_{PP'}]` over the unordered pairs
+        :math:`P \ne P'` of sampled populations. Each expectation is the mean tree height of a two-lineage coalescent
+        with the same demography and coalescent model, so the result depends on which populations are sampled but not
+        on how many lineages each carries beyond that, nor on the number of loci.
 
         :return: Hudson's :math:`F_{ST}`.
-        :raises ValueError: if fewer than two populations are configured.
+        :raises ValueError: if fewer than two populations are sampled, or none carries two sampled lineages.
         """
-        pops = self.demography.pop_names
+        counts = self.lineage_config.lineage_dict
+        sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
 
-        if len(pops) < 2:
-            raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
+        if len(sampled) < 2:
+            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
 
-        # within-population pairwise times (both lineages in the same population)
-        t_within = [self._pairwise_coalescence_time(q, q) for q in pops]
+        # within-population pairwise times, where two lineages can be sampled in the same population
+        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
 
-        # between-population pairwise times (one lineage in each of two distinct populations)
+        if not t_within:
+            raise ValueError("F_ST requires a population with at least two sampled lineages.")
+
+        # between-population pairwise times (one lineage in each of two distinct sampled populations)
         t_between = [
             self._pairwise_coalescence_time(a, b)
-            for i, a in enumerate(pops) for b in pops[i + 1:]
+            for i, a in enumerate(sampled) for b in sampled[i + 1:]
         ]
 
         return float(1 - np.mean(t_within) / np.mean(t_between))
