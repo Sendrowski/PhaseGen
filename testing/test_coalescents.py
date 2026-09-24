@@ -1917,3 +1917,20 @@ def test_stability_warning_names_real_epochs_once_each(caplog, pop_sizes, n_epoc
     assert epochs
     assert len(epochs) == len(set(epochs))
     assert set(epochs) <= set(range(n_epochs))
+
+
+def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference():
+    """The Van Loan step of an epoch whose rates times its duration are small keeps its higher-order blocks resolved.
+    Regression: the balancing factor drawn from the rates alone left the scaled step at about 1e-3, so the fifth raw
+    moment lost 1e-8 relative after a short large epoch (the fifth central moment 73%), and 4.5e-2 in a window ending
+    shortly into the last epoch. References from a 50-digit mpmath Van Loan computation."""
+    coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e3, 0.5: 1e-3}}))
+
+    assert coal.tree_height.moment(5, center=False) == pytest.approx(0.031670133796944716, rel=1e-12)
+    assert coal.tree_height.moment(5) == pytest.approx(-5.6834198753562267e-10, rel=1e-5)
+
+    pg.Settings.expm_action_min_dim = 1
+    coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 1e-4: 1e3}}))
+
+    raw = coal.moment(5, [pg.rewards.TreeHeightReward()] * 5, center=False, end_time=1.5e-4)
+    assert raw == pytest.approx(7.4974726817100355e-20, rel=1e-12)

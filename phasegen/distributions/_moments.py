@@ -353,13 +353,17 @@ class MomentEvaluator:
         return m
 
     @staticmethod
-    def _get_regularization_factor(S: np.ndarray) -> float:
+    def _get_regularization_factor(S: np.ndarray, duration: float = np.inf) -> float:
         """
-        The balancing factor of the Van Loan matrix, the reciprocal geometric mean of the positive rates of ``S``, or
-        1 when ``Settings.regularize`` is disabled. Scaling ``S`` by it and the step by its inverse divides the reward
-        blocks by the factor, which the callers undo by multiplying the moment by its ``k``-th power.
+        The balancing factor of the Van Loan matrix, the reciprocal geometric mean of the positive rates of ``S``
+        capped at ``duration``, or 1 when ``Settings.regularize`` is disabled. Scaling ``S`` by it and the step by its
+        inverse divides the reward blocks by the factor, which the callers undo by multiplying the moment by its
+        ``k``-th power. The cap keeps the scaled step at or above one: the block of order ``j`` of the exponential
+        scales as the ``j``-th power of the scaled step, and below one the higher orders fall under the resolution of
+        double precision.
 
         :param S: Intensity matrix.
+        :param duration: Length of the epoch within the accumulation window.
         :return: Regularization factor.
         """
         if not Settings.regularize:
@@ -369,7 +373,22 @@ class MomentEvaluator:
         rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
 
         # rewards in the Van Loan matrix are of order 1
-        return 10 ** - np.log10(rates).mean()
+        factor = 10 ** - np.log10(rates).mean()
+
+        return min(factor, duration) if duration > 0 else factor
+
+    def _balance(self, epoch: 'Epoch', start: float, end: float) -> float:
+        """
+        The regularization factor of the current rate matrix for the part of ``epoch`` within ``[start, end]``.
+
+        :param epoch: The epoch the state space is set to.
+        :param start: Start of the accumulation window.
+        :param end: End of the accumulation window.
+        :return: Regularization factor.
+        """
+        duration = min(epoch.end_time, end) - max(epoch.start_time, start)
+
+        return self._get_regularization_factor(self.state_space.S, duration)
 
     @staticmethod
     def _rebase(z: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
@@ -768,7 +787,7 @@ class MomentEvaluator:
         moments = np.zeros_like(t_sorted, dtype=float)
 
         # regularization parameter
-        lamb = self._get_regularization_factor(self.state_space.S)
+        lamb = self._balance(epoch, 0.0, t_sorted[-1])
 
         # regularized intensity matrix
         S = self._dense_rate_matrix() * lamb
@@ -802,9 +821,7 @@ class MomentEvaluator:
                     self.state_space.update_epoch(epoch)
 
                     # balance each epoch on its own rates, rebasing the propagator accordingly (see ``_rebase``)
-                    lamb = self._rebase_propagator(
-                        Q, lamb, self._get_regularization_factor(self.state_space.S), k, n_states
-                    )
+                    lamb = self._rebase_propagator(Q, lamb, self._balance(epoch, 0.0, t_sorted[-1]), k, n_states)
 
                     # compute Van Loan matrix for next epoch using regularized intensity matrix
                     S = self._dense_rate_matrix() * lamb
@@ -856,7 +873,7 @@ class MomentEvaluator:
         self.state_space.update_epoch(epoch)
 
         n = self.state_space.k
-        lamb = self._get_regularization_factor(self.state_space.S)
+        lamb = self._balance(epoch, 0.0, t_sorted[-1])
 
         def transposed_van_loan() -> 'sp.spmatrix':
             """Transposed sparse Van Loan matrix for the current epoch (transposed for the left vector action)."""
@@ -886,7 +903,7 @@ class MomentEvaluator:
                 self.state_space.update_epoch(epoch)
 
                 # balance each epoch on its own rates (see ``_rebase``)
-                lamb = self._rebase_forward(w, lamb, self._get_regularization_factor(self.state_space.S), k, n)
+                lamb = self._rebase_forward(w, lamb, self._balance(epoch, 0.0, t_sorted[-1]), k, n)
                 Vt = transposed_van_loan()
 
             # remaining time in the current epoch
@@ -978,7 +995,7 @@ class MomentEvaluator:
 
         # rewards are epoch-invariant (they depend on the states, not the rates), matching the cumulative paths;
         # only the intensity matrix (and hence the Van Loan matrix) is refreshed per epoch
-        lamb = self._get_regularization_factor(self.state_space.S)
+        lamb = self._balance(epoch, start_time, t_sorted[-1])
         moments = np.zeros_like(t_sorted, dtype=float)
 
         with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
@@ -1009,9 +1026,7 @@ class MomentEvaluator:
                         self.state_space.update_epoch(epoch)
 
                         # balance each epoch on its own rates (see ``_rebase``)
-                        lamb = self._rebase_forward(
-                            w, lamb, self._get_regularization_factor(self.state_space.S), k, n
-                        )
+                        lamb = self._rebase_forward(w, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
                         Vt = transposed_van_loan()
                     w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
                     moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
@@ -1036,9 +1051,7 @@ class MomentEvaluator:
                         self.state_space.update_epoch(epoch)
 
                         # balance each epoch on its own rates (see ``_rebase``)
-                        lamb = self._rebase_propagator(
-                            Q, lamb, self._get_regularization_factor(self.state_space.S), k, n
-                        )
+                        lamb = self._rebase_propagator(Q, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
                         S = self._dense_rate_matrix() * lamb
                         self._check_numerical_stability(S, i_epoch)
                         V = self._van_loan_matrix(R, S, k)
@@ -1302,7 +1315,7 @@ class MomentEvaluator:
             # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an
             # epoch with a different rate scale far from one, and the scaling-and-squaring of the exponential loses
             # their cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it.
-            lamb = self._rebase(z, lamb, self._get_regularization_factor(self.state_space.S), k, n)
+            lamb = self._rebase(z, lamb, self._balance(epoch, 0.0, np.inf), k, n)
 
             S = self.state_space.S * lamb
             self._check_numerical_stability(S, i_epoch)
