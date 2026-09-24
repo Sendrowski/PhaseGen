@@ -112,7 +112,7 @@ coal$moment(3L, c(pg$UnfoldedSFSReward(2L), pg$UnfoldedSFSReward(3L), pg$Unfolde
 
 +++
 ## Combining rewards
-Sometimes we may want to combine multiple rewards. To this end, we can use {class}`~phasegen.rewards.ProductReward` or {class}`~phasegen.rewards.SumReward`. As an example, we compute the mean SFS over the first 2 out of 3 demes. That is, we weight the branch lengths by the fraction of lineages in the first two demes.
+Sometimes we may want to combine multiple rewards. To this end, we can use {class}`~phasegen.rewards.ProductReward` or {class}`~phasegen.rewards.SumReward`. As an example, we compute the mean SFS over the first 2 out of 3 demes, that is, the branch lengths of each frequency class accumulated while the lineages reside in the first two demes.
 
 ```{code-cell} python
 # 3-deme coalescent with symmetric migration
@@ -187,32 +187,32 @@ stopifnot(isTRUE(all.equal(sfs$data, coal$sfs$demes$pop_0$mean$data + coal$sfs$d
 ```
 
 +++
-Note that we have here used {meth}`~phasegen.distributions.UnfoldedSFSDistribution.moment` of {class}`~phasegen.distributions.UnfoldedSFSDistribution`. This method internally uses a {class}`~phasegen.rewards.ProductReward` to combine the given reward with {class}`~phasegen.rewards.UnfoldedSFSReward` to obtain the SFS for all possible SFS bins. Had we used {meth}`~phasegen.distributions.Coalescent.moment` instead, we would have needed to specify the reward for each SFS bin separately.
+Note that we have here used {meth}`~phasegen.distributions.UnfoldedSFSDistribution.moment` of {class}`~phasegen.distributions.UnfoldedSFSDistribution`. This method internally uses a {class}`~phasegen.rewards.CombinedReward` to combine the given reward with {class}`~phasegen.rewards.UnfoldedSFSReward` to obtain the SFS for all possible SFS bins. Unlike a plain {class}`~phasegen.rewards.ProductReward`, it treats deme rewards as a restriction to the demes the lineages of each frequency class reside in. Had we used {meth}`~phasegen.distributions.Coalescent.moment` instead, we would have needed to specify the reward for each SFS bin separately.
 
 ```{code-cell} python
 demes = pg.SumReward([pg.DemeReward('pop_0'), pg.DemeReward('pop_1')])
 sfs_bin = pg.UnfoldedSFSReward(2)
 
-# take product of SFS reward for second SFS bin with sum of rewards for first two demes
-sfs.data[2] == coal.moment(1, (pg.ProductReward([demes, sfs_bin]),))
+# restrict the SFS reward for the second SFS bin to the first two demes
+sfs.data[2] == coal.moment(1, (pg.CombinedReward([demes, sfs_bin]),))
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
-assert sfs.data[2] == coal.moment(1, (pg.ProductReward([demes, sfs_bin]),))
+assert np.isclose(sfs.data[2], coal.moment(1, (pg.CombinedReward([demes, sfs_bin]),)))
 ```
 
 ```{code-cell} r
 demes <- pg$SumReward(c(pg$DemeReward('pop_0'), pg$DemeReward('pop_1')))
 sfs_bin <- pg$UnfoldedSFSReward(2L)
 
-# take product of SFS reward for second SFS bin with sum of rewards for first two demes
-sfs$data[[3]] == coal$moment(1L, c(pg$ProductReward(c(demes, sfs_bin))))
+# restrict the SFS reward for the second SFS bin to the first two demes
+sfs$data[[3]] == coal$moment(1L, c(pg$CombinedReward(c(demes, sfs_bin))))
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(sfs$data[[3]] == coal$moment(1L, c(pg$ProductReward(c(demes, sfs_bin)))))
+stopifnot(isTRUE(all.equal(sfs$data[[3]], coal$moment(1L, c(pg$CombinedReward(c(demes, sfs_bin)))))))
 ```
 
 +++

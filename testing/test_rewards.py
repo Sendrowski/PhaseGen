@@ -574,3 +574,21 @@ def test_deme_restricted_tree_height_is_refused_for_multiple_loci():
     assert single.moment(
         1, rewards=[pg.CombinedReward([pg.TreeHeightReward(), pg.DemeReward(single.lineage_config.pop_names[0])])]
     ) == pytest.approx(single.tree_height.mean, rel=1e-12)
+
+
+def test_sum_of_deme_rewards_restricts_to_the_union_of_demes():
+    """A SumReward of DemeRewards combined with the SFS reward restricts it to the lineages residing in those
+    demes, so it equals the sum of the per-deme spectra. Regression: the sum fell through to an elementwise product,
+    weighting each frequency class by the share of all lineages in the demes (3.4157 against 3.5216 in bin 1)."""
+    coal = pg.Coalescent(
+        n={'pop_0': 3, 'pop_1': 2, 'pop_2': 0},
+        demography=pg.Demography(
+            pop_sizes={'pop_0': 3, 'pop_1': 0.5, 'pop_2': 0.1},
+            events=[pg.SymmetricMigrationRateChanges(pops=['pop_0', 'pop_1', 'pop_2'], rate=1)]
+        )
+    )
+
+    union = coal.sfs.moment(1, (pg.SumReward([pg.DemeReward('pop_0'), pg.DemeReward('pop_1')]),))
+    parts = coal.sfs.demes['pop_0'].mean.data + coal.sfs.demes['pop_1'].mean.data
+
+    np.testing.assert_allclose(union.data, parts, rtol=1e-10)

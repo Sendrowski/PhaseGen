@@ -682,7 +682,8 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
     Reward the fraction of lineages residing in a specific deme,
     :math:`r(i) = (\#\text{ lineages of } i \text{ in the deme}) / (\#\text{ lineages in } i)`. Combining this reward
     with another reward through :class:`CombinedReward` restricts that reward to the deme, locus by locus, as
-    :class:`RestrictedReward` does. Use :class:`SumReward` to marginalize over several demes.
+    :class:`RestrictedReward` does, and a :class:`SumReward` of several deme rewards restricts it to the union of
+    those demes.
     """
 
     def __init__(self, pop: str) -> None:
@@ -982,7 +983,9 @@ class CombinedReward(ProductReward):
     """
     The product of several rewards, in which a :class:`DemeReward`, a :class:`LocusReward` or a
     :class:`RestrictedReward` member restricts the product of the remaining members as :class:`RestrictedReward`
-    does, the restriction of a :class:`RestrictedReward` member acting on its wrapped reward together with them.
+    does, the restriction of a :class:`RestrictedReward` member acting on its wrapped reward together with them. A
+    :class:`SumReward` of :class:`DemeReward` members, or of :class:`LocusReward` members, restricts to the union of
+    those demes or loci, as the sum of the single restrictions.
     """
 
     def __init__(self, rewards: List[Reward]) -> None:
@@ -993,11 +996,20 @@ class CombinedReward(ProductReward):
         """
         loci, pops, rest = [], [], []
 
+        # unions of loci or demes, one list per SumReward member made of LocusReward or DemeReward members only
+        loci_unions, pop_unions = [], []
+
         for reward in rewards:
             if isinstance(reward, LocusReward):
                 loci.append(reward.locus)
             elif isinstance(reward, DemeReward):
                 pops.append(reward.pop)
+            elif isinstance(reward, SumReward) and reward.rewards and all(
+                    isinstance(r, LocusReward) for r in reward.rewards):
+                loci_unions.append([r.locus for r in reward.rewards])
+            elif isinstance(reward, SumReward) and reward.rewards and all(
+                    isinstance(r, DemeReward) for r in reward.rewards):
+                pop_unions.append([r.pop for r in reward.rewards])
             elif isinstance(reward, RestrictedReward):
                 loci += [] if reward.locus is None else [reward.locus]
                 pops += [] if reward.pop is None else [reward.pop]
@@ -1005,7 +1017,7 @@ class CombinedReward(ProductReward):
             else:
                 rest.append(reward)
 
-        if not loci and not pops:
+        if not loci and not pops and not loci_unions and not pop_unions:
             # copy so we never mutate (or alias) the caller's list
             super().__init__(list(rewards))
             return
@@ -1019,8 +1031,14 @@ class CombinedReward(ProductReward):
         for locus in loci:
             combined = RestrictedReward(combined, locus=locus)
 
+        for union in loci_unions:
+            combined = SumReward([RestrictedReward(combined, locus=locus) for locus in union])
+
         for pop in pops:
             combined = RestrictedReward(combined, pop=pop)
+
+        for union in pop_unions:
+            combined = SumReward([RestrictedReward(combined, pop=pop) for pop in union])
 
         super().__init__([combined])
 
