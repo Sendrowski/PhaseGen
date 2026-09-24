@@ -25,6 +25,7 @@ configs = [
     # low-sample-size fast-suite equivalents of slow-marked scenarios (gradual decline; multi-epoch 2-loci loci-joint)
     '2_epoch_n_2_decline',
     '3_epoch_2_loci_n_2_r_1',
+    '2_epoch_2_loci_2_pops_n_3_unlinked_migration',
     '1_epoch_n_2_2_locus_sfs',
     '1_epoch_n_3_2_locus_sfs',
     '1_epoch_n_4_2_locus_sfs',

@@ -33,6 +33,9 @@ class Comparison(Serializable):
     # DPI of the saved figure
     dpi = 300
 
+    # Number of lineages initially unlinked between the loci, declared here for payloads serialized without it
+    n_unlinked: int = 0
+
     # Path to save the figure to
     figure_path: str = None
 
@@ -59,6 +62,7 @@ class Comparison(Serializable):
             migration_rates: Dict[tuple[str, str], Dict[float, float]] = None,
             n_loci: int = 1,
             recombination_rate: float = 0,
+            n_unlinked: int = 0,
             num_replicates: int = 10000,
             n_samples: int = None,
             mutation_rate: float = None,
@@ -92,6 +96,8 @@ class Comparison(Serializable):
             destination population are the same are ignored and that the first time must always be 0.
         :param n_loci: Number of loci.
         :param recombination_rate: Recombination rate.
+        :param n_unlinked: Number of lineages initially unlinked between the loci (see
+            :class:`~phasegen.locus.LocusConfig`).
         :param num_replicates: Number of replicates to use.
         :param n_samples: If set, the ``ms`` operand is PhaseGen's own trajectory sampler
             (:class:`~phasegen.distributions.SampledCoalescent`) drawing ``n_samples`` trajectories, not msprime. The
@@ -124,6 +130,7 @@ class Comparison(Serializable):
         self.migration_rates = migration_rates
         self.n_loci = n_loci
         self.recombination_rate = recombination_rate
+        self.n_unlinked = n_unlinked
         self.num_replicates = num_replicates
         self.n_samples = n_samples
         self.mutation_rate = mutation_rate
@@ -177,7 +184,8 @@ class Comparison(Serializable):
         """
         return LocusConfig(
             n=self.n_loci,
-            recombination_rate=self.recombination_rate
+            recombination_rate=self.recombination_rate,
+            n_unlinked=self.n_unlinked
         )
 
     def load_coalescent_model(
@@ -493,8 +501,9 @@ class Comparison(Serializable):
 
     def _diff_and_plot_curve(self, ph, ms, ph_stat, ms_stat, stat: str, mode: str, name: str) -> tuple:
         """Difference of a pdf / cdf / quantile curve (per-point or per-bin), with a deferred two-panel curve +
-        difference plot. The msprime curve uses cached grid values when available; the phasegen curve uses the fast
-        ``mode``-dependent (de Hoog / cosine) curve where applicable, else the exact per-point callable."""
+        difference plot. The msprime curve uses cached grid values when available. Under a ``cosine`` key the phasegen
+        curve is the cosine-inverted reward distribution where the statistic has one (for the tree height, in place of
+        the matrix-exponential curve), else the exact per-point callable."""
         # the quantile function lives on the probability axis q in (0, 1); the pdf/cdf on the value axis t
         grid_key = 'q' if stat == 'quantile' else 't'
 
@@ -915,7 +924,8 @@ class Comparison(Serializable):
 
         for stat, sub in data.items():
 
-            # a ``cosine`` key groups the nested stats under their own tolerances, which ``--compare-only`` selects
+            # a ``cosine`` key nests stats under their own tolerances, which ``--compare-only`` selects, and evaluates the
+            # tree height through its cosine-inverted reward distribution rather than the matrix exponential
             if stat == 'cosine':
                 self._compare_stat_recursively(ph=ph, ms=ms, data=sub, title=f"{title}: {stat}",
                                                name=f"{name}_{stat}", mode=stat)
@@ -1005,13 +1015,16 @@ class Comparison(Serializable):
         separated by recombination) against the msprime ground truth, as a **full-grid surface** over the single locus
         pair ``(0, 1)`` -- the same machinery as the SFS/jSFS/two-locus surfaces (:meth:`_compare_pairwise_surface`),
         routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. The ``cdf`` / ``pdf``
-        tolerances are asserted over the grid.
+        tolerances are asserted over the grid. A ``conditional`` sub-block runs the conditional self-consistency checks
+        of :meth:`_compare_conditional` on the same pair.
         """
         tols = {k: v for k, v in sub.items() if k in ('cdf', 'pdf')}
         if tols:
             self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name,
                                            joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
                                            surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
+        if 'conditional' in sub:
+            self._compare_conditional(ph.loci.joint_distribution(0, 1), (0, 1), sub['conditional'], title, name, ms=ms)
 
     def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None) -> None:
         """

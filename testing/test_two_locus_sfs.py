@@ -611,3 +611,20 @@ def test_msprime_places_unlinked_lineages_as_the_exact_path_does():
     sim = MsprimeCoalescent(n={'a': 2, 'b': 1}, demography=dem, loci=loci, num_replicates=100000, seed=5)
 
     assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, rel=0.03)
+
+
+@pytest.mark.slow
+def test_msprime_unlinked_lineages_with_migration_recording():
+    """The statistics accumulators take the first n node ids as the samples, so the initial state must number the
+    samples before the split parents. Regression: the parents were interleaved among them, and with migration
+    recording the simulated mean total branch length was 25.1 against the exact 12.0."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=1)
+
+    exact = pg.Coalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci).total_branch_length.mean
+    sim = MsprimeCoalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci, num_replicates=20000, seed=4,
+                            record_migration=True)
+
+    assert sim.total_branch_length.mean == pytest.approx(exact, rel=0.03)

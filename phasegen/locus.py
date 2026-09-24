@@ -51,7 +51,7 @@ class LocusConfig:
         #: Number of loci.
         self.n: int = int(n)
 
-        #: Number of loci to start with.
+        #: Number of lineages initially unlinked between the loci.
         self.n_unlinked: int = int(n_unlinked)
 
         #: Recombination rate.

@@ -222,3 +222,16 @@ def test_fst_ignores_an_unsampled_population():
     )
 
     assert ghost.fst == pytest.approx(plain.fst, rel=1e-10)
+
+
+def test_simulated_fst_rejects_the_layouts_the_exact_one_rejects():
+    """The ground truth raises where Coalescent.fst raises. Regression: it returned nan with a RuntimeWarning."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+
+    for n in ({'a': 3, 'b': 0}, {'a': 1, 'b': 1}):
+        with pytest.raises(ValueError):
+            MsprimeCoalescent(n=n, demography=dem, num_replicates=10).fst
+        with pytest.raises(ValueError):
+            pg.Coalescent(n=n, demography=dem).fst

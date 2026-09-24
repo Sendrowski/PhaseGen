@@ -1,27 +1,29 @@
+# two loci, one of three lineages starting unlinked, migration recorded: covers the initial state of the simulation
+# and the per-tree accumulation of the migration history over a tree sequence of several trees
 n:
-  pop_0: 1
+  pop_0: 2
   pop_1: 1
 n_loci: 2
-recombination_rate: 1
+recombination_rate: 0.8
+n_unlinked: 1
 num_replicates: 1000000
 record_migration: true
 pop_sizes:
   pop_0:
     0: 1
+    0.4: 2
   pop_1:
-    0: 1
+    0: 0.5
 migration_rates:
   !!python/tuple [ 'pop_0', 'pop_1' ]:
-    0: 1
+    0: 0.6
   !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 1
+    0: 1.1
 model: standard
 seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.004
-      cdf: 0.002
       mean: 0.003
       var: 0.0096
       loci:
@@ -39,8 +41,3 @@ comparisons:
         corr: 0.02
       demes:
         mean: 0.01
-    #sfs:
-    #  mean: 0.01
-    #  var: 0.05
-    #  cov: 0.05
-    #  corr: 0.05

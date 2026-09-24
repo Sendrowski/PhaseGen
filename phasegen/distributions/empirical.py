@@ -1409,68 +1409,60 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
         self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
-        self._samples = samples
-        self._sample_size = sample_size
 
         #: Deme axis, in the order of ``samples``, of each msprime population id.
         self._axis = axis
 
     def process_tree(self, i, j, tree, ts, ctx) -> None:
-        samples, sample_size, axis = self._samples, self._sample_size, self._axis
+        axis = self._axis
 
-        lineages = np.array(list(samples.values()))
-        t_coal = ts.tables.nodes.time[sample_size:]
-        node = sample_size - 1
-        t_migration = ts.migrations_time
+        # the coalescences of this tree and the migrations of its lineages over its interval, in time order; a tree
+        # sequence of several loci holds the events of every tree, and each locus must see only its own
+        left, right = tree.interval
+        migrations = ts.tables.migrations
+        in_tree = (migrations.left < right) & (migrations.right > left)
+        order = np.argsort(migrations.time[in_tree], kind='stable')
+        m_time = migrations.time[in_tree][order]
+        m_node = migrations.node[in_tree][order]
+        m_source = migrations.source[in_tree][order]
+        m_dest = migrations.dest[in_tree][order]
+
+        coalescences = sorted((u for u in tree.nodes() if tree.num_children(u) > 0), key=tree.time)
+
+        # deme of each extant lineage, starting from the samples
+        pop_states = {n: axis[tree.population(n)] for n in tree.samples()}
+        lineages = np.bincount(list(pop_states.values()), minlength=len(axis)).astype(int)
         i_migration = 0
-        time = 0
+        time = 0.0
 
-        # population state per leave
-        pop_states = {n: axis[tree.population(n)] for n in range(sample_size)}
-
-        # iterate over coalescence events
-        for coal_time in t_coal:
-
-            # iterate over migration events within this coalescence event
-            while i_migration < len(t_migration) and time < t_migration[i_migration] <= coal_time:
-                delta = t_migration[i_migration] - time
-
-                # update statistics
-                self.heights[j, :, i] += delta * lineages / sum(lineages)
-                self.total_branch_lengths[j, :, i] += delta * lineages
-
-                for n, pop in pop_states.items():
-                    self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
-
-                # update lineages with migrations
-                lineages[axis[ts.migrations_source[i_migration]]] -= 1
-                lineages[axis[ts.migrations_dest[i_migration]]] += 1
-                pop_states[ts.migrations_node[i_migration]] = axis[ts.migrations_dest[i_migration]]
-
-                i_migration += 1
-                time += delta
-
-            # remaining time to next coalescence event
-            delta = coal_time - time
-
-            # update statistics
+        def accumulate(delta: float) -> None:
             self.heights[j, :, i] += delta * lineages / sum(lineages)
             self.total_branch_lengths[j, :, i] += delta * lineages
-
             for n, pop in pop_states.items():
-                self.sfs[j, pop, i, tree.get_num_leaves(n)] += delta
+                self.sfs[j, pop, i, tree.num_samples(n)] += delta
 
-            # reduce by number of coalesced lineages
-            lineages[axis[tree.population(node + 1)]] -= len(tree.get_children(node + 1)) - 1
+        for u in coalescences:
+            coal_time = tree.time(u)
 
-            # delete children from pop_states
-            [pop_states.__delitem__(n) for n in tree.get_children(node + 1)]
+            # migrations of extant lineages before this coalescence
+            while i_migration < len(m_time) and m_time[i_migration] <= coal_time:
+                if m_node[i_migration] in pop_states:
+                    accumulate(m_time[i_migration] - time)
+                    time = m_time[i_migration]
+                    lineages[axis[m_source[i_migration]]] -= 1
+                    lineages[axis[m_dest[i_migration]]] += 1
+                    pop_states[m_node[i_migration]] = axis[m_dest[i_migration]]
+                i_migration += 1
 
-            # add parent to pop_states
-            pop_states[node + 1] = axis[tree.population(node + 1)]
+            accumulate(coal_time - time)
+            time = coal_time
 
-            time += delta
-            node += 1
+            # the children merge into the parent in the parent's deme; a unary node only relabels its lineage
+            children = tree.children(u)
+            lineages[axis[tree.population(u)]] -= len(children) - 1
+            for c in children:
+                pop_states.pop(c, None)
+            pop_states[u] = axis[tree.population(u)]
 
 
 class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
@@ -1563,20 +1555,21 @@ def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tski
     for population in demography.populations:
         index[population.name] = tables.populations.add_row(metadata={'name': population.name})
 
-    # the split parents sit just above the samples, msprime requiring a parent to postdate its child
-    split_time = 1e-12
-    remaining = n_unlinked
-
+    # the samples take node ids 0 to n - 1, which the statistics accumulators rely on
+    unlinked = []
     for name, count in samples.items():
         for _ in range(count):
             node = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0, population=index[name])
+            if len(unlinked) < n_unlinked:
+                unlinked.append((node, name))
 
-            if remaining > 0:
-                remaining -= 1
-                locus_0 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
-                locus_1 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
-                tables.edges.add_row(left=0, right=1, parent=locus_0, child=node)
-                tables.edges.add_row(left=1, right=2, parent=locus_1, child=node)
+    # the split parents sit just above the samples, msprime requiring a parent to postdate its child
+    split_time = 1e-12
+    for node, name in unlinked:
+        locus_0 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
+        locus_1 = tables.nodes.add_row(flags=0, time=split_time, population=index[name])
+        tables.edges.add_row(left=0, right=1, parent=locus_0, child=node)
+        tables.edges.add_row(left=1, right=2, parent=locus_1, child=node)
 
     tables.sort()
 
@@ -2077,15 +2070,23 @@ class MsprimeCoalescent(AbstractCoalescent):
     def fst(self) -> float:
         r"""
         Hudson's :math:`F_{ST}` ground truth, simulated with msprime: ``1 - mean within-population branch diversity /
-        mean between-population branch divergence``, averaged over replicate trees. Requires at least two populations,
-        each with at least two sampled lineages. Matches :meth:`Coalescent.fst`.
+        mean between-population branch divergence``, averaged over replicate trees. The diversity averages over the
+        populations with at least two sampled lineages and the divergence over the pairs of sampled populations, as
+        :meth:`Coalescent.fst` does.
+
+        :raises ValueError: if fewer than two populations are sampled, or none carries two sampled lineages.
         """
         import msprime as ms
 
         pops = self.demography.pop_names
+        counts = self.lineage_config.lineage_dict
+        sampled = [q for q in pops if counts.get(q, 0) >= 1]
 
-        if len(pops) < 2:
-            raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
+        if len(sampled) < 2:
+            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
+
+        if not any(counts[q] >= 2 for q in sampled):
+            raise ValueError("F_ST requires a population with at least two sampled lineages.")
 
         within = np.zeros(self.num_replicates)
         between = np.zeros(self.num_replicates)
