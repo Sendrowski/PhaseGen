@@ -251,7 +251,8 @@ class RewardDistribution(CallableDistributionFunctions):
         :return: The transform at ``s``.
         :raises NotImplementedError: If the reward does not assign one value per state, or if the coalescent has a
             bounded accumulation window.
-        :raises ValueError: If the reward is negative.
+        :raises ValueError: If the reward is negative, or if some state carrying mass can never reach a common
+            ancestor in the final epoch.
         """
         self._host._assert_not_windowed()
         st = self._setup
@@ -606,6 +607,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param s_b: Argument of :math:`R_b`.
         :return: The transform value.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
         """
         st = self._setup
         _assert_lst_absorbs(self._host)
@@ -650,6 +652,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param on: The held argument, ``'a'`` or ``'b'``. The coefficients are in the other argument.
         :param order: Highest order :math:`J`.
         :return: The coefficients :math:`[\Phi_0(s), \ldots, \Phi_J(s)]`.
+        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
         """
         st = self._setup
         _assert_lst_absorbs(self._host)
@@ -672,6 +675,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param s_a: Arguments of :math:`R_a`, a scalar or a 1D array.
         :param s_b: Arguments of :math:`R_b`, a scalar or a 1D array of the same length as ``s_a`` or of length one.
         :return: The transform values, one per argument pair.
+        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
         """
         st = self._setup
         _assert_lst_absorbs(self._host)
@@ -742,6 +746,53 @@ class JointRewardDistribution(CallableDistributionFunctions):
         if na > 0 and nb > 0 and np.allclose(st['ra'] * nb, st['rb'] * na, rtol=1e-12, atol=0.0):
             return float(na / nb)
         return None
+
+    def _line_lst_batch(self, c: float, on: str, u) -> np.ndarray:
+        r"""
+        The transform :math:`\Phi_c(u) = \mathbb{E}\big[e^{-u R_{on}};\ R_a = c R_b\big]` of the reward ``on`` on the
+        paths that absorb without leaving the states :math:`E_c` where :math:`r_a = c\,r_b`, at a batch of arguments.
+        Only those paths give :math:`R_a = c R_b` with positive probability, since time spent where the rewards are not
+        in that ratio adds a term with a continuous law. A state outside :math:`E_c` is killed by a shift of
+        ``_s_inf`` times :math:`|r_a - c\,r_b|` there, as the atom probe kills a positive reward.
+
+        :param c: The slope :math:`c > 0` of the line.
+        :param on: The reward the transform variable acts on, ``'a'`` or ``'b'``.
+        :param u: The arguments, a scalar or a 1D array.
+        :return: The transform values.
+        """
+        st = self._setup
+        tau = st['tau']
+        kill = (self._s_inf * tau) * np.abs(st['ra'] - c * st['rb'])
+        shifts = (np.outer(np.atleast_1d(u) * tau, st['ra' if on == 'a' else 'rb']) + kill).astype(complex)
+        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
+
+    def _line_cdf(self, c: float, on: str, ys: np.ndarray) -> np.ndarray:
+        """``P(0 < R_on <= y, R_a = c R_b)`` at each ``y``, the Euler inversion of the line transform less its mass at
+        zero, divided by the transform variable."""
+        at_zero = self._line_lst_batch(c, on, self._s_inf)[0]
+        return np.array([_euler_invert(lambda u: (self._line_lst_batch(c, on, u) - at_zero) / u, float(y)).real
+                         for y in ys])
+
+    @cached_property
+    def _lines(self) -> tuple:
+        r"""
+        The slopes :math:`c` of the lines :math:`R_a = c R_b` on which the joint law places a positive probability
+        :math:`\Pr(R_a = c R_b > 0)`, ascending. The candidates are the ratios :math:`r_a / r_b` over the transient
+        states where both rewards are positive. For two loci of one statistic only :math:`c = 1` occurs, for two
+        different rewards other slopes do as well.
+        """
+        st = self._setup
+        ra, rb = st['ra'], st['rb']
+        both = (ra > 0) & (rb > 0)
+        ratios = ra[both] / rb[both]
+        _, first = np.unique(np.round(ratios, 12), return_index=True)
+
+        lines = []
+        for c in ratios[np.sort(first)]:
+            mass = (self._line_lst_batch(c, 'a', 0.0)[0] - self._line_lst_batch(c, 'a', self._s_inf)[0]).real
+            if mass > _ATOM_FLOOR:
+                lines.append(float(c))
+        return tuple(sorted(lines))
 
     def moment(self, order_a: int = 1, order_b: int = 1, center: bool = False) -> float:
         r"""
@@ -975,7 +1026,16 @@ class JointRewardDistribution(CallableDistributionFunctions):
         if value == 0:
             return _AtomConditional(self, on, f"R_{other_name} | R_{on} = 0")
 
-        return _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
+        nested = _NestedConditional(self, on, float(value), f"R_{other_name} | R_{on} = {value:g}")
+
+        # each line R_a = c R_b of positive probability gives the conditional an atom where it crosses the value
+        atoms = []
+        for c in self._lines:
+            f = _euler_invert(lambda u, c=c: self._line_lst_batch(c, on, u), float(value), N0=nested._N0).real
+            if f / nested._G0 > _ATOM_FLOOR:
+                atoms.append((float(value) / c if on == 'a' else c * float(value), f))
+
+        return _LineConditional(nested, atoms) if atoms else nested
 
     def check_total_expectation(self, n_points: int = 32, tol: float = 0.01) -> dict:
         r"""
@@ -1070,8 +1130,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
             + (1 - p_c) \int_0^1 \mathbb{P}\big(R_o \le y \mid R_c = v(\xi)\big)\,\mathrm{d}\xi
 
         is tested at ``n_y`` quantiles :math:`y` of :math:`R_o`, and the largest absolute deviation is reported. The
-        whole conditional law enters, so errors that cancel in the mean remain visible. Unbuildable levels are handled
-        as described there.
+        whole conditional law enters, so errors that cancel in the mean remain visible. Where the joint law places
+        positive probability on a line :math:`R_a = c R_b`, each conditional carries an atom where the line crosses its
+        conditioning value, whose step in :math:`y` the quadrature cannot resolve. That part enters exactly instead, as
+        :math:`\mathbb{P}(0 < R_o \le y,\, R_a = c R_b)`. Unbuildable levels are handled as described there.
 
         :param n_points: Number of Gauss-Legendre nodes per conditioning reward.
         :param n_y: Number of evaluation points :math:`y`.
@@ -1099,7 +1161,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
             for u, weight in zip(us, ws):
                 v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))  # continuous part spans quantiles (p0, 1)
                 try:
-                    cdfs.append(np.asarray(self.conditional(on, v).cdf(ys), dtype=float))
+                    cond = self.conditional(on, v)
+                    if isinstance(cond, _LineConditional):  # its atoms enter through the line terms below
+                        cdfs.append((1.0 - cond._p) * np.asarray(cond._continuous.cdf(ys), dtype=float))
+                    else:
+                        cdfs.append(np.asarray(cond.cdf(ys), dtype=float))
                     weights.append(weight)
                 except ValueError as e:
                     skipped.append((float(u), str(e)))
@@ -1113,6 +1179,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
             rhs = (1.0 - p0) * (np.asarray(weights) @ np.asarray(cdfs)) / np.sum(weights)
             if p0 >= _ATOM_FLOOR:  # atom term P(R_on = 0) F(y | R_on = 0)
                 rhs = rhs + p0 * np.asarray(self.conditional(on, 0.0).cdf(ys), dtype=float)
+            for c in self._lines:  # line term P(0 < R_other <= y, R_a = c R_b)
+                rhs = rhs + self._line_cdf(c, other, ys)
 
             dev = float(np.max(np.abs(rhs - lhs)))
             out[on] = dev
@@ -1822,3 +1890,137 @@ class _NestedConditional(ConditionalRewardDistribution):
     def lst(self, s: complex) -> complex:
         """The conditional transform ``G(s) / G(0)``, see ``ConditionalRewardDistribution``."""
         return self._G(complex(s)) / self._G0
+
+
+class _LineContinuous(ConditionalRewardDistribution):
+    """The continuous part of ``_LineConditional``: the conditional with its atoms removed,
+    ``(G(s) - sum_k f_k e^{-s y_k}) / (G(0) - sum_k f_k)`` in the notation of ``_NestedConditional``, inverted by the
+    ordinary conditional machinery."""
+    _pdf_function = ConditionalDensity
+    _cdf_function = ConditionalCDF
+    _quantile_function = ConditionalQuantileFunction
+
+    def __init__(self, nested: '_NestedConditional', atoms: list) -> None:
+        self._nested = nested
+        self._joint = nested._joint
+        self._host = nested._host
+        self.state_space = nested.state_space
+        self._on = nested._on
+        self._value = nested._value
+        self._logger = nested._logger
+        self.label = nested.label
+        self._y = np.array([y for y, _ in atoms], dtype=float)
+        self._f = np.array([f for _, f in atoms], dtype=float)
+
+    def lst(self, s: complex) -> complex:
+        """The transform of the continuous part."""
+        s = complex(s)
+        nested = self._nested
+        return (nested._G(s) - np.sum(self._f * np.exp(-s * self._y))) / (nested._G0 - np.sum(self._f))
+
+
+class _LineCDF(ConditionalCDF):
+    """The CDF of ``_LineConditional``: the continuous part weighted by ``1 - P`` plus the steps of the atoms."""
+
+    @property
+    def _cos_coeffs(self) -> dict:
+        """The cosine expansion of the continuous part, whose window is the support the mixture is read over."""
+        return self._distribution._continuous.cdf._cos_coeffs
+
+    def __call__(self, t) -> 'np.ndarray | float':
+        """
+        :param t: Point or array of points.
+        :return: The CDF, of the same shape.
+        """
+        d = self._distribution
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        steps = (ta[:, None] >= d._atom_values[None, :]) @ d._atom_masses
+        out = (1.0 - d._p) * np.atleast_1d(d._continuous.cdf(ta)) + steps
+        return out if np.ndim(t) > 0 else float(out[0])
+
+
+class _LineDensity(ConditionalDensity):
+    """The density of ``_LineConditional``, that of its continuous part weighted by ``1 - P``."""
+
+    def __call__(self, t, **kwargs) -> 'np.ndarray | float':
+        """
+        :param t: Point or array of points.
+        :return: The density of the continuous part, of the same shape.
+        """
+        d = self._distribution
+        out = (1.0 - d._p) * np.atleast_1d(d._continuous.pdf(np.atleast_1d(np.asarray(t, dtype=float))))
+        return out if np.ndim(t) > 0 else float(out[0])
+
+
+class _LineQuantile(ConditionalQuantileFunction):
+    """The quantile of ``_LineConditional``: the levels an atom covers return its location, the others the quantile
+    of the continuous part at the level less the atoms below it, rescaled by ``1 - P``."""
+
+    def __call__(self, q) -> 'np.ndarray | float':
+        """
+        :param q: Level or array of levels in ``[0, 1]``.
+        :return: The quantiles, of the same shape.
+        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        """
+        d = self._distribution
+        qa = np.atleast_1d(np.asarray(q, dtype=float))
+        if np.any((qa < 0) | (qa > 1)):
+            raise ValueError("Quantile must be between 0 and 1.")
+
+        ys, ps = d._atom_values, d._atom_masses
+        # the CDF just below and at each atom
+        lo = (1.0 - d._p) * np.atleast_1d(d._continuous.cdf(ys)) + np.concatenate([[0.0], np.cumsum(ps)[:-1]])
+        hi = lo + ps
+
+        passed = (qa[:, None] > hi[None, :]) @ ps
+        out = np.atleast_1d(d._continuous.quantile(np.clip((qa - passed) / (1.0 - d._p), 0.0, 1.0)))
+        for y, a, b in zip(ys, lo, hi):
+            out = np.where((qa >= a) & (qa <= b), y, out)
+        return out if np.ndim(q) > 0 else float(out[0])
+
+
+class _LineConditional(ConditionalRewardDistribution):
+    r"""
+    The conditional on a value ``R_on = v > 0`` when the joint law places positive probability on lines
+    :math:`R_a = c R_b`, as the equal rewards of linked loci do on :math:`c = 1`. It is a mixture of one atom per line,
+    at the value of the other reward on that line, of mass :math:`f_c(v) / f(v)`, where :math:`f_c` is the density of
+    the conditioning reward on the paths that keep the rewards in ratio :math:`c`
+    (``JointRewardDistribution._line_lst_batch``) and :math:`f` its marginal density, and a continuous part
+    (``_LineContinuous``). The transform is the full one of ``_NestedConditional``, so the mean and moments include
+    the atoms.
+    """
+    _pdf_function = _LineDensity
+    _cdf_function = _LineCDF
+    _quantile_function = _LineQuantile
+
+    def __init__(self, nested: '_NestedConditional', atoms: list) -> None:
+        """
+        :param nested: The conditional with the atoms included in its transform.
+        :param atoms: ``(location, density)`` per atom, the density being :math:`f_c(v)`.
+        """
+        self._nested = nested
+        self._joint = nested._joint
+        self._host = nested._host
+        self.state_space = nested.state_space
+        self._on = nested._on
+        self._value = nested._value
+        self._logger = nested._logger
+        self.label = nested.label
+
+        atoms = sorted(atoms)
+
+        #: Locations of the atoms, ascending.
+        self._atom_values = np.array([y for y, _ in atoms], dtype=float)
+
+        #: Masses of the atoms.
+        self._atom_masses = np.array([f for _, f in atoms], dtype=float) / nested._G0
+
+        #: Total mass of the atoms.
+        self._p = float(self._atom_masses.sum())
+
+        #: The continuous part.
+        self._continuous = _LineContinuous(nested, atoms)
+
+    def lst(self, s: complex) -> complex:
+        """The conditional transform, atoms included."""
+        return self._nested.lst(s)

@@ -1954,3 +1954,49 @@ def test_exact_march_respects_its_increment_from_an_anchor_at_the_origin(n, size
             assert abs(float(dist.cdf(float(x))) - float(point._cdf_point(float(x)))) < 0.05, x
     finally:
         Settings.dehoog_tail_quantile = original
+
+
+def test_conditional_on_linked_loci_carries_the_diagonal_atom():
+    """Two rewards equal on a set of paths with positive probability, as the tree heights of linked loci, give the
+    conditional an atom at the conditioning value. Regression: the law was treated as continuous, the density was
+    biased by 35 to 49% everywhere and spiked at the value, and no atom was reported. Reference values from 400,000
+    sampled trajectories: an atom of 0.2467 +- 0.0035 at v = 1.3, and quantiles 0.843, 1.299 and 1.967 at 0.2, 0.5
+    and 0.8."""
+    joint = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
+    v = 1.3
+    cond = joint.conditional('a', v)
+
+    assert cond._p == pytest.approx(0.2467, abs=0.014)
+
+    # the atom is a step of the CDF at v, and the levels it covers return v
+    assert float(cond.cdf(v)) - float(cond.cdf(v - 1e-9)) == pytest.approx(cond._p, abs=1e-6)
+    assert float(cond.quantile(0.5)) == pytest.approx(v)
+
+    for q, ref in ((0.2, 0.843), (0.8, 1.967)):
+        assert float(cond.quantile(q)) == pytest.approx(ref, rel=0.02), q
+
+    # the density is that of the continuous part and stays bounded at v
+    assert float(cond.pdf(v)) < 1.0
+
+
+def test_conditional_carries_the_atom_of_a_sloped_line():
+    """A triple merger of three lineages under a Beta coalescent keeps the total branch length at three times the tree
+    height, so the joint law places mass on the line R_a = R_b / 3 and the conditional on the total branch length has
+    an atom at a third of its value. Regression: only the diagonal was detected, and the law on this line was treated
+    as continuous. Reference values from 400,000 sampled trajectories, conditioning within 2% of the median of R_b:
+    an atom of 0.0553 +- 0.0026, and quantiles 1.428, 1.663 and 1.838 at 0.2, 0.5 and 0.8."""
+    coal = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
+    joint = coal.joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+
+    assert joint._lines == pytest.approx((1 / 3,))
+
+    v = float(joint.marginal('b').quantile(0.5))
+    cond = joint.conditional('b', v)
+
+    np.testing.assert_allclose(cond._atom_values, [v / 3], rtol=1e-12)
+    assert cond._p == pytest.approx(0.0553, abs=0.0104)
+
+    y = v / 3
+    assert float(cond.cdf(y)) - float(cond.cdf(y - 1e-9)) == pytest.approx(cond._p, abs=1e-6)
+
+    np.testing.assert_allclose(cond.quantile([0.2, 0.5, 0.8]), [1.428, 1.663, 1.838], rtol=0.02)
