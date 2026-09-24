@@ -592,3 +592,39 @@ def test_sum_of_deme_rewards_restricts_to_the_union_of_demes():
     parts = coal.sfs.demes['pop_0'].mean.data + coal.sfs.demes['pop_1'].mean.data
 
     np.testing.assert_allclose(union.data, parts, rtol=1e-10)
+
+
+def test_restrictions_stacked_on_a_union_resolve_the_residence():
+    """A restriction applied on top of a union restricts the residence-resolved parts of the union. Regression: the
+    union's SumReward split its value by lineage counts, so two intersecting deme unions gave 2.7520 against 2.2411
+    for the one deme they share, and a locus union restricted to a deme gave 3.232744 against 3.232323."""
+    coal = pg.Coalescent(
+        n={'pop_0': 3, 'pop_1': 2, 'pop_2': 1},
+        demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1},
+            events=[pg.SymmetricMigrationRateChanges(pops=['pop_0', 'pop_1', 'pop_2'], rate=1)]
+        )
+    )
+    sfs = pg.UnfoldedSFSReward(1)
+
+    stacked = pg.CombinedReward([
+        sfs,
+        pg.SumReward([pg.DemeReward('pop_0'), pg.DemeReward('pop_1')]),
+        pg.SumReward([pg.DemeReward('pop_1'), pg.DemeReward('pop_2')])
+    ])
+    single = pg.CombinedReward([sfs, pg.DemeReward('pop_1')])
+
+    assert coal.moment(1, [stacked], center=False) == pytest.approx(coal.moment(1, [single], center=False), rel=1e-10)
+
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 1},
+        loci=pg.LocusConfig(n=2, recombination_rate=1),
+        demography=pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 1,
+                                                                                    ('pop_1', 'pop_0'): 1})
+    )
+    height = pg.TotalTreeHeightReward()
+
+    union = pg.CombinedReward([height, pg.SumReward([pg.LocusReward(0), pg.LocusReward(1)]), pg.DemeReward('pop_0')])
+    deme = pg.CombinedReward([height, pg.DemeReward('pop_0')])
+
+    assert coal.moment(1, [union], center=False) == pytest.approx(coal.moment(1, [deme], center=False), rel=1e-10)

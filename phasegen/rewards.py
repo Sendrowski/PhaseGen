@@ -881,6 +881,15 @@ class SumReward(CompositeReward):
         """
         return np.sum([r._get(state_space) for r in self.rewards], axis=0)
 
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
+        """
+        The sum of the parts of the members.
+
+        :param state_space: state space
+        :return: reward parts
+        """
+        return np.sum([r._get_parts(state_space) for r in self.rewards], axis=0)
+
 
 class RestrictedReward(CompositeReward):
     r"""
