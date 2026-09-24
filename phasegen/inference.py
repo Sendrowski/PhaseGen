@@ -296,32 +296,13 @@ class Inference(Serializable):
 
         return coal
 
-    #: The coalescent state spaces to cache and reuse across loss evaluations, by attribute name on the coalescent.
-    _state_space_names: Tuple[str, ...] = (
-        'lineage_counting_state_space',
-        'block_counting_state_space',
-        'joint_block_counting_state_space',
-    )
-
     @cached_property
     def _state_spaces(self) -> Dict[str, StateSpace]:
         """
-        The coalescent state spaces (built once from ``x0``) that are reused across loss evaluations when caching is
-        enabled. Keyed by their attribute name on the coalescent. The (config-dependent) state and transition
-        structure is reused; only the (epoch-dependent) rate matrix is recomputed per evaluation.
+        The state spaces of the coalescent at ``x0``, reused across loss evaluations when caching is enabled. Only the
+        rate matrices are recomputed per evaluation.
         """
-        coal = self.coal(**self.x0)
-
-        spaces = {}
-        for name in self._state_space_names:
-            # a state space the configuration does not support (block counting with two loci, say) is simply not
-            # cached; the coalescent raises for it only if a loss evaluation actually asks for it
-            try:
-                spaces[name] = getattr(coal, name)
-            except NotImplementedError as e:
-                self._logger.debug("Not caching %s for this configuration: %s", name, e)
-
-        return spaces
+        return self.coal(**self.x0).state_spaces
 
     @staticmethod
     def _get_loss_function(

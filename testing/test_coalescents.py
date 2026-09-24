@@ -1887,3 +1887,13 @@ def test_epoch_extension_keeps_consuming_while_a_later_epoch_would_misplace_the_
     # 1 - cdf cannot see the surviving mass that drives the error, so the criterion may not be built on it
     assert 1 - float(coal.tree_height.cdf(coal.tree_height.t_max)) == 0.0
     assert 0 < coal.tree_height._survival(coal.tree_height.t_max) < 1e-15
+
+
+def test_state_spaces_lists_the_spaces_the_configuration_supports():
+    """Spaces a configuration cannot build are left out rather than raising."""
+    assert list(pg.Coalescent(n=3).state_spaces) == [
+        'lineage_counting_state_space', 'block_counting_state_space', 'joint_block_counting_state_space'
+    ]
+    assert list(pg.Coalescent(n=3, loci=2).state_spaces) == [
+        'lineage_counting_state_space', 'two_locus_block_counting_state_space'
+    ]

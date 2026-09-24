@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Attribute names of the state spaces a :class:`Coalescent` can build.
+_STATE_SPACE_NAMES = (
+    'lineage_counting_state_space',
+    'block_counting_state_space',
+    'joint_block_counting_state_space',
+    'two_locus_block_counting_state_space',
+)
+
 
 class AbstractCoalescent(ABC):
     """
@@ -358,6 +366,19 @@ class Coalescent(AbstractCoalescent, Serializable):
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
+
+    @property
+    def state_spaces(self) -> Dict[str, StateSpace]:
+        """
+        The state spaces this configuration supports, keyed by attribute name.
+        """
+        spaces = {}
+        for name in _STATE_SPACE_NAMES:
+            try:
+                spaces[name] = getattr(self, name)
+            except (NotImplementedError, ValueError):
+                pass
+        return spaces
 
     @cached_property
     def _two_locus_tree_height(self) -> TreeHeightDistribution:

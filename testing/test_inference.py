@@ -906,8 +906,9 @@ if __name__ == '__main__':
         self.assertIsNotNone(inf.params_inferred)
         self.assertLess(inf.loss_inferred, 1e-8)
 
-        # the two-locus coalescent supports only the lineage-counting space, so that is all that is cached
-        self.assertEqual(['lineage_counting_state_space'], list(inf._state_spaces))
+        # the two-locus coalescent supports only the lineage-counting and two-locus spaces
+        self.assertEqual(['lineage_counting_state_space', 'two_locus_block_counting_state_space'],
+                         list(inf._state_spaces))
 
     def test_x0_outside_bounds_raises_at_construction(self):
         """An explicit start point outside the box contributes nothing to the multi-start, so it is rejected where
