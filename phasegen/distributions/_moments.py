@@ -470,15 +470,20 @@ class MomentEvaluator:
 
     def _check_numerical_stability(self, S: np.ndarray, epoch: int) -> None:
         """
-        Warn about potential numerical instability with very small or very large rates.
+        Warn about potential numerical instability with very small or very large rates, once per epoch.
 
         :param S: (Regularized) intensity matrix.
         :param epoch: Epoch number.
         """
+        warned = self.__dict__.setdefault('_stability_warned', set())
+        if epoch in warned:
+            return
+
         # positive (off-diagonal) rates; for a sparse matrix these are the positive stored entries
         rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
 
         if rates.min() / rates.max() < 1e-10:
+            warned.add(epoch)
             self._logger.warning(
                 f"Intensity matrix in epoch {epoch} contains rates that differ by more than 10 orders of magnitude: "
                 f"min: {rates.min()}, max: {rates.max()}. "

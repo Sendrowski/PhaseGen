@@ -328,9 +328,9 @@ def _build_epoch_data(host) -> dict:
     transient = np.where(~ss.absorbing)[0]
 
     blocks = []
-    for epoch in host._get_epochs_until_unbounded():
+    for i_epoch, epoch in enumerate(host._get_epochs_until_unbounded()):
         ss.update_epoch(epoch)
-        host._check_numerical_stability(ss.S, 0)
+        host._check_numerical_stability(ss.S, i_epoch)
         blocks.append((host._transient_block(transient, sparse=True), epoch.start_time, epoch.end_time))
 
     # the states that carry mass in some epoch: the closure of the initial support under each epoch's transitions in

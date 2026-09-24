@@ -1105,16 +1105,22 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.state_space.update_epoch(epoch)
 
         while u > epoch.end_time:
-            self._check_numerical_stability(self.state_space.S, 0)
+            self._check_numerical_stability(self.state_space.S, self._epoch_index(epoch))
             w = self._propagate(w, epoch.end_time - u_prev)
 
             u_prev = epoch.end_time
             epoch = self.demography.get_epoch(epoch.end_time)
             self.state_space.update_epoch(epoch)
 
-        self._check_numerical_stability(self.state_space.S, 0)
+        self._check_numerical_stability(self.state_space.S, self._epoch_index(epoch))
 
         return self._propagate(w, u - u_prev)
+
+    def _epoch_index(self, epoch: 'Epoch') -> int:
+        """The position of ``epoch`` in the demography, counted from 0."""
+        for i, e in enumerate(self.demography.epochs):
+            if e.end_time >= epoch.end_time:
+                return i
 
     def _exit_rates(self) -> np.ndarray:
         """The per-state absorption rates of the current epoch, see ``_sweep``."""
@@ -1172,14 +1178,14 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         nodes, cdf, pdf = [bounds[0]], [self._cum(w)], [float(w @ self._exit_rates())]
         n_seg = max(1, int(round(n / (len(bounds) - 1))))
 
-        for i_seg, (start, end) in enumerate(zip(bounds[:-1], bounds[1:])):
+        for start, end in zip(bounds[:-1], bounds[1:]):
             dt = (end - start) / n_seg
             start_epoch = self.demography.get_epoch(start)
 
             if start_epoch.end_time >= end:
                 # the whole segment lies within one epoch: exponentiate once and reuse the propagator for every step
                 self.state_space.update_epoch(start_epoch)
-                self._check_numerical_stability(self.state_space.S, i_seg)
+                self._check_numerical_stability(self.state_space.S, self._epoch_index(start_epoch))
 
                 dense = self.state_space.k < Settings.expm_action_min_dim
                 P = expm(self._dense_rate_matrix() * dt) if dense else None

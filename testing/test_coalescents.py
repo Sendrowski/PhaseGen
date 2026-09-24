@@ -1897,3 +1897,23 @@ def test_state_spaces_lists_the_spaces_the_configuration_supports():
     assert list(pg.Coalescent(n=3, loci=2).state_spaces) == [
         'lineage_counting_state_space', 'two_locus_block_counting_state_space'
     ]
+
+
+@pytest.mark.parametrize('pop_sizes, n_epochs', [({0: 1}, 1), ({0: 1, 0.3: 0.2, 1.0: 3}, 3)])
+def test_stability_warning_names_real_epochs_once_each(caplog, pop_sizes, n_epochs):
+    """The rate-spread warning of a Dirac coalescent at large n names the epoch and fires once per epoch. Regression:
+    the tree-height grid passed its segment index as the epoch, logging 168 warnings for 'epochs' 0 to 129 on a single
+    epoch."""
+    import re
+
+    coal = pg.Coalescent(n=20, model=pg.DiracCoalescent(psi=0.3, c=2), demography=pg.Demography(pop_sizes=pop_sizes))
+
+    with caplog.at_level('WARNING'):
+        coal.tree_height.quantile(0.5)
+        coal.tree_height.cdf(1.0)
+
+    epochs = [int(m.group(1)) for r in caplog.records if (m := re.search(r'epoch (\d+) contains rates', r.getMessage()))]
+
+    assert epochs
+    assert len(epochs) == len(set(epochs))
+    assert set(epochs) <= set(range(n_epochs))
