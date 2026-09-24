@@ -3,8 +3,8 @@ Matrix exponentiation backends.
 
 .. deprecated::
     The backend registry is deprecated and will be removed. The coalescent statistics issue many small matrix
-    exponentials, for which SciPy is the fastest option, and no other backend is used. Call sites will move to SciPy
-    directly.
+    exponentials, for which the default SciPy backend is faster than the TensorFlow, Jax and PyTorch ones, whose
+    per-call overhead dominates at these sizes.
 
 Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})`
 (:meth:`ExpmBackend.compute() <phasegen.expm.ExpmBackend.compute>`) and its action
@@ -12,10 +12,10 @@ Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A
 (:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`).
 
 A registered backend reaches the Van Loan evaluation of moments, the tree-height distribution functions and the
-mutational configurations. The Laplace transform of an accumulated reward always calls SciPy; the occupation times of
+mutational configurations. The Laplace transform of an accumulated reward always calls SciPy. The occupation times of
 spectra call SciPy above :attr:`Settings.closed_form_sparse_min_states
 <phasegen.settings.Settings.closed_form_sparse_min_states>` and :attr:`Settings.expm_action_min_dim
-<phasegen.settings.Settings.expm_action_min_dim>` and the registered backend below them.
+<phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below them.
 """
 import logging
 from abc import ABC, abstractmethod

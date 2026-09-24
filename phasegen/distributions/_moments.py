@@ -250,8 +250,9 @@ class MomentEvaluator:
           the strongly connected components of the transition graph so that the factors stay nearly triangular.
         - The closed form requires :attr:`Settings.closed_form_last_epoch
           <phasegen.settings.Settings.closed_form_last_epoch>`, accumulation until absorption from a zero start time,
-          and certain absorption from every transient state of the last epoch. Otherwise the last epoch is integrated
-          up to :attr:`TreeHeightDistribution.t_max <phasegen.distributions.TreeHeightDistribution.t_max>`.
+          and certain absorption from every transient state of the last epoch that can carry mass. Otherwise the last
+          epoch is integrated up to :attr:`TreeHeightDistribution.t_max
+          <phasegen.distributions.TreeHeightDistribution.t_max>`.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
           mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
@@ -1118,11 +1119,12 @@ class MomentEvaluator:
 
     def _absorption_certain_in_last_epoch(self) -> bool:
         """
-        Whether every transient state of the final epoch can reach an absorbing state, so that ``-T`` is non-singular
-        and the closed form applies. When ``False``, for example for a migration barrier in the last epoch, absorption
-        may still happen in earlier epochs, and callers use the matrix exponential up to the absorption-time estimate.
+        Whether every transient state that can carry mass (see ``_alpha_support``) can reach an absorbing state in the
+        final epoch, so that ``-T`` restricted to those states is non-singular and the closed form applies. When
+        ``False``, for example for a migration barrier in the last epoch, absorption may still happen in earlier
+        epochs, and callers use the matrix exponential up to the absorption-time estimate.
 
-        :return: Whether absorption is certain from every transient state of the last epoch.
+        :return: Whether absorption is certain from every transient state of the last epoch that can carry mass.
         """
         # the result depends only on the (fixed) last-epoch structure, so memoize it: the closed form queries this
         # once per moment, and an SFS/jSFS evaluates many bins, so recomputing the reachability each time dominated.

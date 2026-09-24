@@ -339,8 +339,7 @@ class DemographyTestCase(TestCase):
 
     def test_to_demes(self):
         """
-        Test converting a demography to a demes graph. Migration is not covered: msprime's own conversion rejects
-        it with ``migration[0]: invalid migration``, for constant and time-varying rates alike.
+        Test converting a demography without migration to a demes graph.
         """
         d = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.5}, 'pop_1': {0: 2.5}})
 
@@ -348,10 +347,23 @@ class DemographyTestCase(TestCase):
 
         self.assertEqual(sorted(d.pop_names), sorted(deme.name for deme in graph.demes))
 
+    def test_to_demes_with_migration(self):
+        """
+        Migration rates of at most 1 convert, one migration record per direction.
+        """
+        d = pg.Demography(
+            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5}},
+            migration_rates={('pop_0', 'pop_1'): 0.3, ('pop_1', 'pop_0'): 0.6}
+        )
+
+        graph = d._to_demes()
+
+        self.assertEqual(sorted([0.3, 0.6]), sorted(m.rate for m in graph.migrations))
+
     def test_to_demes_with_migration_raises(self):
         """
-        Migration reaches msprime's demes conversion as an invalid migration, so the wrapper surfaces that rather
-        than returning a graph.
+        demes accepts migration rates of at most 1, so msprime's conversion rejects larger rates as an invalid
+        migration, and the wrapper surfaces that rather than returning a graph.
         """
         d = pg.Demography(
             pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5}},
@@ -661,3 +673,15 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
     mean = pg.Coalescent(n={'a': 2, 'b': 0, 'c': 0}, demography=chained).tree_height.mean
 
     assert mean == pytest.approx(0.01, rel=0.05)
+
+    def test_exponential_growth_survives_a_serialization_round_trip(self):
+        """An exponential rate change keeps its trajectory through to_json / from_json. Regression: the trajectory
+        was a closure, which jsonpickle drops, so a coalescent saved before computing anything raised AttributeError
+        on every quantity after loading."""
+        dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+            initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0.2, end_time=1.0
+        )])
+
+        restored = pg.Coalescent.from_json(pg.Coalescent(n=3, demography=dem).to_json())
+
+        self.assertAlmostEqual(pg.Coalescent(n=3, demography=dem).tree_height.mean, restored.tree_height.mean)

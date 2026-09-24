@@ -400,8 +400,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over the populations with at least
         two sampled lineages and the denominator averages :math:`\mathbb{E}[T_{PP'}]` over the unordered pairs
         :math:`P \ne P'` of sampled populations. Each expectation is the mean tree height of a two-lineage coalescent
-        with the same demography and coalescent model, so the result depends on which populations are sampled but not
-        on how many lineages each carries beyond that, nor on the number of loci.
+        with the same demography and coalescent model, so the result depends on which populations carry at least one
+        and which at least two sampled lineages, but not on larger counts, nor on the number of loci.
 
         :return: Hudson's :math:`F_{ST}`.
         :raises ValueError: if fewer than two populations are sampled, or none carries two sampled lineages.
@@ -730,7 +730,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
-            clear: bool = False,
+            clear: bool = True,
             label: str = None,
             title: str = None
     ) -> 'plt.Axes':

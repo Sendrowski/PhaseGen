@@ -1931,8 +1931,9 @@ def test_exact_march_tolerates_a_step_below_the_float_spacing():
     )
     dist = coal.sfs.bin(1)
 
+    # the march must continue past the stretch where the step collapses: the law is complete well before 0.6
     for x in (0.6, 1.0, 3.0):
-        assert 0.0 <= float(dist.cdf(x)) <= 1.0
+        assert float(dist.cdf(x)) == pytest.approx(1.0, abs=1e-4)
 
     assert np.isfinite(float(dist.quantile(0.99)))
 

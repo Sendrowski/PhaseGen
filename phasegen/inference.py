@@ -882,6 +882,15 @@ class Inference(Serializable):
         # only the main result; bootstrapping it would repeat ``n_bootstraps`` fits per job and discard every one
         other.do_bootstrap = False
 
+        # the copy starts unfitted, so merging it back before it has run is rejected
+        other.result = None
+        other.params_inferred = {}
+        other.loss_inferred = None
+        other.loss_runs = np.array([])
+        other.dist_inferred = None
+        other.bootstraps = self.bootstraps.iloc[0:0].copy()
+        other.runs = self.runs.iloc[0:0].copy()
+
         if index is None:
             sequence = np.random.SeedSequence()
         else:

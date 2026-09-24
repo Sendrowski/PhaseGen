@@ -106,3 +106,23 @@ def test_parallel_workers_do_not_warn_about_the_backend(caplog):
         log.removeHandler(caplog.handler)
 
     assert not any('deprecated' in r.getMessage() for r in caplog.records)
+
+
+def test_plot_clear_false_draws_onto_the_current_axes():
+    """The clear parameter of the plot methods decides whether a plot starts a new figure. Regression: it was never
+    read, so clear=False could not overlay."""
+    import matplotlib.pyplot as plt
+    import phasegen as pg
+
+    plt.close('all')
+    dist = pg.Coalescent(n=3).tree_height
+
+    ax1 = dist.cdf.plot(show=False)
+    ax2 = dist.pdf.plot(show=False, clear=False)
+
+    assert ax2 is ax1
+    assert len(ax2.get_lines()) == 2
+
+    ax3 = dist.cdf.plot(show=False)
+    assert len(ax3.get_lines()) == 1
+    plt.close('all')

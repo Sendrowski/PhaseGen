@@ -81,8 +81,8 @@ class Visualization:
     @staticmethod
     def clear_show_save(func: Callable) -> Callable:
         """
-        Decorator for clearing current figure in the beginning
-        and showing or saving produced plot subsequently.
+        Decorator that prepares the axes and shows or saves the produced plot. Without ``ax`` the plot goes to a new
+        figure, or onto the current axes when ``clear`` is false. With ``ax`` it goes onto those axes as they are.
 
         :param func: Function to decorate
         :return: Wrapper function
@@ -98,10 +98,12 @@ class Visualization:
             :return: Axes
             """
 
-            # add axes if not given
-            if 'ax' not in kwargs or ('ax' in kwargs and kwargs['ax'] is None):
-                # clear current figure
-                plt.close()
+            clear = kwargs.get('clear', True)
+
+            if kwargs.get('ax') is None:
+                # a fresh figure, or the current axes to draw onto
+                if clear:
+                    plt.close()
 
                 kwargs['ax'] = plt.gca()
 

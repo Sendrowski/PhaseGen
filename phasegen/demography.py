@@ -182,10 +182,11 @@ class Demography:
     def _to_demes(self) -> 'demes.Graph':
         """
         Convert to demes object (see https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography.to_demes).
-        TODO: msprime raises an error when converting to demes (migration[0]: invalid migration)
+        demes accepts migration rates of at most 1, so a larger rate is rejected by msprime's conversion.
 
         :return: Demes object.
         :raise ImportError: If msprime is not installed.
+        :raise ValueError: If a migration rate exceeds 1 (``migration[0]: invalid migration``).
         """
         return self.to_msprime().to_demes()
 
@@ -696,10 +697,9 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         """
         Initialize the population size change.
 
-        :param pop_sizes: Population sizes. Either a dictionary of the form `{pop_i: {time1: size1, time2: size2}}`,
-            indexed by population name, or a list of dictionaries of the form `{time1: size1, time2: size2}` ordered
-            by population index, or a single dictionary of the form `{time1: size1, time2: size2}` for a single
-            population.
+        :param pop_sizes: Population sizes, a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}`` indexed
+            by population name. :class:`~phasegen.demography.Demography` also accepts the list and single-population
+            forms and normalises them to this one.
         :param migration_rates: Migration rates. A dictionary of the form `{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}` of migration from population `pop_i` to population `pop_j` at time `time1` etc.
         """
@@ -1106,6 +1106,30 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
             e._apply(epoch)
 
 
+class _ExponentialTrajectory:
+    r"""
+    The exponential trajectory :math:`x(t) = x_0 \exp\!\big(-g\,(t - t_0)\big)` as a callable object, which
+    serializes with its parameters where a closure would not.
+    """
+
+    def __init__(self, x0: float, g: float, t0: float) -> None:
+        """
+        :param x0: Value at the start time.
+        :param g: Growth rate.
+        :param t0: Start time.
+        """
+        self.x0: float = x0
+        self.g: float = g
+        self.t0: float = t0
+
+    def __call__(self, t: float) -> float:
+        """
+        :param t: Time.
+        :return: The value at ``t``.
+        """
+        return self.x0 * np.exp(-self.g * (t - self.t0))
+
+
 class ExponentialRateChanges(DiscretizedRateChanges):
     r"""
     Demographic event for exponential rate changes of multiple populations or migration rates. Each rate follows the
@@ -1133,20 +1157,18 @@ class ExponentialRateChanges(DiscretizedRateChanges):
         :param step_size: Step size used for the discretization.
         """
 
-        def get_trajectory(k: Any) -> Callable[[float], float]:
+        def get_trajectory(k: Any) -> '_ExponentialTrajectory':
             """
-            Get the trajectory function for the given key.
+            Get the trajectory for the given key.
 
             :param k: Key.
-            :return: Trajectory function.
+            :return: Trajectory, a callable of the time.
             """
             g = growth_rate[k] if isinstance(growth_rate, dict) else growth_rate
             t0 = start_time[k] if isinstance(start_time, dict) else start_time
             x0 = initial_rate[k] if isinstance(initial_rate, dict) else initial_rate
 
-            # return lambda and bind g, t0 and x0 into it
-            # noinspection all
-            return lambda t, g=g, t0=t0, x0=x0: x0 * np.exp(- g * (t - t0))
+            return _ExponentialTrajectory(x0=x0, g=g, t0=t0)
 
         super().__init__(
             trajectory={k: get_trajectory(k) for k in initial_rate},

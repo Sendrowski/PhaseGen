@@ -970,3 +970,25 @@ if __name__ == '__main__':
             log.removeHandler(handler)
 
         self.assertTrue(any('start point rather than an estimate' in m for m in records), records[-3:])
+
+    def test_unrun_spawned_objects_are_rejected_when_merged(self):
+        """A spawned run or bootstrap starts unfitted. Regression: the copy carried the parent's fitted state, so an
+        un-run bootstrap was merged as the parent's point estimate and the documented RuntimeError never fired,
+        silently shrinking the bootstrap spread."""
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            x0={'Ne': 1.0},
+            coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+            loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2),
+            observation=1.2,
+            resample=lambda obs, rng: obs * rng.uniform(0.9, 1.1),
+            n_runs=1,
+            pbar=False
+        )
+        inf.run()
+
+        with self.assertRaises(RuntimeError):
+            inf.add_bootstrap(inf.create_bootstrap(index=0))
+
+        with self.assertRaises(RuntimeError):
+            inf.add_run(inf.create_run(index=0))

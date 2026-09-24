@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Smallest step of the exact-node march, relative to the node's position.
+_EXACT_STEP_FLOOR = 1e-6
+
 
 class DistributionFunction:
     """
@@ -514,9 +517,10 @@ class _LSTFunction(_HazardGrid):
         The step to the next exact node: the increment in probability, the finer of ``_hazard_step`` in cumulative
         hazard and ``_cdf_step``, divided by the local density, and at most a local limit. For the first step the
         density is the slope of the cosine grid at the anchor and the limit is the distance along that grid to the
-        incremented level. Afterwards the density is the secant of the last two nodes and the limit is
-        ``_step_growth`` times the last step. A density that is not positive takes the limit. The nodes do not depend on
-        the queries.
+        incremented level. Afterwards the density is the secant of the last two nodes, raised to the local slope of the
+        cosine grid while the node lies inside the fit's window, and the limit is ``_step_growth`` times the last step.
+        A density that is not positive takes the limit. The march floors the step at ``_EXACT_STEP_FLOOR`` times the
+        node's position. The nodes do not depend on the queries.
 
         :param nodes: The ``(x, F)`` nodes so far, ascending, with ``F < 1`` at the last.
         :return: The step to the next node.
@@ -578,10 +582,10 @@ class _LSTFunction(_HazardGrid):
             # nothing more about points beyond it either, so it ends the march regardless
             if cdf >= target and (x >= x_max or cdf >= 1.0 - 1e-12):
                 break
-            x_next = x + self._exact_step(nodes)
+            # scattered per-point values on a near-vertical rise can shrink the step towards the spacing of the
+            # floats; a floor relative to ``x`` keeps the march advancing, and the growth limit then widens it again
+            x_next = x + max(self._exact_step(nodes), _EXACT_STEP_FLOOR * abs(x))
 
-            # the step can fall below the spacing of the floats at ``x``, leaving the node where it was. Nothing
-            # further can be resolved there, and a repeated node divides by a zero span in the secant above.
             if not x_next > x:
                 break
 
