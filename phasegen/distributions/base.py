@@ -911,6 +911,10 @@ class JointDensity(_JointFunction, DensityFunction):
     for :math:`x, y > 0`. The atom and the mass on the axes described at :class:`~phasegen.distributions.JointCDF` have
     no density.
 
+    Mass on a line :math:`R_a = c R_b` through the origin, as for the tree heights of linked loci (:math:`c = 1`), has
+    no density either. Near such a line the values form a ridge whose height depends on the grid resolution. Away
+    from it the density is unaffected.
+
     The density is the mixed central difference of the continuous part :math:`C` of
     :class:`~phasegen.distributions.JointCDF` on a uniform grid with steps :math:`h_x` and :math:`h_y`,
 
