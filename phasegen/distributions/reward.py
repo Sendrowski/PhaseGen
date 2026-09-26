@@ -6,7 +6,7 @@ Distributions of accumulated rewards obtained from their Laplace transforms: the
 """
 import logging
 from math import comb, factorial
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import Any, TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 import scipy.linalg as sla
@@ -876,10 +876,39 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Fc = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
         return c['atom'] + c['cont'] * np.clip(Fc, 0.0, 1.0)
 
-    @cached_property
+    def _cos2d_memo(self, name: str, build) -> Any:
+        """
+        A value derived from the 2D cosine expansion, built once per :attr:`Settings.cos_terms_2d
+        <phasegen.settings.Settings.cos_terms_2d>`: changing the term count on a live distribution discards every such
+        value. Honours :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
+
+        :param name: Name of the value.
+        :param build: Builds the value.
+        :return: The value.
+        """
+        memo = self.__dict__.setdefault('_cos2d_cache', {})
+
+        if memo.get('_terms') != Settings.cos_terms_2d:
+            memo.clear()
+            memo['_terms'] = Settings.cos_terms_2d
+
+        if name in memo:
+            return memo[name]
+
+        value = build()
+        if Settings.cache:
+            memo[name] = value
+
+        return value
+
+    @property
     def _cos2d(self) -> dict:
         """The coefficient matrix ``A``, windows ``ba``, ``bb`` and frequencies ``ua``, ``ub`` of the 2D cosine
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
+        return self._cos2d_memo('cos2d', self._build_cos2d)
+
+    def _build_cos2d(self) -> dict:
+        """Build ``_cos2d``."""
         n_terms, scale, big = Settings.cos_terms_2d, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
         ba, bb = self.marginal('a')._range(scale), self.marginal('b')._range(scale)
@@ -907,16 +936,23 @@ class JointRewardDistribution(CallableDistributionFunctions):
         A *= np.outer(sigma, sigma)
         return dict(ba=ba, bb=bb, ua=ua, ub=ub, A=A)
 
-    @cached_property
+    @property
     def _cos2d_wiggle_check(self) -> float:
         """The largest near-origin gap between ``F(x, inf)`` of the cosine expansion and the marginal CDF of ``R_a``,
         logged as a warning above 0.03. The cosine error concentrates near the axes, so this margin comparison detects
         an under-resolved near-origin rise. It reads the coefficients directly, so it does not recurse into
         ``_cc_box``."""
+        return self._cos2d_memo('wiggle', self._build_cos2d_wiggle_check)
+
+    def _build_cos2d_wiggle_check(self) -> float:
+        """Build ``_cos2d_wiggle_check``."""
         st = self._cos2d
         big = self._s_inf
         ma = self.marginal('a')
-        xs = np.linspace(0.0, float(ma.quantile(0.4)), 5)[1:]  # near-origin small-x points, where the bias concentrates
+        # near-origin points of the continuous part, where the bias concentrates. They lie above the atom at 0, where
+        # the inversion of the continuous part is defined
+        a0 = float(self._atoms['a0'])
+        xs = np.linspace(0.0, float(ma.quantile(a0 + 0.4 * (1.0 - a0))), 5)[1:]
         # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
         box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
         g_b = np.array([ma._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
@@ -931,11 +967,15 @@ class JointRewardDistribution(CallableDistributionFunctions):
             )
         return err
 
-    @cached_property
+    @property
     def _density_grid(self) -> dict:
         """The bicubic spline of ``JointDensity`` through the mixed central difference of ``_cc_box``, and the interior
         nodes it is built on. The grid is uniform over the cosine window ``ba`` x ``bb``, so a density value does not
         depend on the queried grid."""
+        return self._cos2d_memo('density_grid', self._build_density_grid)
+
+    def _build_density_grid(self) -> dict:
+        """Build ``_density_grid``."""
         from scipy.interpolate import RectBivariateSpline
 
         st = self._cos2d

@@ -198,7 +198,7 @@ class QuantileFunction(DistributionFunction):
 
     .. rubric:: Implementation
 
-    - The slope :math:`\hat H'` is interpolated from finite differences at the nodes.
+    - The slope :math:`\hat H'` is the slope of the segment of :math:`\hat H` holding :math:`x`.
     - Levels beyond the last node return the last node.
     """
     kind = 'quantile'

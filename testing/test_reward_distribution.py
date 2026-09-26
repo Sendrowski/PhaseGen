@@ -2000,3 +2000,32 @@ def test_conditional_carries_the_atom_of_a_sloped_line():
     assert float(cond.cdf(y)) - float(cond.cdf(y - 1e-9)) == pytest.approx(cond._p, abs=1e-6)
 
     np.testing.assert_allclose(cond.quantile([0.2, 0.5, 0.8]), [1.428, 1.663, 1.838], rtol=0.02)
+
+
+def test_joint_near_origin_check_probes_the_continuous_part(caplog):
+    """The near-origin check of the joint cosine expansion probes above the atom of the conditioning reward. Regression:
+    with P(R_a = 0) >= 0.4 all probes sat at 0, where the check returned P(R_a = 0, R_b = 0) (0.133 for Kingman n = 6
+    bins 5 and 3) and warned, while the real gap is about 2e-4."""
+    joint = pg.Coalescent(n=6).sfs.joint_distribution(5, 3)
+
+    with caplog.at_level('WARNING'):
+        assert joint._cos2d_wiggle_check < 0.01
+
+    assert not [r for r in caplog.records if 'under-resolves near the origin' in r.getMessage()]
+
+
+def test_joint_cosine_expansion_follows_the_term_count():
+    """Changing Settings.cos_terms_2d on a live joint distribution rebuilds its expansion. Regression: the first
+    expansion was cached, so the 16-term values were served after switching to 128 terms."""
+    def joint():
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}})).sfs.joint_distribution(1, 2)
+
+    x, y = np.array([0.5, 1.5]), np.array([0.3, 1.0])
+
+    pg.Settings.cos_terms_2d = 16
+    live = joint()
+    coarse = live.cdf(x, y)
+
+    pg.Settings.cos_terms_2d = 128
+    np.testing.assert_allclose(live.cdf(x, y), joint().cdf(x, y), rtol=1e-12)
+    assert np.abs(live.cdf(x, y) - coarse).max() > 1e-6
