@@ -2029,3 +2029,23 @@ def test_joint_cosine_expansion_follows_the_term_count():
     pg.Settings.cos_terms_2d = 128
     np.testing.assert_allclose(live.cdf(x, y), joint().cdf(x, y), rtol=1e-12)
     assert np.abs(live.cdf(x, y) - coarse).max() > 1e-6
+
+
+def test_joint_window_leaving_out_mass_warns(caplog, monkeypatch):
+    """A joint whose cosine window leaves out more than the threshold of a marginal's mass logs a warning, since the
+    expansion folds that mass back and the joint CDF is too high near the window end. Kingman n = 12 bins 1 and 11
+    leave out 8.6e-3 of R_b, the locus tree heights of n = 3 about 2e-3, so a threshold of 5e-3 separates them."""
+    from phasegen.distributions import reward
+    monkeypatch.setattr(reward, '_COS2D_TAIL_WARN', 5e-3)
+
+    with caplog.at_level('WARNING'):
+        pg.Coalescent(n=12).sfs.joint_distribution(1, 11).cdf(1.0, 1.0)
+
+    assert any('leaves out a mass' in r.getMessage() and 'R_b' in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(
+            0, 1).cdf(1.0, 1.0)
+
+    assert not [r for r in caplog.records if 'leaves out a mass' in r.getMessage()]

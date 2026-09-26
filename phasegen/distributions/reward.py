@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
+_COS2D_TAIL_WARN = 1e-2
+
 #: Smallest atom treated as a positive probability. The probe at ``_s_inf`` exceeds a zero atom by up to about 1e-8.
 _ATOM_FLOOR = 1e-6
 
@@ -912,6 +915,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         n_terms, scale, big = Settings.cos_terms_2d, self._cos2d_window_scale, self._s_inf
         p00 = self._atoms['both0']
         ba, bb = self.marginal('a')._range(scale), self.marginal('b')._range(scale)
+
+        # the expansion folds the mass beyond its window back into it, so the joint CDF near the window end is too
+        # high by up to that mass
+        if Settings.check_inversions:
+            for axis, b in (('a', ba), ('b', bb)):
+                tail = 1.0 - float(self.marginal(axis).cdf._cdf_point(b))
+                if tail > _COS2D_TAIL_WARN:
+                    self._logger.warning(
+                        "The 2D Fourier-cosine window of R_%s ends at %.3g and leaves out a mass of %.2g, which the "
+                        "expansion folds back into it. The joint CDF may be too high by up to that amount towards the "
+                        "window end, and its margin reaches 1 there.", axis, b, tail
+                    )
         ua = np.arange(n_terms) * np.pi / ba
         ub = np.arange(n_terms) * np.pi / bb
 
