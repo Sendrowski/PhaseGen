@@ -2049,3 +2049,29 @@ def test_joint_window_leaving_out_mass_warns(caplog, monkeypatch):
             0, 1).cdf(1.0, 1.0)
 
     assert not [r for r in caplog.records if 'leaves out a mass' in r.getMessage()]
+
+
+def test_conditioning_next_to_an_epoch_time_warns_or_names_the_jump(caplog):
+    """The density of a locus tree height jumps at every epoch time, where the inner inversion converges slowly. A
+    conditioning value within 5% of one logs a warning if the conditional is built, and names the jump if it is
+    refused. Regression: the refusal blamed a density below the resolution of the inversion, and accepted values
+    could be off by several percent without notice."""
+    joint = pg.Coalescent(
+        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
+    ).tree_height.loci.joint_distribution(0, 1)
+
+    for v in (0.48, 0.505):
+        caplog.clear()
+        try:
+            with caplog.at_level('WARNING'):
+                joint.conditional('a', v)
+            assert any('where an epoch begins' in r.getMessage() for r in caplog.records)
+        except ValueError as e:
+            assert 'where an epoch begins' in str(e)
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        joint.conditional('a', 0.3)
+
+    assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]

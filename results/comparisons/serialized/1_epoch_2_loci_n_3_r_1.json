@@ -27,6 +27,7 @@
                             "quantiles": [
                                 0.5
                             ],
+                            "n_points": 8,
                             "moments": 0.0001,
                             "grid_moments": 0.0005,
                             "total_expectation": 0.0001,

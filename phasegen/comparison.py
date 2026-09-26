@@ -381,7 +381,7 @@ class Comparison(Serializable):
         self._log_result(msg, diff, tol)
 
     def _fetch_stat(self, ph: PhaseTypeDistribution, ms: PhaseTypeDistribution, stat: str) -> tuple:
-        """Fetch the ``(phasegen, msprime)`` statistic pair for ``stat``: the centered higher moments (``m3``/``m4``),
+        """Fetch the ``(phasegen, msprime)`` statistic pair for ``stat``: the raw higher moments (``m3``/``m4``),
         the mutation-configuration probabilities (truncated at the mass threshold), or the named attribute otherwise."""
         if stat in ['m3', 'm4']:
             return ph.moment(int(stat[1]), center=False), getattr(ms, stat)
@@ -1157,9 +1157,10 @@ class Comparison(Serializable):
     #: Reserved keys of a ``conditional:`` block that configure a check rather than declare a tolerance, mapped to the
     #: checks they apply to. ``quantiles`` targets specific conditioning values (of the conditioning marginal) instead
     #: of the default span; ``curves`` additionally draws that many conditional densities per axis (~1 s each, nothing
-    #: asserted on them). Neither reaches the tower checks, which integrate over the whole conditioning axis and so
-    #: choose their own nodes.
-    _CONDITIONAL_OPTS = {'quantiles': ('moments', 'grid_moments'), 'curves': ('moments',)}
+    #: asserted on them); ``n_points`` sets the quadrature nodes of the law of total probability, which integrates the
+    #: conditional CDFs over the whole conditioning axis.
+    _CONDITIONAL_OPTS = {'quantiles': ('moments', 'grid_moments'), 'curves': ('moments',),
+                         'n_points': ('total_probability',)}
 
     def _compare_atom_conditional(self, jd, ms, pair: tuple, tols: dict, title: str, name: str = '') -> None:
         """

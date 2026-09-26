@@ -125,11 +125,12 @@ class Settings(metaclass=_SettingsMeta):
     plot_inference_n_grid: int = 100
 
     #: Degree :math:`D` of the de Hoog Laplace inversion, which evaluates the transform at :math:`2D + 1` points, as
-    #: described at :class:`~phasegen.distributions.RewardDistribution`. The cost is linear in the degree.
+    #: described at :class:`~phasegen.distributions.RewardDistribution`, where it supplies the tail of a reward
+    #: accumulated over several epochs. The cost is linear in the degree.
     dehoog_degree: int = 15
 
-    #: CDF level above which the grid of an accumulated-reward distribution carries exact de Hoog values in place of
-    #: the cosine expansion, as described at :class:`~phasegen.distributions.RewardDistribution`. Set to ``None`` to
+    #: CDF level above which the grid of an accumulated-reward distribution carries per-point values in place of the
+    #: cosine expansion, as described at :class:`~phasegen.distributions.RewardDistribution`. Set to ``None`` to
     #: use the cosine expansion throughout.
     dehoog_tail_quantile: Optional[float] = 0.98
 
