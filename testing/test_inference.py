@@ -1032,3 +1032,29 @@ def test_a_zero_dimensional_array_loss_is_a_valid_loss():
 
     assert inf.loss_inferred < 1e-8
     assert inf.params_inferred['Ne'] == pytest.approx(1.125, rel=1e-3)
+
+
+def test_a_raising_evaluation_on_the_bound_does_not_discard_the_run():
+    """An evaluation at which the model raises, here zero migration between two demes that then cannot absorb, is
+    penalised like a non-finite loss. Regression: the exception discarded the whole run, so a fit starting on the
+    bound raised RuntimeError."""
+    def coal(m):
+        return pg.Coalescent(
+            n={'a': 2, 'b': 2},
+            demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): m, ('b', 'a'): m})
+        )
+
+    inf = pg.Inference(
+        bounds={'m': (0, 3)},
+        x0={'m': 0.0},
+        coal=coal,
+        loss=lambda c, obs: float((c.tree_height.mean - obs) ** 2),
+        observation=coal(0.4).tree_height.mean,
+        n_runs=1,
+        parallelize=False,
+        pbar=False
+    )
+
+    inf.run()
+
+    assert inf.params_inferred['m'] == pytest.approx(0.4, rel=1e-3)

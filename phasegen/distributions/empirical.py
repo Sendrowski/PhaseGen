@@ -1416,11 +1416,12 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
     def process_tree(self, i, j, tree, ts, ctx) -> None:
         axis = self._axis
 
-        # the coalescences of this tree and the migrations of its lineages over its interval, in time order; a tree
-        # sequence of several loci holds the events of every tree, and each locus must see only its own
-        left, right = tree.interval
+        # the coalescences of this tree and the migrations of its lineages at locus ``j``, the unit interval
+        # ``[j, j + 1)``, in time order. A tree may span several loci, whose lineages migrate independently, so the
+        # migrations taken are those covering the locus midpoint
+        point = j + 0.5
         migrations = ts.tables.migrations
-        in_tree = (migrations.left < right) & (migrations.right > left)
+        in_tree = (migrations.left <= point) & (migrations.right > point)
         order = np.argsort(migrations.time[in_tree], kind='stable')
         m_time = migrations.time[in_tree][order]
         m_node = migrations.node[in_tree][order]
@@ -2120,48 +2121,60 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return float(1 - within.mean() / between.mean())
 
-    def _branch_f_statistic(self, kind: str, pops: List[str]) -> float:
+    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
         """
-        msprime branch-mode Patterson f-statistic ground truth (``f2``/``f3``/``f4``) over the given populations,
-        averaged over replicate trees (tskit branch mode uses the same 2x pairwise-coalescence convention as the
-        analytical :class:`Coalescent` f-statistics).
+        msprime estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
+        two in ``pop_i`` when they coincide, simulated for that pair alone as :class:`Coalescent` computes it. It does
+        not depend on the sample configuration of this coalescent. Memoized per pair.
+
+        :param pop_i: Name of the first population.
+        :param pop_j: Name of the second population.
+        :return: The mean coalescence time.
+        :raises ValueError: If a population is unknown.
         """
         import msprime as ms
 
         names = self.demography.pop_names
-        for pop in pops:
+        for pop in (pop_i, pop_j):
             if pop not in names:
                 raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
-        idx = [names.index(pop) for pop in pops]
 
-        values = np.zeros(self.num_replicates)
+        key = tuple(sorted((pop_i, pop_j)))
+        cache = self.__dict__.setdefault('_pairwise_times', {})
 
-        for k, ts in enumerate(ms.sim_ancestry(
-                samples=self._msprime_samples,
+        if key not in cache:
+            names = self.demography._msprime_names
+            samples = {names[pop_i]: 2} if pop_i == pop_j else {names[pop_i]: 1, names[pop_j]: 1}
+
+            times = np.array([ts.first().time(ts.first().root) for ts in ms.sim_ancestry(
+                samples=samples,
                 sequence_length=1,
                 demography=self.demography.to_msprime(),
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates,
-                end_time=self.end_time,
                 random_seed=self._msprime_seed(),
-        )):
-            sample_sets = [ts.samples(population=i) for i in idx]
-            values[k] = getattr(ts, kind)(sample_sets, mode='branch')
+            )])
 
-        return float(values.mean())
+            # an end time bounds the accumulation of the tree height, as in the exact computation
+            cache[key] = float(np.mean(times if self.end_time is None else np.minimum(times, self.end_time)))
+
+        return cache[key]
 
     def f2(self, pop_0: str, pop_1: str) -> float:
-        """msprime branch-mode ``f2`` ground truth. Matches :meth:`Coalescent.f2`."""
-        return self._branch_f_statistic('f2', [pop_0, pop_1])
+        """msprime ``f2`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f2`."""
+        t = self._pairwise_coalescence_time
+        return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
 
     def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        """msprime branch-mode ``f3`` ground truth. Matches :meth:`Coalescent.f3`."""
-        return self._branch_f_statistic('f3', [pop_target, pop_0, pop_1])
+        """msprime ``f3`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f3`."""
+        t = self._pairwise_coalescence_time
+        return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
 
     def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        """msprime branch-mode ``f4`` ground truth. Matches :meth:`Coalescent.f4`."""
-        return self._branch_f_statistic('f4', [pop_0, pop_1, pop_2, pop_3])
+        """msprime ``f4`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f4`."""
+        t = self._pairwise_coalescence_time
+        return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
 
     def to_phasegen(self) -> Coalescent:
         """

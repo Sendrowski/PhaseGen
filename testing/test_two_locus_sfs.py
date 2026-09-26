@@ -628,3 +628,19 @@ def test_msprime_unlinked_lineages_with_migration_recording():
                             record_migration=True)
 
     assert sim.total_branch_length.mean == pytest.approx(exact, rel=0.03)
+
+
+def test_msprime_migration_history_gives_no_negative_branch_length_when_a_tree_spans_both_loci():
+    """With migration recording on two linked loci, each locus takes the migrations at its own midpoint. Regression:
+    a tree spanning both loci took the migrations of both, so some replicates had negative per-deme branch lengths
+    (about 20 in 10,000 replicates)."""
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 1},
+        loci=pg.LocusConfig(n=2, recombination_rate=0.8),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 2}, 'pop_1': {0: 0.5}},
+                                 migration_rates={('pop_0', 'pop_1'): 0.6, ('pop_1', 'pop_0'): 1.1})
+    )
+    ms = coal.to_msprime(num_replicates=5000, record_migration=True, parallelize=False, seed=1)
+    ms.simulate()
+
+    assert ms.total_branch_lengths.min() >= 0

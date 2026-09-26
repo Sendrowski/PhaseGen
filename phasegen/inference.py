@@ -338,11 +338,13 @@ class Inference(Serializable):
             # convert the list of parameters back into a dictionary
             params_dict = dict(zip(x0.keys(), params))
 
-            # get the coalescent distribution
-            dist = get_dist(**params_dict)
-
-            # return the value of the loss function
-            loss = get_loss(dist, observation)
+            # a model the parameters make invalid, such as a demography that cannot absorb on a bound of zero
+            # migration, counts as a non-finite loss, so the optimizer steps away rather than the run being lost
+            try:
+                loss = get_loss(get_dist(**params_dict), observation)
+            except (ValueError, ArithmeticError, np.linalg.LinAlgError) as e:
+                logger.warning('The model raised "%s" for %s; substituting a large finite penalty', e, params_dict)
+                loss = np.nan
 
             # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
             # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
