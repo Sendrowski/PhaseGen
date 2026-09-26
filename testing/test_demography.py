@@ -704,14 +704,14 @@ def test_invalid_demographic_input_is_rejected_at_construction(make):
         make()
 
 
-def test_a_trajectory_reaching_a_non_positive_size_is_rejected():
-    """A discretized trajectory that reaches a non-positive population size raises. Regression: it gave a negative
+def test_a_trajectory_reaching_a_negative_size_is_rejected():
+    """A discretized trajectory that reaches a negative population size raises. Regression: it gave a negative
     expected tree height."""
     dem = pg.Demography(events=[pg.DiscretizedRateChange(
         trajectory=lambda t: 1 - t, start_time=0, end_time=3, pop='pop_0', step_size=0.1
     )])
 
-    with pytest.raises(ValueError, match='not positive'):
+    with pytest.raises(ValueError, match='negative'):
         _ = pg.Coalescent(n=3, demography=dem).tree_height.mean
 
 
@@ -771,3 +771,13 @@ def test_chained_splits_at_different_times_keep_draining(gap, simulated):
     mean = pg.Coalescent(n={'a': 1, 'b': 0, 'c': 1}, demography=dem).tree_height.mean
 
     assert mean == pytest.approx(simulated, abs=0.013)
+
+
+def test_a_decaying_trajectory_underflowing_to_zero_converts_to_msprime():
+    """An exponential decline whose size underflows to zero far out is valid input. Regression: the size check
+    rejected the zero and to_msprime raised."""
+    dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=10, start_time=0, step_size=0.1
+    )])
+
+    assert dem.to_msprime() is not None

@@ -233,77 +233,116 @@ class Demography:
     @property
     def epochs(self) -> Iterator['Epoch']:
         """
-        Get a generator for the epochs.
+        Get a generator for the epochs. An epoch is built once and kept, so later iterations and lookups reuse it.
         """
         self._prepare_events()
 
-        prev = Epoch(
-            start_time=0,
-            end_time=0,
-            pop_sizes={p: 1 for p in self.pop_names},
-            migration_rates={k: 0 for k in itertools.product(self.pop_names, repeat=2)}
-        )
+        epochs, i = self._built_epochs(), 0
 
-        i = 0
         while True:
+            if i == len(epochs):
+                epochs.append(self._build_epoch(epochs[-1] if epochs else None, i))
 
-            # issue warning if number of epochs exceeds threshold
-            if i == self.warn_n_epochs and not self._issued_warning:
-                self._logger.warning(
-                    f'Number of epochs considered exceeds {self.warn_n_epochs}. '
-                    'Note that the runtime increases linearly with the number of epochs.'
-                )
-                self._issued_warning = True
+            yield epochs[i]
 
-            # potential next epoch
-            epoch = Epoch(
-                start_time=prev.end_time,
-                end_time=np.inf,
-                pop_sizes=prev.pop_sizes,
-                migration_rates=prev.migration_rates
-            )
-
-            # broadcast events
-            for e in self.events:
-                # adjust end time
-                e._broadcast(epoch)
-
-            # apply the rate changes, then isolate the derived population of every split before any split sets its
-            # drain rate, so that the epoch does not depend on the order of events sharing a start time
-            splits = [e for e in self.events if isinstance(e, PopulationSplit)]
-
-            # a rate set by two events in one epoch keeps the value of the later one in the list, which is sorted by
-            # start time, so the precedence depends on how the changes are grouped into events
-            setters = {}
-            for e in self.events:
-                if not isinstance(e, PopulationSplit):
-                    for key in e._apply(epoch):
-                        setters.setdefault(key, []).append(e)
-
-            clashes = [k for k, events in setters.items() if len(events) > 1]
-            if clashes and not self._issued_overlap_warning:
-                self._logger.warning(
-                    "Several events set %s in the epoch starting at %g. The event starting last takes precedence, so "
-                    "combine the changes into one event to make the precedence explicit.",
-                    ', '.join(map(str, clashes)), epoch.start_time
-                )
-                self._issued_overlap_warning = True
-
-            for e in splits:
-                e._isolate(epoch)
-
-            for e in splits:
-                e._apply(epoch)
-
-            epoch.index = i
-
-            yield epoch
-            prev = epoch
-
-            if epoch.end_time == np.inf:
-                break
+            if epochs[i].end_time == np.inf:
+                return
 
             i += 1
+
+    def _built_epochs(self) -> List['Epoch']:
+        """
+        The epochs built so far, discarded when the events change.
+
+        :return: The epochs, in order.
+        """
+        key = tuple(map(id, self.events))
+
+        if self.__dict__.get('_epoch_key') != key:
+            self.__dict__['_epoch_key'] = key
+            self.__dict__['_epoch_cache'] = []
+
+        return self.__dict__['_epoch_cache']
+
+    def _build_epoch(self, prev: 'Epoch | None', i: int) -> 'Epoch':
+        """
+        Build the epoch following ``prev``, the first one when ``prev`` is ``None``.
+
+        :param prev: The previous epoch.
+        :param i: The index of the epoch.
+        :return: The epoch.
+        """
+        if prev is None:
+            prev = Epoch(
+                start_time=0,
+                end_time=0,
+                pop_sizes={p: 1 for p in self.pop_names},
+                migration_rates={k: 0 for k in itertools.product(self.pop_names, repeat=2)}
+            )
+
+        # issue warning if number of epochs exceeds threshold
+        if i == self.warn_n_epochs and not self._issued_warning:
+            self._logger.warning(
+                f'Number of epochs considered exceeds {self.warn_n_epochs}. '
+                'Note that the runtime increases linearly with the number of epochs.'
+            )
+            self._issued_warning = True
+
+        # potential next epoch
+        epoch = Epoch(
+            start_time=prev.end_time,
+            end_time=np.inf,
+            pop_sizes=prev.pop_sizes,
+            migration_rates=prev.migration_rates
+        )
+
+        # broadcast events
+        for e in self.events:
+            # adjust end time
+            e._broadcast(epoch)
+
+        # apply the rate changes, then isolate the derived population of every split before any split sets its
+        # drain rate, so that the epoch does not depend on the order of events sharing a start time
+        splits = [e for e in self.events if isinstance(e, PopulationSplit)]
+
+        # a rate set by two events in one epoch keeps the value of the later one in the list, which is sorted by
+        # start time, so the precedence depends on how the changes are grouped into events
+        setters = {}
+        for e in self.events:
+            if not isinstance(e, PopulationSplit):
+                for key in e._apply(epoch):
+                    setters.setdefault(key, []).append(e)
+
+        clashes = [k for k, events in setters.items() if len(events) > 1]
+        if clashes and not self._issued_overlap_warning:
+            self._logger.warning(
+                "Several events set %s in the epoch starting at %g. The event starting last takes precedence, so "
+                "combine the changes into one event to make the precedence explicit.",
+                ', '.join(map(str, clashes)), epoch.start_time
+            )
+            self._issued_overlap_warning = True
+
+        for e in splits:
+            e._isolate(epoch)
+
+        for e in splits:
+            e._apply(epoch)
+
+        epoch.index = i
+
+        return epoch
+
+    def __getstate__(self) -> dict:
+        """
+        The state for serialization, without the epochs built so far.
+
+        :return: State.
+        """
+        state = self.__dict__.copy()
+        state.pop('_epoch_cache', None)
+        state.pop('_epoch_key', None)
+
+        return state
 
     def has_n_epochs(self, n: int) -> bool:
         """
@@ -330,30 +369,18 @@ class Demography:
         :param t: Times.
         :return: Array of epochs.
         """
-        t = list(t)
+        t = np.asarray(list(t), dtype=float)
 
-        # sort times in ascending order
-        t_sorted: Sequence[float] = np.sort(t)
+        # build the epochs up to the latest time, then look each time up among their start times
+        t_max = t.max(initial=0.0)
+        for epoch in self.epochs:
+            if epoch.end_time > t_max:
+                break
 
-        # get epoch iterator
-        iterator: Iterator[Epoch] = self.epochs
+        epochs = self._built_epochs()
+        starts = np.array([e.start_time for e in epochs])
 
-        # get first epoch
-        epoch = next(iterator)
-
-        # initialize array of epochs
-        epochs = np.zeros_like(t_sorted, dtype=Epoch)
-
-        for i, time in enumerate(t_sorted):
-            # wind forward until we reach the epoch enclosing the current time
-            while not epoch.start_time <= time < epoch.end_time:
-                epoch = next(iterator)
-
-            # add epoch to array
-            epochs[i] = epoch
-
-        # sort back to original order (inverse of the sorting permutation)
-        return np.array(epochs)[np.argsort(np.argsort(t))]
+        return np.array(epochs, dtype=object)[np.searchsorted(starts, t, side='right') - 1]
 
     def get_epoch(self, t: float = 0) -> 'Epoch':
         """
@@ -954,9 +981,9 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param ancestral: Ancestral population to which all lineages move.
         :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
             is set to :math:`m = c / \min_i N_i`, the multiplier :math:`c` divided by the smallest population size
-            :math:`N_i` of the epoch the split falls into, so that :math:`m` is a multiple of the fastest coalescence
-            rate of the epoch. It should be large enough that the lineages move to the ancestral population within a
-            time that is negligible on the coalescent time scale.
+            :math:`N_i`, in the epoch of the split and again in every later epoch, so that :math:`m` is a multiple of
+            the fastest coalescence rate of each epoch. It should be large enough that the lineages move to the
+            ancestral population within a time that is negligible on the coalescent time scale.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -1131,9 +1158,10 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
                 return {(self.source_pop, self.dest_pop)}
 
-            if not rate > 0:
+            # a decaying trajectory may underflow to zero far out, which is not an invalid size
+            if not rate >= 0:
                 raise ValueError(f'The population size trajectory of {self.pop} gives {rate} on '
-                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is not positive.')
+                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative.')
 
             epoch.pop_sizes[self.pop] = rate
 
