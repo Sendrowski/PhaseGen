@@ -595,6 +595,12 @@ class Coalescent(AbstractCoalescent, Serializable):
         if two_locus and Reward.support(TwoLocusBlockCountingStateSpace, rewards):
             return self.two_locus_block_counting_state_space
 
+        if self.locus_config.n != 1:
+            raise ValueError(
+                "The given rewards are not jointly compatible with any state space of this coalescent: "
+                f"{[r.__class__.__name__ for r in rewards]}."
+            )
+
         return self.block_counting_state_space
 
     @_make_hashable

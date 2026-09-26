@@ -682,3 +682,67 @@ def test_a_reward_supporting_the_two_locus_space_uses_block_counting_on_one_locu
 
     assert isinstance(coal._select_state_space([reward]), pg.BlockCountingStateSpace)
     assert coal.moment(1, [reward], center=False) == pytest.approx(coal.tree_height.mean, rel=1e-12)
+
+
+def test_custom_reward_accepts_an_unhashable_callable():
+    """The function of a custom reward is hashed by identity, so a callable without a hash of its own works.
+    Regression: hashing the callable itself raised TypeError for a dataclass instance."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class Height:
+        scale: float = 1.0
+
+        def __call__(self, state_space):
+            return self.scale * pg.TreeHeightReward()._get(state_space)
+
+    reward = pg.CustomReward(Height(), supports=lambda s: s is pg.LineageCountingStateSpace)
+
+    assert pg.Coalescent(n=3).moment(1, [reward], center=False) == pytest.approx(4 / 3, rel=1e-12)
+
+
+def test_restricting_a_product_of_a_restriction_again_is_exact():
+    """A restriction resolves residence, so a product or combination wrapping it keeps its parts when restricted again.
+    Regression: the product re-split the restricted branch length by lineage counts over every deme, giving 1.7575
+    instead of 3.0022 for deme a restricted twice, and 1.2447 instead of 0 for deme a then deme b."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 2},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 0.5}, migration_rates={('a', 'b'): 0.7, ('b', 'a'): 0.3})
+    )
+    tbl = pg.TotalBranchLengthReward()
+
+    def mean(reward):
+        return coal.moment(1, [reward], center=False)
+
+    flat = mean(pg.CombinedReward([tbl, pg.DemeReward('a')]))
+
+    assert mean(pg.CombinedReward([pg.CombinedReward([tbl, pg.DemeReward('a')]), pg.DemeReward('a')])) == \
+        pytest.approx(flat, rel=1e-12)
+    assert mean(pg.CombinedReward([pg.CombinedReward([tbl, pg.DemeReward('a')]), pg.DemeReward('b')])) == \
+        pytest.approx(0, abs=1e-12)
+
+
+def test_custom_rewards_differing_in_support_are_distinct():
+    """The support predicate of a custom reward decides its state space, so it enters equality. Regression: the same
+    function with two supports shared cached moments, and the block-counting variant was served 3.6667 instead of
+    2.0."""
+    def bin_one(state_space):
+        return pg.UnfoldedSFSReward(1)._get(state_space) if isinstance(state_space, pg.BlockCountingStateSpace) \
+            else pg.TotalBranchLengthReward()._get(state_space)
+
+    coal = pg.Coalescent(n=4)
+    lineage = pg.CustomReward(bin_one, supports=lambda s: s is pg.LineageCountingStateSpace)
+    block = pg.CustomReward(bin_one, supports=lambda s: s is pg.BlockCountingStateSpace)
+
+    coal.moment(1, [lineage], center=False)
+
+    assert coal.moment(1, [block], center=False) == pytest.approx(coal.sfs.mean.data[1], rel=1e-12)
+
+
+def test_rewards_no_state_space_supports_raise_value_error():
+    """Rewards that no state space of a two-locus coalescent supports raise the documented ValueError. Regression:
+    the fallback to the single-locus block-counting space raised NotImplementedError."""
+    coal = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1))
+
+    with pytest.raises(ValueError, match='not jointly compatible'):
+        coal._select_state_space([pg.TwoLocusSFSReward(1, 1), pg.UnfoldedSFSReward(1)])

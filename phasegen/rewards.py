@@ -921,6 +921,12 @@ class RestrictedReward(CompositeReward):
         self.locus: int = None if locus is None else int(locus)
         self.pop: str = pop
 
+    @property
+    def _resolves_residence(self) -> bool:
+        """Whether :meth:`_get_parts` resolves the residence, which it does, its parts vanishing outside the
+        restricted locus and deme."""
+        return True
+
     def _get_parts(self, state_space: StateSpace) -> np.ndarray:
         """
         The parts of the wrapped reward, those outside the restricted locus and deme set to zero.
@@ -1104,8 +1110,8 @@ class CustomReward(Reward):
 
     def __hash__(self) -> int:
         """
-        Calculate the hash of the class name and the function, which is hashed by identity.
+        Calculate the hash of the class name and the identities of the function and of the support predicate.
 
         :return: hash
         """
-        return hash((self.__class__.__name__, self.func))
+        return hash((self.__class__.__name__, id(self.func), id(self._supports)))
