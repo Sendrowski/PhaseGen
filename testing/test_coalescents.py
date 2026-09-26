@@ -1927,13 +1927,39 @@ def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference(
     coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e3, 0.5: 1e-3}}))
 
     assert coal.tree_height.moment(5, center=False) == pytest.approx(0.031670133796944716, rel=1e-12)
-    assert coal.tree_height.moment(5) == pytest.approx(-5.6834198753562267e-10, rel=1e-5)
+    assert coal.tree_height.moment(5) == pytest.approx(-5.6834198753562267e-10, rel=1e-5, abs=0)
 
     pg.Settings.expm_action_min_dim = 1
     coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 1e-4: 1e3}}))
 
     raw = coal.moment(5, [pg.rewards.TreeHeightReward()] * 5, center=False, end_time=1.5e-4)
     assert raw == pytest.approx(7.4974726817100355e-20, rel=1e-12, abs=0)
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_high_moments_across_a_very_short_epoch_match_an_extended_precision_reference(sparse):
+    """An epoch of length 1e-12 leaves the higher raw moments of non-triangular generators exact. Regression: the
+    balancing factor capped at the epoch's length rebased the extended vector by about 1e12 per order, which amplified
+    the rounding the dense exponential leaves in its structurally zero lower blocks (the third raw moment of the total
+    branch length of two demes came out at -1.4e11). A first epoch of length 1e-70 overflowed the rebase to infinity.
+    References from a 100-digit mpmath Van Loan computation."""
+    if sparse:
+        pg.Settings.closed_form_sparse_min_states = 1
+
+    two_demes = pg.Coalescent(n=pg.LineageConfig({'a': 2, 'b': 2}), demography=pg.Demography(
+        pop_sizes={'a': {0: 1, 1: 2, 1 + 1e-12: 0.5}, 'b': {0: 1, 1: 3}},
+        migration_rates={('a', 'b'): {0: 1, 1: 0.2}, ('b', 'a'): {0: 1}}))
+    two_loci = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1),
+                             demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 2, 1 + 1e-12: 0.5}}))
+    beta = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5),
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 2, 1 + 1e-12: 0.5}}))
+    tiny_first = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1e-70: 2}}))
+
+    assert two_demes.total_branch_length.moment(3, center=False) == pytest.approx(625.12101468818567, rel=1e-12)
+    assert two_demes.total_branch_length.moment(5, center=False) == pytest.approx(121557.67449041378, rel=1e-12)
+    assert two_loci.tree_height.moment(5, center=False) == pytest.approx(25.839672442948937, rel=1e-12)
+    assert beta.total_branch_length.moment(5, center=False) == pytest.approx(36034.653923276051, rel=1e-12)
+    assert tiny_first.tree_height.moment(5, center=False) == pytest.approx(6896.2962962962963, rel=1e-12)
 
 
 def test_moments_survive_absorption_memos_stored_in_an_older_form():
@@ -1971,10 +1997,17 @@ def test_action_path_moments_do_not_depend_on_the_other_end_times():
     assert together[0] == pytest.approx(7.4974726817100355e-20, rel=1e-12, abs=0)
 
 
-def test_sfs_covariance_at_large_n_solves_instead_of_inverting():
+def test_sfs_covariance_at_large_n_solves_instead_of_inverting(monkeypatch):
     """The batched SFS covariance solves with the LU of -T and never forms its inverse, so n = 35 (14,883 states)
     takes about a second. Regression: the dense inverse took 150 s and 6.9 GB there and ran out of memory at n = 40.
     The covariances sum to the variance of the total branch length, 4 sum_{k<n} 1/k^2 for the standard coalescent."""
+    import scipy.linalg
+
+    def refuse(*args, **kwargs):
+        raise AssertionError('the covariance formed a dense inverse')
+
+    monkeypatch.setattr(scipy.linalg, 'inv', refuse)
+
     n = 35
     cov = pg.Coalescent(n=n).sfs.cov.data
 
@@ -1994,3 +2027,13 @@ def test_population_split_example_emits_no_singular_matrix_warning():
         warnings.simplefilter('error', LinAlgWarning)
         assert np.isfinite(coal.tree_height.mean)
         assert np.all(np.isfinite(coal.sfs.mean.data))
+
+
+def test_tree_height_cdf_and_pdf_pass_nan_through():
+    """A NaN point gives NaN, the other points their values. Regression: the NaN sorted to the end of the sweep and
+    took the value of the last finite point, or 0.0 for a scalar."""
+    th = pg.Coalescent(n=3).tree_height
+
+    np.testing.assert_array_equal(np.isnan(th.cdf(np.array([np.nan, 1.0]))), [True, False])
+    assert th.cdf(np.array([np.nan, 1.0]))[1] == pytest.approx(th.cdf(1.0), rel=1e-12)
+    assert np.isnan(th.cdf(np.nan)) and np.isnan(th.pdf(np.nan))

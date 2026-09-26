@@ -42,6 +42,10 @@ _AUTO_PERM = 'auto'
 #: scales as the ``j``-th power of this step, so it bounds the range the blocks span.
 _MIN_SCALED_STEP = 0.1
 
+#: Floor of the balancing factor relative to the reciprocal geometric mean of the rates. A shorter step contributes
+#: reward terms below double resolution, and a smaller factor would overflow the rebased extended vector.
+_MIN_BALANCE = np.finfo(float).eps
+
 
 class MomentEvaluator:
     """Moment-evaluation methods of :class:`~phasegen.distributions.PhaseTypeDistribution`, described in its
@@ -83,6 +87,24 @@ class MomentEvaluator:
         return np.block([
             [S if i == j else np.diag(R[i]) if i == j - 1 else O for j in range(k + 1)] for i in range(k + 1)
         ])
+
+    @staticmethod
+    def _van_loan_expm(A: np.ndarray, k: int, n: int) -> np.ndarray:
+        """
+        The dense exponential of a Van Loan matrix of :meth:`_van_loan_matrix`, with its strictly lower blocks set to
+        their exact value of zero. The rebases between balancing factors multiply these blocks by powers of the
+        factor ratio, so the rounding the exponential leaves in them would otherwise reach the moment.
+
+        :param A: Van Loan matrix of ``(k + 1) x (k + 1)`` blocks of size ``n``, times the step.
+        :param k: The order of the moment.
+        :param n: The number of states, the size of one block.
+        :return: The exponential of ``A``.
+        """
+        E = expm(A)
+        for i in range(1, k + 1):
+            E[i * n:(i + 1) * n, :i * n] = 0.0
+
+        return E
 
     @staticmethod
     def _block_triangular_order(A) -> Optional[np.ndarray]:
@@ -368,7 +390,7 @@ class MomentEvaluator:
         inverse divides the reward blocks by the factor, which the callers undo by multiplying the moment by its
         ``k``-th power. The cap keeps the scaled step at or above one: the block of order ``j`` of the exponential
         scales as the ``j``-th power of the scaled step, and below one the higher orders fall under the resolution of
-        double precision.
+        double precision. The cap is floored at ``_MIN_BALANCE`` times the factor.
 
         :param S: Intensity matrix.
         :param duration: Length of the epoch within the accumulation window.
@@ -383,7 +405,7 @@ class MomentEvaluator:
         # rewards in the Van Loan matrix are of order 1
         factor = 10 ** - np.log10(rates).mean()
 
-        return min(factor, duration) if duration > 0 else factor
+        return min(factor, max(duration, _MIN_BALANCE * factor)) if duration > 0 else factor
 
     def _balance(self, epoch: 'Epoch', start: float, end: float) -> float:
         """
@@ -501,7 +523,7 @@ class MomentEvaluator:
         """
         Advance the forward extended vector by ``tau`` within the current epoch by the sparse matrix-exponential
         action. Each step is balanced on the factor of the epoch capped at ``tau / _MIN_SCALED_STEP``, since block ``j``
-        of the vector gains the ``j``-th power of the scaled step.
+        of the vector gains the ``j``-th power of the scaled step, and floored at ``_MIN_BALANCE`` times the factor.
 
         :param w: Extended row vector of ``(k + 1)`` blocks, stored against ``lamb`` and rebased in place.
         :param tau: The step, non-positive for none.
@@ -515,7 +537,8 @@ class MomentEvaluator:
 
         Vt, gen, rew, factor = op
         if Settings.regularize:
-            lamb = self._rebase_forward(w, lamb, min(factor, tau / _MIN_SCALED_STEP), k, self.state_space.k)
+            lamb_step = min(factor, max(tau / _MIN_SCALED_STEP, _MIN_BALANCE * factor))
+            lamb = self._rebase_forward(w, lamb, lamb_step, k, self.state_space.k)
 
         A = sp.csr_matrix((tau * gen + (tau / lamb) * rew, Vt.indices, Vt.indptr), shape=Vt.shape)
 
@@ -869,7 +892,7 @@ class MomentEvaluator:
                 # iterate over epochs between u_prev and u
                 while u > epoch.end_time:
                     # update transition matrix with remaining time in current epoch
-                    Q @= expm(V * (epoch.end_time - u_prev) / lamb)
+                    Q @= self._van_loan_expm(V * (epoch.end_time - u_prev) / lamb, k, n_states)
 
                     # fetch and update for next epoch
                     u_prev = epoch.end_time
@@ -885,7 +908,7 @@ class MomentEvaluator:
                     V = self._van_loan_matrix(R, S, k)
 
                 # update with remaining time in current epoch
-                Q @= expm(V * (u - u_prev) / lamb)
+                Q @= self._van_loan_expm(V * (u - u_prev) / lamb, k, n_states)
 
                 alpha = self.state_space.alpha
                 e = self.state_space.e
@@ -1081,7 +1104,7 @@ class MomentEvaluator:
                         moments[i] = 0.0
                         continue
                     while u > epoch.end_time:
-                        Q @= expm(V * (epoch.end_time - u_prev) / lamb)
+                        Q @= self._van_loan_expm(V * (epoch.end_time - u_prev) / lamb, k, n)
                         u_prev = epoch.end_time
                         i_epoch, epoch = next(epochs)
                         self.state_space.update_epoch(epoch)
@@ -1091,7 +1114,7 @@ class MomentEvaluator:
                         S = self._dense_rate_matrix() * lamb
                         self._check_numerical_stability(S, i_epoch)
                         V = self._van_loan_matrix(R, S, k)
-                    Q @= expm(V * (u - u_prev) / lamb)
+                    Q @= self._van_loan_expm(V * (u - u_prev) / lamb, k, n)
                     moments[i] = factorial(k) * lamb ** k * alpha_start @ Q[:n, -n:] @ e
                     u_prev = u
 
@@ -1138,7 +1161,7 @@ class MomentEvaluator:
         # the state distribution propagated to the start of each finite epoch. Where the CDF there is still below the
         # absorption level, the epoch starts before the time of almost sure absorption, whose search is then spared
         th = self.tree_height
-        w, u = np.asarray(th.state_space.alpha, dtype=float), 0.0
+        w, prev = np.asarray(th.state_space.alpha, dtype=float), None
 
         for epoch in self.demography.epochs:
 
@@ -1147,8 +1170,10 @@ class MomentEvaluator:
                 break
 
             if t_absorption is None:
-                w = th._sweep_to(w, u, epoch.start_time, self.demography.get_epoch(u))
-                u = epoch.start_time
+                # across the previous epoch, which ends where this one starts
+                if prev is not None:
+                    w = th._sweep_to(w, prev.start_time, epoch.start_time, prev)
+                prev = epoch
 
                 if th._cum(w) < th.p_absorption:
                     epochs.append(epoch)
@@ -1428,7 +1453,7 @@ class MomentEvaluator:
                 S_dense = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
                 R = [r._get(self.state_space) for r in rewards]
                 V = self._van_loan_matrix(R, S_dense, k)
-                z = expm(V * tau) @ z
+                z = self._van_loan_expm(V * tau, k, n) @ z
 
         alpha_ext = np.zeros((k + 1) * n)
         alpha_ext[:n] = self.state_space.alpha

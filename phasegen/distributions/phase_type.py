@@ -842,12 +842,14 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
 
         # the sweep is monotone in time, so evaluate the flattened points in sorted order and restore the caller's
         # order and shape afterwards
+        # NaN points are passed through, the sweep taking the others
         flat = ta.ravel()
-        order = np.argsort(flat)
-        probs = np.empty_like(flat)
-        probs[order] = d._sweep(flat[order])[0]
+        finite = ~np.isnan(flat)
+        order = np.argsort(flat[finite])
+        probs = np.full_like(flat, np.nan)
+        probs[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[0]
 
-        if np.isnan(probs).any():
+        if np.isnan(probs[finite]).any():
             d._logger.critical("NaN values in CDF. This is likely due to an ill-conditioned rate matrix.")
 
         return probs.reshape(ta.shape) if ta.ndim > 0 else float(probs[0])
@@ -902,9 +904,10 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
             raise ValueError("Negative values are not allowed.")
 
         flat = ta.ravel()
-        order = np.argsort(flat)
-        dens = np.empty_like(flat)
-        dens[order] = d._sweep(flat[order])[1]
+        finite = ~np.isnan(flat)
+        order = np.argsort(flat[finite])
+        dens = np.full_like(flat, np.nan)
+        dens[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[1]
 
         return dens.reshape(ta.shape) if ta.ndim > 0 else float(dens[0])
 
