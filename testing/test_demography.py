@@ -674,14 +674,100 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
 
     assert mean == pytest.approx(0.01, rel=0.05)
 
-    def test_exponential_growth_survives_a_serialization_round_trip(self):
-        """An exponential rate change keeps its trajectory through to_json / from_json. Regression: the trajectory
-        was a closure, which jsonpickle drops, so a coalescent saved before computing anything raised AttributeError
-        on every quantity after loading."""
-        dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
-            initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0.2, end_time=1.0
-        )])
 
-        restored = pg.Coalescent.from_json(pg.Coalescent(n=3, demography=dem).to_json())
+def test_exponential_growth_survives_a_serialization_round_trip():
+    """An exponential rate change keeps its trajectory through to_json / from_json. Regression: the trajectory was a
+    closure, which jsonpickle drops, so a coalescent saved before computing anything raised AttributeError on every
+    quantity after loading."""
+    dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0.2, end_time=1.0
+    )])
 
-        self.assertAlmostEqual(pg.Coalescent(n=3, demography=dem).tree_height.mean, restored.tree_height.mean)
+    restored = pg.Coalescent.from_json(pg.Coalescent(n=3, demography=dem).to_json())
+
+    assert restored.tree_height.mean == pytest.approx(pg.Coalescent(n=3, demography=dem).tree_height.mean, rel=1e-12)
+
+
+@pytest.mark.parametrize('make', [
+    lambda: pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0, step_size=-0.1),
+    lambda: pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0, step_size=0),
+    lambda: pg.PopulationSplit(1, 'a', 'b', multiplier=-5),
+    lambda: pg.PopulationSplit(-1, 'a', 'b'),
+    lambda: pg.Demography(pop_sizes={'pop_0': {0: 1, np.nan: 2}}),
+    lambda: pg.Demography(pop_sizes={'pop_0': {0: np.nan}}),
+])
+def test_invalid_demographic_input_is_rejected_at_construction(make):
+    """Non-positive step sizes, negative split parameters and NaN times or sizes raise. Regression: a negative step
+    size hung epoch generation, a zero one raised ZeroDivisionError, a negative multiplier gave a tree height of 6e14,
+    and a NaN change time was silently dropped."""
+    with pytest.raises(ValueError):
+        make()
+
+
+def test_a_trajectory_reaching_a_non_positive_size_is_rejected():
+    """A discretized trajectory that reaches a non-positive population size raises. Regression: it gave a negative
+    expected tree height."""
+    dem = pg.Demography(events=[pg.DiscretizedRateChange(
+        trajectory=lambda t: 1 - t, start_time=0, end_time=3, pop='pop_0', step_size=0.1
+    )])
+
+    with pytest.raises(ValueError, match='not positive'):
+        _ = pg.Coalescent(n=3, demography=dem).tree_height.mean
+
+
+def test_nan_start_time_is_rejected():
+    """A NaN start time raises. Regression: it was treated as 0 and the unwindowed moment returned."""
+    with pytest.raises(ValueError):
+        _ = pg.Coalescent(n=3, start_time=np.nan).tree_height.mean
+
+
+def test_lineage_configurations_differing_in_population_order_differ():
+    """The order of the populations fixes the deme axis and the demes the unlinked lineages come from, so it is part
+    of the configuration. Regression: the configurations compared equal and Inference reused a two-locus state space
+    whose initial distribution belonged to the other order."""
+    assert pg.LineageConfig({'a': 2, 'b': 1}) != pg.LineageConfig({'b': 1, 'a': 2})
+    assert pg.LineageConfig({'a': 2, 'b': 1}) == pg.LineageConfig({'a': 2, 'b': 1})
+
+
+def test_events_setting_one_rate_in_the_same_epoch_warn(caplog):
+    """Two events that set the same population size in one epoch log a warning naming the population, since the one
+    starting last silently took precedence. Regression: the same changes grouped differently gave different moments
+    without notice."""
+    dem = pg.Demography(events=[
+        pg.PopSizeChanges(pop_sizes={'pop_0': {0: 1, 0.5: 2}}),
+        pg.DiscretizedRateChange(trajectory=lambda t: 1 + t, start_time=0.2, end_time=1, pop='pop_0')
+    ])
+
+    with caplog.at_level('WARNING'):
+        list(dem.epochs)
+
+    assert any('pop_0' in r.getMessage() and 'takes precedence' in r.getMessage() for r in caplog.records)
+
+
+def test_population_names_that_are_not_identifiers_simulate():
+    """Population names msprime rejects are mapped to identifiers for the simulation. Regression: to_msprime raised
+    for names such as 'pop-1'."""
+    coal = pg.Coalescent(
+        n={'pop-1': 2, 'pop 2': 1},
+        demography=pg.Demography(pop_sizes={'pop-1': 1, 'pop 2': 1}, migration_rates={('pop-1', 'pop 2'): 1,
+                                                                                    ('pop 2', 'pop-1'): 1})
+    )
+    ms = coal.to_msprime(num_replicates=20000, parallelize=False, seed=1)
+
+    assert ms.tree_height.mean == pytest.approx(coal.tree_height.mean, rel=0.05)
+
+
+@pytest.mark.parametrize('gap, simulated', [(0.02, 2.0306), (0.05, 2.0594), (0.5, 2.5111)])
+def test_chained_splits_at_different_times_keep_draining(gap, simulated):
+    """A split keeps draining its derived population after a later split isolates the ancestral one. Regression: the
+    later split zeroed the earlier drain, stranding a fraction exp(-100 gap) of the lineages, so the tree height
+    raised as non-absorbing or came out near 1e10. References from 100,000 msprime replicates (standard error about
+    0.003)."""
+    dem = pg.Demography(
+        pop_sizes={'a': 1, 'b': 1, 'c': 1},
+        events=[pg.PopulationSplit(1, 'a', 'b'), pg.PopulationSplit(1 + gap, 'b', 'c')]
+    )
+
+    mean = pg.Coalescent(n={'a': 1, 'b': 0, 'c': 1}, demography=dem).tree_height.mean
+
+    assert mean == pytest.approx(simulated, abs=0.013)

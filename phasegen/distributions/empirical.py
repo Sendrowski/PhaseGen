@@ -1701,6 +1701,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         return None if self.seed is None else (self.seed + offset - 1) % (2 ** 32 - 1) + 1
 
+    @property
+    def _msprime_samples(self) -> Dict[str, int]:
+        """The number of samples per population, keyed by its msprime name (see ``Demography._msprime_names``)."""
+        names = self.demography._msprime_names
+        return {names[pop]: n for pop, n in self.lineage_config.lineage_dict.items()}
+
     def simulate(self) -> None:
         """
         Simulate data using msprime, once per instance, so that every statistic describes the same tree sequences.
@@ -1711,7 +1717,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
-        samples = self.lineage_config.lineage_dict
+        samples = self._msprime_samples
 
         # lineages that start unlinked between the loci have no expression as samples, a sample being ancestral over
         # the whole sequence; they are set up as an initial state instead (see ``_unlinked_initial_state``)
@@ -1733,7 +1739,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
 
         # deme axes follow ``lineage_config.pop_names``, msprime population ids follow the demography
-        name_to_index = {name: i for i, name in enumerate(self.lineage_config.pop_names)}
+        names = self.demography._msprime_names
+        name_to_index = {names[name]: i for i, name in enumerate(self.lineage_config.pop_names)}
         axis = np.array([name_to_index[pop.name] for pop in demography.populations])
         n_total = self.n_total = num_replicates * self.n_threads
         # retain a capped subset of per-replicate joint SFS branch lengths (the moments use all replicates; the
@@ -2034,12 +2041,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         # lineages that start unlinked between the loci live in the initial state, not in the samples
         initial_state = None
         if self.locus_config.n_unlinked > 0:
-            initial_state = _unlinked_initial_state(
-                self.lineage_config.lineage_dict, self.locus_config.n_unlinked, demography
-            )
+            initial_state = _unlinked_initial_state(self._msprime_samples, self.locus_config.n_unlinked, demography)
 
         placement = (dict(initial_state=initial_state) if initial_state is not None
-                     else dict(samples=self.lineage_config.lineage_dict, sequence_length=2))
+                     else dict(samples=self._msprime_samples, sequence_length=2))
 
         for rep, ts in enumerate(ms.sim_ancestry(
                 recombination_rate=self.locus_config.recombination_rate,
@@ -2092,7 +2097,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         between = np.zeros(self.num_replicates)
 
         for k, ts in enumerate(ms.sim_ancestry(
-                samples=self.lineage_config.lineage_dict,
+                samples=self._msprime_samples,
                 sequence_length=1,
                 demography=self.demography.to_msprime(),
                 model=self.get_coalescent_model(),
@@ -2132,7 +2137,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         values = np.zeros(self.num_replicates)
 
         for k, ts in enumerate(ms.sim_ancestry(
-                samples=self.lineage_config.lineage_dict,
+                samples=self._msprime_samples,
                 sequence_length=1,
                 demography=self.demography.to_msprime(),
                 model=self.get_coalescent_model(),

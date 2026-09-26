@@ -3,6 +3,7 @@ Demographic events and demography class.
 """
 
 import itertools
+import re
 import logging
 import numbers
 from abc import abstractmethod, ABC
@@ -34,6 +35,10 @@ class Demography:
 
     #: Number of populations.
     n_pops: int
+
+    #: Whether the warning about events setting the same rate in one epoch was issued. Static for backward
+    #: compatibility.
+    _issued_overlap_warning: bool = False
 
     def __init__(
             self,
@@ -91,6 +96,9 @@ class Demography:
         #: Whether a warning about the number of epochs has been already issued.
         self._issued_warning = False
 
+        #: Whether the warning about events setting the same rate in one epoch was issued.
+        self._issued_overlap_warning = False
+
         #: Array of demographic events.
         self.events: List[DemographicEvent] = list(events)
 
@@ -142,9 +150,12 @@ class Demography:
 
         first_epoch = next(self.epochs)
 
+        names = self._msprime_names
+
         # create demography object
         d: ms.Demography = ms.Demography(
-            populations=[ms.Population(name=pop, initial_size=first_epoch.pop_sizes[pop]) for pop in self.pop_names],
+            populations=[ms.Population(name=names[pop], initial_size=first_epoch.pop_sizes[pop])
+                         for pop in self.pop_names],
             migration_matrix=np.array([[first_epoch.migration_rates[(p, q)] for q in self.pop_names]
                                        for p in self.pop_names])
         )
@@ -159,7 +170,7 @@ class Demography:
                 d.add_population_parameters_change(
                     time=epoch.start_time,
                     initial_size=epoch.pop_sizes[pop],
-                    population=pop
+                    population=names[pop]
                 )
 
             # iterate over migration rates
@@ -170,14 +181,43 @@ class Demography:
                     d.add_migration_rate_change(
                         time=epoch.start_time,
                         rate=epoch.migration_rates[(p, q)],
-                        source=p,
-                        dest=q
+                        source=names[p],
+                        dest=names[q]
                     )
 
         # sort events by time
         d.sort_events()
 
         return d
+
+    @property
+    def _msprime_names(self) -> Dict[str, str]:
+        """
+        The msprime name of each population. msprime requires Python identifiers, so any other character is replaced
+        by an underscore, a name not starting with a letter or an underscore is prefixed with ``pop_``, and a clash is
+        resolved by a numeric suffix. Identifiers are kept as they are.
+
+        :return: The msprime name by population name.
+        """
+        names, taken = {}, {p for p in self.pop_names if p.isidentifier()}
+
+        for pop in self.pop_names:
+            if pop.isidentifier():
+                names[pop] = pop
+                continue
+
+            name = re.sub(r'\W', '_', pop)
+            if not name.isidentifier():
+                name = f'pop_{name}'
+
+            candidate, i = name, 1
+            while candidate in taken:
+                candidate, i = f'{name}_{i}', i + 1
+
+            names[pop] = candidate
+            taken.add(candidate)
+
+        return names
 
     def _to_demes(self) -> 'demes.Graph':
         """
@@ -232,15 +272,30 @@ class Demography:
             # drain rate, so that the epoch does not depend on the order of events sharing a start time
             splits = [e for e in self.events if isinstance(e, PopulationSplit)]
 
+            # a rate set by two events in one epoch keeps the value of the later one in the list, which is sorted by
+            # start time, so the precedence depends on how the changes are grouped into events
+            setters = {}
             for e in self.events:
                 if not isinstance(e, PopulationSplit):
-                    e._apply(epoch)
+                    for key in e._apply(epoch):
+                        setters.setdefault(key, []).append(e)
+
+            clashes = [k for k, events in setters.items() if len(events) > 1]
+            if clashes and not self._issued_overlap_warning:
+                self._logger.warning(
+                    "Several events set %s in the epoch starting at %g. The event starting last takes precedence, so "
+                    "combine the changes into one event to make the precedence explicit.",
+                    ', '.join(map(str, clashes)), epoch.start_time
+                )
+                self._issued_overlap_warning = True
 
             for e in splits:
                 e._isolate(epoch)
 
             for e in splits:
                 e._apply(epoch)
+
+            epoch.index = i
 
             yield epoch
             prev = epoch
@@ -495,6 +550,9 @@ class Epoch:
     #: Migration rates.
     migration_rates: Dict[Tuple[str, str], float]
 
+    #: Position of the epoch in its demography, counted from 0. It does not enter the equality of epochs.
+    index: int = 0
+
     def __init__(
             self,
             start_time: float = 0,
@@ -611,11 +669,12 @@ class DemographicEvent(ABC):
     pop_names: List[str]
 
     @abstractmethod
-    def _apply(self, epoch: Epoch) -> None:
+    def _apply(self, epoch: Epoch) -> set:
         """
         Apply the demographic event to the given epoch if applicable.
 
         :param epoch: Epoch.
+        :return: The keys of the rates set, population names for sizes and ``(source, dest)`` pairs for migration.
         """
         pass
 
@@ -698,8 +757,8 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         Initialize the population size change.
 
         :param pop_sizes: Population sizes, a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}`` indexed
-            by population name. :class:`~phasegen.demography.Demography` also accepts the list and single-population
-            forms and normalises them to this one.
+            by population name. :class:`~phasegen.demography.Demography` also accepts the single-population and
+            constant-size forms and normalises them to this one.
         :param migration_rates: Migration rates. A dictionary of the form `{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}` of migration from population `pop_i` to population `pop_j` at time `time1` etc.
         """
@@ -741,16 +800,15 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         rates: Dict[float, Dict[Any, float]]
         times, rates = self._flatten(pop_sizes | migration_rates)
 
-        # check that all times are non-negative
-        if np.any(np.array(times) < 0):
+        # the negated comparisons also reject NaN
+        if np.any(~(np.array(times, dtype=float) >= 0)):
             raise ValueError('All times must not be negative.')
 
-        # check that all migration rates are non-negative
-        if np.any(np.array([rates[k][t] for k in rates for t in migration_rates if t in rates[k]]) < 0):
+        migration = np.array([rates[k][t] for k in rates for t in migration_rates if t in rates[k]], dtype=float)
+        if np.any(~(migration >= 0)):
             raise ValueError('Migration rates must not be negative at all times.')
 
-        # check that all population sizes are positive
-        if np.any(np.array([rates[k][t] for k in rates for t in pop_sizes if t in rates[k]]) <= 0):
+        if np.any(~(np.array([rates[k][t] for k in rates for t in pop_sizes if t in rates[k]], dtype=float) > 0)):
             raise ValueError('Population sizes must be positive at all times.')
 
         #: Times at which the population size changes occur.
@@ -770,15 +828,21 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         #: Start time of the event.
         self.start_time: float = self.times[0]
 
-    def _apply(self, epoch: Epoch) -> None:
+    def _apply(self, epoch: Epoch) -> set:
         """
         Apply the demographic event to the given epoch if applicable.
 
         :param epoch: Epoch.
+        :return: The keys of the rates set.
         """
+        keys = set()
+
         for t in self.times[(epoch.start_time <= self.times) & (self.times < epoch.end_time)]:
             epoch.pop_sizes |= self.pop_sizes[t]
             epoch.migration_rates |= self.migration_rates[t]
+            keys |= set(self.pop_sizes[t]) | set(self.migration_rates[t])
+
+        return keys
 
 
 class PopSizeChanges(DiscreteRateChanges):
@@ -897,6 +961,12 @@ class PopulationSplit(DiscreteDemographicEvent):
         if isinstance(derived, str):
             derived = [derived]
 
+        if not time >= 0:
+            raise ValueError(f'The split time must be non-negative, got {time}.')
+
+        if not multiplier > 0:
+            raise ValueError(f'The migration rate multiplier must be positive, got {multiplier}.')
+
         #: Time of the split.
         self.start_time: float = time
 
@@ -930,21 +1000,27 @@ class PopulationSplit(DiscreteDemographicEvent):
                         epoch.migration_rates[(p, q)] = 0
                         epoch.migration_rates[(q, p)] = 0
 
-    def _apply(self, epoch: Epoch) -> None:
+    def _apply(self, epoch: Epoch) -> set:
         """
-        Set the drain rate from each derived population to the ancestral population if the split falls into the
-        epoch. The rate uses the population sizes of the epoch, so it must be applied after the rate changes and after
+        Set the drain rate from each derived population to the ancestral population in every epoch from the split
+        onwards, so that a later split isolating the ancestral population does not strand lineages still in a derived
+        one. The rate uses the population sizes of the epoch, so it must be applied after the rate changes and after
         :meth:`PopulationSplit._isolate() <phasegen.demography.PopulationSplit._isolate>` of every split.
 
         :param epoch: Epoch.
+        :return: The keys of the drain rates set.
         """
-        if epoch.start_time <= self.start_time < epoch.end_time:
-            # the drain rate is a multiple of the fastest coalescence rate of the epoch, 1 / min(N), so that the
-            # lineages leave the derived populations before any coalescence the split displaces
-            rate = self.multiplier / min(epoch.pop_sizes.values())
+        if self.start_time >= epoch.end_time:
+            return set()
 
-            for p in self.derived:
-                epoch.migration_rates[(p, self.ancestral)] = rate
+        # the drain rate is a multiple of the fastest coalescence rate of the epoch, 1 / min(N), so that the lineages
+        # leave the derived populations before any coalescence the split displaces
+        rate = self.multiplier / min(epoch.pop_sizes.values())
+
+        for p in self.derived:
+            epoch.migration_rates[(p, self.ancestral)] = rate
+
+        return {(p, self.ancestral) for p in self.derived}
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):
@@ -982,6 +1058,12 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         """
         if pop is None and (source is None or dest is None):
             raise ValueError('Either pop or source_pop and dest_pop must be specified.')
+
+        if not step_size > 0:
+            raise ValueError(f'The step size must be positive, got {step_size}.')
+
+        if not 0 <= start_time <= end_time:
+            raise ValueError(f'The times must satisfy 0 <= start_time <= end_time, got {start_time} and {end_time}.')
 
         #: Population name.
         self.pop: str | None = pop
@@ -1025,11 +1107,12 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             n_steps = np.ceil((epoch.start_time - self.start_time + 1e-10) / self.step_size)
             epoch.end_time = min(epoch.end_time, self.start_time + n_steps * self.step_size, self.end_time)
 
-    def _apply(self, epoch: Epoch) -> None:
+    def _apply(self, epoch: Epoch) -> set:
         """
         Apply the demographic event to the given epoch if applicable.
 
         :param epoch: Epoch.
+        :return: The keys of the rates set.
         """
         # if epoch is contained in the event, up to and including a trailing partial interval ending at self.end_time
         if self.start_time <= epoch.start_time and epoch.end_time <= self.end_time:
@@ -1039,9 +1122,24 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             rate = (rate_start + rate_end) / 2
 
             if self.pop is None:
+                if not rate >= 0:
+                    raise ValueError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
+                                     f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not '
+                                     f'non-negative.')
+
                 epoch.migration_rates[(self.source_pop, self.dest_pop)] = rate
-            else:
-                epoch.pop_sizes[self.pop] = rate
+
+                return {(self.source_pop, self.dest_pop)}
+
+            if not rate > 0:
+                raise ValueError(f'The population size trajectory of {self.pop} gives {rate} on '
+                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is not positive.')
+
+            epoch.pop_sizes[self.pop] = rate
+
+            return {self.pop}
+
+        return set()
 
 
 class DiscretizedRateChanges(DiscretizedDemographicEvent):
@@ -1095,15 +1193,14 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         for e in self.events.values():
             e._broadcast(epoch)
 
-    def _apply(self, epoch: Epoch) -> None:
+    def _apply(self, epoch: Epoch) -> set:
         """
         Apply the demographic event to the given epoch if applicable.
 
         :param epoch: Epoch.
-        :return: Epoch.
+        :return: The keys of the rates set.
         """
-        for e in self.events.values():
-            e._apply(epoch)
+        return set().union(*(e._apply(epoch) for e in self.events.values()))
 
 
 class _ExponentialTrajectory:

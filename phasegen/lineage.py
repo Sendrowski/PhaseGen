@@ -97,9 +97,10 @@ class LineageConfig:
 
     def __eq__(self, other) -> bool:
         """
-        Check if two lineage configurations are equal.
+        Check if two lineage configurations are equal, including the order of the populations, which fixes the deme
+        axis of a state space and the demes the initially unlinked lineages are taken from.
 
         :param other: Other lineage configuration
         :return: Whether the two lineage configurations are equal
         """
-        return self.lineage_dict == other.lineage_dict
+        return list(self.lineage_dict.items()) == list(other.lineage_dict.items())
