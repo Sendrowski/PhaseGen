@@ -1544,7 +1544,7 @@ class CoalescentTestCase(TestCase):
         )
 
         t = np.linspace(0, coal.tree_height.quantile(0.99), 100)
-        empirical = coal.tree_height._empirical_cdf(n_samples=1000, t=t)
+        empirical = coal.tree_height._empirical_cdf(n_samples=10000, t=t)
         exact = coal.tree_height.cdf(t=t)
         plt.plot(t, empirical, label='Empirical CDF')
         plt.plot(t, exact, label='Exact CDF')
@@ -1916,7 +1916,7 @@ def test_stability_warning_names_real_epochs_once_each(caplog, pop_sizes, n_epoc
 
     assert epochs
     assert len(epochs) == len(set(epochs))
-    assert set(epochs) <= set(range(n_epochs))
+    assert set(epochs) == set(range(n_epochs))
 
 
 def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference():
@@ -1933,4 +1933,64 @@ def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference(
     coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 1e-4: 1e3}}))
 
     raw = coal.moment(5, [pg.rewards.TreeHeightReward()] * 5, center=False, end_time=1.5e-4)
-    assert raw == pytest.approx(7.4974726817100355e-20, rel=1e-12)
+    assert raw == pytest.approx(7.4974726817100355e-20, rel=1e-12, abs=0)
+
+
+def test_moments_survive_absorption_memos_stored_in_an_older_form():
+    """Payloads from v1.2 store the absorption-certainty memo as a bool, which is replaced rather than indexed.
+    Regression: every uncached moment of such a payload raised TypeError: argument of type 'bool' is not iterable."""
+    coal = pg.Coalescent(n=4)
+
+    for dist in (coal.tree_height, coal.total_branch_length, coal.sfs):
+        dist.__dict__['_absorption_certain_cache'] = True
+        dist.__dict__['_alpha_support_cache'] = None
+
+    restored = pg.Coalescent.from_json(coal.to_json())
+
+    assert restored.tree_height.moment(3, center=False) == pytest.approx(
+        pg.Coalescent(n=4).tree_height.moment(3, center=False), rel=1e-12)
+    np.testing.assert_allclose(restored.sfs.moment(3, center=False).data,
+                               pg.Coalescent(n=4).sfs.moment(3, center=False).data, rtol=1e-12)
+
+
+def test_action_path_moments_do_not_depend_on_the_other_end_times():
+    """On the sparse-action path each step is balanced on its own length, so a moment at one end time is the same
+    whether or not later end times are requested with it. Regression: the factor was taken from the last end time,
+    and the fifth raw moment at t = 1e-3 came out 44% off when evaluated together with t = 10."""
+    pg.Settings.expm_action_min_dim = 1
+    reward = (pg.rewards.TreeHeightReward(),) * 5
+    times = [1.5e-4, 1e-3, 1e-2, 10]
+
+    def dist():
+        return pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 1e-4: 1e3}})).tree_height
+
+    together = dist().accumulate(5, times, reward, center=False)
+    alone = [dist().accumulate(5, [t], reward, center=False)[0] for t in times]
+
+    np.testing.assert_allclose(together, alone, rtol=1e-12)
+    assert together[0] == pytest.approx(7.4974726817100355e-20, rel=1e-12, abs=0)
+
+
+def test_sfs_covariance_at_large_n_solves_instead_of_inverting():
+    """The batched SFS covariance solves with the LU of -T and never forms its inverse, so n = 35 (14,883 states)
+    takes about a second. Regression: the dense inverse took 150 s and 6.9 GB there and ran out of memory at n = 40.
+    The covariances sum to the variance of the total branch length, 4 sum_{k<n} 1/k^2 for the standard coalescent."""
+    n = 35
+    cov = pg.Coalescent(n=n).sfs.cov.data
+
+    assert cov.sum() == pytest.approx(4 * sum(1 / k ** 2 for k in range(1, n)), rel=1e-12)
+
+
+def test_population_split_example_emits_no_singular_matrix_warning():
+    """An epoch without an absorption path is recognised without scipy's singular-matrix warning, which was raised
+    through the warnings module for the documented split example."""
+    import warnings
+    from scipy.linalg import LinAlgWarning
+
+    dem = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 3}, events=[pg.PopulationSplit(2, 'pop_1', 'pop_0')])
+    coal = pg.Coalescent(n={'pop_0': 4, 'pop_1': 4}, demography=dem)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', LinAlgWarning)
+        assert np.isfinite(coal.tree_height.mean)
+        assert np.all(np.isfinite(coal.sfs.mean.data))

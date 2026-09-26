@@ -38,6 +38,10 @@ logger = logging.getLogger('phasegen')
 #: recognised by value, the ordering itself being an array or ``None``.
 _AUTO_PERM = 'auto'
 
+#: Smallest step of the sparse Van Loan action in units of the balancing factor. Block ``j`` of the extended vector
+#: scales as the ``j``-th power of this step, so it bounds the range the blocks span.
+_MIN_SCALED_STEP = 0.1
+
 
 class MomentEvaluator:
     """Moment-evaluation methods of :class:`~phasegen.distributions.PhaseTypeDistribution`, described in its
@@ -51,8 +55,9 @@ class MomentEvaluator:
     lineage_config: 'LineageConfig'
     locus_config: 'LocusConfig'
     _logger: logging.Logger
-    _absorption_certain_cache: Dict[int, bool]
-    _alpha_support_cache: Dict[int, np.ndarray]
+    _absorption_certain_cache: Dict[int, tuple]
+    _alpha_support_cache: Dict[int, tuple]
+    _last_epoch_reach_cache: Dict[int, tuple]
     _epochs_cache: Optional[List[Epoch]]
 
     @staticmethod
@@ -292,8 +297,11 @@ class MomentEvaluator:
             # an infinite end time accumulates until absorption
             end_time = np.inf if self.tree_height.end_time is None else self.tree_height.end_time
 
-        if start_time < 0:
-            raise ValueError("Start time must be greater than or equal to 0.")
+        if not start_time >= 0:
+            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+
+        if not end_time >= 0:
+            raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")
 
         if start_time > 0 and np.isinf(end_time):
             t_absorption = self._get_time_to_absorption()
@@ -464,6 +472,54 @@ class MomentEvaluator:
                     Q[i * n:(i + 1) * n, j * n:(j + 1) * n] *= ratio ** (j - i)
 
         return lamb_new
+
+    def _action_operator(self, rewards: Sequence[Reward], k: int, i_epoch: int) -> Tuple:
+        """
+        The transposed sparse Van Loan matrix of the current epoch for the left vector action, unbalanced, with its
+        stored entries split into the generator blocks and the reward blocks, so that :meth:`_advance_action` scales
+        it to any step and balancing factor without reassembling it.
+
+        :param rewards: Sequence of k rewards.
+        :param k: The order of the moment.
+        :param i_epoch: The epoch number, for the stability warning.
+        :return: The matrix, its data restricted to the generator blocks and to the reward blocks (zero elsewhere), and
+            the balancing factor of the epoch before capping.
+        """
+        n = self.state_space.k
+        S = self.state_space.S
+        self._check_numerical_stability(S, i_epoch)
+        r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
+        Vt = self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
+
+        # entries off the block diagonal are the reward blocks
+        rows = np.repeat(np.arange(Vt.shape[0]), np.diff(Vt.indptr))
+        reward = rows // n != Vt.indices // n
+
+        return Vt, np.where(reward, 0.0, Vt.data), np.where(reward, Vt.data, 0.0), self._get_regularization_factor(S)
+
+    def _advance_action(self, w: np.ndarray, tau: float, lamb: float, op: Tuple, k: int) -> Tuple[np.ndarray, float]:
+        """
+        Advance the forward extended vector by ``tau`` within the current epoch by the sparse matrix-exponential
+        action. Each step is balanced on the factor of the epoch capped at ``tau / _MIN_SCALED_STEP``, since block ``j``
+        of the vector gains the ``j``-th power of the scaled step.
+
+        :param w: Extended row vector of ``(k + 1)`` blocks, stored against ``lamb`` and rebased in place.
+        :param tau: The step, non-positive for none.
+        :param lamb: The factor ``w`` is stored against.
+        :param op: The operator of :meth:`_action_operator` for the current epoch.
+        :param k: The order of the moment.
+        :return: The advanced vector and the factor it is stored against.
+        """
+        if tau <= 0:
+            return w, lamb
+
+        Vt, gen, rew, factor = op
+        if Settings.regularize:
+            lamb = self._rebase_forward(w, lamb, min(factor, tau / _MIN_SCALED_STEP), k, self.state_space.k)
+
+        A = sp.csr_matrix((tau * gen + (tau / lamb) * rew, Vt.indices, Vt.indptr), shape=Vt.shape)
+
+        return Backend.expm_multiply(A, w), lamb
 
     def _check_demography_conditioning(self) -> None:
         """
@@ -873,16 +929,8 @@ class MomentEvaluator:
         self.state_space.update_epoch(epoch)
 
         n = self.state_space.k
-        lamb = self._balance(epoch, 0.0, t_sorted[-1])
-
-        def transposed_van_loan() -> 'sp.spmatrix':
-            """Transposed sparse Van Loan matrix for the current epoch (transposed for the left vector action)."""
-            S = self.state_space.S * lamb
-            self._check_numerical_stability(S, i_epoch)
-            r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
-            return self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
-
-        Vt = transposed_van_loan()
+        op = self._action_operator(rewards, k, i_epoch)
+        lamb = 1.0
 
         # w = alpha_ext (alpha in the first block); e_ext = e in the last block, so w @ Q @ e_ext = alpha @ Q[:n,-n:] @ e
         w = np.zeros((k + 1) * n)
@@ -897,17 +945,14 @@ class MomentEvaluator:
 
             # advance through whole epochs between u_prev and u
             while u > epoch.end_time:
-                w = Backend.expm_multiply(Vt * ((epoch.end_time - u_prev) / lamb), w)
+                w, lamb = self._advance_action(w, epoch.end_time - u_prev, lamb, op, k)
                 u_prev = epoch.end_time
                 i_epoch, epoch = next(epochs)
                 self.state_space.update_epoch(epoch)
-
-                # balance each epoch on its own rates (see ``_rebase``)
-                lamb = self._rebase_forward(w, lamb, self._balance(epoch, 0.0, t_sorted[-1]), k, n)
-                Vt = transposed_van_loan()
+                op = self._action_operator(rewards, k, i_epoch)
 
             # remaining time in the current epoch
-            w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
+            w, lamb = self._advance_action(w, u - u_prev, lamb, op, k)
             moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
             u_prev = u
 
@@ -995,19 +1040,12 @@ class MomentEvaluator:
 
         # rewards are epoch-invariant (they depend on the states, not the rates), matching the cumulative paths;
         # only the intensity matrix (and hence the Van Loan matrix) is refreshed per epoch
-        lamb = self._balance(epoch, start_time, t_sorted[-1])
         moments = np.zeros_like(t_sorted, dtype=float)
 
         with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
             if use_action:
-                def transposed_van_loan() -> 'sp.spmatrix':
-                    """Transposed sparse Van Loan matrix for the current epoch (for the left vector action)."""
-                    S = self.state_space.S * lamb
-                    self._check_numerical_stability(S, i_epoch)
-                    r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
-                    return self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
-
-                Vt = transposed_van_loan()
+                op = self._action_operator(rewards, k, i_epoch)
+                lamb = 1.0
                 # w = alpha_start in the first block; e_ext = e in the last block, so w @ Q @ e_ext = alpha_start @ Q[:n,-n:] @ e
                 w = np.zeros((k + 1) * n)
                 w[:n] = alpha_start
@@ -1020,18 +1058,16 @@ class MomentEvaluator:
                         moments[i] = 0.0
                         continue
                     while u > epoch.end_time:
-                        w = Backend.expm_multiply(Vt * ((epoch.end_time - u_prev) / lamb), w)
+                        w, lamb = self._advance_action(w, epoch.end_time - u_prev, lamb, op, k)
                         u_prev = epoch.end_time
                         i_epoch, epoch = next(epochs)
                         self.state_space.update_epoch(epoch)
-
-                        # balance each epoch on its own rates (see ``_rebase``)
-                        lamb = self._rebase_forward(w, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
-                        Vt = transposed_van_loan()
-                    w = Backend.expm_multiply(Vt * ((u - u_prev) / lamb), w)
+                        op = self._action_operator(rewards, k, i_epoch)
+                    w, lamb = self._advance_action(w, u - u_prev, lamb, op, k)
                     moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
                     u_prev = u
             else:
+                lamb = self._balance(epoch, start_time, t_sorted[-1])
                 S = self._dense_rate_matrix() * lamb
                 self._check_numerical_stability(S, i_epoch)
                 R = [r._get(state_space=self.state_space) for r in rewards]
@@ -1097,7 +1133,12 @@ class MomentEvaluator:
         if getattr(self, '_epochs_cache', None) is not None:
             return self._epochs_cache
 
-        epochs, t_absorption, survival, scale, extra = [], None, 0.0, 1.0, 0
+        epochs, t_absorption, survival, scale, extra = [], None, None, None, 0
+
+        # the state distribution propagated to the start of each finite epoch. Where the CDF there is still below the
+        # absorption level, the epoch starts before the time of almost sure absorption, whose search is then spared
+        th = self.tree_height
+        w, u = np.asarray(th.state_space.alpha, dtype=float), 0.0
 
         for epoch in self.demography.epochs:
 
@@ -1105,9 +1146,19 @@ class MomentEvaluator:
                 epochs.append(epoch)
                 break
 
-            # the bound costs an absorption-time search, so it is evaluated only once a finite epoch requires it
             if t_absorption is None:
+                w = th._sweep_to(w, u, epoch.start_time, self.demography.get_epoch(u))
+                u = epoch.start_time
+
+                if th._cum(w) < th.p_absorption:
+                    epochs.append(epoch)
+                    continue
+
+                # the search is evaluated only once an epoch may start after absorption, and the survival and scale
+                # only once one does
                 t_absorption = self._get_time_to_absorption()
+
+            if epoch.start_time >= t_absorption and survival is None:
                 survival = self.tree_height._survival(t_absorption)
                 scale = self.tree_height._get_absorption_scale()
 
@@ -1121,12 +1172,14 @@ class MomentEvaluator:
                 continue
 
             if epoch.start_time >= t_absorption:
-                epochs.append(Epoch(
+                last = Epoch(
                     start_time=epoch.start_time,
                     end_time=np.inf,
                     pop_sizes=epoch.pop_sizes,
                     migration_rates=epoch.migration_rates
-                ))
+                )
+                last.index = epoch.index
+                epochs.append(last)
                 break
 
             epochs.append(epoch)
@@ -1148,21 +1201,34 @@ class MomentEvaluator:
         # once per moment, and an SFS/jSFS evaluates many bins, so recomputing the reachability each time dominated.
         # One host serves several state spaces (the lineage-counting one for a tree height, the block-counting one
         # for a spectrum), so the memo is per state space.
-        cache = self.__dict__.setdefault('_absorption_certain_cache', {})
-        key = id(self.state_space)
+        cache = self._state_space_memo('_absorption_certain_cache')
+        ss = self.state_space
 
-        if key in cache:
-            return cache[key]
-
-        support = self._alpha_support()
-
-        self.state_space.update_epoch(self._get_epochs_until_unbounded()[-1])
-        absorbing, reach = self._reaches_absorption()
+        if id(ss) in cache and cache[id(ss)][0] is ss:
+            return cache[id(ss)][1]
 
         # only the states that can carry mass matter. A state the initial vector never reaches, such as a deme
         # declared with no samples and no migration into it, has no bearing on whether absorption is certain.
-        cache[key] = bool(reach[support & ~absorbing].all())
-        return cache[key]
+        certain = self._absorbs_from_every_state() or bool(self._reaches_absorption_in_last_epoch()[
+            self._alpha_support() & ~self.state_space.absorbing].all())
+        cache[id(ss)] = (ss, certain)
+        return certain
+
+    def _state_space_memo(self, name: str) -> dict:
+        """
+        A memo of the host keyed by state space, holding ``(state_space, value)`` so that an entry is used only for
+        the very state space it was computed on, which a key reused by another object after deserialization is not.
+        A payload that stored the memo in another form starts afresh.
+
+        :param name: Attribute name of the memo.
+        :return: The memo.
+        """
+        memo = self.__dict__.get(name)
+
+        if not isinstance(memo, dict):
+            memo = self.__dict__[name] = {}
+
+        return memo
 
     def _alpha_support(self) -> np.ndarray:
         """
@@ -1172,11 +1238,16 @@ class MomentEvaluator:
         :return: Boolean mask over the states of the current state space.
         """
         ss = self.state_space
-        cache = self.__dict__.setdefault('_alpha_support_cache', {})
-        key = id(ss)
+        cache = self._state_space_memo('_alpha_support_cache')
 
-        if key in cache:
-            return cache[key]
+        if id(ss) in cache and cache[id(ss)][0] is ss:
+            return cache[id(ss)][1]
+
+        # where every state reaches absorption the restriction changes no solve, so the closure is skipped
+        if self._absorbs_from_every_state():
+            support = np.ones(ss.k, dtype=bool)
+            cache[id(ss)] = (ss, support)
+            return support
 
         support = np.asarray(ss.alpha) > 0
 
@@ -1192,8 +1263,35 @@ class MomentEvaluator:
                     break
                 support = nxt
 
-        cache[key] = support
+        cache[id(ss)] = (ss, support)
         return support
+
+    def _reaches_absorption_in_last_epoch(self) -> np.ndarray:
+        """
+        The states that reach absorption in the final epoch, memoized per state space. Leaves the state space in the
+        final epoch.
+
+        :return: Boolean mask over the states, including the absorbing ones.
+        """
+        ss = self.state_space
+        cache = self._state_space_memo('_last_epoch_reach_cache')
+        ss.update_epoch(self._get_epochs_until_unbounded()[-1])
+
+        if id(ss) in cache and cache[id(ss)][0] is ss:
+            return cache[id(ss)][1]
+
+        _, reach = self._reaches_absorption()
+        cache[id(ss)] = (ss, reach)
+        return reach
+
+    def _absorbs_from_every_state(self) -> bool:
+        """
+        Whether every state reaches absorption in the final epoch, so that absorption is certain whatever the initial
+        vector.
+
+        :return: Whether every state reaches absorption.
+        """
+        return bool(self._reaches_absorption_in_last_epoch().all())
 
     def _reaches_absorption(self) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -1532,12 +1630,16 @@ class MomentEvaluator:
 
         return m, idx_t
 
-    def _two_point_occupation(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def _two_point_occupation(self) -> Optional[Tuple[np.ndarray, 'Callable', np.ndarray]]:
         """
-        Dense two-point occupation matrix ``K = diag(m) (-T)^{-1}`` of ``PhaseTypeDistribution.moment``, defined for a
-        single epoch without an accumulation window. Other cases return ``None`` and callers evaluate per pair.
+        Factors of the two-point occupation matrix ``K = diag(m) (-T)^{-1}`` of ``PhaseTypeDistribution.moment``,
+        defined for a single epoch without an accumulation window, so that ``R^T K R = (m * R)^T solve(R)`` for a
+        stack of reward columns ``R``. ``K`` is never formed, and the LU of ``-T`` is sparse from
+        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
+        transient states on. Other cases return ``None`` and callers evaluate per pair.
 
-        :return: ``(K, idx_t)`` over the transient states, or ``None`` when not applicable (caller falls back).
+        :return: ``(m, solve, idx_t)`` with ``m = alpha (-T)^{-1}`` and ``solve`` applying ``(-T)^{-1}``, over the
+            transient states ``idx_t``, or ``None`` when not applicable (caller falls back).
         """
         if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
             return None
@@ -1571,9 +1673,13 @@ class MomentEvaluator:
         # only the states that can carry mass; see ``_alpha_support``
         idx_t = np.where(~absorbing & self._alpha_support())[0]
 
-        neg_t_inv = sla.inv(-self._transient_block(idx_t))
-        m = np.asarray(self.state_space.alpha)[idx_t].astype(float) @ neg_t_inv
+        sparse = self._solve_sparse(len(idx_t))
+        neg_t = -self._transient_block(idx_t, sparse=sparse)
+        m = self._lu_solver(neg_t.T, sparse)(np.asarray(self.state_space.alpha, dtype=float)[idx_t])
 
-        self._logger.debug("two-point occupation: single-epoch closed form diag(m)(-T)^-1 (n_t=%d)", len(idx_t))
+        self._logger.debug(
+            "two-point occupation: single-epoch closed form diag(m)(-T)^-1, %s LU (n_t=%d)",
+            'sparse' if sparse else 'dense', len(idx_t)
+        )
 
-        return np.diag(m) @ neg_t_inv, idx_t
+        return m, self._lu_solver(neg_t, sparse), idx_t

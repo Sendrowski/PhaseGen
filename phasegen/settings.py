@@ -56,8 +56,9 @@ class Settings(metaclass=_SettingsMeta):
     #: Whether to cache the rate matrix for different epochs which increases performance.
     cache_epochs: bool = True
 
-    #: Whether to memoize cached properties and results. Set to ``False`` to recompute on every access when debugging.
-    #: Distinct from :attr:`cache_epochs`.
+    #: Whether to memoize cached properties and results. With ``False``, values already stored are still served and
+    #: anything not yet computed is recomputed on every access, which helps debugging. Distinct from
+    #: :attr:`cache_epochs`.
     cache: bool = True
 
     #: Whether to use the numba-accelerated state-space construction when numba is available. Set to ``False`` to

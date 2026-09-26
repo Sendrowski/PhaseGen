@@ -1,9 +1,11 @@
 """Phase-type distribution (moment engine) and the tree-height distribution."""
 
 import logging
+import warnings
 from ..caching import cached_property
 from typing import Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
+import scipy.linalg as sla
 import scipy.sparse as sp
 from ..demography import Demography, Epoch
 from ..expm import Backend
@@ -1007,11 +1009,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param start_time: Time when to start accumulating moments.
         :param end_time: Time when to end accumulation of moments. By default, the time until almost sure absorption.
         """
-        if start_time < 0:
-            raise ValueError("Start time must be greater than or equal to 0.")
+        if not start_time >= 0:
+            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
 
-        if end_time is not None and end_time < 0:
-            raise ValueError("End time must be greater than or equal to 0.")
+        if end_time is not None and not end_time >= 0:
+            raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")
 
         if end_time is not None and end_time < start_time:
             raise ValueError("End time must be greater than equal start time.")
@@ -1105,22 +1107,16 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.state_space.update_epoch(epoch)
 
         while u > epoch.end_time:
-            self._check_numerical_stability(self.state_space.S, self._epoch_index(epoch))
+            self._check_numerical_stability(self.state_space.S, epoch.index)
             w = self._propagate(w, epoch.end_time - u_prev)
 
             u_prev = epoch.end_time
             epoch = self.demography.get_epoch(epoch.end_time)
             self.state_space.update_epoch(epoch)
 
-        self._check_numerical_stability(self.state_space.S, self._epoch_index(epoch))
+        self._check_numerical_stability(self.state_space.S, epoch.index)
 
         return self._propagate(w, u - u_prev)
-
-    def _epoch_index(self, epoch: 'Epoch') -> int:
-        """The position of ``epoch`` in the demography, counted from 0."""
-        for i, e in enumerate(self.demography.epochs):
-            if e.end_time >= epoch.end_time:
-                return i
 
     def _exit_rates(self) -> np.ndarray:
         """The per-state absorption rates of the current epoch, see ``_sweep``."""
@@ -1185,7 +1181,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             if start_epoch.end_time >= end:
                 # the whole segment lies within one epoch: exponentiate once and reuse the propagator for every step
                 self.state_space.update_epoch(start_epoch)
-                self._check_numerical_stability(self.state_space.S, self._epoch_index(start_epoch))
+                self._check_numerical_stability(self.state_space.S, start_epoch.index)
 
                 dense = self.state_space.k < Settings.expm_action_min_dim
                 P = expm(self._dense_rate_matrix() * dt) if dense else None
@@ -1279,9 +1275,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         sparse = self._solve_sparse(len(transient))
 
         try:
-            solve = self._lu_solver(-self._transient_block(transient, sparse=sparse), sparse)
+            with warnings.catch_warnings():
+                # an exactly singular ``-S_T``, a transient state without a path to absorption, raises on both paths
+                warnings.simplefilter('error', sla.LinAlgWarning)
+                solve = self._lu_solver(-self._transient_block(transient, sparse=sparse), sparse)
             times = np.asarray(solve(np.ones(len(transient))), dtype=float)
-        except (np.linalg.LinAlgError, RuntimeError, ValueError):
+        except (np.linalg.LinAlgError, sla.LinAlgWarning, RuntimeError, ValueError):
             return np.empty(0)
 
         return times if np.all(np.isfinite(times)) and np.all(times > 0) else np.empty(0)

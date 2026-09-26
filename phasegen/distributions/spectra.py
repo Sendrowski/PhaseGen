@@ -672,7 +672,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         if two_point is None:
             return None
 
-        K, idx_t = two_point
+        m, solve, idx_t = two_point
         ss = self.state_space
         indices = self._get_indices()
         R = np.column_stack([
@@ -680,7 +680,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             for i in indices
         ])
 
-        sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
+        sfs_matrix = (m[:, None] * R).T @ solve(R)     # R^T diag(m) (-T)^{-1} R (one ordering)
         self._logger.debug("sfs.cov: centering with the outer product of bin means")
         mean = np.asarray(self.mean.data)[indices]
         cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
@@ -1980,7 +1980,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         if two_point is None:
             return None
 
-        K, idx_t = two_point
+        m, solve, idx_t = two_point
         ss = self.state_space
         configs = self._get_configs()
         R = np.column_stack([
@@ -1988,7 +1988,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
             for config in configs
         ])
 
-        sfs_matrix = R.T @ K @ R                       # R^T K R (one ordering)
+        sfs_matrix = (m[:, None] * R).T @ solve(R)     # R^T diag(m) (-T)^{-1} R (one ordering)
         self._logger.debug("jsfs.cov: centering with the outer product of bin means")
         mean = np.array([self.mean.data[config] for config in configs])
         cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
