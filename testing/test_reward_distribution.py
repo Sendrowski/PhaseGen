@@ -2075,3 +2075,27 @@ def test_conditioning_next_to_an_epoch_time_warns_or_names_the_jump(caplog):
         joint.conditional('a', 0.3)
 
     assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]
+
+
+def test_truncation_warning_reports_the_estimated_error(caplog):
+    """The truncation warning compares an error estimated from the convergence order with its bar, not the raw
+    movement of the last half of the terms, which overstates the error about threefold. Regression: the documented
+    bottleneck-recovery conditional warned at a movement of 1.7e-3, whose actual error is 5.1e-4. With few terms the
+    expansion is unresolved and still warns."""
+    joint = pg.Coalescent(
+        n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}})
+    ).sfs.joint_distribution(1, 2)
+
+    with caplog.at_level('WARNING'):
+        joint.conditional('a', 0.5).cdf(1.0)
+
+    assert not [r for r in caplog.records if 'truncation' in r.getMessage()]
+
+    caplog.clear()
+    pg.Settings.cos_terms = 16
+    with caplog.at_level('WARNING'):
+        pg.Coalescent(
+            n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}})
+        ).sfs.joint_distribution(1, 2).conditional('a', 0.5).cdf(1.0)
+
+    assert any('estimated truncation error' in r.getMessage() for r in caplog.records)

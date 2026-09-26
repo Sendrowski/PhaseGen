@@ -121,8 +121,9 @@ class RewardDistribution(CallableDistributionFunctions):
       Higham, 2011), from the nearest per-point node below :math:`x`.
     - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
-      the expansion is not monotone, and when the last :math:`K/2` terms still move the CDF, which a distribution
-      whose body is narrow against its window does. Raising :attr:`Settings.cos_terms
+      the expansion is not monotone, and when its truncation error, estimated from how much the last :math:`K/2`
+      terms move the CDF and from the decay of the coefficients, exceeds :math:`10^{-3}`, which a distribution whose
+      body is narrow against its window does. Raising :attr:`Settings.cos_terms
       <phasegen.settings.Settings.cos_terms>` resolves it, at a cost linear in :math:`K`.
 
     .. rubric:: References

@@ -350,8 +350,7 @@ class _LSTFunction(_HazardGrid):
     #: Scale factor :math:`\kappa` of the first-pass window :math:`[0, \hat\mu + \kappa \hat\sigma]`.
     _cos_rough_scale: float = 20.0
 
-    #: Largest share of the CDF range the last half of the cosine terms may still move before the expansion is
-    #: reported unresolved.
+    #: Largest estimated truncation error of the expansion, in probability, before it is reported unresolved.
     _cos_truncation_tol: float = 1e-3
 
     @property
@@ -456,26 +455,37 @@ class _LSTFunction(_HazardGrid):
         half = max(n_terms // 2, 1)
         Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
         if warn:
-            self._warn_if_unresolved(float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0), n_terms)
+            # convergence order of the partial sums, from the decay of the CDF-term amplitudes |f_k| / w_k ~ k^-q
+            k = np.arange(1, n_terms)
+            amp = np.maximum.accumulate((np.abs(fk[1:]) / w[1:])[::-1])[::-1]
+            sel = (k >= n_terms // 4) & (amp > 0)
+            q = -np.polyfit(np.log(k[sel]), np.log(amp[sel]), 1)[0] if sel.sum() > 4 else 2.0
+            order = float(np.clip(q - 1.0, 1.0, 2.0))
+            move = float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0)
+            self._warn_if_unresolved(move / (2.0 ** order - 1.0), move, order, n_terms)
 
         return dict(b=b, w=w, fk=fk, p0=p0)
 
-    def _warn_if_unresolved(self, truncation: float, n_terms: int) -> None:
-        """
-        Warn when the second half of the terms still moves the CDF by more than ``_cos_truncation_tol``. The
-        coefficients do not depend on how many of them are summed, so the difference between the expansion truncated
-        at half the terms and at all of them estimates what the discarded terms would still contribute.
+    def _warn_if_unresolved(self, truncation: float, move: float, order: float, n_terms: int) -> None:
+        r"""
+        Warn when the estimated truncation error exceeds ``_cos_truncation_tol``. The coefficients do not depend on
+        how many of them are summed, so for an error :math:`C K^{-p}` after :math:`K` terms the largest difference
+        ``move`` between the expansion truncated at half the terms and at all of them is :math:`C K^{-p} (2^p - 1)`,
+        and the error is ``move`` divided by :math:`2^p - 1`. The order :math:`p` is one less than the decay exponent
+        of the CDF-term amplitudes, clamped to :math:`[1, 2]`.
 
-        :param truncation: The largest absolute difference between the two truncations, in probability.
+        :param truncation: The estimated truncation error, in probability.
+        :param move: The largest absolute difference between the two truncations, in probability.
+        :param order: The convergence order :math:`p`.
         :param n_terms: The number of cosine terms summed.
         """
         if Settings.check_inversions and truncation > self._cos_truncation_tol:
             self._distribution._logger.warning(
-                "%s: the cosine expansion is unresolved, the last %d of %d terms still move the CDF by %.2e (bar "
-                "%.0e). The distribution spans scales the window cannot resolve at this many terms. Raise "
-                "Settings.cos_terms, whose cost is linear in it.",
-                self._distribution._titled('COS CDF (truncation)'), n_terms - n_terms // 2, n_terms,
-                truncation, self._cos_truncation_tol
+                "%s: the cosine expansion is unresolved, its estimated truncation error is %.2e (bar %.0e), the last "
+                "%d of %d terms moving the CDF by %.2e at convergence order %.1f. The distribution spans scales the "
+                "window cannot resolve at this many terms. Raise Settings.cos_terms, whose cost is linear in it.",
+                self._distribution._titled('COS CDF (truncation)'), truncation, self._cos_truncation_tol,
+                n_terms - n_terms // 2, n_terms, move, order
             )
 
     @staticmethod
