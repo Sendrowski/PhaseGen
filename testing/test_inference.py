@@ -993,3 +993,42 @@ if __name__ == '__main__':
 
         with self.assertRaises(RuntimeError):
             inf.add_run(inf.create_run(index=0))
+
+
+def test_cached_state_space_takes_the_rates_of_the_new_parameters():
+    """A state space reused from the cache starts in the first epoch of the coalescent it is handed to. Regression:
+    it kept the rates of the last epoch it was set to, so single-epoch paths that read the rate matrix directly, such
+    as the mutation-configuration probabilities, used the x0 rates and the likelihood did not depend on Ne."""
+    inf = pg.Inference(
+        bounds={'Ne': (0.1, 10)},
+        x0={'Ne': 1.0},
+        coal=lambda Ne: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+        loss=lambda coal, obs: 0.0,
+        observation=None,
+        pbar=False
+    )
+
+    inf.get_coal(Ne=1.0).sfs.get_mutation_config([1, 0, 0], theta=0.7)
+    cached = inf.get_coal(Ne=2.5).sfs.get_mutation_config([1, 0, 0], theta=0.7)
+
+    fresh = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 2.5}}))
+    assert cached == pytest.approx(fresh.sfs.get_mutation_config([1, 0, 0], theta=0.7), rel=1e-12)
+
+
+def test_a_zero_dimensional_array_loss_is_a_valid_loss():
+    """A finite loss returned as a 0-d array is used as is. Regression: it failed an isscalar check, was replaced by
+    the penalty, and the fit returned its start point."""
+    inf = pg.Inference(
+        bounds={'Ne': (0.5, 2.0)},
+        x0={'Ne': 1.0},
+        coal=lambda Ne: pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+        loss=lambda coal, obs: np.asarray((coal.tree_height.mean - obs) ** 2),
+        observation=1.5,
+        n_runs=1,
+        pbar=False
+    )
+
+    inf.run()
+
+    assert inf.loss_inferred < 1e-8
+    assert inf.params_inferred['Ne'] == pytest.approx(1.125, rel=1e-3)

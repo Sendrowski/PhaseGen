@@ -111,8 +111,9 @@ class Inference(Serializable):
                 run independently, and whose results can be merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
-        :param cache: Whether to reuse the lineage-counting, block-counting and joint block-counting state spaces
-            across optimization iterations when they are equivalent, so that only their rate matrices are rebuilt.
+        :param cache: Whether to reuse the state spaces of :attr:`Coalescent.state_spaces
+            <phasegen.distributions.Coalescent.state_spaces>` across optimization iterations when they are equivalent,
+            so that only their rate matrices are rebuilt.
             This speeds up optimizations over demographic parameters such as population sizes or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -287,11 +288,13 @@ class Inference(Serializable):
         """
         coal = self.coal(**kwargs)
 
-        # if state space caching is enabled, replace each state space by the cached one if it matches
+        # if state space caching is enabled, replace each state space by the cached one if it matches, set to the
+        # first epoch of this coalescent as a freshly built state space is
         if self.cache:
 
             for name, cached in self._state_spaces.items():
                 if getattr(coal, name) == cached:
+                    cached.update_epoch(coal.demography.get_epoch(0))
                     coal.__dict__[name] = cached
 
         return coal
@@ -343,10 +346,12 @@ class Inference(Serializable):
 
             # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
             # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
-            if not np.isscalar(loss) or not np.isfinite(loss):
+            if np.ndim(loss) != 0 or not np.isfinite(loss):
                 logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}; '
                                f'substituting a large finite penalty')
                 loss = _LOSS_PENALTY
+
+            loss = float(loss)
 
             data = params_dict | {'loss': loss}
 
@@ -838,10 +843,15 @@ class Inference(Serializable):
             plt.close()
             ax = plt.gca()
 
-        Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs={'color': 'C0'} | kwargs)
+        Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs=kwargs)
+
+        # each bootstrap trajectory in the colour of its series, without a legend entry of its own
+        colors = [line.get_color() for line in ax.lines[-len(inferred.labels):]]
 
         for data in bootstraps:
-            Visualization.plot_rates(ax=ax, data=data, show=False, kwargs={'color': 'C0', 'alpha': 0.3} | kwargs)
+            for y, color in zip(data.y, colors):
+                style = {'color': color, 'alpha': 0.3} | kwargs
+                ax.plot(data.x, y, drawstyle='steps-post', label='_nolegend_', **style)
 
         Visualization.show_and_save(show=show, file=file)
 

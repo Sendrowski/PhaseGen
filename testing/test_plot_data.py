@@ -236,3 +236,33 @@ def test_inference_bootstrap_plot_data():
 
     ax = inf.plot_pop_sizes(show=False)
     assert len(ax.lines) == 3
+
+
+def test_inference_demography_plot_colours_each_series_and_lists_it_once():
+    """Every series of a multi-population demography has its own colour, shared by its bootstrap trajectories, and
+    one legend entry. Regression: all series were drawn in C0 and each bootstrap added its own legend entries."""
+    inf = pg.Inference(
+        x0=dict(m=0.5),
+        bounds=dict(m=(0.1, 1)),
+        coal=lambda m: pg.Coalescent(
+            n={'a': 2, 'b': 2},
+            demography=pg.Demography(pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): m, ('b', 'a'): m})
+        ),
+        loss=lambda coal, observation: 0.0,
+        parallelize=False
+    )
+    inf.dist_inferred = inf.get_coal(m=0.5)
+    inf.bootstraps = pd.DataFrame([[0.3, 1.0, ''], [0.7, 2.0, '']], columns=['m', 'loss', 'result'])
+
+    ax = inf.plot_demography(show=False)
+
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert len(labels) == len(set(labels))
+
+    colours = {}
+    for line in ax.lines:
+        colours.setdefault(line.get_label() if not line.get_label().startswith('_') else None, set()).add(line.get_color())
+
+    named = {k: v for k, v in colours.items() if k is not None}
+    assert len({c for v in named.values() for c in v}) == len(named) > 1
+    assert colours[None] <= {c for v in named.values() for c in v}
