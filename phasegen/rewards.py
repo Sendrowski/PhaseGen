@@ -818,6 +818,11 @@ class CompositeReward(Reward, ABC):
         """
         return all([reward.supports(state_space) for reward in self.rewards])
 
+    @property
+    def _resolves_residence(self) -> bool:
+        """Whether a member resolves the residence of the rewarded lineages, so that :meth:`_get_parts` does."""
+        return any(r._resolves_residence for r in self.rewards)
+
     def __hash__(self) -> int:
         """
         Calculate the hash of the class name and the hashes of the two rewards.
@@ -840,6 +845,11 @@ class ProductReward(CompositeReward):
         :return: reward vector
         """
         return np.prod([r._get(state_space) for r in self.rewards], axis=0)
+
+    @property
+    def _resolves_residence(self) -> bool:
+        """Whether exactly one factor resolves the residence of the rewarded lineages, see :meth:`_get_parts`."""
+        return sum(r._resolves_residence for r in self.rewards) == 1
 
     def _get_parts(self, state_space: StateSpace) -> np.ndarray:
         r"""
@@ -1094,8 +1104,8 @@ class CustomReward(Reward):
 
     def __hash__(self) -> int:
         """
-        Calculate the hash of the class name and the index.
+        Calculate the hash of the class name and the function, which is hashed by identity.
 
         :return: hash
         """
-        return hash(self.__class__.__name__ + str(self.func))
+        return hash((self.__class__.__name__, self.func))

@@ -571,7 +571,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint_distribution` (all via
         :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
         every reward must also support it). Otherwise the lineage-counting space is used if all rewards support it,
-        then the two-locus block-counting space if all rewards support it, else the block-counting space.
+        then the two-locus block-counting space if all rewards support it and there are two loci and one deme, else
+        the block-counting space.
 
         :param rewards: The rewards to be accumulated jointly.
         :return: The state space supporting all the rewards.
@@ -589,7 +590,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         if Reward.support(LineageCountingStateSpace, rewards):
             return self.lineage_counting_state_space
 
-        if Reward.support(TwoLocusBlockCountingStateSpace, rewards):
+        two_locus = self.locus_config.n == 2 and self.lineage_config.n_pops == 1
+
+        if two_locus and Reward.support(TwoLocusBlockCountingStateSpace, rewards):
             return self.two_locus_block_counting_state_space
 
         return self.block_counting_state_space

@@ -628,3 +628,57 @@ def test_restrictions_stacked_on_a_union_resolve_the_residence():
     deme = pg.CombinedReward([height, pg.DemeReward('pop_0')])
 
     assert coal.moment(1, [union], center=False) == pytest.approx(coal.moment(1, [deme], center=False), rel=1e-10)
+
+
+def test_a_sum_of_sfs_rewards_keeps_its_deme_resolution_inside_a_product():
+    """A sum of residence-resolving rewards resolves residence as a factor of a product, so multiplying it by the
+    unit reward leaves its deme restriction unchanged. Regression: the sum was split by lineage counts once it was a
+    factor, giving 2.8348 against 2.8764."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 2},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 0.5})
+    )
+    both = pg.SumReward([pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)])
+
+    def mean(*rewards):
+        return coal.moment(1, [pg.CombinedReward(list(rewards))], center=False)
+
+    per_bin = mean(pg.UnfoldedSFSReward(1), pg.DemeReward('a')) + mean(pg.UnfoldedSFSReward(2), pg.DemeReward('a'))
+
+    assert mean(both, pg.DemeReward('a')) == pytest.approx(per_bin, rel=1e-10)
+    assert mean(both, pg.rewards.UnitReward(), pg.DemeReward('a')) == pytest.approx(per_bin, rel=1e-10)
+
+
+def test_custom_rewards_with_equal_representations_are_distinct():
+    """Custom rewards compare by the identity of their function. Regression: they compared by its string form, so two
+    callables printing alike shared cached moments, and the second reward was served the first one's mean."""
+    class Scaled:
+        def __init__(self, c):
+            self.c = c
+
+        def __call__(self, state_space):
+            return self.c * pg.TreeHeightReward()._get(state_space)
+
+        def __repr__(self):
+            return 'Scaled'
+
+    supports = lambda s: s is pg.LineageCountingStateSpace
+    coal = pg.Coalescent(n=3)
+
+    one = coal.moment(1, [pg.CustomReward(Scaled(1), supports=supports)], center=False)
+    five = coal.moment(1, [pg.CustomReward(Scaled(5), supports=supports)], center=False)
+
+    assert five == pytest.approx(5 * one, rel=1e-12)
+
+
+def test_a_reward_supporting_the_two_locus_space_uses_block_counting_on_one_locus():
+    """The two-locus space is chosen only for two loci and one deme. Regression: a custom reward supporting it was
+    routed there on a single-locus coalescent, which raised."""
+    reward = pg.CustomReward(
+        lambda s: pg.TreeHeightReward()._get(s),
+        supports=lambda s: s in (pg.BlockCountingStateSpace, pg.TwoLocusBlockCountingStateSpace)
+    )
+    coal = pg.Coalescent(n=3)
+
+    assert isinstance(coal._select_state_space([reward]), pg.BlockCountingStateSpace)
+    assert coal.moment(1, [reward], center=False) == pytest.approx(coal.tree_height.mean, rel=1e-12)
