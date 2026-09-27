@@ -89,11 +89,51 @@ class MsprimeGroundTruthTestCase(TestCase):
         ms.seed = 0
 
         self.assertEqual(ms._msprime_seed(), 2 ** 32 - 1)
-        self.assertEqual(ms._msprime_seed(1), 1)
         self.assertTrue(np.isfinite(ms.tree_height.mean))
 
         ms.seed = 42
-        self.assertEqual(ms._msprime_seed(3), 45)
+        self.assertEqual(ms._msprime_seed(), 42)
+
+    def test_adjacent_seeds_share_no_batch(self):
+        """
+        The batch ``b`` of ``seed=s`` was seeded with ``s + b``, so ``seed=s + 1`` reproduced all batches but one,
+        shifted by one slot. The batches of adjacent seeds must be independent, while a fixed seed stays
+        reproducible.
+        """
+        n_threads, per_batch = 4, 10
+
+        def batches(seed: int) -> np.ndarray:
+            ms = pg.Coalescent(n=3).to_msprime(num_replicates=n_threads * per_batch, n_threads=n_threads,
+                                               parallelize=False, seed=seed)
+            ms.simulate()
+            return ms.heights[0, 0].reshape(n_threads, per_batch)
+
+        a, b = batches(5), batches(6)
+
+        np.testing.assert_array_equal(a, batches(5))
+        self.assertFalse(any(np.array_equal(x, y) for x in a for y in b))
+
+    def test_two_locus_mutations_are_binned_per_locus(self):
+        """
+        With two loci and recombination, every mutation was binned by the first tree and filed under locus 0, which
+        gave counts in the monomorphic classes and an empty locus 1. The mean mutation count of each locus and
+        frequency class must match the mutation rate times the exact single-locus SFS, within four standard errors.
+        """
+        n, rate, n_reps = 4, 1.0, 4000
+        ms = pg.Coalescent(n=n, loci=2, recombination_rate=1.0).to_msprime(
+            num_replicates=n_reps, n_threads=1, parallelize=False, seed=3, simulate_mutations=True,
+            mutation_rate=rate
+        )
+        ms.simulate()
+        exact = rate * np.asarray(pg.Coalescent(n=n).sfs.mean.data)
+
+        for locus in range(2):
+            counts = ms.mutations[locus, 0]
+            self.assertEqual(counts.shape, (n_reps, n + 1))
+            self.assertEqual(counts[:, [0, n]].sum(), 0)
+
+            se = counts.std(axis=0) / np.sqrt(n_reps)
+            np.testing.assert_array_less(np.abs(counts.mean(axis=0) - exact)[1:n], 4 * se[1:n])
 
     def test_two_locus_statistics(self):
         """Two-locus SFS ground truth under recombination."""

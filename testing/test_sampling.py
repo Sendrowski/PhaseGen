@@ -423,6 +423,21 @@ def test_sampled_sfs_has_no_mutation_configs():
         _ = sfs.mutation_configs
 
 
+def test_sampled_coalescent_accepts_a_generator_seed():
+    """``Coalescent.to_empirical`` raised TypeError at the first statistic access when given a
+    ``numpy.random.Generator``, which every per-distribution sampler accepts. Equally seeded generators must yield
+    equal statistics."""
+    coal = pg.Coalescent(n=3)
+
+    a = coal.to_empirical(500, seed=np.random.default_rng(SEED))
+    b = coal.to_empirical(500, seed=np.random.default_rng(SEED))
+
+    assert isinstance(a.seed, int)
+    assert np.isfinite(a.tree_height.mean)
+    np.testing.assert_array_equal(a.tree_height.samples, b.tree_height.samples)
+    np.testing.assert_array_equal(a.sfs.samples, b.sfs.samples)
+
+
 def test_msprime_mutation_configs_survive_drop_and_serialization():
     """The configuration frequencies of a spectrum with mutation counts are persisted by ``_touch``, remain available
     after ``_drop`` frees the counts, and are restored by jsonpickle under the serialized key ``mutation_configs``."""

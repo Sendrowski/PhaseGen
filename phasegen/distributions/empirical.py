@@ -1369,7 +1369,8 @@ class _ReplicateStatistic:  # pragma: no cover
         """Update from the locus-``j`` tree of replicate ``i`` (``ctx`` carries shared per-replicate data)."""
 
     def process_replicate(self, i: int, ts, ctx: dict, seed) -> None:
-        """Update from the whole replicate ``i`` (the tree sequence ``ts``)."""
+        """Update from the whole replicate ``i`` (the tree sequence ``ts``), with ``seed`` the replicate's msprime
+        seed."""
 
 
 class _TreeStatistics(_ReplicateStatistic):  # pragma: no cover
@@ -1507,8 +1508,9 @@ class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
 
 
 class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
-    """The mutation-count SFS: drop mutations on the replicate's tree sequence at the configured rate and bin them by
-    the number of leaves the carrying node subtends (population index 0, single locus)."""
+    """The mutation-count SFS: drop mutations on the replicate's tree sequence at the configured rate and bin each by
+    its locus, the unit interval containing its site, and by the number of leaves the carrying node subtends in the
+    tree at that site (population index 0)."""
 
     def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, mutation_rate: float) -> None:
         self.mutations = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int)
@@ -1517,18 +1519,12 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
     def process_replicate(self, i, ts, ctx, seed) -> None:
         import msprime as ms
 
-        # draw mutations with a per-replicate seed: reusing the single batch seed across all replicates freezes the
-        # mutation randomness (the per-replicate count is then a deterministic function of the tree rather than a
-        # fresh Poisson draw), which biases the mutational-configuration distribution. The batch seeds are spaced by
-        # one (``self.seed + thread``), so a large prime offset keeps the per-replicate seeds collision-free and
-        # reproducible.
-        rep_seed = None if seed is None else int((seed * 1_000_003 + i) % (2 ** 31 - 1)) + 1
+        mts = ms.sim_mutations(ts, rate=self._rate, random_seed=seed)
+        positions = mts.sites_position
 
-        mts = ms.sim_mutations(ts, rate=self._rate, random_seed=rep_seed)
-        tree = next(mts.trees())
-
-        for node in mts.mutations_node:
-            self.mutations[0, 0, i, tree.get_num_leaves(node)] += 1
+        for tree in mts.trees():
+            for mutation in tree.mutations():
+                self.mutations[int(positions[mutation.site]), 0, i, tree.get_num_leaves(mutation.node)] += 1
 
 
 def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
@@ -1581,8 +1577,8 @@ class MsprimeCoalescent(AbstractCoalescent):
     """
     Coalescent whose statistics are estimated from ``msprime`` ancestry simulations, independently of the phase-type
     computation. :meth:`MsprimeCoalescent.simulate() <phasegen.distributions.MsprimeCoalescent.simulate>` splits the
-    replicates into batches simulated in parallel, each seeded with :attr:`seed` plus its batch index, and the
-    statistics use the estimators of :class:`~phasegen.distributions.EmpiricalDistribution`.
+    replicates into batches simulated in parallel, each seeded from its own child of
+    :class:`numpy.random.SeedSequence` spawned from :attr:`seed`, and the statistics use the estimators of :class:`~phasegen.distributions.EmpiricalDistribution`.
     """
 
     def __init__(
@@ -1616,8 +1612,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
-        :param seed: Integer random seed, wrapped into msprime's range :math:`[1, 2^{32} - 1]`. ``None`` draws fresh
-            entropy.
+        :param seed: Non-negative integer random seed. ``None`` draws fresh entropy.
         """
         super().__init__(
             n=n,
@@ -1692,15 +1687,39 @@ class MsprimeCoalescent(AbstractCoalescent):
         if isinstance(self.model, DiracCoalescent):
             return ms.DiracCoalescent(psi=self.model.psi, c=self.model.c)
 
-    def _msprime_seed(self, offset: int = 0) -> Optional[int]:
+    def _msprime_seed(self) -> Optional[int]:
         """
-        The msprime seed of :attr:`seed` plus ``offset``, wrapped into msprime's range :math:`[1, 2^{32} - 1]`, which it
-        leaves unchanged.
+        The msprime seed of :attr:`seed`, wrapped into msprime's range :math:`[1, 2^{32} - 1]`, which it leaves
+        unchanged. It seeds the statistics simulated outside the batches of :meth:`simulate`.
 
-        :param offset: Offset added to the seed, the batch index of a simulation.
         :return: The msprime seed, ``None`` for fresh entropy.
         """
-        return None if self.seed is None else (self.seed + offset - 1) % (2 ** 32 - 1) + 1
+        return None if self.seed is None else (self.seed - 1) % (2 ** 32 - 1) + 1
+
+    def _batch_seeds(self) -> List[Optional[np.random.SeedSequence]]:
+        """
+        The seed sequence of each of the :attr:`n_threads` batches, spawned from :attr:`seed`.
+
+        :return: One seed sequence per batch, ``None`` for fresh entropy.
+        """
+        if self.seed is None:
+            return [None] * self.n_threads
+
+        return np.random.SeedSequence(self.seed).spawn(self.n_threads)
+
+    @staticmethod
+    def _msprime_seeds(seed: Optional[np.random.SeedSequence], n: int) -> List[Optional[int]]:
+        """
+        Draw ``n`` msprime seeds, in msprime's range :math:`[1, 2^{32} - 1]`, from a seed sequence.
+
+        :param seed: Seed sequence, ``None`` for fresh entropy.
+        :param n: Number of seeds.
+        :return: The msprime seeds, ``None`` for fresh entropy.
+        """
+        if seed is None:
+            return [None] * n
+
+        return [int(s) % (2 ** 32 - 1) + 1 for s in seed.generate_state(n)]
 
     @property
     def _msprime_samples(self) -> Dict[str, int]:
@@ -1748,16 +1767,19 @@ class MsprimeCoalescent(AbstractCoalescent):
         # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
         jsfs_sample_cap = self._jsfs_sample_cap // self.n_threads
 
-        def simulate_batch(seed: Optional[int]) -> dict:
+        def simulate_batch(seed: Optional[np.random.SeedSequence]) -> dict:
             """
             Simulate one batch of replicates, accumulating every requested statistic in a single pass over the tree
             sequences via self-contained per-statistic accumulators.
 
-            :param seed: Random seed.
+            :param seed: Seed sequence of the batch, from which the ancestry seed and one mutation seed per replicate
+                are drawn.
             :return: Statistics.
             """
             import msprime as ms
             import tskit
+
+            ancestry_seed, *replicate_seeds = self._msprime_seeds(seed, num_replicates + 1)
 
             # simulate trees
             shared = dict(
@@ -1768,7 +1790,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=model,
                 ploidy=1,
                 end_time=end_time,
-                random_seed=seed
+                random_seed=ancestry_seed
             )
             if initial_state is None:
                 g: Generator = ms.sim_ancestry(
@@ -1808,7 +1830,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                         stat.process_tree(i, j, tree, ts, ctx)
 
                 for stat in stats:
-                    stat.process_replicate(i, ts, ctx, seed)
+                    stat.process_replicate(i, ts, ctx, replicate_seeds[i])
 
             # the mutations / jSFS arrays default to zeros / None when not requested (kept in the return layout for
             # the cross-thread aggregation in ``simulate``)
@@ -1827,7 +1849,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # parallelize over threads
         batches = parallelize(
             func=simulate_batch,
-            data=[self._msprime_seed(i) for i in range(self.n_threads)],
+            data=self._batch_seeds(),
             parallelize=self.parallelize,
             batch_size=num_replicates,
             desc="Simulating trees",
@@ -2199,11 +2221,17 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.
     _seed_offsets = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
 
-    def __init__(self, coalescent: Coalescent, n_samples: int = 100000, seed: int = None) -> None:
+    def __init__(
+            self,
+            coalescent: Coalescent,
+            n_samples: int = 100000,
+            seed: int | np.random.Generator = None
+    ) -> None:
         """
         :param coalescent: The exact coalescent to sample from.
         :param n_samples: Number of trajectories to simulate per statistic.
-        :param seed: Integer seed, ``None`` for fresh entropy per statistic.
+        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one integer seed is drawn at
+            construction. ``None`` draws fresh entropy per statistic.
         """
         # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
         # the config after the analytic coalescent is dropped (Comparison / serialization need it)
@@ -2221,7 +2249,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         self.n_samples: int = n_samples
 
         #: Random seed.
-        self.seed: Optional[int] = seed
+        self.seed: Optional[int] = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""

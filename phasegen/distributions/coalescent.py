@@ -882,12 +882,17 @@ class Coalescent(AbstractCoalescent, Serializable):
             seed=seed
         )
 
-    def to_empirical(self, n_samples: int = 100000, seed: int = None) -> 'SampledCoalescent':
+    def to_empirical(
+            self,
+            n_samples: int = 100000,
+            seed: int | np.random.Generator = None
+    ) -> 'SampledCoalescent':
         """
         Estimate every statistic by simulation, see :class:`~phasegen.distributions.SampledCoalescent`.
 
         :param n_samples: Number of trajectories to sample per statistic.
-        :param seed: Integer seed, ``None`` for fresh entropy.
+        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one is drawn. ``None`` draws fresh
+            entropy.
         :return: The sampled coalescent.
 
         .. versionadded:: 2.0
