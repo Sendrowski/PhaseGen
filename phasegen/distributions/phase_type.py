@@ -1357,11 +1357,20 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         w = self._sweep_to(np.asarray(self.state_space.alpha, dtype=float), 0.0, t, epoch)
         p = self._cum(w)
 
+        # the states that reach absorption in the unbounded epoch, computed on first entering it
+        reach = None
+
         # multiple time by expansion_factor until we reach p_absorption
         while p < self.p_absorption and i < self.max_iter:
             w = self._sweep_to(w, t, t * expansion_factor, self.demography.get_epoch(t))
             t = t * expansion_factor
             p = self._cum(w)
+
+            if self.demography.get_epoch(t).end_time == np.inf:
+                if reach is None:
+                    _, reach = self._reaches_absorption()
+
+                self._assert_absorbs(w, reach)
 
             if np.isnan(p):
                 self._logger.critical(
@@ -1372,11 +1381,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 )
 
             i += 1
-
-        # if absorption was not reached, fail loudly for a demography that *never* absorbs rather than returning the
-        # doubling ceiling (see :meth:`_assert_absorbs`).
-        if p < self.p_absorption and not np.isnan(p):
-            self._assert_absorbs(w)
 
         if i == self.max_iter and p < self.p_absorption:
             self._logger.warning(

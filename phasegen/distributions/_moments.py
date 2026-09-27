@@ -1323,7 +1323,7 @@ class MomentEvaluator:
         """
         Backward reachability over the rate graph of the current epoch: a state reaches absorption if it is absorbing
         or has a positive rate to a state that does, propagated with a sparse adjacency matrix. Used by
-        ``_absorption_certain_in_last_epoch`` and ``_assert_absorbs``.
+        ``_absorption_certain_in_last_epoch`` and the absorption-time search.
 
         :return: ``(absorbing, reach)`` boolean masks over the states; ``reach`` includes the absorbing states.
         """
@@ -1346,16 +1346,17 @@ class MomentEvaluator:
 
         return absorbing, reach
 
-    def _assert_absorbs(self, w: np.ndarray) -> None:
+    def _assert_absorbs(self, w: np.ndarray, reach: np.ndarray) -> None:
         """
         Raise if the demography can never absorb, for example for an isolated deme or one-way migration in the final
         epoch. Mass of the propagated distribution ``w`` on states that cannot reach absorption in the final epoch
-        (``state_space`` updated to it) is permanent. Called by the absorption-time search.
+        is permanent and never decreases there. Called by the absorption-time search at each step in the final,
+        unbounded epoch.
 
-        :param w: State distribution at a large time in the final, unbounded epoch.
+        :param w: State distribution at a time in the final, unbounded epoch.
+        :param reach: The states that reach absorption in the final epoch, see ``_reaches_absorption``.
         :raises ModelError: if a non-negligible fraction of the mass can never reach a common ancestor.
         """
-        _, reach = self._reaches_absorption()
         stuck = float(np.asarray(w)[~reach].sum())
 
         if stuck > 1e-8:

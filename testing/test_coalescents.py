@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 
 import phasegen as pg
 from phasegen.distributions import MsprimeCoalescent
+from phasegen.errors import ModelError
 
 
 class CoalescentTestCase(TestCase):
@@ -463,14 +464,18 @@ class CoalescentTestCase(TestCase):
 
     def test_two_loci_two_demes(self):
         """
-        Test two loci.
+        Two loci in two demes without migration never absorb, which every statistic reports as the one-locus case
+        does. The states stuck in separate demes form a recurrent class under recombination, so the absorption-time
+        search used to overflow to NaN and skip the absorption check, returning a finite branch-length mean.
         """
         coal = pg.Coalescent(
             n=pg.LineageConfig([2, 2]),
             loci=pg.LocusConfig(n=2, recombination_rate=1.11),
         )
 
-        pass
+        for dist in [coal.tree_height, coal.total_branch_length]:
+            with pytest.raises(ModelError, match="does not absorb"):
+                _ = dist.mean
 
     def test_beta_4_n(self):
         """
