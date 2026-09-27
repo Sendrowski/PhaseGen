@@ -421,10 +421,18 @@ def test_sfs_two_loci_and_sfs2_one_locus_raise():
     with pytest.raises(ValueError, match="two loci"):
         pg.Coalescent(n=4).sfs2.mean
 
-    # the (recombination-invariant) single-locus marginal mean equals the one-locus SFS
+    # the (recombination-invariant) single-locus marginal mean at either locus equals the one-locus SFS
+    from phasegen.distributions import PhaseTypeDistribution
+    from phasegen.rewards import CombinedReward
+
     marg = np.asarray(pg.Coalescent(n=4).sfs.mean.data)
-    diag = np.asarray(two.sfs2.mean.data)  # sanity: two-locus object is usable, single-locus one is the marginal
-    assert marg.shape == (5,) and diag.shape == (5, 5)
+    dist = two.sfs2
+    for locus in (0, 1):
+        for i in range(1, 4):
+            m = PhaseTypeDistribution.moment(
+                dist, k=1, center=False, rewards=(CombinedReward([dist.reward, pg.TwoLocusSFSReward(locus, i)]),)
+            )
+            assert m == pytest.approx(marg[i], rel=1e-9)
 
 
 def test_reward_state_space_guards():

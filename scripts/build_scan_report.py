@@ -131,7 +131,7 @@ function render(){const term=q.value.trim().toLowerCase(),mf=msel.value,po=ponly
  head();document.getElementById('count').textContent=view.length.toLocaleString()+' of '+DATA.length.toLocaleString()+' shown';}
 function open(i){const r=view[i];if(!r||!r.plot)return;cur=i;
  mimg.src=r.plot;mt.textContent=r.config+': '+r.stat;
- mm.textContent='diff '+fmtNum(r.diff)+'  ≤  '+fmtNum(r.tol)+'  ('+r.metric+')';
+ mm.textContent='diff '+fmtNum(r.diff)+(r.diff<=r.tol?'  ≤  ':'  >  ')+fmtNum(r.tol)+'  ('+r.metric+')';
  modal.classList.add('open');
  document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.toggle('sel',+tr.dataset.i===i));}
 function step(d){let i=cur;for(let k=0;k<view.length;k++){i=(i+d+view.length)%view.length;if(view[i].plot){open(i);return;}}}

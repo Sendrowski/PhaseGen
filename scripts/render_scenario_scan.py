@@ -20,7 +20,7 @@ from testing.test_scenarios import configs, slow_configs
 
 OUTDIR = sys.argv[1]  # plots + manifest go here
 CONFIGS = [c for c in configs if c not in slow_configs]
-_PAT = re.compile(r'^#\d+\s+(.*?):\s+\S+\s+<=\s+\S+\s+\((.*?),\s+([\d.]+)s\)\s*$')
+_PAT = re.compile(r'^#\d+\s+(.*?):\s+\S+\s+(?:<=|>)\s+\S+\s+\((.*?),\s+([\d.]+)s\)\s*$')
 
 
 def run_one(config):

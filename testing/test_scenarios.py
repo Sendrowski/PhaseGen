@@ -147,13 +147,10 @@ configs = [
     '1_epoch_4_pops_tree_n_2',
     '1_epoch_4_pops_tree_n_4',
     '1_epoch_4_pops_tree_beta',
-]
-
-configs_suspended = [
-    '7_epoch_beta_migration_disparate_migration_sizes_n_10',  # takes a long time
-    '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
-    '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
-    '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
+    '7_epoch_beta_migration_disparate_migration_sizes_n_10',
+    '1_epoch_2_loci_2_pops_n_4_r_1',
+    '1_epoch_2_loci_n_10_r_1',
+    '5_epoch_2_loci_2_pops_n_4_r_1',
     '1_epoch_beta_n_6_alpha_1_99',
     '1_epoch_beta_n_2_alpha_1_99',
     '1_epoch_beta_2_loci_n_2_r_1_alpha_1_5',
@@ -219,10 +216,10 @@ def generate_tests(config: str):
     return run_test
 
 
-# scenarios that take several seconds to run. Unlike ``configs_suspended`` (which are not run at all), these are
-# still collected but marked ``slow`` so they can be deselected with ``-m "not slow"`` to keep the regular suite fast.
+# scenarios with a long comparison runtime. These are still collected but marked ``slow`` so they can be deselected with
+# ``-m "not slow"`` to keep the regular suite fast.
 slow_configs = [
-    # scenario dist comparisons whose measured comparison runtime exceeds ~60s (multi-epoch / sharp-density cosine
+    # scenario dist comparisons whose measured comparison runtime exceeds ~40s (multi-epoch / sharp-density cosine
     # inversions and the multi-epoch loci-joint), kept out of the fast suite
     '3_epoch_2_loci_n_4_r_1',
     '4_epoch_up_down_n_10',
@@ -230,16 +227,7 @@ slow_configs = [
     '2_epoch_n_4_decline',
     '2_epoch_n_10_growth',
     '2_epoch_n_10_decline',
-    '1_epoch_n_3_2_locus_sfs',
-    '1_epoch_n_4_2_locus_sfs',
-    '2_epoch_n_3_2_locus_sfs',
-    '3_epoch_n_3_2_locus_sfs',
-    '1_epoch_n_3_beta_2_locus_sfs',
-    '1_epoch_n_3_dirac_2_locus_sfs',
-    '1_epoch_n_3_r_0_2_locus_sfs',
-    '1_epoch_n_3_large_r_2_locus_sfs',
-    '1_epoch_n_5_2_locus_sfs',
-    '1_epoch_n_6_2_locus_sfs',
+    '3_epoch_extreme_bottleneck_n_5',
     # the joint-SFS comparison builds the joint state space and runs the COS / de Hoog joint distribution per bin
     # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the full
     # msprime joint validation runs in the slow suite, while the fast suite keeps the analytic joint covered by
@@ -252,20 +240,14 @@ slow_configs = [
     '1_epoch_2_pops_n_6_asym_jsfs',
     '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_6_jsfs',
-    '1_epoch_2_pops_n_8_jsfs',
     '2_epoch_n_8_tajima',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
     '3_epoch_3_pops_n_5_jsfs',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '1_epoch_dirac_n_20',
-    '1_epoch_beta_n_20',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
-    '1_epoch_4_pops_tree_n_2',
-    '1_epoch_4_pops_tree_n_4',
-    '1_epoch_4_pops_tree_beta',
 ]
 
 def configs_asserting(key: str) -> List[str]:

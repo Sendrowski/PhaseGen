@@ -4,7 +4,7 @@ the cached msprime ground truth -- so tuning a tolerance (or adding/removing a s
 data) does not require re-running the 1e6-replicate simulation.
 
 It aborts (pointing to ``create_comparison``) when a full regeneration is genuinely needed: a changed
-simulation-defining parameter (``n``, ``pop_sizes``, model, seed, ...), or a newly requested pairwise *surface* pair
+ground-truth-defining parameter (``n``, ``pop_sizes``, model, ``end_time``, ...), or a newly requested pairwise *surface* pair
 whose empirical grid was never cached.
 """
 
@@ -34,17 +34,19 @@ if not os.path.exists(fixture):
 old = Comparison.from_file(fixture)      # the existing fixture (carries the cached ground truth)
 new = Comparison.from_yaml(yaml_file)    # the freshly edited config
 
-# the cached ground truth is only valid if the simulation-defining parameters are unchanged (alpha/psi/c capture the
-# Beta/Dirac model parameters; the model itself is compared by class, since instances have no value equality).
+# the fixture is only valid if the parameters defining the simulation and the analytic model are unchanged
+# (alpha/psi/c capture the Beta/Dirac model parameters; the model itself is compared by class, since instances have
+# no value equality).
 # NOTE: `seed` is deliberately excluded -- it only selects which random realization was drawn, not the distribution,
 # so the existing cached sample stays a valid ground truth for a tolerance sync (we reuse it, we do not regenerate).
 sim_attrs = ['n', 'pop_sizes', 'migration_rates', 'num_replicates', 'n_samples', 'n_loci', 'recombination_rate',
-             'mutation_rate', 'alpha', 'psi', 'c']
+             'n_unlinked', 'mutation_rate', 'record_migration', 'simulate_mutations', 'mass_threshold', 'end_time',
+             'alpha', 'psi', 'c']
 changed = [a for a in sim_attrs if getattr(old, a, None) != getattr(new, a, None)]
 if type(getattr(old, 'model', None)) is not type(getattr(new, 'model', None)):
     changed.append('model')
 if changed:
-    raise ValueError(f"Simulation-defining parameters changed {changed} for {fixture}; the cached ground truth is "
+    raise ValueError(f"Ground-truth-defining parameters changed {changed} for {fixture}; the cached ground truth is "
                      f"stale -- run the create_comparison rule to regenerate from scratch.")
 
 # every requested pairwise *surface* pair must already have a cached empirical grid (_touch caches the per-statistic

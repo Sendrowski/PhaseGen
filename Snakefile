@@ -131,11 +131,16 @@ ruleorder: create_2locus_comparison > create_comparison
 def get_scan_fixtures(w):
     """
     Serialized fixtures for the non-slow scenario suite (the single source of truth is
-    testing.test_scenarios: all ``configs`` minus ``slow_configs``). Imported lazily so an
-    unrelated snakemake target does not pay the phasegen import cost.
+    testing.test_scenarios: all ``configs`` minus ``slow_configs``). The two lists are read from the
+    module source, so the snakemake driver needs neither phasegen nor its test dependencies.
     """
-    from testing.test_scenarios import configs as scen_configs, slow_configs
-    return [f"results/comparisons/serialized/{c}.json" for c in scen_configs if c not in slow_configs]
+    import ast
+    lists = {}
+    for node in ast.parse(Path("testing/test_scenarios.py").read_text()).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and getattr(node.targets[0], 'id', None) in (
+                'configs', 'slow_configs'):
+            lists[node.targets[0].id] = ast.literal_eval(node.value)
+    return [f"results/comparisons/serialized/{c}.json" for c in lists['configs'] if c not in lists['slow_configs']]
 
 # render every non-slow scenario's diff plots (Agg, low DPI) and a manifest tying each comparison to its PNG
 rule render_scenario_scan:

@@ -240,8 +240,8 @@ def test_simulated_fst_rejects_the_layouts_the_exact_one_rejects():
 def test_simulated_f_statistics_hold_for_single_lineages_and_repeated_populations():
     """The msprime f-statistics are built from simulated pairwise coalescence times, like the exact ones, so they do
     not depend on the sampled lineages. Regression: tskit's branch statistics on the sampled lineages returned NaN
-    for a population with one lineage and -3.20 for f4(a, b; c, a), whose exact value is -1.66. The tolerance is
-    about four standard errors at 20,000 replicates per pair."""
+    for a population with one lineage and -3.20 for f4(a, b; c, a), whose exact value is -1. The tolerance is
+    five to eight standard errors at 20,000 replicates per pair."""
     coal = pg.Coalescent(
         n={'a': 2, 'b': 3, 'c': 1},
         demography=pg.Demography(pop_sizes={'a': 1, 'b': 1, 'c': 1},

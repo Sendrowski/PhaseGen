@@ -61,13 +61,17 @@ def _read_worker_config(_) -> tuple:
     )
 
 
-def test_parallelize_workers_inherit_settings_and_backend():
+def test_parallelize_workers_inherit_settings_and_backend(monkeypatch):
     """The ``spawn`` start method re-imports the package in each worker, which reverted every ``Settings`` attribute
     and the registered matrix exponentiation backend to its declared default. A computation performed in a worker
     therefore ran under a configuration the caller had not asked for: ``max_state_space_size`` no longer bounded the
     state space, and a backend registered with single precision was replaced by the double-precision default, which
-    moved the mean tree height in the eighth significant digit."""
+    moved the mean tree height in the eighth significant digit. The pool is forced to ``spawn``, since a forked worker
+    inherits the caller's state on any platform."""
     import phasegen as pg
+
+    get_context = utils.mp.get_context
+    monkeypatch.setattr(utils.mp, 'get_context', lambda *args, **kwargs: get_context('spawn'))
 
     original = pg.Backend.backend
 
