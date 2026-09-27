@@ -599,18 +599,20 @@ def test_msprime_honours_n_unlinked(n_unlinked, exact):
 
 @pytest.mark.slow
 def test_msprime_places_unlinked_lineages_as_the_exact_path_does():
-    """The unlinked lineages are taken from the demes in order, each filled before the next, on both sides.
-    Regression: the exact path averaged over every placement while msprime started them in the first deme, so the
-    covariance of the two loci's tree heights was 3.38 exact against 4.82 simulated for samples {a: 2, b: 1}."""
+    """The unlinked lineages are taken from the demes in order, each filled before the next, on both sides. The
+    unlinked lineage starts in the large deme a, the linked one in the small deme b. Regression: the exact path
+    averaged over the placements in a and b, giving a covariance of the two loci's tree heights of 5.10 against
+    2.32 +- 0.14 simulated (20 standard errors off), where the per-deme placement gives 2.38."""
     from phasegen.distributions.empirical import MsprimeCoalescent
 
-    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 1.0, ('b', 'a'): 1.0})
+    dem = pg.Demography(pop_sizes={'a': 5.0, 'b': 0.2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
     loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=1)
 
-    exact = pg.Coalescent(n={'a': 2, 'b': 1}, demography=dem, loci=loci).tree_height.loci.cov[0, 1]
-    sim = MsprimeCoalescent(n={'a': 2, 'b': 1}, demography=dem, loci=loci, num_replicates=100000, seed=5)
+    exact = pg.Coalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci).tree_height.loci.cov[0, 1]
+    sim = MsprimeCoalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci, num_replicates=20000, seed=5)
 
-    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, rel=0.03)
+    # four standard errors of the simulated covariance, which is about 0.14 at 20,000 replicates
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.55)
 
 
 @pytest.mark.slow
