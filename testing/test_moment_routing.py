@@ -358,3 +358,42 @@ def test_windowed_mean_accumulates_until_absorption_not_until_the_absorption_est
     # the estimate bounds only where the window may open, not how far the accumulation runs
     with patch.object(TreeHeightDistribution, '_get_absorption_time', lambda self: start_time):
         assert total_branch_length(start_time=start_time) == pytest.approx(windowed, rel=1e-12)
+
+
+@pytest.mark.parametrize("model", [pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5)], ids=["standard", "beta"])
+def test_accumulate_passes_start_time_through(model):
+    """Coalescent.accumulate, SFSDistribution.accumulate and SFSDistribution.get_accumulation accumulate from
+    ``start_time`` as PhaseTypeDistribution.accumulate does. Regression: they had no ``start_time`` parameter. The
+    Beta coalescent takes the batched SFS mean accumulation and the standard coalescent the per-bin one."""
+    coal = pg.Coalescent(n=4, model=model)
+    start, end = 0.3, 1.5
+
+    assert coal.accumulate(1, [end], start_time=start)[0] == pytest.approx(
+        coal.moment(1, start_time=start, end_time=end), rel=1e-8)
+    assert coal.accumulate(2, [end], start_time=start)[0] == pytest.approx(
+        coal.moment(2, start_time=start, end_time=end), rel=1e-8)
+
+    np.testing.assert_allclose(coal.sfs.accumulate(1, [end], start_time=start)[:, 0],
+                               coal.sfs.moment(1, start_time=start, end_time=end).data, rtol=1e-8, atol=1e-14)
+    assert coal.sfs.get_accumulation(2, 1, end, start_time=start) == pytest.approx(
+        coal.sfs.moment(2, start_time=start, end_time=end).data[1], rel=1e-8)
+
+
+def test_batched_spectrum_means_validate_the_window():
+    """The batched k = 1 means of the SFS and the joint SFS reject a negative start time and a start time beyond
+    almost sure absorption, as every other moment path does. Regression: they returned the Beta SFS for a negative
+    start and round-off noise for an empty window."""
+    beta = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5))
+    mig = pg.Demography(pop_sizes={'pop_0': 1.0, 'pop_1': 1.0},
+                        migration_rates={('pop_0', 'pop_1'): 1.0, ('pop_1', 'pop_0'): 1.0})
+    jsfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=mig).jsfs
+
+    for dist in (beta.sfs, jsfs):
+        with pytest.raises(ValueError, match="Start time must be greater than or equal to 0"):
+            dist.moment(1, start_time=-1.0)
+
+        with pytest.raises(ValueError, match="beyond the time of almost sure absorption"):
+            dist.moment(1, start_time=1e6)
+
+        with pytest.raises(ValueError, match="End time must be greater than equal start time"):
+            dist.moment(1, start_time=1.0, end_time=0.5)

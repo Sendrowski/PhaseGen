@@ -40,7 +40,7 @@ def _validate_order(k: 'int | float') -> int:
     :param k: The order of the moment, an integer or a float with integral value.
     :return: The order as an integer.
     :raises TypeError: if ``k`` is not a number.
-    :raises ValueError: if ``k`` is not integral or is smaller than one.
+    :raises ValueError: if ``k`` is not integral or is negative.
     """
     if isinstance(k, bool) or not isinstance(k, (int, float, np.integer, np.floating)):
         raise TypeError(f"The order k must be an integer, but got {type(k).__name__}.")
@@ -50,7 +50,7 @@ def _validate_order(k: 'int | float') -> int:
 
     k = int(k)
 
-    if k < 1:
-        raise ValueError(f"The order k must be at least 1, but got {k}.")
+    if k < 0:
+        raise ValueError(f"The order k must be non-negative, but got {k}.")
 
     return k

@@ -1855,12 +1855,25 @@ def test_moment_accepts_an_integral_float_order_and_rejects_a_non_integral_one()
     assert coal.accumulate(2.0, [1.0])[0] == pytest.approx(coal.accumulate(2, [1.0])[0], rel=1e-12)
     assert coal.sfs.accumulate(2.0, [1.0])[1][0] == pytest.approx(coal.sfs.accumulate(2, [1.0])[1][0], rel=1e-12)
 
-    for call in (coal.moment, coal.sfs.moment):
+    calls = (
+        coal.moment,
+        coal.sfs.moment,
+        coal.tree_height.moment,
+        coal.total_branch_length.moment,
+        lambda k: coal.tree_height.accumulate(k, [1.0]),
+        lambda k: coal.sfs.get_accumulation(k, 1, 1.0),
+    )
+
+    for call in calls:
         with pytest.raises(ValueError, match='must be an integer'):
             call(2.5)
 
-        with pytest.raises(ValueError, match='must be at least 1'):
-            call(0)
+        with pytest.raises(ValueError, match='must be non-negative'):
+            call(-1)
+
+        # the order zero is one, in bin 1 for the spectra
+        zero = np.atleast_1d(np.asarray(getattr(call(0), 'data', call(0)), dtype=float)).ravel()
+        assert zero[min(1, zero.size - 1)] == 1
 
         with pytest.raises(TypeError, match='must be an integer'):
             call('2')

@@ -300,15 +300,15 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: A site-frequency spectrum of :math:`k`-th moments.
-        :raises ValueError: if ``k`` is not integral or is smaller than one.
+        :raises ValueError: if ``k`` is not integral or is negative, or if the start time is negative, exceeds
+            the end time, or lies beyond the time of almost sure absorption.
         """
         k = _validate_order(k)
 
         if rewards is None:
             rewards = (self.reward,) * k
 
-        effective_start = self.tree_height.start_time if start_time is None else start_time
-        effective_end = self.tree_height.end_time if end_time is None else end_time
+        effective_start, effective_end = self._resolve_window(start_time, end_time)
 
         # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
         # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
@@ -320,7 +320,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
                 Settings.closed_form_last_epoch and
                 not self._flattening_applies(k) and
                 k == 1 and
-                (effective_end is None or np.isinf(effective_end)) and
+                np.isinf(effective_end) and
                 rewards == (self.reward,)
         ):
             occupation = self._occupation_times()
@@ -450,11 +450,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             end_times: Iterable[float],
             rewards: Sequence[Reward] = None,
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = None
     ) -> np.ndarray:
         r"""
-        The :math:`k`-th moment of every bin of the site-frequency spectrum accumulated up to each end time
-        :math:`t_\mathrm{end}` in ``end_times``, as described in
+        The :math:`k`-th moment of every bin of the site-frequency spectrum accumulated from the start time
+        :math:`t_\mathrm{start}` to each end time :math:`t_\mathrm{end}` in ``end_times``, as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
         :param k: The order :math:`k` of the moment.
@@ -463,16 +464,17 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: Array of moments accumulated at the specified times, one for each site-frequency count.
         """
         k = _validate_order(k)
         indices = self._get_indices()
         end_times = np.array(list(end_times))
 
-        accumulation = self._accumulate_batched(k, indices, end_times, rewards)
+        accumulation = self._accumulate_batched(k, indices, end_times, rewards, start_time)
         if accumulation is None:
             accumulation = np.array([
-                self.get_accumulation(k, i, end_times, rewards, center, permute) for i in indices
+                self.get_accumulation(k, i, end_times, rewards, center, permute, start_time) for i in indices
             ])
 
         # pad with zeros
@@ -482,13 +484,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             np.zeros((self.lineage_config.n - len(indices), len(end_times)))
         ])
 
-    def _accumulate_batched(self, k, indices, end_times, rewards) -> 'np.ndarray | None':
+    def _accumulate_batched(self, k, indices, end_times, rewards, start_time) -> 'np.ndarray | None':
         """Batched mean accumulation (``k == 1``, default reward) contracting ``_mean_occupation_grid`` with the
         stacked bin rewards. Returns ``None`` when not applicable, and the caller evaluates per bin."""
         if k != 1 or rewards is not None or self._flattening_applies(1):
             return None
 
-        m_grid = self._mean_occupation_grid(end_times)  # (len(t), n_states)
+        m_grid = self._mean_occupation_grid(end_times, start_time=start_time)  # (len(t), n_states)
         ss = self.state_space
         R = np.column_stack([
             np.asarray(CombinedReward([self.reward, self._get_sfs_reward(i)])._get(ss), dtype=float)
@@ -628,7 +630,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             end_times: Iterable[float] | float,
             rewards: Sequence[SFSReward] = None,
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = None
     ) -> np.ndarray | float:
         """
         Get accumulation of moments for the ith site-frequency count.
@@ -640,9 +643,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param center: Whether to center the moment around the mean.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
+        :param start_time: Time from which to accumulate. By default, the start time of the distribution.
         :return: The kth SFS (cross)-moment accumulations at the ith site-frequency count, a float for a single time
             and an array for a sequence of times.
         """
+        k = _validate_order(k)
+
         if rewards is None:
             rewards = [self.reward] * k
 
@@ -653,7 +659,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             end_times=[end_times] if scalar else end_times,
             rewards=tuple([CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards]),
             center=center,
-            permute=permute
+            permute=permute,
+            start_time=start_time
         )
 
         return float(accumulation[0]) if scalar else accumulation
@@ -1648,7 +1655,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
         :return: A joint site-frequency spectrum of shape :attr:`shape` holding the :math:`k`-th moment of each bin.
-        :raises ValueError: If the end time precedes the start time, or if the moment is not a number.
+        :raises ValueError: If the start time is negative, exceeds the end time, or lies beyond the time of almost sure
+            absorption, or if the moment is not a number.
         """
         k = _validate_order(k)
 
@@ -1656,12 +1664,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
             rewards = (self.reward,) * k
 
         if k == 1 and tuple(rewards) == (self.reward,):
-            start = self.tree_height.start_time if start_time is None else start_time
-            end = self.tree_height.end_time if end_time is None else end_time
-            end = np.inf if end is None else end
-
-            if end < start:
-                raise ValueError("End time must be greater than or equal to the start time.")
+            start, end = self._resolve_window(start_time, end_time)
 
             # the mean is additive in time, so every bin is the difference of two batched accumulations
             acc = self.accumulate(1, [start, end], start_time=0.0)
@@ -2089,6 +2092,37 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
     cdf = pdf = quantile = plot_cdf = plot_pdf = bin = _no_univariate_distribution
 
+    def _unsupported(self, *args, **kwargs) -> None:
+        """
+        Reject a member of :class:`~phasegen.distributions.PhaseTypeDistribution` that the two-locus spectrum does
+        not provide.
+
+        :raises NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} provides mean, corr, joint_distribution, sample, sample_per_locus and "
+            "to_empirical. Higher moments of a pair of frequency classes are available from joint_distribution(i, j), "
+            "and the per-locus marginals from the single-locus spectrum pg.Coalescent(...).sfs."
+        )
+
+    moment = accumulate = plot_accumulation = distribution = _unsupported
+    var = std = m2 = loci = demes = property(_unsupported)
+
+    def _polymorphic_class(self, i: int) -> int:
+        """
+        Validate a polymorphic frequency class.
+
+        :param i: The frequency class.
+        :return: The frequency class as an integer.
+        :raises ValueError: If ``i`` is not an integer from 1 to :math:`n - 1`.
+        """
+        n = self.lineage_config.n
+
+        if isinstance(i, bool) or not float(i).is_integer() or not 1 <= i <= n - 1:
+            raise ValueError(f"The frequency class must be a polymorphic class from 1 to {n - 1}, got {i}.")
+
+        return int(i)
+
     def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
         r"""
         Joint distribution of the branch length :math:`L^0_i` of frequency class :math:`i` at locus 0 and the branch
@@ -2100,7 +2134,10 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         :param i: The locus-0 frequency class.
         :param j: The locus-1 frequency class.
         :return: The joint distribution of :math:`(L^0_i, L^1_j)`.
+        :raises ValueError: If ``i`` or ``j`` is not a polymorphic class from 1 to :math:`n - 1`.
         """
+        i, j = self._polymorphic_class(i), self._polymorphic_class(j)
+
         jd = PhaseTypeDistribution.joint_distribution(
             self,
             CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),

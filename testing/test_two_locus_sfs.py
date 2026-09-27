@@ -10,6 +10,8 @@ import pytest
 
 import phasegen as pg
 from phasegen.settings import Settings
+from phasegen.distributions import PhaseTypeDistribution
+from phasegen.rewards import UnitReward
 from phasegen.state_space import TwoLocusBlockCountingStateSpace
 
 MODELS = [
@@ -459,6 +461,89 @@ def test_reward_state_space_guards():
     single = pg.Coalescent(n=3).block_counting_state_space
     with pytest.raises(NotImplementedError):
         two._get(single)
+
+
+@pytest.mark.parametrize("member, call", [
+    ("var", lambda d: d.var),
+    ("std", lambda d: d.std),
+    ("m2", lambda d: d.m2),
+    ("loci", lambda d: d.loci),
+    ("demes", lambda d: d.demes),
+    ("moment", lambda d: d.moment(2)),
+    ("accumulate", lambda d: d.accumulate(1, [1.0])),
+    ("plot_accumulation", lambda d: d.plot_accumulation(show=False)),
+    ("distribution", lambda d: d.distribution()),
+])
+def test_unsupported_members_raise_not_implemented(member, call):
+    """The members of PhaseTypeDistribution that the two-locus spectrum does not provide raise NotImplementedError
+    naming the supported ones. Regression: they were inherited and failed with an unrelated absorbing-state
+    ValueError, or with a NotImplementedError naming an internal reward."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+
+    with pytest.raises(NotImplementedError, match="provides mean, corr, joint_distribution"):
+        call(sfs2)
+
+
+@pytest.mark.parametrize("i, j", [(0, 1), (1, 3), (1, -1), (1, 7), (1.5, 1)])
+def test_joint_distribution_rejects_a_bin_outside_the_polymorphic_classes(i, j):
+    """Regression: an out-of-range frequency class returned the joint distribution of a reward that is zero
+    everywhere, or raised an unrelated absorbing-state error for the monomorphic classes 0 and n."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+
+    with pytest.raises(ValueError, match="polymorphic class from 1 to 2"):
+        sfs2.joint_distribution(i, j)
+
+
+@pytest.mark.parametrize("count", [0, 3, 4, -1])
+def test_two_locus_sfs_reward_rejects_a_count_outside_the_polymorphic_classes(count):
+    """Regression: a count above n gave an all-zero reward whose moment was 0, and a monomorphic count raised an
+    unrelated absorbing-state error."""
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+
+    with pytest.raises(ValueError, match="polymorphic class from 1 to 2"):
+        coal.moment(1, [pg.TwoLocusSFSReward(0, count)])
+
+
+def test_two_locus_sfs_reward_rejects_a_locus_other_than_0_or_1():
+    """Regression: locus 2 raised a raw IndexError when the reward was evaluated."""
+    with pytest.raises(ValueError, match="locus must be 0 or 1"):
+        pg.TwoLocusSFSReward(2, 1)
+
+
+@pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
+@pytest.mark.parametrize("r", [0.5, 5.0])
+def test_tree_height_on_two_locus_space_matches_lineage_counting(name, model, r):
+    """TreeHeightReward evaluated on the two-locus block-counting space gives the height of the higher locus
+    tree, the tree height of the two-locus lineage-counting space."""
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=r, model=model)
+
+    two_locus = PhaseTypeDistribution.moment(coal.sfs2, k=1, rewards=(pg.TreeHeightReward(),))
+
+    assert isinstance(coal.sfs2.state_space, TwoLocusBlockCountingStateSpace)
+    assert two_locus == pytest.approx(coal.tree_height.mean, rel=1e-10)
+
+
+@pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
+def test_tree_height_combines_with_two_locus_sfs_reward(name, model):
+    """Coalescent.moment and joint_distribution accept TreeHeightReward and UnitReward together with a
+    TwoLocusSFSReward. At r = 0 both loci share one tree, so E[T L^0_i] equals the single-locus cross-moment of the
+    tree height and the SFS bin, computed on the single-locus block-counting space. Regression: the rewards did not
+    declare support for the two-locus space, so the mix was rejected."""
+    n = 3
+    coal = pg.Coalescent(n=n, loci=2, recombination_rate=0.0, model=model)
+    single = pg.Coalescent(n=n, model=model)
+
+    for i in range(1, n):
+        cross = coal.moment(2, [pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)], center=False)
+        ref = single.moment(2, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(i)], center=False)
+
+        assert cross == pytest.approx(ref, rel=1e-10)
+        assert coal.joint_distribution(pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)).moment(1, 1) == \
+               pytest.approx(ref, rel=1e-10)
+
+    unit = coal.moment(2, [pg.CombinedReward([UnitReward(), pg.TwoLocusSFSReward(0, 1)]),
+                           pg.TwoLocusSFSReward(1, 1)], center=False)
+    assert unit == pytest.approx(coal.sfs2.mean.data[1, 1], rel=1e-10)
 
 
 def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):

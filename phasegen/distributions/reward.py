@@ -823,6 +823,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param center: Whether to center around the means.
         :return: The cross-moment.
         """
+        if order_a + order_b == 0:
+            return 1.0
+
         rewards = (self.reward_a,) * order_a + (self.reward_b,) * order_b
         return float(MomentEvaluator.moment(
             self._host, k=order_a + order_b, rewards=rewards, center=center, permute=True

@@ -22,7 +22,7 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
-from ._common import _make_hashable
+from ._common import _make_hashable, _validate_order
 
 if TYPE_CHECKING:
     from ..demography import Demography
@@ -311,36 +311,14 @@ class MomentEvaluator:
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
-        :raises ValueError: If the start time is negative, exceeds the end time, or lies beyond the time of almost
-            sure absorption, if the population sizes and migration rates are too far apart for a reliable
-            evaluation, or if the moment is not a number.
+        :raises ValueError: If ``k`` is not a non-negative integer, if the start time is negative, exceeds the
+            end time, or lies beyond the time of almost sure absorption, if the population sizes and migration rates
+            are too far apart for a reliable evaluation, or if the moment is not a number.
         """
-        if start_time is None:
-            start_time = self.tree_height.start_time
+        k = _validate_order(k)
+        start_time, end_time = self._resolve_window(start_time, end_time)
 
-        if end_time is None:
-            # an infinite end time accumulates until absorption
-            end_time = np.inf if self.tree_height.end_time is None else self.tree_height.end_time
-
-        if not start_time >= 0:
-            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
-
-        if not end_time >= 0:
-            raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")
-
-        if start_time > 0 and np.isinf(end_time):
-            t_absorption = self._get_time_to_absorption()
-
-            if start_time > t_absorption:
-                raise ValueError(
-                    f"The window start time ({start_time:.1f}) lies beyond the time of almost sure absorption "
-                    f"({t_absorption:.1f}), so the accumulation window is empty."
-                )
-
-        if end_time < start_time:
-            raise ValueError("End time must be greater than equal start time.")
-
-        if start_time > 0 and int(k) == 1:
+        if start_time > 0 and k == 1:
             # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
             m_start, m_end = MomentEvaluator.accumulate(
                 self,
@@ -384,6 +362,43 @@ class MomentEvaluator:
             )
 
         return m
+
+    def _resolve_window(self, start_time: float = None, end_time: float = None) -> Tuple[float, float]:
+        """
+        Resolve and validate the accumulation window of a moment.
+
+        :param start_time: The start time. By default, the start time of the distribution.
+        :param end_time: The end time. By default, the end time of the distribution, or infinity, which accumulates
+            until absorption.
+        :return: The start and end time.
+        :raises ValueError: If the start time is negative, exceeds the end time, or lies beyond the time of almost
+            sure absorption.
+        """
+        if start_time is None:
+            start_time = self.tree_height.start_time
+
+        if end_time is None:
+            end_time = np.inf if self.tree_height.end_time is None else self.tree_height.end_time
+
+        if not start_time >= 0:
+            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+
+        if not end_time >= 0:
+            raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")
+
+        if start_time > 0 and np.isinf(end_time):
+            t_absorption = self._get_time_to_absorption()
+
+            if start_time > t_absorption:
+                raise ValueError(
+                    f"The window start time ({start_time:.1f}) lies beyond the time of almost sure absorption "
+                    f"({t_absorption:.1f}), so the accumulation window is empty."
+                )
+
+        if end_time < start_time:
+            raise ValueError("End time must be greater than equal start time.")
+
+        return start_time, end_time
 
     @staticmethod
     def _get_regularization_factor(S: np.ndarray, duration: float = np.inf) -> float:
@@ -613,8 +628,9 @@ class MomentEvaluator:
             equals the cross-moment only when all rewards are equal.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: The moment at each end time.
+        :raises ValueError: If ``k`` is not a non-negative integer, or if the number of rewards differs from it.
         """
-        k = int(k)
+        k = _validate_order(k)
 
         if start_time is None:
             start_time = self.tree_height.start_time
@@ -625,9 +641,6 @@ class MomentEvaluator:
         if k != len(rewards):
             raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
 
-        if k == 0:
-            return np.ones_like(list(end_times))
-
         # center moments around the mean
         if center and k > 1:
             self._logger.debug("accumulate (k=%d): centering (subtracting lower-order moment products)", k)
@@ -635,29 +648,13 @@ class MomentEvaluator:
             components = []
 
             # first order moments
-            means = [
-                MomentEvaluator.accumulate(
-                    self,
-                    k=1,
-                    rewards=(rewards[i],),
-                    end_times=end_times,
-                    start_time=start_time
-                ) for i in range(k)
-            ]
+            means = [self._accumulate_raw(1, (rewards[i],), end_times, True, start_time) for i in range(k)]
 
             for i in range(k + 1):
                 # iterate over all possible subsets of rewards of size i
                 for indices in itertools.combinations(range(k), i):
                     # joint moment
-                    mu_i = MomentEvaluator.accumulate(
-                        self,
-                        k=i,
-                        rewards=tuple(rewards[j] for j in indices),
-                        end_times=end_times,
-                        center=False,
-                        permute=permute,
-                        start_time=start_time
-                    )
+                    mu_i = self._accumulate_raw(i, tuple(rewards[j] for j in indices), end_times, permute, start_time)
 
                     # product of means of remaining rewards
                     mu1 = np.prod([means[j] for j in range(k) if j not in indices], axis=0)
@@ -665,6 +662,29 @@ class MomentEvaluator:
                     components += [(-1) ** (k - i) * mu_i * mu1]
 
             return np.sum(components, axis=0)
+
+        return self._accumulate_raw(k, rewards, end_times, permute, start_time)
+
+    def _accumulate_raw(
+            self,
+            k: int,
+            rewards: Sequence[Reward],
+            end_times: Iterable[float],
+            permute: bool,
+            start_time: float
+    ) -> np.ndarray:
+        r"""
+        The raw :math:`k`-th cross-moment of ``accumulate``, for any order :math:`k \ge 0`.
+
+        :param k: The order of the moment, 0 giving one.
+        :param rewards: Sequence of :math:`k` rewards.
+        :param end_times: The end times at which to evaluate the moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards.
+        :param start_time: The start time.
+        :return: The raw moment at each end time.
+        """
+        if k == 0:
+            return np.ones_like(list(end_times))
 
         if permute:
             # get all possible permutations of rewards

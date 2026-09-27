@@ -559,8 +559,9 @@ class Coalescent(AbstractCoalescent, Serializable):
                 f"Wrap it in a list, e.g. rewards=[reward]."
             )
 
-        if rewards is None:
-            rewards = [TreeHeightReward()] * k
+        # an order of zero has no rewards, and its moment of one is taken on the tree-height distribution
+        if not rewards:
+            rewards = [TreeHeightReward()] * max(k, 1)
 
         return PhaseTypeDistribution(
             reward=rewards[0],
@@ -662,7 +663,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
-        :raises ValueError: if ``k`` is not integral or is smaller than one.
+        :raises ValueError: if ``k`` is not integral or is negative.
         """
         k = _validate_order(k)
 
@@ -708,10 +709,12 @@ class Coalescent(AbstractCoalescent, Serializable):
             end_times: Iterable[float],
             rewards: Sequence[Reward] = None,
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = None
     ) -> np.ndarray:
         r"""
-        The :math:`k`-th moment accumulated up to each end time :math:`t_\mathrm{end}` in ``end_times``, as described in
+        The :math:`k`-th moment accumulated from the start time :math:`t_\mathrm{start}` to each end time
+        :math:`t_\mathrm{end}` in ``end_times``, as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
         :param k: The order :math:`k` of the moment.
@@ -720,8 +723,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the coalescent.
         :return: The moment at each end time.
-        :raises ValueError: if ``k`` is not integral or is smaller than one.
+        :raises ValueError: if ``k`` is not integral or is negative.
         """
         k = _validate_order(k)
 
@@ -730,7 +734,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             end_times=end_times,
             rewards=rewards,
             center=center,
-            permute=permute
+            permute=permute,
+            start_time=start_time
         )
 
     def plot_accumulation(
@@ -765,7 +770,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
-        :raises ValueError: if ``k`` is not integral or is smaller than one.
+        :raises ValueError: if ``k`` is not integral or is negative.
         """
         k = _validate_order(k)
 

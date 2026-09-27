@@ -286,10 +286,30 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
         Initialize the reward.
 
         :param locus: The locus index (0 or 1).
-        :param count: The number of subtended samples at ``locus`` identifying the SFS bin.
+        :param count: The number of subtended samples at ``locus`` identifying the SFS bin, a polymorphic class from
+            1 to :math:`n - 1`.
+        :raises ValueError: If ``locus`` is not 0 or 1.
         """
+        if locus not in (0, 1):
+            raise ValueError(f"The locus must be 0 or 1, got {locus}.")
+
         self.locus: int = int(locus)
         self.count: int = int(count)
+
+    def _mask(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
+        """
+        The blocks whose descendant count at ``locus`` equals ``count``.
+
+        :param state_space: state space
+        :return: Boolean mask over the blocks.
+        :raises ValueError: If ``count`` is not a polymorphic class from 1 to :math:`n - 1`.
+        """
+        n = int(state_space.lineage_config.n)
+
+        if not 1 <= self.count <= n - 1:
+            raise ValueError(f"The frequency class must be a polymorphic class from 1 to {n - 1}, got {self.count}.")
+
+        return state_space.block_vectors[:, self.locus] == self.count
 
     def _get(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
         """
@@ -300,9 +320,7 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, TwoLocusBlockCountingStateSpace):
-            # select the blocks whose descendant count at this locus equals ``count`` and sum over them
-            mask = state_space.block_vectors[:, self.locus] == self.count
-            return state_space.lineages[:, :, :, mask].sum(axis=(1, 2, 3))
+            return state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=(1, 2, 3))
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -318,9 +336,7 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
         :raises: NotImplementedError if the state space is not supported
         """
         if isinstance(state_space, TwoLocusBlockCountingStateSpace):
-            mask = state_space.block_vectors[:, self.locus] == self.count
-
-            parts = state_space.lineages[:, :, :, mask].sum(axis=3).astype(float)
+            parts = state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=3).astype(float)
 
             return parts * ~state_space.absorbing[:, None, None]
 
@@ -361,7 +377,8 @@ class _LocusHeightReward(Reward, ABC):
         return shares * (per_locus > 1)[:, :, None] * ~state_space.absorbing[:, None, None]
 
 
-class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
+class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward,
+                       TwoLocusBlockCountingReward):
     r"""
     Reward for tree height: unit reward on transient states and zero on the absorbing set :math:`B`,
     :math:`r_\text{height}(i) = \mathbb{1}\{i \notin B\}`, so the accumulated reward is the time to absorption. Note
@@ -763,7 +780,7 @@ class LocusReward(LineageCountingReward):
         return hash(self.__class__.__name__ + str(self.locus))
 
 
-class UnitReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
+class UnitReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward, TwoLocusBlockCountingReward):
     r"""
     Reward all states with 1 (including absorbing states), :math:`r(i) = 1` for every state :math:`i`.
     """
