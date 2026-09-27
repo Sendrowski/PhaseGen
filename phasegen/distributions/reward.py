@@ -1793,9 +1793,11 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
 
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, perm=_AUTO_PERM) -> np.ndarray:
     """``_lst_from_shift`` over a stack of shift vectors ``(k, nt)``, sharing the per-epoch assembly and exponentiating
-    the batch with ``_expm_batch``. The last-epoch solve uses the LU of the scalar path per shift."""
+    the batch with ``_expm_batch``. A dense last epoch is solved as one stacked ``np.linalg.solve`` over the batch, a
+    sparse one by the block-triangular sparse LU of the scalar path per shift."""
     nt = len(alpha)
     k = len(shifts)
+    diag = np.arange(nt)
     vec = np.zeros((k, nt + 1), dtype=complex)
     vec[:, :nt] = alpha
 
@@ -1803,18 +1805,21 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, per
         Td = T.toarray() if sp.issparse(T) else np.asarray(T)
         Q = np.zeros((k, nt + 1, nt + 1), dtype=complex)
         Q[:, :nt, :nt] = Td
-        Q[:, np.arange(nt), np.arange(nt)] -= shifts  # only the diagonal varies across the batch
+        Q[:, diag, diag] -= shifts  # only the diagonal varies across the batch
         Q[:, :nt, nt] = _exit_rates(T)
         vec = np.einsum('ki,kij->kj', vec, _expm_batch(Q * (t1 - t0)))
 
     a, c = vec[:, :nt], vec[:, nt]
     Tm = T_epochs[-1][0]
     exit_m = _exit_rates(Tm)
-    out = np.empty(k, dtype=complex)
-    for i in range(k):  # the final-epoch solve keeps the (block-triangular, sparse-capable) LU of the scalar path
-        A = (sp.diags(shifts[i]) if sparse else np.diag(shifts[i])) - Tm
-        out[i] = c[i] + a[i] @ MomentEvaluator._lu_solver(A, sparse, perm)(exit_m)
-    return out
+
+    if sparse:
+        return c + np.array([a[i] @ MomentEvaluator._lu_solver(sp.diags(shifts[i]) - Tm, True, perm)(exit_m)
+                             for i in range(k)])
+
+    A = np.repeat(-np.asarray(Tm, dtype=complex)[None], k, axis=0)
+    A[:, diag, diag] += shifts
+    return c + np.einsum('ki,ki->k', a, np.linalg.solve(A, np.broadcast_to(exit_m[:, None], (k, nt, 1)))[..., 0])
 
 
 def _dehoog_invert(transform, t: float, degree: int) -> float:
