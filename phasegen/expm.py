@@ -200,17 +200,28 @@ class Backend(ABC):
     @abstractmethod
     def expm(cls, m: np.ndarray) -> np.ndarray:
         """
-        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`.
+        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`, as a writable NumPy array whatever array type the
+        backend returns.
         """
-        return cls.backend.compute(m)
+        return cls._writable(cls.backend.compute(m))
 
     @classmethod
     def expm_multiply(cls, a, b: np.ndarray) -> np.ndarray:
         """
         Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
-        active backend without forming the dense exponential.
+        active backend without forming the dense exponential, as a writable NumPy array.
         """
-        return cls.backend.compute_action(a, b)
+        return cls._writable(cls.backend.compute_action(a, b))
+
+    @staticmethod
+    def _writable(x) -> np.ndarray:
+        """
+        The array as a writable NumPy array, copied only if it is not one.
+
+        :param x: Array of any array type.
+        :return: Writable NumPy array.
+        """
+        return x if isinstance(x, np.ndarray) and x.flags.writeable else np.array(x)
 
     @classmethod
     def register(cls, backend: ExpmBackend) -> None:
