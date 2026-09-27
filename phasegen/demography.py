@@ -137,7 +137,8 @@ class Demography:
         """
         Convert to an Msprime demography object.
 
-        :param max_epochs: Maximum number of epochs to use. Note that the number of epochs may be infinite.
+        :param max_epochs: Maximum number of epoch changes to use, a warning being logged if the demography has more. Note
+            that the number of epochs may be infinite.
         :return: msprime demography object.
         :raise ImportError: If Msprime is not installed.
         """
@@ -161,6 +162,7 @@ class Demography:
         )
 
         # iterate over epochs
+        epoch = first_epoch
         for epoch in itertools.islice(self.epochs, 1, int(max_epochs) + 1):
 
             # iterate over populations
@@ -184,6 +186,13 @@ class Demography:
                         source=names[p],
                         dest=names[q]
                     )
+
+        if self.has_n_epochs(int(max_epochs) + 2):
+            self._logger.warning(
+                "The demography has more than %d epochs, so the msprime demography keeps the rates of the last of "
+                "them from %g on. Pass a larger max_epochs or a coarser discretization.",
+                int(max_epochs) + 1, epoch.start_time
+            )
 
         # sort events by time
         d.sort_events()

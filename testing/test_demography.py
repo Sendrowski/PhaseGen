@@ -808,3 +808,18 @@ def test_discretized_epochs_advance_at_large_start_times():
 
     assert all(e.end_time > e.start_time for e in epochs)
     assert epochs[-1].start_time > 1e7
+
+
+def test_to_msprime_warns_when_truncating_epochs(caplog):
+    """to_msprime keeps max_epochs epoch changes and warns when the demography has more."""
+    dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=0.1, start_time=0, end_time=3, step_size=0.1
+    )])
+
+    with caplog.at_level('WARNING'):
+        dem.to_msprime(max_epochs=100)
+    assert not any('more than' in r.getMessage() for r in caplog.records)
+
+    with caplog.at_level('WARNING'):
+        dem.to_msprime(max_epochs=10)
+    assert any('more than 11 epochs' in r.getMessage() for r in caplog.records)
