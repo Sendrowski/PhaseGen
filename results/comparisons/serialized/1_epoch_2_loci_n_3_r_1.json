@@ -628,7 +628,7 @@
             },
             "samples": null,
             "n_samples": 1000000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.float64",
                     "dtype": "float64",
@@ -2504,7 +2504,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -2934,7 +2934,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -3353,7 +3353,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -3940,7 +3940,7 @@
             },
             "samples": null,
             "n_samples": 1000000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.float64",
                     "dtype": "float64",
@@ -4376,7 +4376,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -4806,7 +4806,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -5225,7 +5225,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -5812,7 +5812,7 @@
             },
             "samples": null,
             "n_samples": 1000000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.float64",
                     "dtype": "float64",
@@ -7679,7 +7679,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -8109,7 +8109,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -8528,7 +8528,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -9887,7 +9887,7 @@
             },
             "samples": null,
             "n_samples": 1000000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.ndarray",
                     "data": [
@@ -11227,7 +11227,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -12702,7 +12702,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -14147,7 +14147,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -15751,7 +15751,7 @@
             },
             "samples": null,
             "n_samples": 1000000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.ndarray",
                     "data": [
@@ -17082,7 +17082,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -18557,7 +18557,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -20002,7 +20002,7 @@
                     },
                     "samples": null,
                     "n_samples": 1000000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.ndarray",
                             "data": [
@@ -20894,7 +20894,7 @@
             },
             "samples": null,
             "n_samples": 200000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.float64",
                     "dtype": "float64",
@@ -22761,7 +22761,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -23191,7 +23191,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -23610,7 +23610,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -24197,7 +24197,7 @@
             },
             "samples": null,
             "n_samples": 200000,
-            "standard_errors": {
+            "_standard_errors": {
                 "mean": {
                     "py/object": "numpy.float64",
                     "dtype": "float64",
@@ -26064,7 +26064,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -26494,7 +26494,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
@@ -26913,7 +26913,7 @@
                     },
                     "samples": null,
                     "n_samples": 200000,
-                    "standard_errors": {
+                    "_standard_errors": {
                         "mean": {
                             "py/object": "numpy.float64",
                             "dtype": "float64",
