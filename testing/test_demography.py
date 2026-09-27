@@ -795,3 +795,16 @@ def test_a_zero_size_reached_by_the_exact_computation_raises_clearly():
     for call in (lambda: coal.tree_height.mean, lambda: coal.tree_height.cdf(1.5), lambda: coal.sfs.mean):
         with pytest.raises(ValueError, match='needs a positive size'):
             call()
+
+
+def test_discretized_epochs_advance_at_large_start_times():
+    """Every epoch of a discretized change starting at 1e7 has positive length. Regression: once the start time
+    exceeded about 2.1e6, rounding cancelled the offset in the step count and the epochs had zero length forever."""
+    dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=0.1, start_time=1e7, step_size=0.1
+    )])
+
+    epochs = list(islice(dem.epochs, 50))
+
+    assert all(e.end_time > e.start_time for e in epochs)
+    assert epochs[-1].start_time > 1e7

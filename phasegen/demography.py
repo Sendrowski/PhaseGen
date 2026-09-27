@@ -1132,6 +1132,11 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         else:
             # only lower the end time, and never overshoot the last (possibly partial) step or the event's end time
             n_steps = np.ceil((epoch.start_time - self.start_time + 1e-10) / self.step_size)
+
+            # the offset absorbs rounding only at small times, so step on until the epoch has positive length
+            while self.start_time + n_steps * self.step_size <= epoch.start_time:
+                n_steps += 1
+
             epoch.end_time = min(epoch.end_time, self.start_time + n_steps * self.step_size, self.end_time)
 
     def _apply(self, epoch: Epoch) -> set:
