@@ -655,8 +655,8 @@ class StateReward(Reward):
 
 class LineageReward(LineageCountingReward, JointBlockCountingReward):
     """
-    Reward for a specific number of lineages present across all demes and loci.
-    It tracks, for example, the individual coalescence times.
+    Reward for a specific number of lineages present across all demes, on a single locus. It tracks, for example, the
+    individual coalescence times.
     """
 
     def __init__(self, n: int) -> None:
@@ -676,8 +676,15 @@ class LineageReward(LineageCountingReward, JointBlockCountingReward):
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises ValueError: if the state space has more than one locus
+        :raises NotImplementedError: if the state space is not supported
         """
+        if state_space.locus_config.n != 1:
+            raise ValueError(
+                f"{self.__class__.__name__} counts the lineages of a single locus, but the coalescent has "
+                f"{state_space.locus_config.n} loci."
+            )
+
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
             return (state_space.lineages.sum(axis=(1, 2, 3)) == self.n).astype(int)
 
@@ -717,9 +724,13 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises ValueError: if the population does not exist
+        :raises NotImplementedError: if the state space is not supported
         """
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
+            if self.pop not in state_space.lineage_config.pop_names:
+                raise ValueError(f"Population {self.pop} does not exist.")
+
             # the deme axis of the state space follows the lineage configuration
             pop_index: int = state_space.lineage_config.pop_names.index(self.pop)
 
@@ -762,9 +773,13 @@ class LocusReward(LineageCountingReward):
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises ValueError: if the locus does not exist
+        :raises NotImplementedError: if the state space is not supported
         """
         if isinstance(state_space, LineageCountingStateSpace):
+            if not 0 <= self.locus < state_space.locus_config.n:
+                raise ValueError(f"Locus {self.locus} does not exist.")
+
             return (state_space.lineages.sum(axis=(2, 3))[:, self.locus] > 1).astype(int)
 
         raise NotImplementedError(

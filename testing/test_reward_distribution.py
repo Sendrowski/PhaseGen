@@ -1376,6 +1376,20 @@ def test_window_average_has_the_shape_of_the_statistic():
     assert isinstance(cdf, np.ndarray) and cdf.shape == ys.shape
 
 
+def test_window_average_requires_a_positive_half_width():
+    """``JointRewardDistribution.window_average`` takes the window explicitly and refuses a non-positive half-width.
+    Regression: its defaults value=0 and half_width=0 always raised, and half_width=0 built n_nodes identical
+    conditionals."""
+    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+
+    with pytest.raises(TypeError):
+        jd.window_average(lambda c: c.mean)
+
+    for half_width in (0.0, -0.05):
+        with pytest.raises(ValueError, match='half-width of the conditioning window must be positive'):
+            jd.window_average(lambda c: c.mean, 'a', 1.0, half_width)
+
+
 def _round_trip_cases() -> list:
     """(label, distribution) pairs spanning the 1D representations the cdf/quantile pair has to hold across: a plain
     bin, a heavy upper tail (the case the cosine window truncates), several epochs, a multiple-merger model, a
@@ -2136,6 +2150,31 @@ def test_conditioning_next_to_an_epoch_time_warns_or_names_the_jump(caplog):
         joint.conditional('a', 0.3)
 
     assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]
+
+
+def test_epoch_jump_warning_requires_initial_mass_on_the_positive_states(caplog):
+    """A reward accrued at one rate has a density jump at an epoch time only if the paths that stay in its positive
+    states from time zero leave them for good at a rate that changes there. The doubleton length at n = 3 is zero on
+    the initial state, so its density is continuous at the epoch time 0.5, and the tree height at one of two linked
+    loci is positive on the initial state and jumps there. Regression: every single-rate reward was warned about."""
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
+    sfs = pg.Coalescent(n=3, demography=demography).sfs.joint_distribution(1, 2)
+    loci = pg.Coalescent(
+        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=demography
+    ).tree_height.loci.joint_distribution(0, 1)
+
+    with caplog.at_level('WARNING'):
+        cond = sfs.conditional('b', 0.49)
+
+    assert cond._nearby_jump() is None
+    assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]
+
+    marginal = sfs.marginal('b')
+    assert float(marginal.pdf(0.499)) == pytest.approx(float(marginal.pdf(0.501)), rel=0.02)
+
+    locus = loci.marginal('a')
+    assert float(locus.pdf(0.52)) > 5 * float(locus.pdf(0.48))
+    assert loci.conditional('a', 0.3)._nested._jumps_at(loci._setup['ra'] > 0, 1)
 
 
 def test_truncation_warning_reports_the_estimated_error(caplog):

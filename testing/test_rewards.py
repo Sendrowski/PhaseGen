@@ -746,3 +746,46 @@ def test_rewards_no_state_space_supports_raise_value_error():
 
     with pytest.raises(ValueError, match='not jointly compatible'):
         coal._select_state_space([pg.TwoLocusSFSReward(1, 1), pg.UnfoldedSFSReward(1)])
+
+
+def test_lineage_reward_is_restricted_to_one_locus():
+    """LineageReward counts the lineages of one locus. Regression: on two loci it summed the lineage counts over the
+    loci, so LineageReward(2) always raised the absorbing-state error and other counts gave no coalescence time. On one
+    locus, LineageReward(2) is the time with two lineages, 1 for the standard coalescent."""
+    for n in (2, 4):
+        assert pg.Coalescent(n=n).moment(1, [pg.LineageReward(2)], center=False) == pytest.approx(1, rel=1e-12)
+
+    coal = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1))
+
+    for k in (2, 3):
+        with pytest.raises(ValueError, match='single locus, but the coalescent has 2 loci'):
+            coal.moment(1, [pg.LineageReward(k)], center=False)
+
+
+def test_deme_and_locus_rewards_name_an_unknown_deme_or_locus():
+    """DemeReward and LocusReward raise a ValueError naming an unknown deme or locus. Regression: DemeReward leaked the
+    bare ValueError of list.index, LocusReward an IndexError, and LocusReward(-1) wrapped round to the last locus."""
+    demes = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}
+    ))
+
+    with pytest.raises(ValueError, match='Population c does not exist'):
+        demes.moment(1, [pg.DemeReward('c')], center=False)
+
+    loci = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1))
+
+    for locus in (2, -1):
+        with pytest.raises(ValueError, match=f'Locus {locus} does not exist'):
+            loci.moment(1, [pg.LocusReward(locus)], center=False)
+
+
+def test_distribution_rejects_a_sequence_of_rewards():
+    """Coalescent.distribution and Coalescent.joint_distribution take single rewards and raise a TypeError naming the
+    argument for a list. Regression: the list reached the state-space selection and raised an AttributeError."""
+    coal = pg.Coalescent(n=3)
+
+    with pytest.raises(TypeError, match='reward must be a single Reward, but got tuple'):
+        coal.distribution([pg.TreeHeightReward()])
+
+    with pytest.raises(TypeError, match='reward_b must be a single Reward, but got tuple'):
+        coal.joint_distribution(pg.TreeHeightReward(), [pg.TotalBranchLengthReward()])

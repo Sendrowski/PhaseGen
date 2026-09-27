@@ -14,7 +14,7 @@ from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order
+from ._common import _make_hashable, _validate_order, _validate_reward
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
@@ -620,8 +620,11 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param reward: The reward whose accumulation is distributed. Defaults to the tree-height reward.
         :return: The 1D accumulated-reward distribution.
+        :raises TypeError: if ``reward`` is not a single :class:`~phasegen.rewards.Reward`.
         """
         reward = TreeHeightReward() if reward is None else reward
+        _validate_reward(reward)
+
         return self._get_dist(k=1, rewards=[reward]).distribution(reward)
 
     @_make_hashable
@@ -634,9 +637,13 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param reward_a: The first reward.
         :param reward_b: The second reward.
         :return: The joint distribution.
+        :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
 
         .. versionadded:: 2.0
         """
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
+
         return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint_distribution(reward_a, reward_b)
 
     @_make_hashable

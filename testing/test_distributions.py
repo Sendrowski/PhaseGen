@@ -398,21 +398,6 @@ class DistributionTestCase(TestCase):
         # check that times add up to tree height
         self.assertAlmostEqual(sum(times), coal.tree_height.mean)
 
-    def test_lineage_reward_2_loci(self):
-        """
-        Test lineage reward for a 2-locus coalescent.
-        """
-        coal = pg.Coalescent(
-            n=6,
-            loci=2,
-            recombination_rate=0
-        )
-
-        times = [coal.moment(1, rewards=(pg.LineageReward(i),)) for i in range(3, 14)[::-1]]
-
-        # check that times add up to tree height
-        self.assertAlmostEqual(sum(times), coal.tree_height.mean)
-
     def test_multiset_permutations(self):
         """
         Test multiset permutations.

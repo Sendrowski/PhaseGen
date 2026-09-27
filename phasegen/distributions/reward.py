@@ -30,9 +30,13 @@ logger = logging.getLogger('phasegen')
 #: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
 _COS2D_TAIL_WARN = 1e-2
 
-#: Relative distance from an epoch time within which a conditioning value is warned about, the density of a reward
-#: accrued at one rate jumping there.
+#: Relative distance from an epoch time within which a conditioning value is warned about, where the density of a
+#: reward accrued at one rate can jump.
 _JUMP_WARN = 0.05
+
+#: Relative size below which a jump of the density of a reward accrued at one rate counts as zero, on the scale of the
+#: contributions on either side of the jump in ``_NestedConditional._nearby_jump``. Only rounding is below it.
+_JUMP_REL_TOL = 1e-8
 
 #: Smallest atom treated as a positive probability. The probe at ``_s_inf`` exceeds a zero atom by up to about 1e-8.
 _ATOM_FLOOR = 1e-6
@@ -1268,7 +1272,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     #: varies smoothly with the conditioning value, so a handful resolves the average; each node costs a conditional.
     _WINDOW_QUAD_NODES = 8
 
-    def window_average(self, statistic, on: str = 'a', value: float = 0.0, half_width: float = 0.0,
+    def window_average(self, statistic, on: str, value: float, half_width: float,
                        n_nodes: int = None) -> 'float | np.ndarray':
         r"""
         A statistic of the conditionals averaged over the window :math:`W` of conditioning values from
@@ -1288,12 +1292,16 @@ class JointRewardDistribution(CallableDistributionFunctions):
             a scalar or a 1D array, for example ``lambda c: c.mean`` or ``lambda c: c.cdf(ys)``.
         :param on: The conditioning reward, ``'a'`` or ``'b'``.
         :param value: Centre of the window.
-        :param half_width: Half-width of the window, in units of the conditioning reward.
+        :param half_width: Half-width of the window, in units of the conditioning reward, positive.
         :param n_nodes: Number of Gauss-Legendre nodes, ``None`` for the default.
         :return: The window average, a float for a scalar statistic and an array of the statistic's shape otherwise.
+        :raises ValueError: If ``half_width`` is not positive.
         :raises ValueError: If the window reaches zero, where the conditioning reward may have an atom.
         :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state.
         """
+        if half_width <= 0:
+            raise ValueError(f"The half-width of the conditioning window must be positive, got {half_width:g}.")
+
         n_nodes = self._WINDOW_QUAD_NODES if n_nodes is None else n_nodes
         lo, hi = value - half_width, value + half_width
 
@@ -1550,9 +1558,10 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     - :math:`N` is doubled until :math:`G(0)` is positive and stable. If it does not stabilize, construction raises
       :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v` is below the resolution of the
-      inversion, and near a jump of that density, which a reward accrued at one rate has at every epoch time and across
-      which the series converges slowly. Within 5% of such a jump a warning is logged, since a conditional that does
-      stabilize may still be off by several percent there.
+      inversion, and near a jump of that density, across which the series converges slowly. A reward accrued at one
+      rate :math:`c` has such a jump at :math:`c t_0`, for an epoch time :math:`t_0`, when the paths that stay in its
+      positive states from time zero leave them for good at a rate that changes at :math:`t_0`. Within 5% of such a
+      jump a warning is logged, since a conditional that does stabilize may still be off by several percent there.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
     - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
@@ -2074,10 +2083,27 @@ class _NestedConditional(ConditionalRewardDistribution):
         return G / G[0]
 
     def _nearby_jump(self) -> Optional[float]:
-        """
+        r"""
         The value within ``_JUMP_WARN`` of the conditioning value at which the density of the conditioning reward
-        jumps, or ``None``. A reward accrued at one rate :math:`c` wherever it accrues, as a tree height, has a density
-        that jumps at :math:`c t_0` for every epoch time :math:`t_0`.
+        jumps, or ``None``. A reward accrued at one rate :math:`c` on the set :math:`P` of states where it is positive
+        is :math:`R = c L`, with :math:`L` the time spent in :math:`P`. Paths that have visited a state outside
+        :math:`P` before leaving :math:`P` for good reach :math:`L = \ell` at a random later time, so they contribute
+        a continuous density. The paths that stay in :math:`P` from time zero and leave it for good at time
+        :math:`\ell` contribute :math:`\mathbf{s}(\ell) \cdot \mathbf{q}(\ell)`, which jumps at an epoch time
+        :math:`t_0` by
+
+        .. math::
+
+            J = \mathbf{s}(t_0) \cdot \big(\mathbf{q}^{+} - \mathbf{q}^{-}\big), \qquad
+            \mathbf{q} = -\mathbf{T}_{PP}\mathbf{1} - \mathbf{T}_{PZ}\,\mathbf{h}(t_0),
+
+        where :math:`\mathbf{s}(t_0)` is the initial vector on :math:`P` propagated by :math:`\mathbf{T}_{PP}` up to
+        :math:`t_0`, :math:`\mathbf{T}_{PP}` and :math:`\mathbf{T}_{PZ}` are the blocks of the transient sub-generator
+        from :math:`P` to :math:`P` and to the complement :math:`Z`, :math:`\mathbf{q}^{-}` and :math:`\mathbf{q}^{+}`
+        are :math:`\mathbf{q}` under the generators of the epochs ending and beginning at :math:`t_0`, and
+        :math:`h_z(t_0)` is the probability of entering :math:`P` after :math:`t_0` from state :math:`z \in Z`. The
+        density of :math:`R` jumps at :math:`c t_0` exactly when :math:`J \neq 0`, which needs initial mass on
+        :math:`P`.
 
         :return: The value of the jump, or ``None``.
         """
@@ -2087,12 +2113,51 @@ class _NestedConditional(ConditionalRewardDistribution):
         if len(rates) != 1:
             return None
 
-        for epoch in self._host._get_epochs_until_unbounded()[1:]:
-            jump = float(rates[0]) * epoch.start_time
-            if abs(self._value - jump) <= _JUMP_WARN * self._value:
+        T_epochs = self._host._reward_epoch_data['T_epochs']
+
+        for e in range(1, len(T_epochs)):
+            jump = float(rates[0]) * T_epochs[e][1]
+            if abs(self._value - jump) <= _JUMP_WARN * self._value and self._jumps_at(r > 0, e):
                 return jump
 
         return None
+
+    def _jumps_at(self, pos: np.ndarray, e: int) -> bool:
+        r"""
+        Whether the occupation time of the positive-reward states has a density jumping at the start of epoch ``e``,
+        the jump :math:`J` of :meth:`_nearby_jump` exceeding ``_JUMP_REL_TOL`` relative to the contributions
+        :math:`\mathbf{s} \cdot \mathbf{q}` on either side.
+
+        :param pos: Mask of the positive-reward states among the transient states of the epoch data.
+        :param e: Index of the epoch whose start time is checked, at least 1.
+        :return: Whether the density jumps there.
+        """
+        data = self._host._reward_epoch_data
+        Ts = [(T.toarray() if sp.issparse(T) else np.asarray(T), t0, t1) for T, t0, t1 in data['T_epochs']]
+        zero = ~pos
+
+        # the initial vector propagated on the paths that stay in P up to the epoch time
+        s = data['alpha'][pos]
+        for T, t0, t1 in Ts[:e]:
+            s = s @ sla.expm(T[np.ix_(pos, pos)] * (t1 - t0))
+
+        # the probability h of entering P after the epoch time, from the final epoch backwards
+        h = np.zeros(0)
+        if zero.any():
+            T_last = Ts[-1][0]
+            h = np.linalg.solve(-T_last[np.ix_(zero, zero)], T_last[np.ix_(zero, pos)].sum(axis=1))
+        for T, t0, t1 in reversed(Ts[e:-1]):
+            # the exponential of [[T_ZZ, T_ZP 1], [0, 0]] over the epoch maps (h at its end, 1) to (h at its start, 1)
+            M = np.zeros((zero.sum() + 1,) * 2)
+            M[:-1, :-1] = T[np.ix_(zero, zero)]
+            M[:-1, -1] = T[np.ix_(zero, pos)].sum(axis=1)
+            h = (sla.expm(M * (t1 - t0)) @ np.append(h, 1.0))[:-1]
+
+        # the rate of leaving P for good, under the generators of the epochs ending and beginning at the epoch time
+        before, after = (s @ (-T[np.ix_(pos, pos)].sum(axis=1) - T[np.ix_(pos, zero)] @ h)
+                         for T in (Ts[e - 1][0], Ts[e][0]))
+
+        return abs(after - before) > _JUMP_REL_TOL * (abs(before) + abs(after))
 
     def _phi(self, u: np.ndarray) -> np.ndarray:
         """``Phi`` along the conditioning axis with the other argument at 0, the transform behind ``G(0)``."""

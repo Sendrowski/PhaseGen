@@ -4,6 +4,8 @@ import functools
 import numpy as np
 from typing import Callable
 
+from ..rewards import Reward
+
 
 def _make_hashable(func: Callable) -> Callable:
     """
@@ -54,3 +56,15 @@ def _validate_order(k: 'int | float') -> int:
         raise ValueError(f"The order k must be non-negative, but got {k}.")
 
     return k
+
+
+def _validate_reward(reward: Reward, name: str = 'reward') -> None:
+    """
+    Check that a single reward was passed.
+
+    :param reward: The argument to check.
+    :param name: The name of the argument, for the error message.
+    :raises TypeError: if ``reward`` is not a :class:`~phasegen.rewards.Reward`.
+    """
+    if not isinstance(reward, Reward):
+        raise TypeError(f"{name} must be a single {Reward.__name__}, but got {type(reward).__name__}.")
