@@ -1102,7 +1102,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         for c in self._lines:
             f = _euler_invert(lambda u, c=c: self._line_lst_batch(c, on, u), float(value), N0=nested._N0).real
             if f / nested._G0 > _ATOM_FLOOR:
-                atoms.append((float(value) / c if on == 'a' else c * float(value), f))
+                atoms.append((float(value) / c if on == 'a' else c * float(value), c))
 
         return _LineConditional(nested, atoms) if atoms else nested
 
@@ -1993,24 +1993,28 @@ class _NestedConditional(ConditionalRewardDistribution):
         """The mean and variance at the truncation of ``_calibrate``, held at construction."""
         return self._cumulants_calibrated
 
-    def _refine(self, n_max: int = _EULER_N0_MAX) -> None:
+    def _refine(self, n_max: int = _EULER_N0_MAX, target: Optional[ConditionalRewardDistribution] = None) -> None:
         r"""
-        Double the truncation ``N0`` until the CDF of the locating pass of the cosine expansion
+        Double the truncation ``N0`` until the CDF of the locating pass of the cosine expansion of ``target``
         (``_LSTFunction._build_cos_coeffs``) moves by at most ``_cos_truncation_tol`` between the truncations
-        :math:`N_0 / 2` and :math:`N_0`, and log a warning if it still moves by more at ``n_max``. ``G(0)``, on which
-        ``_calibrate`` settles, converges at a smaller truncation than ``G`` at the frequencies of the expansion, which
-        on several epochs oscillates in the conditioning variable. Both truncations weight the nodes of the larger one,
-        so the difference costs no transform evaluations beyond the pass, whose values at the accepted truncation the
-        expansion reuses. A doubling that makes ``G(0)`` non-positive is rejected, as in ``_calibrate``. The window of
-        the pass is located at the truncation of ``_calibrate``. Runs once, and is called by the function objects
-        before their first expansion, so a conditional whose moments alone are read never pays for it.
+        :math:`N_0 / 2` and :math:`N_0`, and log a warning if it still moves by more at ``n_max``. The target is this
+        conditional, or the continuous part of a line-atom conditional (``_LineContinuous``), whose transform is a
+        function of ``G`` at the same truncation (``_lst_from_G``). ``G(0)``, on which ``_calibrate`` settles,
+        converges at a smaller truncation than ``G`` at the frequencies of the expansion, which on several epochs
+        oscillates in the conditioning variable. Both truncations weight the nodes of the larger one, so the difference
+        costs no transform evaluations beyond the pass, whose values at the accepted truncation the expansion reuses. A
+        doubling that makes ``G(0)`` non-positive is rejected, as in ``_calibrate``. The window of the pass is located
+        at the truncation of ``_calibrate``. Runs once, and is called by the function objects before their first
+        expansion, so a conditional whose moments alone are read never pays for it.
 
         :param n_max: Largest truncation tried.
+        :param target: The distribution whose expansion is resolved, this one if ``None``.
         """
         if self._G_rough is not None:
             return
 
-        cdf = self.cdf
+        target = self if target is None else target
+        cdf = target.cdf
         b = cdf._range(cdf._cos_rough_scale)
         w = np.arange(cdf._cos_terms_rough) * np.pi / b
         args = [complex(-1j * wk) for wk in w] + [complex(self._s_inf)]
@@ -2018,12 +2022,11 @@ class _NestedConditional(ConditionalRewardDistribution):
 
         def locating_pass(n0: int) -> tuple:
             """``G`` at ``args`` at the truncation ``n0``, and the largest difference of the locating CDF between
-            the truncations ``n0 // 2`` and ``n0``, each normalised by its own ``G(0)``."""
-            G = np.array([self._inner(s, (n0, n0 // 2)) for s in args])  # (len(args), 2)
-            curves = []
-            for g in G.T:
-                p0 = (g[-1] / g[0]).real
-                curves.append(cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, g[:-1] / g[0], p0), xs))
+            the truncations ``n0 // 2`` and ``n0``, each from the transform of the target at its own truncation."""
+            truncations = (n0, n0 // 2)
+            G = np.array([self._inner(s, truncations) for s in args])  # (len(args), 2)
+            phi = target._lst_from_G(np.array(args), G, truncations)
+            curves = [cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, f[:-1], f[-1].real), xs) for f in phi.T]
             return G[:, 0], float(np.abs(curves[0] - curves[1]).max())
 
         n0 = self._N0
@@ -2037,7 +2040,8 @@ class _NestedConditional(ConditionalRewardDistribution):
         if n0 != self._N0:
             self._N0, self._G0 = n0, float(G[0].real)
             # the per-point CDF values of the window search were taken at the smaller truncation
-            self.__dict__.get('_lst_curve_cache', {}).pop('cdf_points', None)
+            for d in (self, target):
+                d.__dict__.get('_lst_curve_cache', {}).pop('cdf_points', None)
 
         self._G_rough = dict(zip(args, G))
 
@@ -2048,6 +2052,18 @@ class _NestedConditional(ConditionalRewardDistribution):
                 "that much. Conditioning closer to the bulk may help, or sample.",
                 self.label, move, cdf._cos_truncation_tol, n0
             )
+
+    @staticmethod
+    def _lst_from_G(args: np.ndarray, G: np.ndarray, truncations: Sequence[int]) -> np.ndarray:
+        """
+        The transform ``G(s) / G(0)`` from ``G``, per truncation.
+
+        :param args: The arguments, the first of which is 0.
+        :param G: ``G`` at ``args``, one column per truncation.
+        :param truncations: The truncations of the columns.
+        :return: The transform, of the shape of ``G``.
+        """
+        return G / G[0]
 
     def _nearby_jump(self) -> Optional[float]:
         """
@@ -2106,12 +2122,17 @@ class _NestedConditional(ConditionalRewardDistribution):
 class _LineContinuous(ConditionalRewardDistribution):
     """The continuous part of ``_LineConditional``: the conditional with its atoms removed,
     ``(G(s) - sum_k f_k e^{-s y_k}) / (G(0) - sum_k f_k)`` in the notation of ``_NestedConditional``, inverted by the
-    ordinary conditional machinery."""
+    ordinary conditional machinery on its own window. The densities ``f_k`` of the atoms are Euler inversions at the
+    truncation of ``G``, so that the atoms cancel from the transform when ``_NestedConditional._refine`` raises it."""
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
 
     def __init__(self, nested: '_NestedConditional', atoms: list) -> None:
+        """
+        :param nested: The conditional with the atoms included in its transform.
+        :param atoms: ``(location, slope)`` per atom, the slope :math:`c` of its line :math:`R_a = c R_b`.
+        """
         self._nested = nested
         self._joint = nested._joint
         self._host = nested._host
@@ -2121,22 +2142,54 @@ class _LineContinuous(ConditionalRewardDistribution):
         self._logger = nested._logger
         self.label = nested.label
         self._y = np.array([y for y, _ in atoms], dtype=float)
-        self._f = np.array([f for _, f in atoms], dtype=float)
+        self._c = np.array([c for _, c in atoms], dtype=float)
 
-    def _range(self, scale: float = 12.0) -> float:
-        """The window of the conditional with the atoms, on whose locating pass ``_NestedConditional._refine`` stores
-        the values of ``G`` this expansion reads."""
-        return self._nested._range(scale)
+        #: The densities of the atoms, keyed by the truncation.
+        self._f_cache = {}
+
+    def _densities(self, truncations: Sequence[int]) -> np.ndarray:
+        """
+        The densities :math:`f_c(v)` of the atoms, the Euler inversions of ``JointRewardDistribution._line_lst_batch``
+        at the value, at each truncation from the nodes of the largest (``_euler_series``).
+
+        :param truncations: The truncations ``N0``.
+        :return: The densities, of shape ``(len(truncations), len(atoms))``.
+        """
+        u, weights = _euler_series(self._value, truncations)
+        vals = np.array([self._joint._line_lst_batch(c, self._on, u) for c in self._c])  # (len(atoms), len(u))
+        return (weights @ vals.T).real
+
+    @property
+    def _f(self) -> np.ndarray:
+        """The densities of the atoms at the truncation of ``G``."""
+        n0 = self._nested._N0
+        if n0 not in self._f_cache:
+            self._f_cache[n0] = self._densities((n0,))[0]
+        return self._f_cache[n0]
 
     def _refine(self) -> None:
-        """Refine the inner inversion of the conditional with the atoms, see ``_NestedConditional._refine``."""
-        self._nested._refine()
+        """Refine the inner inversion on the expansion of this continuous part, see ``_NestedConditional._refine``."""
+        self._nested._refine(target=self)
+
+    def _lst_from_G(self, args: np.ndarray, G: np.ndarray, truncations: Sequence[int]) -> np.ndarray:
+        """
+        The transform of the continuous part from ``G``, per truncation, with the densities of the atoms at the same
+        truncation.
+
+        :param args: The arguments, the first of which is 0.
+        :param G: ``G`` at ``args``, one column per truncation.
+        :param truncations: The truncations of the columns.
+        :return: The transform, of the shape of ``G``.
+        """
+        f = self._densities(truncations)  # (len(truncations), len(atoms))
+        rest = G - np.exp(-np.outer(args, self._y)) @ f.T
+        return rest / rest[0]
 
     def lst(self, s: complex) -> complex:
         """The transform of the continuous part."""
         s = complex(s)
-        nested = self._nested
-        return (nested._G(s) - np.sum(self._f * np.exp(-s * self._y))) / (nested._G0 - np.sum(self._f))
+        nested, f = self._nested, self._f
+        return (nested._G(s) - np.sum(f * np.exp(-s * self._y))) / (nested._G0 - np.sum(f))
 
 
 class _LineCDF(ConditionalCDF):
@@ -2219,7 +2272,7 @@ class _LineConditional(ConditionalRewardDistribution):
     def __init__(self, nested: '_NestedConditional', atoms: list) -> None:
         """
         :param nested: The conditional with the atoms included in its transform.
-        :param atoms: ``(location, density)`` per atom, the density being :math:`f_c(v)`.
+        :param atoms: ``(location, slope)`` per atom, the slope :math:`c` of its line.
         """
         self._nested = nested
         self._joint = nested._joint
@@ -2235,14 +2288,19 @@ class _LineConditional(ConditionalRewardDistribution):
         #: Locations of the atoms, ascending.
         self._atom_values = np.array([y for y, _ in atoms], dtype=float)
 
-        #: Masses of the atoms.
-        self._atom_masses = np.array([f for _, f in atoms], dtype=float) / nested._G0
-
-        #: Total mass of the atoms.
-        self._p = float(self._atom_masses.sum())
-
         #: The continuous part.
         self._continuous = _LineContinuous(nested, atoms)
+
+    @property
+    def _atom_masses(self) -> np.ndarray:
+        """Masses of the atoms, :math:`f_c(v) / G(0)` at the truncation of the expansion of the continuous part."""
+        self._continuous._refine()
+        return self._continuous._f / self._nested._G0
+
+    @property
+    def _p(self) -> float:
+        """Total mass of the atoms."""
+        return float(self._atom_masses.sum())
 
     def lst(self, s: complex) -> complex:
         """The conditional transform, atoms included."""

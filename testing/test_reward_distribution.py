@@ -1998,6 +1998,48 @@ def test_conditional_on_linked_loci_carries_the_diagonal_atom():
     assert float(cond.pdf(v)) < 1.0
 
 
+def test_line_atom_conditional_expands_its_continuous_part_on_its_own_window():
+    """The continuous part of a line-atom conditional is expanded on a window that contains it. At a low recombination
+    rate the diagonal atom holds 99.6% of the mass, and the window of the conditional with the atom collapses onto the
+    atom. Regression: the continuous part was expanded on that window, serving a CDF 200 standard errors from the
+    sampler. Reference values from 2e8 sampled trajectories, conditioning within 2% of v: 1.18e-4 +- 0.9e-5 at v / 2
+    and 0.99717 +- 4.5e-5 at 2 v."""
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.01)).tree_height.loci.joint_distribution(
+        0, 1)
+    v = float(joint.marginal('a').quantile(0.2))
+    cond = joint.conditional('a', v)
+
+    assert cond._p == pytest.approx(0.996, abs=1e-3)
+    assert cond._continuous.cdf._cos_coeffs['b'] > 5 * v
+    assert float(cond.cdf(v / 2)) == pytest.approx(1.18e-4, abs=4e-5)
+    assert float(cond.cdf(2 * v)) == pytest.approx(0.99717, abs=2e-4)
+
+
+@pytest.mark.slow
+def test_line_atom_masses_follow_the_refined_inner_truncation():
+    """The atom masses of a line-atom conditional are taken at the inner truncation of the expansion, which the
+    refinement raises from 60 to 480 on two loci under three epochs. Regression: the masses and the atoms subtracted
+    from the continuous part stayed at the calibration truncation, and the CDF was off by 7.3e-3 at 1.2 v, 36 standard
+    errors of the sampler. Reference values from 1e8 sampled trajectories, conditioning within 2% of the median v:
+    0.05498 +- 1.1e-4 at v / 2, 0.76359 +- 2.1e-4 at 1.2 v and 0.95804 +- 1.0e-4 at 2 v."""
+    from phasegen.distributions.reward import _euler_invert
+
+    joint = pg.Coalescent(
+        n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.5),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 3, 1: 0.5}})
+    ).tree_height.loci.joint_distribution(0, 1)
+    v = float(joint.marginal('a').quantile(0.5))
+    cond = joint.conditional('a', v)
+
+    for x, ref, se in ((0.5, 0.05498, 1.1e-4), (1.2, 0.76359, 2.1e-4), (2.0, 0.95804, 1.0e-4)):
+        assert float(cond.cdf(x * v)) == pytest.approx(ref, abs=4 * se), x
+
+    nested = cond._nested
+    f = _euler_invert(lambda u: joint._line_lst_batch(1.0, 'a', u), v, N0=nested._N0).real
+    assert nested._N0 > 60
+    assert cond._atom_masses[0] == pytest.approx(f / nested._G0, rel=1e-12)
+
+
 def test_conditional_carries_the_atom_of_a_sloped_line():
     """A triple merger of three lineages under a Beta coalescent keeps the total branch length at three times the tree
     height, so the joint law places mass on the line R_a = R_b / 3 and the conditional on the total branch length has
@@ -2162,9 +2204,9 @@ def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(la
     """The coarser truncation of the refinement weights the nodes of the finer one, so it equals the Euler inversion
     at that truncation from the same transform evaluations. The expansion reuses the values of the refinement's
     locating pass, so past the window search it evaluates the transform once per argument of the locating pass, at
-    both truncations, and once per nonzero frequency of the second pass. The continuous part of a line-atom
-    conditional shares the window of the conditional with the atoms, so its expansion reuses the same values. The
-    moments do not trigger the refinement."""
+    both truncations, and once per nonzero frequency of the second pass. A line-atom conditional refines on the locating
+    pass of its continuous part, on the window of that part, so its expansion reuses the same values. The moments do
+    not trigger the refinement."""
     from phasegen.distributions.reward import _euler_invert
 
     joint = joint()
