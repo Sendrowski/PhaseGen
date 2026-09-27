@@ -2121,6 +2121,7 @@ class _LineCDF(ConditionalCDF):
         :return: The CDF, of the same shape.
         """
         d = self._distribution
+        d._warn_if_line_unresolved()
         ta = np.atleast_1d(np.asarray(t, dtype=float))
         steps = (ta[:, None] >= d._atom_values[None, :]) @ d._atom_masses
         out = (1.0 - d._p) * np.atleast_1d(d._continuous.cdf(ta)) + steps
@@ -2136,6 +2137,7 @@ class _LineDensity(ConditionalDensity):
         :return: The density of the continuous part, of the same shape.
         """
         d = self._distribution
+        d._warn_if_line_unresolved()
         out = (1.0 - d._p) * np.atleast_1d(d._continuous.pdf(np.atleast_1d(np.asarray(t, dtype=float))))
         return out if np.ndim(t) > 0 else float(out[0])
 
@@ -2151,6 +2153,7 @@ class _LineQuantile(ConditionalQuantileFunction):
         :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
         """
         d = self._distribution
+        d._warn_if_line_unresolved()
         qa = np.atleast_1d(np.asarray(q, dtype=float))
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Quantile must be between 0 and 1.")
@@ -2212,3 +2215,28 @@ class _LineConditional(ConditionalRewardDistribution):
     def lst(self, s: complex) -> complex:
         """The conditional transform, atoms included."""
         return self._nested.lst(s)
+
+    def _warn_if_line_unresolved(self) -> None:
+        r"""
+        Warn when the cosine expansion of the continuous part reaches frequencies at which the inner inversion no
+        longer resolves the line part of the transform. The line part of an atom at :math:`y` oscillates at the
+        frequency :math:`\omega` of the outer variable, and the inner Euler series, whose weights taper beyond its
+        truncation :math:`N_0`, resolves it only while :math:`\omega y / \pi \le N_0`. Above that the subtracted
+        atom fades from the transform, and the continuous part carries its negative.
+
+        """
+        if not Settings.check_inversions or self.__dict__.get('_line_warned'):
+            return
+
+        w_max = self._continuous.cdf._cos_coeffs['w'][-1]
+
+        cutoff = np.pi * self._nested._N0 / self._atom_values
+
+        if np.any(w_max > cutoff):
+            self.__dict__['_line_warned'] = True
+            self._logger.warning(
+                "%s: the cosine expansion reaches the frequency %.3g, above %.3g, up to which the inner inversion "
+                "resolves the atom at %.3g. The continuous part then carries the negative of that atom, so its CDF and "
+                "density may be wrong, the more so the more cosine terms are used.",
+                self.label, w_max, float(cutoff.min()), float(self._atom_values[np.argmin(cutoff)])
+            )

@@ -2099,3 +2099,29 @@ def test_truncation_warning_reports_the_estimated_error(caplog):
         ).sfs.joint_distribution(1, 2).conditional('a', 0.5).cdf(1.0)
 
     assert any('estimated truncation error' in r.getMessage() for r in caplog.records)
+
+
+def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
+    """A line-atom conditional warns when its cosine expansion reaches frequencies at which the inner inversion no
+    longer resolves the atom, where the continuous part carries the atom's negative. The linked locus heights stay
+    below the cutoff at the default terms and cross it with four times as many, and the Beta tree height given the
+    total branch length crosses it at the default, where the served CDF was 15 standard errors from the sampler."""
+    def loci():
+        return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
+
+    def warned(joint, value):
+        caplog.clear()
+        with caplog.at_level('WARNING'):
+            joint.conditional('a', value).cdf(1.0)
+        return any('inner inversion resolves the atom' in r.getMessage() for r in caplog.records)
+
+    median = float(loci().marginal('a').quantile(0.5))
+    assert not warned(loci(), median)
+
+    pg.Settings.cos_terms = 4 * pg.Settings.cos_terms
+    assert warned(loci(), median)
+
+    pg.Settings.cos_terms = pg.Settings.cos_terms // 4
+    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
+    joint = beta.joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    assert warned(joint, float(joint.marginal('a').quantile(0.5)))
