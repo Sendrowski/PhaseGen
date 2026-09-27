@@ -2050,3 +2050,21 @@ def test_tree_height_cdf_and_pdf_pass_nan_through():
     np.testing.assert_array_equal(np.isnan(th.cdf(np.array([np.nan, 1.0]))), [True, False])
     assert th.cdf(np.array([np.nan, 1.0]))[1] == pytest.approx(th.cdf(1.0), rel=1e-12)
     assert np.isnan(th.cdf(np.nan)) and np.isnan(th.pdf(np.nan))
+
+
+@pytest.mark.parametrize("demography", [
+    pg.Demography(pop_sizes={'pop_0': 1}),
+    pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 3}}),
+])
+def test_infinite_end_time_equals_no_end_time(demography):
+    """``end_time=np.inf`` behaves as no end time. Regression: t_max returned inf, and tree_height.quantile and the
+    default accumulation grid raised IndexError."""
+    ref = pg.Coalescent(n=4, demography=demography)
+    coal = pg.Coalescent(n=4, demography=demography, end_time=np.inf)
+
+    assert coal.end_time is None and coal.tree_height.end_time is None
+    assert coal.tree_height.t_max == ref.tree_height.t_max
+    assert coal.tree_height.quantile(0.5) == pytest.approx(ref.tree_height.quantile(0.5), rel=1e-10)
+    assert coal.tree_height.cdf(1.0) == pytest.approx(ref.tree_height.cdf(1.0), rel=1e-12)
+    assert coal.tree_height.mean == pytest.approx(ref.tree_height.mean, rel=1e-12)
+    np.testing.assert_array_equal(coal.tree_height._default_end_times(), ref.tree_height._default_end_times())

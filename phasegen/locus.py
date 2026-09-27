@@ -30,7 +30,7 @@ class LocusConfig:
             number of lineages.
         :param recombination_rate: Recombination rate between loci.
         :raises ValueError: If ``n`` is not a positive integer, ``n_unlinked`` is not a non-negative integer, or the
-            recombination rate is negative.
+            recombination rate is negative or not finite.
         :raises NotImplementedError: If ``n`` exceeds 2.
         """
         #: Logger
@@ -45,8 +45,8 @@ class LocusConfig:
         if n_unlinked < 0 or not float(n_unlinked).is_integer():
             raise ValueError(f"Number of unlinked lineages must be a non-negative integer, got {n_unlinked}.")
 
-        if recombination_rate < 0:
-            raise ValueError("Recombination rate must be non-negative.")
+        if not 0 <= recombination_rate < np.inf:
+            raise ValueError(f"Recombination rate must be finite and non-negative, got {recombination_rate}.")
 
         #: Number of loci.
         self.n: int = int(n)

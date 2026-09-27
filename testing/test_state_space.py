@@ -853,3 +853,20 @@ class LegacyReferenceTestCase(TestCase):
                         old = np.asarray(build_old(ss).S)
 
                         testing.assert_allclose(np.asarray(ss.S), old[order][:, order], atol=1e-12)
+
+
+def test_rescale_uses_sampled_population_size():
+    """Rescaling a cached single-population rate matrix on an epoch change uses the size of the sampled population.
+    Regression: the size of the alphabetically first population of the epoch was used, so an unsampled population
+    'a' listed before the sampled 'b' gave a wrongly scaled S."""
+    lineages = pg.LineageConfig({'b': 3})
+    epoch = pg.Epoch(pop_sizes={'a': 1, 'b': 1})
+    epoch_next = pg.Epoch(start_time=1, pop_sizes={'a': 7, 'b': 2})
+
+    s = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch)
+    _ = s.S
+    s.update_epoch(epoch_next)
+
+    fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch_next)
+
+    testing.assert_allclose(np.asarray(s.S), np.asarray(fresh.S), rtol=1e-12)

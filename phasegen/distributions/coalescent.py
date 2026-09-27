@@ -60,7 +60,7 @@ class AbstractCoalescent(ABC):
         :param loci: Number of loci or locus configuration.
         :param recombination_rate: Recombination rate. If given, it overrides the rate of ``loci``.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If ``None``, the end time is taken to be the
+        :param end_time: Time when to end the computation. If ``None`` or infinite, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
         """
@@ -141,7 +141,7 @@ class AbstractCoalescent(ABC):
         self.demography: Demography = demography
 
         #: End time
-        self.end_time: float = end_time
+        self.end_time: float = None if end_time == np.inf else end_time
 
     @property
     def n(self) -> int:

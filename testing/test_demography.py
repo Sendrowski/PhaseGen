@@ -182,7 +182,7 @@ class DemographyTestCase(TestCase):
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 6, 2: -3.5})
             )
 
-        self.assertEqual(str(error.exception), "Population sizes must be positive at all times.")
+        self.assertEqual(str(error.exception), "Population sizes must be finite and positive at all times.")
 
     def test_piecewise_constant_demography_raises_value_error_pop_sizes_zero(self):
         """
@@ -193,7 +193,7 @@ class DemographyTestCase(TestCase):
                 pop_sizes=dict(a={0: 1, 1: 2, 2: 3}, b={0: 4, 1: 5, 2: 6}, c={0: 7, 1: 0, 2: 3.5})
             )
 
-        self.assertEqual(str(error.exception), "Population sizes must be positive at all times.")
+        self.assertEqual(str(error.exception), "Population sizes must be finite and positive at all times.")
 
     def test_piecewise_constant_demography_raises_value_error_negative_migration_rate(self):
         """
@@ -209,7 +209,7 @@ class DemographyTestCase(TestCase):
                 }
             )
 
-        self.assertEqual(str(error.exception), "Migration rates must not be negative at all times.")
+        self.assertEqual(str(error.exception), "Migration rates must be finite and non-negative at all times.")
 
     def test_piecewise_constant_demography_raises_value_error_negative_times(self):
         """
@@ -889,3 +889,57 @@ def test_migration_rates_keyed_by_other_than_population_pairs_raise():
     and the model ran without migration."""
     with pytest.raises(ValueError, match='pairs of population names'):
         pg.MigrationRateChanges({'ab': {0: 5}})
+
+
+@pytest.mark.parametrize("size", [np.inf, np.nan])
+def test_non_finite_population_size_raises(size):
+    """A non-finite population size raises at construction. Regression: an infinite size passed and ended in a
+    ZeroDivisionError in epoch 0, and in a zero-size reduction error in a later epoch."""
+    with pytest.raises(ValueError, match='Population sizes must be finite and positive'):
+        pg.Demography(pop_sizes={'pop_0': {0: 1, 1: size}})
+
+
+@pytest.mark.parametrize("rate", [np.inf, np.nan])
+def test_non_finite_migration_rate_raises(rate):
+    """A non-finite migration rate raises at construction. Regression: an infinite rate passed and ended in an
+    ill-conditioning error whose remedy could not work."""
+    with pytest.raises(ValueError, match='Migration rates must be finite and non-negative'):
+        pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): rate, ('b', 'a'): 1})
+
+
+def test_non_finite_split_multiplier_raises():
+    """An infinite migration rate multiplier of a population split raises at construction."""
+    with pytest.raises(ValueError, match='positive and finite'):
+        pg.PopulationSplit(time=1, derived='a', ancestral='b', multiplier=np.inf)
+
+
+def test_non_finite_discretized_trajectory_raises():
+    """A trajectory evaluating to an infinite population size raises where the epoch is set."""
+    event = pg.DiscretizedRateChange(trajectory=lambda t: np.inf, start_time=0, end_time=1, pop='pop_0')
+    demography = pg.Demography(events=[event])
+
+    with pytest.raises(ValueError, match='negative or not finite'):
+        list(islice(demography.epochs, 3))
+
+
+def test_self_migration_raises():
+    """A migration rate from a population to itself raises at construction. Regression: the exact path dropped the
+    diagonal rate silently, while msprime rejected the same demography."""
+    with pytest.raises(ValueError, match='distinct populations'):
+        pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'a'): 1, ('a', 'b'): 1})
+
+    with pytest.raises(ValueError, match='distinct populations'):
+        pg.MigrationRateChange(source='a', dest='a', time=1, rate=1)
+
+    with pytest.raises(ValueError, match='distinct populations'):
+        pg.DiscretizedRateChange(trajectory=lambda t: 1, start_time=0, end_time=1, source='a', dest='a')
+
+
+def test_split_onto_derived_population_raises():
+    """A population split whose ancestral population is among the derived ones raises at construction. Regression:
+    it passed and surfaced later as a non-absorption error."""
+    with pytest.raises(ValueError, match='must not be among the derived'):
+        pg.PopulationSplit(time=1, derived=['a', 'b'], ancestral='a')
+
+    with pytest.raises(ValueError, match='must not be among the derived'):
+        pg.PopulationSplit(time=1, derived='a', ancestral='a')

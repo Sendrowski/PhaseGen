@@ -369,14 +369,15 @@ class StateSpace(ABC):
 
     def _get_scaling_factor(self, epoch_prev: Epoch, epoch_next: Epoch) -> float:
         """
-        Get the scaling factor for the rate matrix when changing epochs.
+        Get the scaling factor for the rate matrix of the single sampled population when changing epochs.
 
         :param epoch_prev: Previous epoch.
         :param epoch_next: Next epoch.
         :return: Scaling factor.
         """
-        pop_prev = epoch_prev.pop_sizes[epoch_prev.pop_names[0]]
-        pop_next = epoch_next.pop_sizes[epoch_next.pop_names[0]]
+        pop = self.lineage_config.pop_names[0]
+        pop_prev = epoch_prev.pop_sizes[pop]
+        pop_next = epoch_next.pop_sizes[pop]
 
         return self.model._get_timescale(pop_prev) / self.model._get_timescale(pop_next)
 

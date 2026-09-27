@@ -1012,7 +1012,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param state_space: The state space.
         :param demography: The demography.
         :param start_time: Time when to start accumulating moments.
-        :param end_time: Time when to end accumulation of moments. By default, the time until almost sure absorption.
+        :param end_time: Time when to end accumulation of moments. By default, or if infinite, the time until almost
+            sure absorption.
         """
         if not start_time >= 0:
             raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
@@ -1037,7 +1038,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self.start_time: float = start_time
 
         #: End time
-        self.end_time: float | None = end_time
+        self.end_time: float | None = None if end_time == np.inf else end_time
 
     #: Largest row-sum norm of ``S tau`` exponentiated in one step by ``_propagate``.
     _max_step_norm: float = 1e3

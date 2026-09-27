@@ -144,3 +144,13 @@ def test_coalescent_recombination_rate_override_is_validated():
     c = pg.Coalescent(n=3, loci=loci, recombination_rate=0.5)
     assert c.locus_config.recombination_rate == 0.5
     assert loci.recombination_rate == 0
+
+
+@pytest.mark.parametrize("rate", [np.nan, np.inf])
+def test_non_finite_recombination_rate_raises_value_error(rate):
+    """
+    A NaN or infinite recombination rate raises at construction. Regression: both passed the check ``rate < 0`` and
+    failed later in numpy, or a NaN rate was silently ignored with one locus.
+    """
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        pg.LocusConfig(n=2, recombination_rate=rate)

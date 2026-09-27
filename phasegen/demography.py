@@ -835,6 +835,9 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
                 raise ValueError(f'Migration rates must be keyed by (source, destination) pairs of population names, '
                                  f'got {key!r}.')
 
+            if key[0] == key[1]:
+                raise ValueError(f'Migration rates must be between distinct populations, got {key!r}.')
+
         #: Population names.
         self.pop_names: List[str] = sorted(list(set(pop_sizes.keys()).union(
             {p for k in migration_rates for p in k})))
@@ -852,11 +855,12 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
             raise ValueError('All times must not be negative.')
 
         migration = np.array([rates[k][t] for k in rates for t in migration_rates if t in rates[k]], dtype=float)
-        if np.any(~(migration >= 0)):
-            raise ValueError('Migration rates must not be negative at all times.')
+        if np.any(~((migration >= 0) & (migration < np.inf))):
+            raise ValueError('Migration rates must be finite and non-negative at all times.')
 
-        if np.any(~(np.array([rates[k][t] for k in rates for t in pop_sizes if t in rates[k]], dtype=float) > 0)):
-            raise ValueError('Population sizes must be positive at all times.')
+        sizes = np.array([rates[k][t] for k in rates for t in pop_sizes if t in rates[k]], dtype=float)
+        if np.any(~((sizes > 0) & (sizes < np.inf))):
+            raise ValueError('Population sizes must be finite and positive at all times.')
 
         #: Times at which the population size changes occur.
         self.times: np.ndarray = times
@@ -1009,6 +1013,8 @@ class PopulationSplit(DiscreteDemographicEvent):
             after a mean time :math:`1 / m`, a fraction :math:`1 / c` of the mean time to coalescence of a pair in the
             population that coalesces fastest. With more than two lineages in a population the first coalescence
             comes sooner, so the fraction of coalescent time the drain displaces is larger than :math:`1 / c`.
+        :raises ValueError: If the time is negative, the ancestral population is among the derived ones, or the
+            multiplier is not positive and finite.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -1016,8 +1022,11 @@ class PopulationSplit(DiscreteDemographicEvent):
         if not time >= 0:
             raise ValueError(f'The split time must be non-negative, got {time}.')
 
-        if not multiplier > 0:
-            raise ValueError(f'The migration rate multiplier must be positive, got {multiplier}.')
+        if ancestral in derived:
+            raise ValueError(f'The ancestral population {ancestral!r} must not be among the derived populations.')
+
+        if not 0 < multiplier < np.inf:
+            raise ValueError(f'The migration rate multiplier must be positive and finite, got {multiplier}.')
 
         #: Time of the split.
         self.start_time: float = time
@@ -1113,6 +1122,9 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         if pop is None and (source is None or dest is None):
             raise ValueError('Either pop or source_pop and dest_pop must be specified.')
 
+        if pop is None and source == dest:
+            raise ValueError(f'Migration must be between distinct populations, got source and destination {source!r}.')
+
         if not step_size > 0:
             raise ValueError(f'The step size must be positive, got {step_size}.')
 
@@ -1203,9 +1215,9 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             rate = (rate_start + rate_end) / 2
 
             if self.pop is None:
-                if not rate >= 0:
+                if not 0 <= rate < np.inf:
                     raise ValueError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
-                                     f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not '
+                                     f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not finite and '
                                      f'non-negative.')
 
                 epoch.migration_rates[(self.source_pop, self.dest_pop)] = rate
@@ -1214,9 +1226,9 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
             # a decaying trajectory may underflow to zero far out, which a simulation accepts and the exact
             # computation rejects where it reaches that epoch
-            if not rate >= 0:
+            if not 0 <= rate < np.inf:
                 raise ValueError(f'The population size trajectory of {self.pop} gives {rate} on '
-                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative.')
+                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative or not finite.')
 
             epoch.pop_sizes[self.pop] = rate
 
