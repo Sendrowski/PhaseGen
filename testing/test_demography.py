@@ -882,3 +882,10 @@ def test_to_json_restores_a_lambda_trajectory():
     restored = pg.Coalescent.from_json(make().to_json())
 
     assert restored.tree_height.mean == pytest.approx(make().tree_height.mean, rel=1e-12)
+
+
+def test_migration_rates_keyed_by_other_than_population_pairs_raise():
+    """A migration rate keyed by other than a (source, destination) pair raises. Regression: the key 'ab' set no rate
+    and the model ran without migration."""
+    with pytest.raises(ValueError, match='pairs of population names'):
+        pg.MigrationRateChanges({'ab': {0: 5}})

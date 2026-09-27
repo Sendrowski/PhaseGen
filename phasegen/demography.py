@@ -838,16 +838,10 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         if len(pop_sizes) == 0 and len(migration_rates) == 0:
             raise ValueError('Either one population size or migration rate must be specified.')
 
-        # make sure population sizes are positive
-        for p, sizes in pop_sizes.items():
-            if any(s <= 0 for s in sizes.values()):
-                raise ValueError(f'Population sizes must be positive at all times.')
-
-        # initialize zero migration rates if None is given
-        if migration_rates is None:
-            migration_rates = {}
-        elif not isinstance(migration_rates, dict):
-            raise ValueError('Migration rates must be a dictionary.')
+        for key in migration_rates:
+            if not (isinstance(key, tuple) and len(key) == 2 and all(isinstance(p, str) for p in key)):
+                raise ValueError(f'Migration rates must be keyed by (source, destination) pairs of population names, '
+                                 f'got {key!r}.')
 
         #: Population names.
         self.pop_names: List[str] = sorted(list(set(pop_sizes.keys()).union(
@@ -877,7 +871,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         #: Population sizes.
         self.pop_sizes: Dict[float, Dict[str, float]] = {
-            t: {x: pops[x] for x in self.pop_names if x in pops if x in pops} for t, pops in rates.items()
+            t: {x: pops[x] for x in self.pop_names if x in pops} for t, pops in rates.items()
         }
 
         #: Migration rates at each time.
