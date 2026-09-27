@@ -63,8 +63,8 @@ class ExpmBackend(ABC):
 
 class TensorFlowExpmBackend(ExpmBackend):
     """
-    Compute the matrix exponential using TensorFlow, an optional dependency with the installation, GPU and
-    performance notes of :class:`JaxExpmBackend`.
+    Compute the matrix exponential using TensorFlow, an optional dependency with the installation and GPU
+    notes of :class:`JaxExpmBackend`.
     """
 
     def compute(self, m: np.ndarray) -> np.ndarray:
@@ -85,8 +85,7 @@ class SciPyExpmBackend(ExpmBackend):
     Compute the matrix exponential using SciPy.
 
     .. note::
-        This is the default backend. Recommended for smaller matrices. Consider switching to other backends for larger
-        matrices, such as :class:`JaxExpmBackend`, which is both efficient and lightweight to install.
+        This is the default backend.
     """
 
     def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
@@ -138,7 +137,6 @@ class JaxExpmBackend(ExpmBackend):
     Compute the matrix exponential using Jax.
     Note that jax is an optional dependency and thus needs to be installed separately.
     GPU acceleration may be available depending on the underlying hardware.
-    Tends to be faster than :class:`SciPyExpmBackend` for larger matrices and highly parallelized computations.
     """
 
     def __init__(self, max_squarings: int = 2 ** 10) -> None:
@@ -209,7 +207,7 @@ class Backend(ABC):
     def expm_multiply(cls, a, b: np.ndarray) -> np.ndarray:
         """
         Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
-        active backend without forming the dense exponential, as a writable NumPy array.
+        active backend, as a writable NumPy array.
         """
         return cls._writable(cls.backend.compute_action(a, b))
 

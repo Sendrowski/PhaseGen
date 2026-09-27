@@ -2184,7 +2184,8 @@ class MsprimeCoalescent(AbstractCoalescent):
 
 class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
-    Coalescent whose statistics are estimated from :attr:`n_samples` simulated trajectories each, built by
+    Coalescent whose statistics are estimated from :attr:`SampledCoalescent.n_samples
+    <phasegen.distributions.SampledCoalescent.n_samples>` simulated trajectories each, built by
     :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` on the
     wrapped :class:`~phasegen.distributions.Coalescent` at first access and cached.
 

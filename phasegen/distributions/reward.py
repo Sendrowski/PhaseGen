@@ -51,11 +51,11 @@ class RewardDistribution(CallableDistributionFunctions):
     :class:`~phasegen.distributions.PhaseTypeDistribution`. It is returned by :meth:`Coalescent.distribution()
     <phasegen.distributions.Coalescent.distribution>`, :meth:`PhaseTypeDistribution.distribution()
     <phasegen.distributions.PhaseTypeDistribution.distribution>` and the ``bin()`` methods of the spectra. The mean and
-    variance of :math:`R` are exact moments, but its distribution has no closed matrix form. The transform
-    :math:`\varphi` given by :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>` is exact,
-    requires a single linear solve and determines the distribution uniquely, so the ``cdf``, ``pdf`` and ``quantile``
-    are obtained by inverting it numerically. The tree height is the exception, as its distribution follows directly
-    from matrix exponentials (see :class:`~phasegen.distributions.TreeHeightDistribution`).
+    variance of :math:`R` are exact moments, but across several epochs its distribution has no closed matrix form. The
+    transform :math:`\varphi` given by :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>`
+    is exact, requires a single linear solve and determines the distribution uniquely, so the ``cdf``, ``pdf`` and
+    ``quantile`` are obtained by inverting it numerically. The tree height is the exception, as its distribution
+    follows directly from matrix exponentials (see :class:`~phasegen.distributions.TreeHeightDistribution`).
 
     .. rubric:: Fourier-cosine expansion
 
@@ -368,7 +368,7 @@ def _build_epoch_data(host) -> dict:
     # the large-space win and handles the s->inf atom shift directly). The finite-epoch matrix-exponential is always
     # dense (densifying a sparse block): the only alternative, the expm_multiply *action*, is norm-driven and cannot
     # evaluate the ``s = inf`` (1e8) atom shifts that every inversion needs -- so it has no usable role here (unlike
-    # the moment path, which never inverts an atom and gates its action on ``Settings.expm_action_min_dim``).
+    # the moment path, which never inverts an atom).
     sparse = MomentEvaluator._solve_sparse(nt)
 
     T_epochs = []

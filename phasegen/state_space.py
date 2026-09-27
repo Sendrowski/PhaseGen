@@ -548,8 +548,7 @@ class StateSpace(ABC):
 
         warnings.warn(
             "Building the state space with the pure-Python construction; the numba kernel is the preferred path and "
-            "this fallback is deprecated. It is used when numba is unavailable or disabled (Settings.use_numba), or "
-            "for a state-space type the kernel does not yet support.",
+            "this fallback is deprecated. It is used when numba is unavailable or disabled (Settings.use_numba).",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -769,10 +768,9 @@ class BlockCountingStateSpace(StateSpace):
         E = \Big\{ \mathbf{a} \in \mathbb{Z}_{\ge 0}^n : \sum_{i=1}^{n} i\,a_i = n \Big\}, \qquad |E| = p(n),
 
     the number of integer partitions of :math:`n` (per deme and per locus). The absorbing state is
-    :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are supplied by the
-    :class:`~phasegen.coalescent_models.CoalescentModel`
-    (``CoalescentModel.get_rate_block_counting()``). Resolving these branch classes
-    lets the space distinguish tree topologies, so it underlies the statistics based on the SFS.
+    :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are those of the
+    :class:`~phasegen.coalescent_models.CoalescentModel`, evaluated by the numba state-space kernel. Resolving these
+    branch classes lets the space distinguish tree topologies, so it underlies the statistics based on the SFS.
     """
 
     def __init__(

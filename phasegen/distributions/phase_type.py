@@ -950,7 +950,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     .. rubric:: Implementation
 
     - The state probabilities are propagated from point to point in ascending order. The exponential is formed
-      densely by the active :class:`~phasegen.expm.Backend` below :attr:`Settings.expm_action_min_dim
+      densely by the active matrix-exponential backend below :attr:`Settings.expm_action_min_dim
       <phasegen.settings.Settings.expm_action_min_dim>` states, and is otherwise applied as a sparse action (Al-Mohy
       and Higham, 2011).
     - The quantile is read from the cumulative-hazard grid of :class:`~phasegen.distributions.QuantileFunction` on

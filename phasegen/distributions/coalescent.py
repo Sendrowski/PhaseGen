@@ -265,9 +265,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         time :math:`\tau` of the underlying Markov jump process, with the notation of
         :class:`~phasegen.distributions.PhaseTypeDistribution`, equivalently the reward accumulated under the reward
         :math:`r(x) = \mathbb{1}\{x \notin B\}`. With multiple loci this is the time until every locus has reached its
-        MRCA (absorption of the two-locus ancestral process), so it equals the single-locus height when fully linked
-        (:math:`\rho = 0`, with :math:`\rho` the recombination rate) and grows towards the maximum of the per-locus
-        heights as the loci decouple (:math:`\rho \to \infty`).
+        MRCA (absorption of the two-locus ancestral process), the maximum of the per-locus heights. Its distribution is
+        that of the single-locus height when fully linked (:math:`\rho = 0`, with :math:`\rho` the recombination rate)
+        and tends to that of the maximum of independent per-locus heights as the loci decouple
+        (:math:`\rho \to \infty`).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,

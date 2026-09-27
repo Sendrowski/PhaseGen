@@ -271,7 +271,9 @@ class MomentEvaluator:
 
         - Matrix exponentials are formed densely while :math:`(k + 1)|E|` is below
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and are otherwise
-          applied to vectors as sparse actions (Al-Mohy and Higham, 2011).
+          applied to vectors as sparse actions (Al-Mohy and Higham, 2011). In the closed form below, the sparse action
+          is taken from :attr:`Settings.closed_form_sparse_min_states
+          <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on.
         - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
           sparse from :attr:`Settings.closed_form_sparse_min_states
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
@@ -1147,8 +1149,9 @@ class MomentEvaluator:
         """
         Materialize the demographic epochs up to and including the one taken to hold until absorption. The iteration
         stops at an epoch with an infinite end time, or at the first epoch beginning at or after the time of almost
-        sure absorption (``TreeHeightDistribution.t_max`` without an accumulation window), whose rates are then
-        extended over the remaining time.
+        sure absorption (``TreeHeightDistribution.t_max`` without an accumulation window) whose extension is
+        negligible, at most ``TreeHeightDistribution._max_extension_epochs`` epochs past that time. The rates of that
+        epoch are then extended over the remaining time.
 
         :return: List of epochs, the last of which is unbounded.
         """
@@ -1397,9 +1400,8 @@ class MomentEvaluator:
         e = np.asarray(self.state_space.e)
 
         # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
-        # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. This is a different
-        # quantity from the Van Loan dimension that governs the matrix-exponential path (:attr:`expm_action_min_dim`):
-        # the LU only ever sees ``T``, independent of the moment order, so the threshold is on ``len(idx_t)`` alone.
+        # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. The same
+        # threshold, on ``len(idx_t)`` alone, selects the sparse action for the finite-epoch Van Loan exponentials.
         use_action = self._solve_sparse(len(idx_t))
 
         # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution

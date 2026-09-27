@@ -728,8 +728,8 @@ class Inference(Serializable):
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
-        :return: List of axes.
+        :param ax: Axes to plot on.
+        :return: Axes.
         """
         return self._plot_demography(
             t=t,
@@ -759,7 +759,7 @@ class Inference(Serializable):
         :param include_bootstraps: Whether to include bootstraps.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
+        :param ax: Axes to plot on.
         :return: Axes.
         """
         return self._plot_demography(
@@ -790,7 +790,7 @@ class Inference(Serializable):
         :param file: File to save the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
+        :param ax: Axes to plot on.
         :return: Axes.
         """
         return self._plot_demography(
@@ -927,7 +927,7 @@ class Inference(Serializable):
     def add_runs(self, inferences: Iterable['Inference']) -> None:
         """
         Merge the main optimization results from an iterable of Inference objects by calling
-        :meth:`Inference.add_run() <phasegen.Inference.add_run>` on each.
+        :meth:`Inference.add_run() <phasegen.inference.Inference.add_run>` on each.
 
         :param inferences: Iterable of Inference objects.
         """

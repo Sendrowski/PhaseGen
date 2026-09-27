@@ -219,7 +219,7 @@ stopifnot(abs(marg$mean - coal$sfs$bin(1L)$mean) < 1e-6 * coal$sfs$bin(1L)$mean)
 +++
 ## Conditional distributions
 
-{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value, obtained by a nested inversion of the joint Laplace transform as described at {class}`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>`. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. Conditioning on a short singleton branch leaves the doubleton length bimodal, reflecting whether lineages coalesced during or after the bottleneck. Conditioning on a long one collapses it to a single mode.
+{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value, obtained by a nested inversion of the joint Laplace transform as described at {class}`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>`. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. The doubleton length is bimodal given both a short and a long singleton branch, reflecting whether lineages coalesced during or after the bottleneck.
 
 ```{code-cell} python
 print("E[R_b | R_a = v]:")

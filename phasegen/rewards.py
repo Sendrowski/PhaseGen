@@ -756,7 +756,7 @@ class LocusReward(LineageCountingReward):
 
     def __hash__(self) -> int:
         """
-        Calculate the hash of the class name and the population name.
+        Calculate the hash of the class name and the locus index.
 
         :return: hash
         """

@@ -1817,8 +1817,8 @@ def test_accumulate_starts_at_the_configured_start_time():
 
 def test_epoch_truncation_keeps_every_epoch_carrying_probability_mass():
     """
-    ``_get_epochs_until_unbounded`` stops at the first epoch beginning at or after the time of almost sure
-    absorption and extends that epoch's rates over the remaining time. Given an absorption time at which absorption
+    ``_get_epochs_until_unbounded`` holds an epoch beginning at or after the time of almost sure absorption and
+    extends that epoch's rates over the remaining time. Given an absorption time at which absorption
     is genuine, the truncated epoch list must describe the same model as the full demography: with a time at which
     most of the mass was still unabsorbed, the two epochs after it were discarded and the mean tree height came out
     as 1499.999 against 6.0000005 from an explicit end time past absorption.

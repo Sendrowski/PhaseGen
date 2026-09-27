@@ -2084,7 +2084,7 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         raise NotImplementedError(
             "A two-locus SFS entry (i, j) is a cross-moment E[L^0_i . L^1_j] (a product of two rewards), so it has "
             "no single univariate CDF/PDF/quantile. For the marginal branch-length distribution of a frequency "
-            "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf / .plot_cdf / .plot_pdf."
+            "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf and their .plot()."
         )
 
     cdf = pdf = quantile = plot_cdf = plot_pdf = bin = _no_univariate_distribution

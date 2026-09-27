@@ -217,8 +217,8 @@ stopifnot(rel(10) < 0.1, rel(0.1) > 1)
 ## Summary statistics
 Beyond full spectra, several standard scalar summaries are available directly from the {class}`~phasegen.distributions.Coalescent`, each respecting the full demography and coalescent model:
 
-- Population structure: Hudson's {meth}`~phasegen.distributions.Coalescent.fst` and Patterson's f-statistics ({meth}`~phasegen.distributions.Coalescent.f2`, {meth}`~phasegen.distributions.Coalescent.f3`, {meth}`~phasegen.distributions.Coalescent.f4`), all derived from inter-population pairwise coalescence times.
-- Linkage: the correlation of coalescence times between two loci ({meth}`tree_height.loci.get_corr <phasegen.distributions.MarginalLocusDistributions.get_corr>`), which decays towards zero as the recombination rate grows.
+- Population structure: Hudson's {attr}`Coalescent.fst <phasegen.distributions.Coalescent.fst>` and Patterson's f-statistics ({meth}`~phasegen.distributions.Coalescent.f2`, {meth}`~phasegen.distributions.Coalescent.f3`, {meth}`~phasegen.distributions.Coalescent.f4`), all derived from inter-population pairwise coalescence times.
+- Linkage: the correlation of coalescence times between two loci ({meth}`tree_height.loci.get_corr <phasegen.distributions.MarginalLocusDistributions.get_corr>`), which decays towards zero as the recombination rate grows (for the standard coalescent).
 - SFS skew: Tajima's {meth}`~phasegen.distributions.UnfoldedSFSDistribution.tajimas_d`, together with the underlying {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_pi` and {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_w` estimators.
 
 We illustrate them on a relatively complex scenario: a structured three-population demography with asymmetric population sizes and migration.
