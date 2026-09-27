@@ -4,7 +4,7 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Dict, Iterable, Sequence, Union, TYPE_CHECKING
+from typing import List, Dict, Iterable, Sequence, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
@@ -674,27 +674,6 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute=permute
         )
 
-    def _sample(
-            self,
-            n_samples: int,
-            rewards: Sequence[Reward] = None,
-            record_visits: bool = False
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        """
-        Generate samples from the mean reward distribution by simulating trajectories.
-
-        :param n_samples: Number of trajectories to simulate.
-        :param rewards: Rewards to sample from. Default is the tree height reward.
-        :param record_visits: Whether to record which states were visited during the sampling.
-        :return: Array of sampled rewards of size (n_samples, len(rewards)),
-                 and optionally an array of probabilities of visiting each state.
-        """
-        return self._get_dist(k=1, rewards=rewards)._sample(
-            n_samples=n_samples,
-            rewards=rewards,
-            record_visits=record_visits
-        )
-
     def _raw_moment(
             self,
             k: int,
@@ -803,19 +782,11 @@ class Coalescent(AbstractCoalescent, Serializable):
             title=title
         )
 
-    #: The state-space caches to drop, one per lazily built (cached-property) state space
-    _STATE_SPACE_CACHES = (
-        'lineage_counting_state_space',
-        'block_counting_state_space',
-        'joint_block_counting_state_space',
-        'two_locus_block_counting_state_space',
-    )
-
     def drop_cache(self) -> None:
         """
         Drop the cache of every state space that has been built. Spaces that have not been built are left unbuilt.
         """
-        for name in self._STATE_SPACE_CACHES:
+        for name in _STATE_SPACE_NAMES:
             if name in self.__dict__:
                 self.__dict__[name].drop_cache()
 
@@ -836,7 +807,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         # create deep copy of object without causing infinite recursion
         other = copy.deepcopy(self.__dict__)
 
-        for name in self._STATE_SPACE_CACHES:
+        for name in _STATE_SPACE_NAMES:
             if name in other:
                 other[name].drop_cache()
 

@@ -1397,68 +1397,6 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return t
 
-    def _empirical_cdf(self, n_samples: int, reward: Reward = None, t: float | Sequence[float] = None) -> np.ndarray:
-        """
-        Generate an empirical cumulative distribution function (CDF) by sampling from the distribution.
-
-        :param n_samples: Number of samples to generate.
-        :param reward: Reward function to use for sampling. If not specified,
-            the default reward of the distribution is used.
-        :param t: Values at which to evaluate the CDF. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
-        :return: Sorted array of sampled total rewards.
-        """
-        if t is None:
-            t = self._default_end_times()
-
-        samples = self._sample(n_samples, [reward] if reward is not None else None).reshape(n_samples)
-
-        x = np.sort(samples)
-        y = np.arange(1, n_samples + 1) / n_samples
-
-        if x.ndim == 1:
-            return np.interp(t, x, y, left=0.0)
-
-    def _plot_empirical_cdf(
-            self,
-            n_samples: int = 1000,
-            reward: Reward = None,
-            t: float | Sequence[float] = None,
-            ax: 'plt.Axes' = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Empirical CDF'
-    ) -> 'plt.Axes':
-        """
-        Plot the empirical cumulative distribution function (CDF).
-
-        :param n_samples: Number of samples to generate.
-        :param reward: Reward function to use for sampling. If not specified,
-            the default reward of the distribution is used.
-        :param t: Values at which to evaluate the CDF. Defaults to a grid over
-            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
-        :param ax: Axes to plot on.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        from ..visualization import _CurveData, Visualization
-
-        if t is None:
-            t = self._default_end_times()
-
-        data = _CurveData(x=np.asarray(t, dtype=float), y=np.atleast_2d(self._empirical_cdf(n_samples, reward, t)),
-                         labels=[''], xlabel='t', ylabel='F(t)', title=title)
-
-        return Visualization.plot_curves(ax=ax, data=data, file=file, show=show, clear=clear, label=label)
-
 
 class TotalBranchLengthDistribution(PhaseTypeDistribution):
     """

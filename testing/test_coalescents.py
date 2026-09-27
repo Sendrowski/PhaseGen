@@ -1540,7 +1540,7 @@ class CoalescentTestCase(TestCase):
 
     def test_sample_empirical_cdf(self):
         """
-        Test empirical CDF sampling against exact CDF.
+        Test the empirical CDF against the exact CDF.
         """
         coal = pg.Coalescent(
             n=pg.LineageConfig({'pop_0': 1, 'pop_1': 1, 'pop_2': 1}),
@@ -1549,12 +1549,8 @@ class CoalescentTestCase(TestCase):
         )
 
         t = np.linspace(0, coal.tree_height.quantile(0.99), 100)
-        empirical = coal.tree_height._empirical_cdf(n_samples=10000, t=t)
+        empirical = coal.tree_height.to_empirical(10000, seed=0).cdf(t)
         exact = coal.tree_height.cdf(t=t)
-        plt.plot(t, empirical, label='Empirical CDF')
-        plt.plot(t, exact, label='Exact CDF')
-        plt.legend()
-        plt.show()
 
         # the early bins of the exact CDF are ~0 (division by zero); only the tail [20:] is asserted on, so
         # silence the benign divide warning rather than emit it
@@ -1565,20 +1561,19 @@ class CoalescentTestCase(TestCase):
 
     def test_plot_empirical_cdf(self):
         """
-        Test plotting empirical CDF.
+        Test plotting the empirical CDF.
         """
         pg.Coalescent(
             n=pg.LineageConfig({'pop_0': 1, 'pop_1': 1, 'pop_2': 1}),
             model=pg.BetaCoalescent(alpha=1.7),
             demography=self.get_complex_demography()
-        ).tree_height._plot_empirical_cdf()
+        ).tree_height.to_empirical(1000, seed=0).cdf.plot(show=False)
 
-    def test_empirical_cdf_accepts_non_default_reward(self):
-        """A single non-default reward must be wrapped before reaching ``_sample`` (which expects a sequence);
-        forwarding a bare ``Reward`` positionally previously raised. The result is still a valid CDF."""
+    def test_empirical_cdf_of_non_default_reward(self):
+        """The empirical CDF of the total branch length is a valid CDF."""
         coal = pg.Coalescent(n=4)
         t = np.linspace(0, coal.total_branch_length.quantile(0.99), 50)
-        y = coal.tree_height._empirical_cdf(n_samples=500, reward=pg.TotalBranchLengthReward(), t=t)
+        y = coal.total_branch_length.to_empirical(500, seed=0).cdf(t)
 
         self.assertEqual(np.shape(y), t.shape)
         self.assertTrue(np.all(np.isfinite(y)))

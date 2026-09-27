@@ -1889,7 +1889,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         # force-persist the statistics: _touch/_drop is the serialization contract and must hold even under
         # Settings.cache = False, where the getter would otherwise rebuild them without storing
-        for name in ('tree_height', 'total_tree_height', 'total_branch_length', 'sfs', 'fsfs'):
+        for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
             dist = self.__dict__[name] = getattr(self, name)
             dist._touch(self._get_cached_times(dist))
 
@@ -1917,7 +1917,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.jsfs_samples = None
 
         self.tree_height._drop()
-        self.total_tree_height._drop()
         self.total_branch_length._drop()
         self.sfs._drop()
         self.fsfs._drop()
@@ -1937,15 +1936,6 @@ class MsprimeCoalescent(AbstractCoalescent):
             pops=self.lineage_config.pop_names,
             locus_agg=lambda x: x.max(axis=0)
         )
-
-    @cached_property
-    def total_tree_height(self) -> EmpiricalPhaseTypeDistribution:
-        """
-        Total tree height distribution.
-        """
-        self.simulate()
-
-        return EmpiricalPhaseTypeDistribution(self.heights, pops=self.lineage_config.pop_names)
 
     @cached_property
     def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:

@@ -12,8 +12,6 @@ import weakref
 
 from .settings import Settings
 
-_MISSING = object()
-
 #: A monotonically increasing "computation epoch", bumped each time an *outermost* cached/memoized computation
 #: starts (a moment, a spectrum, ...). The deduplicating log filter uses it to scope deduplication to a single
 #: coalescent computation: identical log records collapse within one computation and re-emit in the next. Tracked

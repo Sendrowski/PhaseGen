@@ -143,15 +143,6 @@ class DistributionFunction:
         return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
 
 
-class _SurfacePlottable:
-    """Mixin adding :meth:`plot_surface` for bivariate (joint) distribution functions (a 3D surface in addition to the
-    2D heatmap drawn by :meth:`plot`). Univariate function classes deliberately lack it."""
-
-    def plot_surface(self, *args, **kwargs) -> 'plt.Axes':
-        """Plot the joint distribution function as a 3D surface, with the arguments of the concrete subclass."""
-        return getattr(self._distribution, '_plot_' + self.kind + '_surface')(*args, **kwargs)
-
-
 # --- function kinds -------------------------------------------------------------------------------------------------
 
 class DensityFunction(DistributionFunction):
@@ -849,7 +840,7 @@ class MarginalQuantileFunction(QuantileFunction):
 
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
 
-class _JointFunction(_SurfacePlottable):
+class _JointFunction:
     """Plotting grid, heatmap and surface shared by ``JointCDF`` and ``JointDensity``. The 2D representation lives on
     the ``JointRewardDistribution`` the function belongs to."""
 

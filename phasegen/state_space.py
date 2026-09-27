@@ -115,7 +115,7 @@ class StateSpace(ABC):
         #: Epoch
         self.epoch: Epoch = epoch
 
-        #: Cached rate matrices
+        #: Transitions and states per epoch of the pure-Python construction
         self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
 
         # time in seconds to compute original rate matrix
@@ -137,12 +137,8 @@ class StateSpace(ABC):
             # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it
             self.__dict__.setdefault('S', S)
         else:
-            # get all possible transitions
             transitions, states = self.get_transitions()
-
-            # cache rate matrix if specified
-            if Settings.cache_epochs:
-                self._cache[self.epoch] = (transitions, states)
+            self._cache[self.epoch] = (transitions, states)
 
         # record time to compute rate matrix
         self.time = time.time() - start
@@ -177,13 +173,6 @@ class StateSpace(ABC):
         :return:
         """
         return np.array([s.linked for s in self.states])
-
-    @cached_property
-    def unlinked(self) -> np.ndarray:
-        """
-        Unlinked lineages.
-        """
-        return self.lineages - self.linked
 
     @staticmethod
     def _get_partitions(n: int, k: int) -> List[List[int]]:
@@ -544,8 +533,6 @@ class StateSpace(ABC):
         """
         Get the rate matrix.
 
-        TODO don’t compute transitions twice for disabled caching
-
         :return: The rate matrix.
         """
         if self._use_numba():
@@ -567,17 +554,10 @@ class StateSpace(ABC):
             stacklevel=2,
         )
 
-        # check if epoch is in cache
-        if Settings.cache_epochs and self.epoch in self._cache:
-            transitions, states = self._cache[self.epoch]
+        if self.epoch not in self._cache:
+            self._cache[self.epoch] = self.get_transitions()
 
-        else:
-            # get all possible transitions
-            transitions, states = self.get_transitions()
-
-            # cache rate matrix if specified
-            if Settings.cache_epochs:
-                self._cache[self.epoch] = (transitions, states)
+        transitions, states = self._cache[self.epoch]
 
         return self._graph_to_matrix(transitions, states)
 
@@ -606,16 +586,6 @@ class StateSpace(ABC):
         S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
 
         return S
-
-    def get_sparsity(self) -> float:
-        """
-        Get the sparsity of the rate matrix.
-
-        :return: The sparsity.
-        """
-        S = self.S
-        nnz = S.nnz if sp.issparse(S) else np.count_nonzero(S)
-        return 1 - nnz / (S.shape[0] * S.shape[1])
 
     def _get_color_state(self, i: int) -> str:
         """
@@ -1500,17 +1470,6 @@ class State:
     """
     State utility class.
     """
-    #: Axis for linkage.
-    LINKAGE = 0
-
-    #: Axis for loci.
-    LOCUS = 1
-
-    #: Axis for demes.
-    DEME = 2
-
-    #: Axis for lineage blocks.
-    BLOCK = 3
 
     def __init__(self, data: (np.ndarray, np.ndarray)) -> None:
         """

@@ -186,9 +186,6 @@ class Inference(Serializable):
         #: Loss of the best optimization run
         self.loss_inferred: float | None = None
 
-        # losses for the `n_runs` independent optimization runs
-        self.loss_runs: np.ndarray = np.array([])
-
         #: Coalescent distribution of best run
         self.dist_inferred: Coalescent | None = None
 
@@ -872,7 +869,6 @@ class Inference(Serializable):
         other.result = None
         other.params_inferred = {}
         other.loss_inferred = None
-        other.loss_runs = np.array([])
         other.dist_inferred = None
         other.bootstraps = self.bootstraps.iloc[0:0].copy()
         other.runs = self.runs.iloc[0:0].copy()

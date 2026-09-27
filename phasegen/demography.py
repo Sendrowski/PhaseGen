@@ -710,14 +710,6 @@ class Epoch:
 
         return string
 
-    def to_string(self) -> str:
-        """
-        Alias for ``__str__()``.
-
-        :return: String representation.
-        """
-        return str(self)
-
 
 class DemographicEvent(ABC):
     """

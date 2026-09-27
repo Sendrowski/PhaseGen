@@ -31,7 +31,6 @@ class MsprimeGroundTruthTestCase(TestCase):
         ms = self._ms(pg.Coalescent(n=4))
 
         assert np.isfinite(ms.tree_height.mean)
-        assert np.isfinite(ms.total_tree_height.mean)
         assert np.isfinite(ms.total_branch_length.mean)
         assert np.asarray(ms.sfs.mean).shape == (5,)
         assert np.asarray(ms.fsfs.mean) is not None

@@ -506,14 +506,14 @@ def test_msprime_statistics_come_from_one_simulation_without_caching():
     """``MsprimeCoalescent.simulate`` was memoized with ``phasegen.caching.cache``, which stores nothing under
     ``Settings.cache = False``, so the memo could not act as the run-once latch it was being used as. Every statistic
     re-ran the ancestry simulation and overwrote the arrays in place, and with the default ``seed=None`` two
-    statistics then described two different tree sets: ``tree_height.mean`` and ``total_tree_height.mean``, which are
-    the same number by construction for a single locus and a single deme, came out as 1.5071 and 1.4905, and
-    repeated access to one statistic returned different numbers."""
+    statistics then described two different tree sets: for two lineages, ``total_branch_length.mean`` is twice
+    ``tree_height.mean`` by construction, yet the two disagreed, and repeated access to one statistic returned
+    different numbers."""
     pg.Settings.cache = False
     try:
-        ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False)  # seed=None
+        ms = MsprimeCoalescent(n=2, num_replicates=200, n_threads=1, parallelize=False)  # seed=None
 
-        assert ms.tree_height.mean == ms.total_tree_height.mean
+        assert ms.total_branch_length.mean == 2 * ms.tree_height.mean
         assert ms.tree_height.mean == ms.tree_height.mean
 
         # _touch must persist the statistics it touched, so that _drop reaches the same objects
