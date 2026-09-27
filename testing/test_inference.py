@@ -1058,3 +1058,24 @@ def test_a_raising_evaluation_on_the_bound_does_not_discard_the_run():
     inf.run()
 
     assert inf.params_inferred['m'] == pytest.approx(0.4, rel=1e-3)
+
+
+def test_an_error_in_the_loss_propagates_rather_than_being_penalised():
+    """Only a model the parameters make invalid is penalised. Regression: any ValueError, including a broken loss, was
+    turned into the penalty, and the start point was reported as a converged estimate."""
+    def loss(coal, obs):
+        raise ValueError('broken loss')
+
+    inf = pg.Inference(
+        bounds={'Ne': (0.5, 2.0)},
+        x0={'Ne': 1.0},
+        coal=lambda Ne: pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+        loss=loss,
+        observation=1.5,
+        n_runs=1,
+        parallelize=False,
+        pbar=False
+    )
+
+    with pytest.raises((ValueError, RuntimeError)):
+        inf.run()

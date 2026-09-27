@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from .demography import Demography
 from .distributions import Coalescent
+from .errors import ModelError
 from .serialization import Serializable
 from .settings import Settings
 from .state_space import StateSpace
@@ -342,7 +343,7 @@ class Inference(Serializable):
             # migration, counts as a non-finite loss, so the optimizer steps away rather than the run being lost
             try:
                 loss = get_loss(get_dist(**params_dict), observation)
-            except (ValueError, ArithmeticError, np.linalg.LinAlgError) as e:
+            except (ModelError, np.linalg.LinAlgError) as e:
                 logger.warning('The model raised "%s" for %s; substituting a large finite penalty', e, params_dict)
                 loss = np.nan
 
