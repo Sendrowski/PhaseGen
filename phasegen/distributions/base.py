@@ -437,17 +437,15 @@ class _LSTFunction(_HazardGrid):
         d = self._distribution
         p0 = d.lst(d._s_inf).real
         w = np.arange(n_terms) * np.pi / b
-        chi = np.array([d.lst(-1j * wk) for wk in w])
-        if p0 > 1e-9:
-            if 1.0 - p0 <= 1e-12:  # full atom at 0 (R = 0 almost surely): degenerate point mass, no continuous part
-                return dict(b=b, w=w, fk=np.zeros(n_terms), p0=p0)
-            chi = (chi - p0) / (1 - p0)  # continuous part only
-        fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
-        fk[0] *= 0.5
+        fit = self._cos_fit_from(b, w, np.array([d.lst(-1j * wk) for wk in w]), p0)
+        if p0 > 1e-9 and 1.0 - p0 <= 1e-12:
+            return fit
+        fk = fit['fk']
 
-        # the largest backward step of the (continuous) CDF is the sensitive ringing detector (a visibly rippling CDF
-        # can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a substantial one
-        # (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp feature)
+        # the sag of the (continuous) CDF below its running maximum is the sensitive ringing detector (a visibly
+        # rippling CDF can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a
+        # substantial one (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp
+        # feature)
         xd = np.linspace(0.0, b, max(512, 2 * n_terms))
         Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
         d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
@@ -464,6 +462,27 @@ class _LSTFunction(_HazardGrid):
             move = float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0)
             self._warn_if_unresolved(move / (2.0 ** order - 1.0), move, order, n_terms)
 
+        return fit
+
+    @staticmethod
+    def _cos_fit_from(b: float, w: np.ndarray, chi: np.ndarray, p0: float) -> dict:
+        """
+        The cosine expansion on ``[0, b]`` from the transform at the frequencies ``w``, described at
+        ``RewardDistribution``. An atom ``p0`` above ``1e-9`` is split off, and one within ``1e-12`` of 1 leaves no
+        continuous part, whose coefficients are then zero.
+
+        :param b: The window end.
+        :param w: The frequencies ``j pi / b``.
+        :param chi: The transform at ``-i w``.
+        :param p0: The atom at 0.
+        :return: The window end, frequencies, coefficients and atom.
+        """
+        if p0 > 1e-9:
+            if 1.0 - p0 <= 1e-12:  # full atom at 0 (R = 0 almost surely): degenerate point mass, no continuous part
+                return dict(b=b, w=w, fk=np.zeros(len(w)), p0=p0)
+            chi = (chi - p0) / (1 - p0)  # continuous part only
+        fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
+        fk[0] *= 0.5
         return dict(b=b, w=w, fk=fk, p0=p0)
 
     def _warn_if_unresolved(self, truncation: float, move: float, order: float, n_terms: int) -> None:
@@ -1061,7 +1080,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 # --- conditional flavours -------------------------------------------------------------------------------------------
 
 class _ConditionalCosTerms:
-    """Halves the cosine terms of a conditional expansion, every coefficient of which costs an inner inversion."""
+    """Halves the cosine terms of a conditional expansion, every coefficient of which costs an inner inversion, and
+    refines that inversion before the first expansion."""
 
     @property
     def _cos_terms(self) -> int:
@@ -1072,6 +1092,12 @@ class _ConditionalCosTerms:
     def _cos_terms_rough(self) -> int:
         """The number of cosine terms of the locating pass, half of the second pass."""
         return max(self._cos_terms // 2, 2)
+
+    def _build_cos_coeffs(self) -> dict:
+        """The expansion of ``_LSTFunction._build_cos_coeffs`` after ``ConditionalRewardDistribution._refine``, whose
+        values of the transform on the locating pass it reuses."""
+        self._distribution._refine()
+        return super()._build_cos_coeffs()
 
 
 class ConditionalDensity(_ConditionalCosTerms, _LSTDensityFunction):
@@ -1173,15 +1199,17 @@ class CallableDistributionFunctions:
         return values
 
     def _warn_if_nonmonotone(self, cdf: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
-        """Warn if ``cdf`` has a downward step beyond ``rtol`` of its range, then return it unchanged (the caller
-        enforces monotonicity). Logging, noise band and gating are those of ``_warn_if_negative``."""
+        """Warn if ``cdf`` sags below its running maximum by more than ``rtol`` of its range, then return it unchanged
+        (the caller enforces monotonicity, which flattens the sag). A sag accumulates over many small downward steps
+        as well as in one. Logging, noise band and gating are those of ``_warn_if_negative``."""
         arr = np.asarray(cdf, dtype=float)
         if Settings.check_inversions and arr.size > 1:
             rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
-            drop = -float(np.nanmin(np.diff(arr)))
-            if drop > rtol * rng:
-                self._logger.warning(f"{label}: non-monotone CDF (downward step {drop:.2e} vs range {rng:.2e}); "
-                                     f"enforcing monotonicity -- the numerical inversion may be imprecise here")
+            sag = float(np.nanmax(np.fmax.accumulate(arr) - arr))
+            if sag > rtol * rng:
+                self._logger.warning(f"{label}: non-monotone CDF (sag {sag:.2e} below its running maximum vs range "
+                                     f"{rng:.2e}); enforcing monotonicity -- the numerical inversion may be imprecise "
+                                     f"here")
         return cdf
 
 

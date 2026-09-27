@@ -730,6 +730,25 @@ def test_inversion_detectors_warn(caplog):
         log.removeHandler(caplog.handler)
 
 
+def test_nonmonotone_detector_catches_a_cumulative_sag(caplog):
+    """A CDF sagging below its running maximum through many small downward steps warns although no single step
+    passes the noise band. Regression: the detector tested only the largest single step, so a ripple spread over the
+    grid of the cosine expansion was flattened by the monotone clamp without notice."""
+    import logging
+    d = pg.Coalescent(n=4).sfs.bin(2)
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    try:
+        # twenty steps of 2e-4 each: every step is below rtol = 1e-3 of the range, the sag of 4e-3 is above
+        cdf = np.concatenate([np.linspace(0.0, 0.5, 50), 0.5 - 2e-4 * np.arange(1, 21), np.linspace(0.5, 1.0, 50)])
+        assert -np.diff(cdf).min() < 1e-3
+        caplog.clear()
+        d._warn_if_nonmonotone(cdf, 'test')
+        assert any('sag' in r.getMessage() for r in caplog.records)
+    finally:
+        log.removeHandler(caplog.handler)
+
+
 def test_clean_distribution_emits_no_inversion_warning(caplog):
     """A well-behaved distribution's CDF/PDF curves route through the detectors without false-positive warnings."""
     import logging
@@ -2104,8 +2123,9 @@ def test_truncation_warning_reports_the_estimated_error(caplog):
 def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
     """A line-atom conditional warns when its cosine expansion reaches frequencies at which the inner inversion no
     longer resolves the atom, where the continuous part carries the atom's negative. The linked locus heights stay
-    below the cutoff at the default terms and cross it with four times as many, and the Beta tree height given the
-    total branch length crosses it at the default, where the served CDF was 15 standard errors from the sampler."""
+    below the cutoff at the default terms and cross it with four times as many. The Beta tree height given the total
+    branch length crossed it at the default terms at the truncation 60, serving a CDF 9 standard errors from the
+    sampler, and the refinement of the truncation on the CDF raises the cutoff above the expansion."""
     def loci():
         return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
 
@@ -2115,13 +2135,90 @@ def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
             joint.conditional('a', value).cdf(1.0)
         return any('inner inversion resolves the atom' in r.getMessage() for r in caplog.records)
 
+    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5)).joint_distribution(
+        pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    assert not warned(beta, float(beta.marginal('a').quantile(0.5)))
+
     median = float(loci().marginal('a').quantile(0.5))
     assert not warned(loci(), median)
 
     pg.Settings.cos_terms = 4 * pg.Settings.cos_terms
     assert warned(loci(), median)
 
-    pg.Settings.cos_terms = pg.Settings.cos_terms // 4
-    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
-    joint = beta.joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
-    assert warned(joint, float(joint.marginal('a').quantile(0.5)))
+
+def _bottleneck_joint():
+    """The joint of the first two SFS bins under the extreme bottleneck of ``3_epoch_extreme_bottleneck_n_5``."""
+    return pg.Coalescent(
+        n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.01, 1: 1}})
+    ).sfs.joint_distribution(1, 2)
+
+
+@pytest.mark.parametrize('label, joint', [
+    ('sfs', lambda: pg.Coalescent(n=4).sfs.joint_distribution(1, 2)),
+    ('linked loci', lambda: pg.Coalescent(
+        n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)),
+])
+def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(label, joint):
+    """The coarser truncation of the refinement weights the nodes of the finer one, so it equals the Euler inversion
+    at that truncation from the same transform evaluations. The expansion reuses the values of the refinement's
+    locating pass, so past the window search it evaluates the transform once per argument of the locating pass, at
+    both truncations, and once per nonzero frequency of the second pass. The continuous part of a line-atom
+    conditional shares the window of the conditional with the atoms, so its expansion reuses the same values. The
+    moments do not trigger the refinement."""
+    from phasegen.distributions.reward import _euler_invert
+
+    joint = joint()
+    cond = joint.conditional('a', float(joint.marginal('a').quantile(0.5)))
+    nested, served = (cond._nested, cond._continuous) if label == 'linked loci' else (cond, cond)
+    _ = cond.mean
+    assert nested._G_rough is None
+
+    s = -2.0j
+    pair = nested._inner(s, (nested._N0, nested._N0 // 2))
+    for got, n0 in zip(pair, (nested._N0, nested._N0 // 2)):
+        want = _euler_invert(lambda u: joint.lst_batch(u, np.full(len(u), s)), nested._value, N0=n0)
+        assert got == pytest.approx(want, rel=1e-12)
+
+    served.cdf._range(served.cdf._cos_rough_scale)
+    calls = []
+    inner = nested._inner
+    nested._inner = lambda s, truncations: calls.append(len(truncations)) or inner(s, truncations)
+    _ = served.cdf._cos_coeffs
+    assert calls.count(2) == served.cdf._cos_terms_rough + 1
+    assert calls.count(1) == served.cdf._cos_terms - 1
+    assert nested._N0 == 60
+
+
+def test_unresolved_inner_truncation_warns(caplog):
+    """The refinement warns when the CDF of the locating pass still moves by more than its bar at the largest
+    truncation tried."""
+    cond = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).conditional('a', 0.5)
+    cond.cdf._cos_truncation_tol = 0.0
+
+    with caplog.at_level('WARNING'):
+        cond._refine(n_max=cond._N0)
+
+    assert any('inner inversion is unresolved' in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.slow
+def test_bottleneck_conditional_matches_a_high_truncation_reference():
+    """The conditional of the first SFS bin given the second at its 0.9 quantile under an extreme bottleneck, against
+    the same expansion with the inner truncation at 1920. ``G(0)`` converges at the truncation 60, at which the served
+    CDF was off by 3.9e-2, as ``G`` at the frequencies of the expansion was not converged. Refining the truncation on
+    the CDF of the locating pass brings it within 2e-3."""
+    joint = _bottleneck_joint()
+    p0 = float(joint._atoms['a0'])
+    cond = joint.conditional('a', float(joint.marginal('a').quantile(p0 + (1 - p0) * 0.9)))
+    cdf = cond.cdf
+    fit = cdf._cos_coeffs
+    assert cond._N0 > 60
+
+    b, w = fit['b'], fit['w']
+    G = np.array([cond._inner(complex(-1j * wk), (1920,))[0] for wk in w])
+    atom = (cond._inner(complex(cond._s_inf), (1920,))[0] / G[0]).real
+    xs = np.linspace(0.0, b, 4096)
+    ref = np.maximum.accumulate(cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, G / G[0], atom), xs))
+    body = ref < 0.98
+
+    assert np.abs(np.asarray(cdf(xs[body])) - ref[body]).max() < 2e-3

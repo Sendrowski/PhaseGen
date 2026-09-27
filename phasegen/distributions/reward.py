@@ -38,6 +38,13 @@ _JUMP_WARN = 0.05
 #: Smallest atom treated as a positive probability. The probe at ``_s_inf`` exceeds a zero atom by up to about 1e-8.
 _ATOM_FLOOR = 1e-6
 
+#: Starting Fourier truncation of the Euler inversion, refined by ``_NestedConditional._calibrate`` and
+#: ``_NestedConditional._refine``.
+_EULER_N0 = 30
+
+#: Largest Fourier truncation of the Euler inversion tried by ``_NestedConditional``.
+_EULER_N0_MAX = 480
+
 
 class RewardDistribution(CallableDistributionFunctions):
     r"""
@@ -1625,13 +1632,18 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     .. rubric:: Implementation
 
-    - :math:`N` is doubled until :math:`G(0)` is positive and stable, then held for all :math:`s`. If it does not
-      stabilize, construction raises :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v`
-      is below the resolution of the inversion, and near a jump of that density, which a reward accrued at one rate
-      has at every epoch time and across which the series converges slowly. Within 5% of such a jump a warning is
-      logged, since a conditional that does stabilize may still be off by several percent there.
+    - :math:`N` is doubled until :math:`G(0)` is positive and stable. If it does not stabilize, construction raises
+      :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v` is below the resolution of the
+      inversion, and near a jump of that density, which a reward accrued at one rate has at every epoch time and across
+      which the series converges slowly. Within 5% of such a jump a warning is logged, since a conditional that does
+      stabilize may still be off by several percent there.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
+    - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
+      expansion on that window moves by at most :math:`10^{-3}` when :math:`N` is halved, and held for all :math:`s`.
+      Both truncations weight the same nodes, so the check needs no transform evaluations beyond the pass. A CDF still
+      moving at the largest truncation is reported by a warning. The mean is taken at the truncation on which
+      :math:`G(0)` stabilizes, which resolves :math:`G` near :math:`s = 0`.
     - The mean is :math:`-\varphi'(0)` by a central difference, and higher moments are described at
       :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
     - For :math:`v > 0` the transform is itself a numerical inversion, so results carry a few correct digits, fewest
@@ -1670,6 +1682,9 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     #: The conditional transform is not that of a reward on a Markov chain, so its tail takes the de Hoog inversion.
     _reward_time_chain = None
+
+    def _refine(self) -> None:
+        """Refine the inner inversion before the first cosine expansion, nothing for a transform without one."""
 
     @cached_property
     def mean(self) -> float:
@@ -1952,8 +1967,27 @@ def _dehoog_invert(transform, t: float, degree: int) -> float:
     return float(np.exp(gamma * t) / T * (A[n] / B[n]).real)
 
 
-#: Starting Fourier truncation of the Euler inversion, refined by ``_NestedConditional._calibrate``.
-_EULER_N0 = 30
+def _euler_series(t: float, truncations: Sequence[int], A: float = 16.0, m: int = 12) -> tuple:
+    """
+    Nodes and weights of the Euler-summed Fourier series of ``_euler_invert`` at ``t``, one row of weights per
+    truncation. The nodes are those of the largest truncation, on which a smaller one weights a subset and puts zero
+    elsewhere, so several truncations cost the transform evaluations of the largest.
+
+    :param t: The point of inversion.
+    :param truncations: The truncations ``N0``.
+    :param A: The damping.
+    :param m: The number of Euler terms.
+    :return: The nodes ``u`` and the weights, of shape ``(len(truncations), len(u))``.
+    """
+    n = max(truncations) + m
+    ks = np.arange(-n, n + 1)
+    u = (A + 2.0j * np.pi * ks) / (2.0 * t)
+    binom = np.array([comb(m, j) for j in range(m + 1)], dtype=float) / 2.0 ** m
+    # Euler weight of node k: the binomial-averaged fraction of the partial sums S_{N0+j} that include it, the sum of
+    # binom[j] over j >= |k| - N0, which is 1 up to N0 and 0 beyond N0 + m
+    tail = np.concatenate([np.cumsum(binom[::-1])[::-1], [0.0]])
+    frac = np.array([tail[np.clip(np.abs(ks) - N0, 0, m + 1)] for N0 in truncations])
+    return u, (np.exp(A / 2.0) / (2.0 * t)) * ((-1.0) ** ks) * frac
 
 
 def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: int = 12) -> complex:
@@ -1962,21 +1996,17 @@ def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: 
     spacing ``2 pi / (2t)`` makes the series alternating, as Euler summation requires. It is summed two-sided, so a
     complex-valued inverse needs no conjugate symmetry. A larger ``A`` amplifies roundoff by ``exp(A / 2)``, the
     remaining error is truncation, reduced by ``N0``."""
-    ks = np.arange(-(N0 + m), N0 + m + 1)
-    u = (A + 2.0j * np.pi * ks) / (2.0 * t)
-    binom = np.array([comb(m, j) for j in range(m + 1)], dtype=float) / 2.0 ** m
-    # Euler weight of node k: the binomial-averaged fraction of the partial sums S_{N0+j} that include it
-    frac = np.array([binom[max(0, abs(k) - N0):].sum() if abs(k) > N0 else 1.0 for k in ks])
-    w = (np.exp(A / 2.0) / (2.0 * t)) * ((-1.0) ** ks) * frac
+    u, w = _euler_series(t, (N0,), A, m)
     vals = transform(u)  # the whole node set at once -- see _lst_from_shift_batch
-    return complex(np.sum(w * np.asarray(vals)))
+    return complex(np.sum(w[0] * np.asarray(vals)))
 
 
 class _NestedConditional(ConditionalRewardDistribution):
     """The conditional on a value ``R_on = value > 0`` of ``ConditionalRewardDistribution``: ``phi(s) = G(s) / G(0)``
-    with ``G`` the Euler inversion along the conditioning axis. The truncation ``N0`` is calibrated once at
-    construction and held for every ``s``, since a truncation varying with ``s`` would break the analyticity of ``G``
-    in ``s`` that the outer inversion needs."""
+    with ``G`` the Euler inversion along the conditioning axis. The truncation ``N0`` is calibrated on ``G(0)`` at
+    construction by ``_calibrate``, and on the CDF by ``_refine`` before the first cosine expansion, and held for every
+    ``s`` in between, since a truncation varying with ``s`` would break the analyticity of ``G`` in ``s`` that the
+    outer inversion needs."""
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
@@ -1992,6 +2022,15 @@ class _NestedConditional(ConditionalRewardDistribution):
 
         self._N0, self._G0 = self._calibrate()
 
+        #: ``G`` at the arguments of the locating pass of the cosine expansion, keyed by the argument, once ``_refine``
+        #: has run.
+        self._G_rough = None
+
+        #: Mean and variance of ``RewardDistribution._cumulants``, from the transform at the small real arguments of its
+        #: differences, where the truncation of ``_calibrate`` resolves ``G``. They are held so that the moments do not
+        #: depend on whether ``_refine`` has run.
+        self._cumulants_calibrated = super()._cumulants()
+
         jump = self._nearby_jump()
         if jump is not None:
             self._logger.warning(
@@ -2000,7 +2039,7 @@ class _NestedConditional(ConditionalRewardDistribution):
                 self._on, jump, round(100 * _JUMP_WARN), self._value
             )
 
-    def _calibrate(self, tol: float = 2e-2, n_max: int = 480) -> tuple:
+    def _calibrate(self, tol: float = 2e-2, n_max: int = _EULER_N0_MAX) -> tuple:
         """
         The Euler truncation ``N0``, doubled from ``_EULER_N0`` until ``G(0)`` moves by at most ``tol`` relatively,
         and ``G(0)`` at it. A sharply peaked density needs a large truncation, an easy case converges at the first
@@ -2040,6 +2079,66 @@ class _NestedConditional(ConditionalRewardDistribution):
             f"unreliable. {cause}"
         )
 
+    def _cumulants(self) -> tuple:
+        """The mean and variance at the truncation of ``_calibrate``, held at construction."""
+        return self._cumulants_calibrated
+
+    def _refine(self, n_max: int = _EULER_N0_MAX) -> None:
+        r"""
+        Double the truncation ``N0`` until the CDF of the locating pass of the cosine expansion
+        (``_LSTFunction._build_cos_coeffs``) moves by at most ``_cos_truncation_tol`` between the truncations
+        :math:`N_0 / 2` and :math:`N_0`, and log a warning if it still moves by more at ``n_max``. ``G(0)``, on which
+        ``_calibrate`` settles, converges at a smaller truncation than ``G`` at the frequencies of the expansion, which
+        on several epochs oscillates in the conditioning variable. Both truncations weight the nodes of the larger one,
+        so the difference costs no transform evaluations beyond the pass, whose values at the accepted truncation the
+        expansion reuses. A doubling that makes ``G(0)`` non-positive is rejected, as in ``_calibrate``. The window of
+        the pass is located at the truncation of ``_calibrate``. Runs once, and is called by the function objects
+        before their first expansion, so a conditional whose moments alone are read never pays for it.
+
+        :param n_max: Largest truncation tried.
+        """
+        if self._G_rough is not None:
+            return
+
+        cdf = self.cdf
+        b = cdf._range(cdf._cos_rough_scale)
+        w = np.arange(cdf._cos_terms_rough) * np.pi / b
+        args = [complex(-1j * wk) for wk in w] + [complex(self._s_inf)]
+        xs = np.linspace(0.0, b, max(512, 2 * len(w)))
+
+        def locating_pass(n0: int) -> tuple:
+            """``G`` at ``args`` at the truncation ``n0``, and the largest difference of the locating CDF between
+            the truncations ``n0 // 2`` and ``n0``, each normalised by its own ``G(0)``."""
+            G = np.array([self._inner(s, (n0, n0 // 2)) for s in args])  # (len(args), 2)
+            curves = []
+            for g in G.T:
+                p0 = (g[-1] / g[0]).real
+                curves.append(cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, g[:-1] / g[0], p0), xs))
+            return G[:, 0], float(np.abs(curves[0] - curves[1]).max())
+
+        n0 = self._N0
+        G, move = locating_pass(n0)
+        while move > cdf._cos_truncation_tol and n0 < n_max:
+            G_next, move_next = locating_pass(2 * n0)
+            if not G_next[0].real > 0:
+                break
+            n0, G, move = 2 * n0, G_next, move_next
+
+        if n0 != self._N0:
+            self._N0, self._G0 = n0, float(G[0].real)
+            # the per-point CDF values of the window search were taken at the smaller truncation
+            self.__dict__.get('_lst_curve_cache', {}).pop('cdf_points', None)
+
+        self._G_rough = dict(zip(args, G))
+
+        if move > cdf._cos_truncation_tol:
+            self._logger.warning(
+                "%s: the inner inversion is unresolved at the frequencies of the cosine expansion, its CDF moving by "
+                "%.2e (bar %.0e) when the truncation is halved from N0 = %d. The conditional CDF may be off by about "
+                "that much. Conditioning closer to the bulk may help, or sample.",
+                self.label, move, cdf._cos_truncation_tol, n0
+            )
+
     def _nearby_jump(self) -> Optional[float]:
         """
         The value within ``_JUMP_WARN`` of the conditioning value at which the density of the conditioning reward
@@ -2066,14 +2165,28 @@ class _NestedConditional(ConditionalRewardDistribution):
         z = np.zeros(len(u))
         return self._joint.lst_batch(z, u) if self._on == 'b' else self._joint.lst_batch(u, z)
 
+    def _inner(self, s: complex, truncations: Sequence[int]) -> np.ndarray:
+        """
+        The Euler inversions of ``Phi`` along the conditioning axis at the value, with the other argument at ``s``, at
+        each truncation from the nodes of the largest (``_euler_series``).
+
+        :param s: The argument of the other reward.
+        :param truncations: The truncations ``N0``.
+        :return: ``G(s)`` per truncation.
+        """
+        u, weights = _euler_series(self._value, truncations)
+        other = np.full(len(u), s)
+        vals = self._joint.lst_batch(other, u) if self._on == 'b' else self._joint.lst_batch(u, other)
+        return np.sum(weights * np.asarray(vals), axis=1)
+
     def _G(self, s: complex) -> complex:
         """``G(s)``, the Euler inversion of ``Phi`` along the conditioning axis at the value. The inner method must be
         accurate on peaked coalescent densities (Gaver-Stehfest is not), a fixed linear functional so that ``G`` stays
         analytic in ``s`` for the outer de Hoog recurrence (a nested de Hoog is not), and use a vertical contour, since
         the epoch exponentials overflow as the real part tends to minus infinity (Talbot's contour does)."""
-        if self._on == 'b':
-            return _euler_invert(lambda u: self._joint.lst_batch(np.full(len(u), s), u), self._value, N0=self._N0)
-        return _euler_invert(lambda u: self._joint.lst_batch(u, np.full(len(u), s)), self._value, N0=self._N0)
+        if self._G_rough is not None and s in self._G_rough:
+            return complex(self._G_rough[s])
+        return complex(self._inner(s, (self._N0,))[0])
 
     def lst(self, s: complex) -> complex:
         """The conditional transform ``G(s) / G(0)``, see ``ConditionalRewardDistribution``."""
@@ -2099,6 +2212,15 @@ class _LineContinuous(ConditionalRewardDistribution):
         self.label = nested.label
         self._y = np.array([y for y, _ in atoms], dtype=float)
         self._f = np.array([f for _, f in atoms], dtype=float)
+
+    def _range(self, scale: float = 12.0) -> float:
+        """The window of the conditional with the atoms, on whose locating pass ``_NestedConditional._refine`` stores
+        the values of ``G`` this expansion reads."""
+        return self._nested._range(scale)
+
+    def _refine(self) -> None:
+        """Refine the inner inversion of the conditional with the atoms, see ``_NestedConditional._refine``."""
+        self._nested._refine()
 
     def lst(self, s: complex) -> complex:
         """The transform of the continuous part."""
@@ -2215,6 +2337,10 @@ class _LineConditional(ConditionalRewardDistribution):
     def lst(self, s: complex) -> complex:
         """The conditional transform, atoms included."""
         return self._nested.lst(s)
+
+    def _cumulants(self) -> tuple:
+        """The mean and variance of the conditional with the atoms, whose transform this is."""
+        return self._nested._cumulants()
 
     def _warn_if_line_unresolved(self) -> None:
         r"""
