@@ -764,7 +764,11 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
-        out = self._interp_quantile(qa, *self._cdf_grid(q_max=float(qa.max(initial=0.0))))
+        # NaN levels are passed through, the grid taking the others
+        valid = ~np.isnan(qa)
+        out = np.full_like(qa, np.nan)
+        if valid.any():
+            out[valid] = self._interp_quantile(qa[valid], *self._cdf_grid(q_max=float(qa[valid].max())))
 
         return out if np.ndim(q) > 0 else float(out[0])
 

@@ -2264,3 +2264,16 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
     body = ref < 0.98
 
     assert np.abs(np.asarray(cdf(xs[body])) - ref[body]).max() < 2e-3
+
+
+def test_quantile_passes_nan_through():
+    """A NaN level gives a NaN quantile and leaves the other levels unchanged. Regression: the node ladder grew
+    without bound for over 1000 s and the upper quantiles moved by orders of magnitude afterwards."""
+    d = pg.Coalescent(n=4).total_branch_length
+    q1 = d.quantile(0.99)
+
+    out = d.quantile([0.5, np.nan])
+
+    assert np.isnan(out[1]) and np.isnan(d.quantile(np.nan))
+    assert out[0] == pytest.approx(d.quantile(0.5))
+    assert d.quantile(0.99) == pytest.approx(q1, rel=1e-8)
