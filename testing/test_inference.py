@@ -972,6 +972,37 @@ if __name__ == '__main__':
 
         self.assertTrue(any('start point rather than an estimate' in m for m in records), records[-3:])
 
+    def test_bootstrap_replicates_with_everywhere_invalid_loss_warn_and_are_not_converged(self):
+        """A bootstrap replicate whose loss is invalid at every point returned the start point, the estimate of the
+        main run, as a converged replicate without a warning, which shrank the bootstrap spread. It must be marked as
+        not converged and reported."""
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            x0={'Ne': 1.2},
+            coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+            loss=lambda coal, obs: (coal.tree_height.mean - obs) ** 2 if obs < 1.5 else float('nan'),
+            observation=1.0,
+            resample=lambda obs, rng: 2.0,
+            n_runs=1,
+            n_bootstraps=2,
+            pbar=False
+        )
+        inf._run()
+
+        with self.assertLogs('phasegen', level='WARNING') as logs:
+            inf.bootstrap()
+
+        self.assertTrue(any('2 out of 2 bootstrap replicates' in m and 'are NaN' in m for m in logs.output))
+        self.assertTrue(all('success: False' in r for r in inf.bootstraps['result']))
+        self.assertTrue(inf.bootstraps[inf.param_names].isna().all().all())
+
+    def test_plot_bootstraps_without_bootstraps_raises_runtime_error(self):
+        """The empty bootstrap table passed the guard and pandas raised TypeError on the empty data."""
+        inf = self.get_fast_inference()
+
+        with self.assertRaisesRegex(RuntimeError, 'No bootstraps available'):
+            inf.plot_bootstraps(show=False)
+
     def test_unrun_spawned_objects_are_rejected_when_merged(self):
         """A spawned run or bootstrap starts unfitted. Regression: the copy carried the parent's fitted state, so an
         un-run bootstrap was merged as the parent's point estimate and the documented RuntimeError never fired,

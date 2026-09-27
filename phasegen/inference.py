@@ -587,6 +587,22 @@ class Inference(Serializable):
             dtype=object
         )
 
+        # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate
+        n_penalty = 0
+        for result in results:
+            if result.fun >= _LOSS_PENALTY:
+                result.success = False
+                result.message = 'The loss was invalid at every evaluated point.'
+                result.x = np.full(len(result.x), np.nan)
+                n_penalty += 1
+
+        if n_penalty > 0:
+            self._logger.warning(
+                'The loss was invalid at every evaluated point of %d out of %d bootstrap replicates, so their '
+                'parameters are NaN. The preceding warnings name the parameters and the underlying error.',
+                n_penalty, self.n_bootstraps
+            )
+
         # count successful optimizations
         n_success = sum([result.success for result in results])
 
@@ -691,7 +707,7 @@ class Inference(Serializable):
         if kwargs is None:
             kwargs = {}
 
-        if self.bootstraps is None:
+        if self.bootstraps.empty:
             raise RuntimeError('No bootstraps available.')
 
         if kind == 'hist':
