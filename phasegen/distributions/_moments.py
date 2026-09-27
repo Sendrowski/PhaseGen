@@ -8,7 +8,7 @@ import logging
 from collections import deque
 from ..caching import cache
 from math import comb, factorial
-from typing import Dict, List, Tuple, Collection, Iterable, Optional, Sequence, TYPE_CHECKING
+from typing import Dict, List, Tuple, Iterable, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -63,6 +63,7 @@ class MomentEvaluator:
     _absorption_certain_cache: Dict[int, tuple]
     _alpha_support_cache: Dict[int, tuple]
     _last_epoch_reach_cache: Dict[int, tuple]
+    _epoch_csr_cache: Dict[int, tuple]
     _epochs_cache: Optional[List[Epoch]]
 
     @staticmethod
@@ -279,10 +280,9 @@ class MomentEvaluator:
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
           the strongly connected components of the transition graph so that the factors stay nearly triangular.
         - The closed form requires :attr:`Settings.closed_form_last_epoch
-          <phasegen.settings.Settings.closed_form_last_epoch>`, accumulation until absorption from a zero start time,
-          and certain absorption from every transient state of the last epoch that can carry mass. Otherwise the last
-          epoch is integrated up to :attr:`TreeHeightDistribution.t_max
-          <phasegen.distributions.TreeHeightDistribution.t_max>`.
+          <phasegen.settings.Settings.closed_form_last_epoch>`, accumulation until absorption and certain absorption
+          from every transient state of the last epoch that can carry mass. Otherwise the last epoch is integrated up to
+          :attr:`TreeHeightDistribution.t_max <phasegen.distributions.TreeHeightDistribution.t_max>`.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
           mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
@@ -318,42 +318,16 @@ class MomentEvaluator:
         k = _validate_order(k)
         start_time, end_time = self._resolve_window(start_time, end_time)
 
-        if start_time > 0 and k == 1:
-            # the mean is additive in time, so the windowed mean is the difference of the two cumulative means
-            m_start, m_end = MomentEvaluator.accumulate(
-                self,
-                k=k,
-                end_times=[start_time, end_time],
-                rewards=rewards,
-                center=center,
-                permute=permute,
-                start_time=0.0
-            )
-
-            m = float(m_end - m_start)
-        elif start_time > 0:
-            # for k >= 2 the windowed moment ``E[(Y_b - Y_a)^k]`` is NOT the difference of the cumulative-from-0
-            # moments ``m_b - m_a`` (that omits the cross terms); accumulate it directly over the window by
-            # propagating the entry distribution to ``start_time`` and running the Van Loan accumulation from there
-            m = float(MomentEvaluator.accumulate(
-                self,
-                k=k,
-                end_times=[end_time],
-                rewards=rewards,
-                center=center,
-                permute=permute,
-                start_time=start_time
-            )[0])
-        else:
-            m = float(MomentEvaluator.accumulate(
-                self,
-                k=k,
-                end_times=[end_time],
-                rewards=rewards,
-                center=center,
-                permute=permute,
-                start_time=0.0
-            )[0])
+        # a window starting after 0 is accumulated directly from the entry distribution propagated to its start
+        m = float(MomentEvaluator.accumulate(
+            self,
+            k=k,
+            end_times=[end_time],
+            rewards=rewards,
+            center=center,
+            permute=permute,
+            start_time=start_time
+        )[0])
 
         if np.isnan(m):
             raise ModelError(
@@ -466,9 +440,10 @@ class MomentEvaluator:
     @staticmethod
     def _rebase_forward(w: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
         """
-        Rebase the forward extended vector ``w = alpha_ext Q`` from one balancing factor onto another, in place, the
-        row counterpart of :meth:`_rebase_propagator`. Block ``j`` of ``w`` is row block 0 of ``Q``, so it carries the
-        factor to the power ``-j`` and is multiplied by ``(lamb / lamb_new) ** j``. An exact diagonal similarity.
+        Rebase the forward extended vector ``w = alpha_ext Q`` of the extended propagator ``Q`` from one balancing
+        factor onto another, in place, the row counterpart of :meth:`_rebase`. Block ``j`` of ``w`` is row block 0 of
+        ``Q``, so it carries the factor to the power ``-j`` and is multiplied by ``(lamb / lamb_new) ** j``. An exact
+        diagonal similarity.
 
         :param w: Extended row vector of ``(k + 1)`` blocks of length ``n``, modified in place.
         :param lamb: The factor the blocks are currently stored against.
@@ -483,33 +458,6 @@ class MomentEvaluator:
         ratio = lamb / lamb_new
         for j in range(1, k + 1):
             w[j * n:(j + 1) * n] *= ratio ** j
-
-        return lamb_new
-
-    @staticmethod
-    def _rebase_propagator(Q: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
-        """
-        Rebase the extended propagator from one balancing factor onto another, in place, the matrix counterpart of
-        :meth:`_rebase`.
-
-        Block ``(i, j)`` of ``Q`` carries the factor to the power ``i - j``, so changing the factor multiplies that
-        block by ``(lamb / lamb_new) ** (j - i)``. Like :meth:`_rebase` this is an exact diagonal similarity.
-
-        :param Q: Extended propagator of ``(k + 1) x (k + 1)`` blocks of size ``n``, modified in place.
-        :param lamb: The factor the blocks are currently stored against.
-        :param lamb_new: The factor to store them against.
-        :param k: The order of the moment.
-        :param n: The number of states, the size of one block.
-        :return: ``lamb_new``, the factor now in force.
-        """
-        if lamb_new == lamb:
-            return lamb
-
-        ratio = lamb / lamb_new
-        for i in range(k + 1):
-            for j in range(k + 1):
-                if i != j:
-                    Q[i * n:(i + 1) * n, j * n:(j + 1) * n] *= ratio ** (j - i)
 
         return lamb_new
 
@@ -586,7 +534,9 @@ class MomentEvaluator:
 
     def _check_numerical_stability(self, S: np.ndarray, epoch: int) -> None:
         """
-        Warn about potential numerical instability with very small or very large rates, once per epoch.
+        Warn about potential numerical instability when the total exit rates of the states, the inverse time scales
+        the exponentials and solves resolve, differ by more than 10 orders of magnitude, once per epoch. A small
+        transition rate beside larger ones out of the same state, such as a rare multiple merger, leaves them unchanged.
 
         :param S: (Regularized) intensity matrix.
         :param epoch: Epoch number.
@@ -595,15 +545,15 @@ class MomentEvaluator:
         if epoch in warned:
             return
 
-        # positive (off-diagonal) rates; for a sparse matrix these are the positive stored entries
-        rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
+        exit_rates = -np.asarray(S.diagonal()).ravel()
+        rates = exit_rates[exit_rates > 0]
 
-        if rates.min() / rates.max() < 1e-10:
+        if rates.size and rates.min() / rates.max() < 1e-10:
             warned.add(epoch)
             self._logger.warning(
-                f"Intensity matrix in epoch {epoch} contains rates that differ by more than 10 orders of magnitude: "
-                f"min: {rates.min()}, max: {rates.max()}. "
-                f"This may lead to numerical instability, despite matrix regularization."
+                "Intensity matrix in epoch %d has total exit rates that differ by more than 10 orders of magnitude: "
+                "min: %g, max: %g. This may lead to numerical instability, despite matrix regularization.",
+                epoch, rates.min(), rates.max()
             )
 
     def accumulate(
@@ -686,7 +636,8 @@ class MomentEvaluator:
         if k == 0:
             return np.ones_like(list(end_times))
 
-        if permute:
+        # every ordering of identical rewards is the same ordering
+        if permute and any(r != rewards[0] for r in rewards[1:]):
             # get all possible permutations of rewards
             permutations = list(itertools.permutations(rewards))
 
@@ -798,7 +749,6 @@ class MomentEvaluator:
             return reward._block_sizes(n) or None
 
         return None
-
     @_make_hashable
     @cache
     def _accumulate(
@@ -812,11 +762,10 @@ class MomentEvaluator:
         Evaluate the kth (non-central) moment at different end times.
 
         :param k: The order of the moment.
-        :param end_times: Sequence of ends times or end time when to evaluate the moment.
+        :param end_times: Sequence of ends times or end time when to evaluate the moment. A NaN end time gives a NaN
+            moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
-        :param start_time: Time from which to start accumulation. When positive, delegates to
-            ``_accumulate_windowed``, which accumulates the reward over the window ``[start_time, t]`` directly.
-            By default, ``0`` (accumulation from the origin).
+        :param start_time: Time from which to start accumulation. By default, ``0`` (accumulation from the origin).
         :return: The moment accumulated at the specified times or time.
         """
         # use default reward if not specified
@@ -826,6 +775,13 @@ class MomentEvaluator:
             raise ValueError(f"Number of rewards must be {k}.")
 
         end_times = np.array(end_times, dtype=float)
+
+        undefined = np.isnan(end_times)
+        if undefined.any():
+            moments = np.full(end_times.shape, np.nan)
+            if not undefined.all():
+                moments[~undefined] = self._accumulate(k, tuple(end_times[~undefined]), rewards, start_time)
+            return moments
 
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
@@ -838,12 +794,6 @@ class MomentEvaluator:
 
         Reward._check_accumulable(self.state_space, rewards)
 
-        # windowed accumulation: propagate the entry distribution to the window start, then run the Van Loan
-        # accumulation over ``[start_time, t]`` (the correct k >= 2 windowed moment, not m_end - m_start)
-        if start_time > 0:
-            end_times = np.where(np.isinf(end_times), self._get_time_to_absorption(), end_times)
-            return self._accumulate_windowed(k, float(start_time), end_times, rewards)
-
         # infinite end times accumulate until absorption, in closed form when absorption is certain in the last
         # epoch and otherwise over the estimated absorption time
         infinite = np.isinf(end_times)
@@ -851,167 +801,14 @@ class MomentEvaluator:
             if Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch():
                 self._logger.debug("accumulate (k=%d): closed-form last epoch", k)
                 moments = np.empty(end_times.shape)
-                moments[infinite] = self._accumulate_closed_form(k, rewards)
+                moments[infinite] = self._accumulate_closed_form(k, rewards, start_time)
                 if not infinite.all():
-                    moments[~infinite] = self._accumulate(k, tuple(end_times[~infinite]), rewards)
+                    moments[~infinite] = self._accumulate(k, tuple(end_times[~infinite]), rewards, start_time)
                 return moments
 
             end_times = np.where(infinite, self._get_time_to_absorption(), end_times)
 
-        # sort array in ascending order but keep track of original indices
-        t_sorted: Collection[float] = np.sort(end_times)
-
-        epochs = enumerate(self.demography.epochs)
-        i_epoch, epoch = next(epochs)
-
-        # get state space for the first epoch
-        self.state_space.update_epoch(epoch)
-
-        # number of states
-        n_states = self.state_space.k
-
-        # for large (sparse) state spaces, compute the moment via the action of the matrix exponential on a vector
-        # (threading through the epochs) instead of forming the dense Van Loan propagator
-        if (k + 1) * n_states >= Settings.expm_action_min_dim:
-            self._logger.debug(
-                "accumulate (k=%d): sparse matrix-exponential action (Van Loan dim %d >= %d)",
-                k, (k + 1) * n_states, Settings.expm_action_min_dim
-            )
-            return self._accumulate_action(k, end_times, t_sorted, rewards)
-
-        self._logger.debug("accumulate (k=%d): dense Van Loan matrix exponential (dim %d)", k, (k + 1) * n_states)
-
-        # initialize block matrix holding (rewarded) moments
-        Q = np.eye(n_states * (k + 1))
-        u_prev = 0
-
-        # initialize probabilities
-        moments = np.zeros_like(t_sorted, dtype=float)
-
-        # regularization parameter
-        lamb = self._balance(epoch, 0.0, t_sorted[-1])
-
-        # regularized intensity matrix
-        S = self._dense_rate_matrix() * lamb
-
-        # check numerical stability
-        self._check_numerical_stability(S, 0)
-
-        # get reward matrix
-        R = [r._get(state_space=self.state_space) for r in rewards]
-
-        # get Van Loan matrix
-        V = self._van_loan_matrix(R, S, k)
-
-        # The Van Loan exponential is evaluated over the absorption time, which scales with Ne (the doubling search
-        # in ``_get_absorption_time`` deliberately spans many orders of magnitude). For a large time the dense
-        # ``expm`` can transiently over/underflow inside scipy's scaling-squaring on some BLAS builds, even though
-        # the regularized result (corrected by ``lamb ** k``) is finite. The benign intermediate over/divide/invalid
-        # is silenced here and the *output* is checked for finiteness below, so a genuine blow-up still surfaces.
-        with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
-            # iterate through sorted values
-            for i, u in enumerate(t_sorted):
-
-                # iterate over epochs between u_prev and u
-                while u > epoch.end_time:
-                    # update transition matrix with remaining time in current epoch
-                    Q @= self._van_loan_expm(V * (epoch.end_time - u_prev) / lamb, k, n_states)
-
-                    # fetch and update for next epoch
-                    u_prev = epoch.end_time
-                    i_epoch, epoch = next(epochs)
-                    self.state_space.update_epoch(epoch)
-
-                    # balance each epoch on its own rates, rebasing the propagator accordingly (see ``_rebase``)
-                    lamb = self._rebase_propagator(Q, lamb, self._balance(epoch, 0.0, t_sorted[-1]), k, n_states)
-
-                    # compute Van Loan matrix for next epoch using regularized intensity matrix
-                    S = self._dense_rate_matrix() * lamb
-                    self._check_numerical_stability(S, i_epoch)
-                    V = self._van_loan_matrix(R, S, k)
-
-                # update with remaining time in current epoch
-                Q @= self._van_loan_expm(V * (u - u_prev) / lamb, k, n_states)
-
-                alpha = self.state_space.alpha
-                e = self.state_space.e
-                moments[i] = factorial(k) * lamb ** k * alpha @ Q[:n_states, -n_states:] @ e
-
-                u_prev = u
-
-        # sort probabilities back to original order (inverse of the sorting permutation)
-        moments = moments[np.argsort(np.argsort(end_times))]
-
-        # the suppressed intermediate over/underflow must not have corrupted the (finite) result
-        if not np.isfinite(moments).all():
-            self._logger.warning(
-                "Non-finite values encountered when computing moments. "
-                f"Epoch: {i_epoch} at time: {epoch.start_time}. "
-                "This is likely due to an ill-conditioned rate matrix."
-            )
-
-        return moments
-
-    def _accumulate_action(
-            self,
-            k: int,
-            end_times: np.ndarray,
-            t_sorted: np.ndarray,
-            rewards: Sequence[Reward]
-    ) -> np.ndarray:
-        """
-        Sparse-action variant of ``_accumulate``: threads the row vector holding ``alpha`` in its first block through
-        the epochs by the action of the transposed Van Loan matrix and reads off its product with ``e`` in the last
-        block at each end time.
-
-        :param k: The order of the moment.
-        :param end_times: The (unsorted) end times, used to restore the original order.
-        :param t_sorted: The sorted end times.
-        :param rewards: Sequence of k rewards.
-        :return: The moment accumulated at the specified times.
-        """
-        epochs = enumerate(self.demography.epochs)
-        i_epoch, epoch = next(epochs)
-        self.state_space.update_epoch(epoch)
-
-        n = self.state_space.k
-        op = self._action_operator(rewards, k, i_epoch)
-        lamb = 1.0
-
-        # w = alpha_ext (alpha in the first block); e_ext = e in the last block, so w @ Q @ e_ext = alpha @ Q[:n,-n:] @ e
-        w = np.zeros((k + 1) * n)
-        w[:n] = self.state_space.alpha
-        e_ext = np.zeros((k + 1) * n)
-        e_ext[-n:] = self.state_space.e
-
-        moments = np.zeros_like(t_sorted, dtype=float)
-        u_prev = 0.0
-
-        for i, u in enumerate(t_sorted):
-
-            # advance through whole epochs between u_prev and u
-            while u > epoch.end_time:
-                w, lamb = self._advance_action(w, epoch.end_time - u_prev, lamb, op, k)
-                u_prev = epoch.end_time
-                i_epoch, epoch = next(epochs)
-                self.state_space.update_epoch(epoch)
-                op = self._action_operator(rewards, k, i_epoch)
-
-            # remaining time in the current epoch
-            w, lamb = self._advance_action(w, u - u_prev, lamb, op, k)
-            moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
-            u_prev = u
-
-        moments = moments[np.argsort(np.argsort(end_times))]
-
-        if np.isnan(moments).any():
-            self._logger.warning(
-                "NaN values encountered when computing moments via the matrix-exponential action. "
-                f"Epoch: {i_epoch} at time: {epoch.start_time}. "
-                "This is likely due to an ill-conditioned rate matrix."
-            )
-
-        return moments
+        return self._accumulate_windowed(k, float(start_time), end_times, rewards)
 
     def _propagate_plain(self, p: np.ndarray, tau: float, use_action: bool) -> np.ndarray:
         r"""
@@ -1037,6 +834,21 @@ class MomentEvaluator:
 
         return p @ expm(self._dense_rate_matrix() * tau)
 
+    def _dense_van_loan(self, R: Sequence[np.ndarray], lamb: float, k: int, i_epoch: int) -> np.ndarray:
+        """
+        The dense Van Loan matrix of the current epoch with the intensity matrix balanced by ``lamb``.
+
+        :param R: The k reward vectors.
+        :param lamb: The balancing factor.
+        :param k: The order of the moment.
+        :param i_epoch: The epoch number, for the stability warning.
+        :return: The Van Loan matrix.
+        """
+        S = self._dense_rate_matrix() * lamb
+        self._check_numerical_stability(S, i_epoch)
+
+        return self._van_loan_matrix(R, S, k)
+
     def _accumulate_windowed(
             self,
             k: int,
@@ -1045,20 +857,19 @@ class MomentEvaluator:
             rewards: Sequence[Reward]
     ) -> np.ndarray:
         """
-        Raw moment of a single reward ordering over the window ``[start_time, t]`` for each ``t`` in ``end_times``:
-        propagates ``alpha`` to ``start_time`` with the plain generator, then runs the Van Loan accumulation from
-        there. For ``k >= 2`` the difference of two moments accumulated from 0 would omit the cross terms.
+        Raw moment of a single reward ordering over the window ``[start_time, t]`` for each finite ``t`` in
+        ``end_times``: propagates ``alpha`` to ``start_time`` with the plain generator, then threads the row vector
+        holding it in its first block through the epochs by the Van Loan exponential and reads off its product with
+        ``e`` in the last block at each end time. The exponential is dense below :attr:`Settings.expm_action_min_dim
+        <phasegen.settings.Settings.expm_action_min_dim>` and a sparse action above. For ``k >= 2`` the difference of
+        two moments accumulated from 0 would omit the cross terms.
 
         :param k: The order of the moment.
-        :param start_time: The (positive) window start time.
-        :param end_times: The window end times.
+        :param start_time: The non-negative window start time.
+        :param end_times: The finite window end times.
         :param rewards: Sequence of k rewards (a single ordering).
         :return: The windowed moment accumulated over ``[start_time, t]`` for each ``t`` in ``end_times``.
         """
-        end_times = np.asarray(end_times, dtype=float)
-        if np.any(end_times < 0):
-            raise ValueError("Negative end times are not allowed.")
-
         t_sorted: np.ndarray = np.sort(end_times)
 
         epochs = enumerate(self.demography.epochs)
@@ -1080,73 +891,72 @@ class MomentEvaluator:
         u_prev = start_time
 
         self._logger.debug(
-            "accumulate (k=%d): windowed from t=%.3g via the propagated entry distribution (%s Van Loan)",
-            k, start_time, "sparse action" if use_action else "dense"
+            "accumulate (k=%d): from t=%.3g via the %s Van Loan exponential (dim %d)",
+            k, start_time, "sparse action of the" if use_action else "dense", (k + 1) * n
         )
 
-        # rewards are epoch-invariant (they depend on the states, not the rates), matching the cumulative paths;
-        # only the intensity matrix (and hence the Van Loan matrix) is refreshed per epoch
+        # w = alpha_start in the first block and e_ext = e in the last block, so that w @ Q @ e_ext is
+        # alpha_start @ Q[:n, -n:] @ e for the propagator Q. Block j of w is stored divided by lamb ** j.
+        w = np.zeros((k + 1) * n)
+        w[:n] = alpha_start
+        e_ext = np.zeros((k + 1) * n)
+        e_ext[-n:] = self.state_space.e
+
+        # rewards are epoch-invariant (they depend on the states, not the rates), so only the intensity matrix, and
+        # hence the Van Loan matrix, is refreshed per epoch
+        R = [r._get(state_space=self.state_space) for r in rewards]
+
+        if use_action:
+            op, lamb = self._action_operator(rewards, k, i_epoch), 1.0
+        else:
+            lamb = self._balance(epoch, start_time, t_sorted[-1])
+            op = self._dense_van_loan(R, lamb, k, i_epoch)
+
+        def advance(w, tau, lamb) -> Tuple[np.ndarray, float]:
+            if use_action:
+                return self._advance_action(w, tau, lamb, op, k)
+
+            return w @ self._van_loan_expm(op * tau / lamb, k, n), lamb
+
         moments = np.zeros_like(t_sorted, dtype=float)
 
+        # The Van Loan exponential is evaluated over the absorption time, which scales with Ne (the doubling search
+        # in ``_get_absorption_time`` deliberately spans many orders of magnitude). For a large time the dense
+        # ``expm`` can transiently over/underflow inside scipy's scaling-squaring on some BLAS builds, even though
+        # the regularized result (corrected by ``lamb ** k``) is finite. The benign intermediate over/divide/invalid
+        # is silenced here and the *output* is checked for finiteness below, so a genuine blow-up still surfaces.
         with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
-            if use_action:
-                op = self._action_operator(rewards, k, i_epoch)
-                lamb = 1.0
-                # w = alpha_start in the first block; e_ext = e in the last block, so w @ Q @ e_ext = alpha_start @ Q[:n,-n:] @ e
-                w = np.zeros((k + 1) * n)
-                w[:n] = alpha_start
-                e_ext = np.zeros((k + 1) * n)
-                e_ext[-n:] = self.state_space.e
+            for i, u in enumerate(t_sorted):
+                if u <= start_time:
+                    # an empty (or reversed) window accumulates no reward
+                    continue
 
-                for i, u in enumerate(t_sorted):
-                    if u <= start_time:
-                        # an empty (or reversed) window accumulates no reward
-                        moments[i] = 0.0
-                        continue
-                    while u > epoch.end_time:
-                        w, lamb = self._advance_action(w, epoch.end_time - u_prev, lamb, op, k)
-                        u_prev = epoch.end_time
-                        i_epoch, epoch = next(epochs)
-                        self.state_space.update_epoch(epoch)
+                # advance through whole epochs between u_prev and u
+                while u > epoch.end_time:
+                    w, lamb = advance(w, epoch.end_time - u_prev, lamb)
+                    u_prev = epoch.end_time
+                    i_epoch, epoch = next(epochs)
+                    self.state_space.update_epoch(epoch)
+
+                    if use_action:
                         op = self._action_operator(rewards, k, i_epoch)
-                    w, lamb = self._advance_action(w, u - u_prev, lamb, op, k)
-                    moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
-                    u_prev = u
-            else:
-                lamb = self._balance(epoch, start_time, t_sorted[-1])
-                S = self._dense_rate_matrix() * lamb
-                self._check_numerical_stability(S, i_epoch)
-                R = [r._get(state_space=self.state_space) for r in rewards]
-                V = self._van_loan_matrix(R, S, k)
-                Q = np.eye(n * (k + 1))
-                e = np.asarray(self.state_space.e)
-
-                for i, u in enumerate(t_sorted):
-                    if u <= start_time:
-                        # an empty (or reversed) window accumulates no reward
-                        moments[i] = 0.0
-                        continue
-                    while u > epoch.end_time:
-                        Q @= self._van_loan_expm(V * (epoch.end_time - u_prev) / lamb, k, n)
-                        u_prev = epoch.end_time
-                        i_epoch, epoch = next(epochs)
-                        self.state_space.update_epoch(epoch)
-
+                    else:
                         # balance each epoch on its own rates (see ``_rebase``)
-                        lamb = self._rebase_propagator(Q, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
-                        S = self._dense_rate_matrix() * lamb
-                        self._check_numerical_stability(S, i_epoch)
-                        V = self._van_loan_matrix(R, S, k)
-                    Q @= self._van_loan_expm(V * (u - u_prev) / lamb, k, n)
-                    moments[i] = factorial(k) * lamb ** k * alpha_start @ Q[:n, -n:] @ e
-                    u_prev = u
+                        lamb = self._rebase_forward(w, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
+                        op = self._dense_van_loan(R, lamb, k, i_epoch)
+
+                # remaining time in the current epoch
+                w, lamb = advance(w, u - u_prev, lamb)
+                moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
+                u_prev = u
 
         # restore the original (unsorted) order
         moments = moments[np.argsort(np.argsort(end_times))]
 
+        # the suppressed intermediate over/underflow must not have corrupted the (finite) result
         if not np.isfinite(moments).all():
             self._logger.warning(
-                "Non-finite values encountered when computing windowed moments. "
+                "Non-finite values encountered when computing moments. "
                 f"Epoch: {i_epoch} at time: {epoch.start_time}. "
                 "This is likely due to an ill-conditioned rate matrix."
             )
@@ -1391,14 +1201,16 @@ class MomentEvaluator:
                 "of the last epoch."
             )
 
-    def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward]) -> float:
+    def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward], start_time: float = 0.0) -> float:
         """
-        Raw moment of a single reward ordering to absorption with the closed-form last epoch of
+        Raw moment of a single reward ordering from ``start_time`` to absorption with the closed-form last epoch of
         ``PhaseTypeDistribution.moment``: the backward recursion with one LU of ``-T`` (``_lu_solver``), then the
-        finite epochs applied backwards to the extended vector.
+        finite epochs from ``start_time`` on applied backwards to the extended vector, and last the entry distribution
+        propagated to ``start_time``.
 
         :param k: The order of the moment.
         :param rewards: Sequence of k rewards (a single ordering).
+        :param start_time: The non-negative start time.
         :return: The kth moment accumulated until absorption.
         """
         self._check_demography_conditioning()
@@ -1456,31 +1268,39 @@ class MomentEvaluator:
 
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
+            if epoch.end_time <= start_time:
+                break
+
             self.state_space.update_epoch(epoch)
 
             # balance each epoch on its own rates. ``V * tau`` carries the epoch's generator on the diagonal and its
             # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an
             # epoch with a different rate scale far from one, and the scaling-and-squaring of the exponential loses
             # their cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it.
-            lamb = self._rebase(z, lamb, self._balance(epoch, 0.0, np.inf), k, n)
+            lamb = self._rebase(z, lamb, self._balance(epoch, start_time, np.inf), k, n)
 
-            S = self.state_space.S * lamb
-            self._check_numerical_stability(S, i_epoch)
-            tau = (epoch.end_time - epoch.start_time) / lamb
+            self._check_numerical_stability(self.state_space.S, i_epoch)
+            tau = (epoch.end_time - max(epoch.start_time, start_time)) / lamb
 
             if use_action:
                 r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
-                S_csr = S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S))
-                V = self._van_loan_matrix(r_vecs, S_csr, k, sparse=True)
+                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb, k, sparse=True)
                 z = Backend.expm_multiply(V * tau, z)
             else:
-                S_dense = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
                 R = [r._get(self.state_space) for r in rewards]
-                V = self._van_loan_matrix(R, S_dense, k)
+                V = self._van_loan_matrix(R, self._dense_rate_matrix() * lamb, k)
                 z = self._van_loan_expm(V * tau, k, n) @ z
 
+        # the entry distribution propagated to the start time with the plain generator
         alpha_ext = np.zeros((k + 1) * n)
         alpha_ext[:n] = self.state_space.alpha
+        for epoch in epochs:
+            if epoch.start_time >= start_time:
+                break
+
+            self.state_space.update_epoch(epoch)
+            alpha_ext[:n] = self._propagate_plain(alpha_ext[:n], min(epoch.end_time, start_time) - epoch.start_time,
+                                                  use_action)
 
         return factorial(k) * lamb ** k * float(alpha_ext @ z)
 
@@ -1518,6 +1338,28 @@ class MomentEvaluator:
         """
         S = self.state_space.S
         return np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
+
+    def _epoch_csr(self, i_epoch: int) -> sp.csr_matrix:
+        """
+        The rate matrix of epoch ``i_epoch`` of ``_get_epochs_until_unbounded`` as a CSR matrix, the state space being
+        set to that epoch. Memoized per state space, since every bin, reward ordering and order of a closed-form
+        moment reads it.
+
+        :param i_epoch: The epoch number.
+        :return: The rate matrix.
+        """
+        ss = self.state_space
+        memo = self._state_space_memo('_epoch_csr_cache')
+
+        if id(ss) not in memo or memo[id(ss)][0] is not ss:
+            memo[id(ss)] = (ss, {})
+
+        csr = memo[id(ss)][1]
+        if i_epoch not in csr:
+            S = ss.S
+            csr[i_epoch] = S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S))
+
+        return csr[i_epoch]
 
     def _mean_occupation_grid(self, end_times: Sequence[float], start_time: float = None) -> np.ndarray:
         """

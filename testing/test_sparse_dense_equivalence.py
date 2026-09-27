@@ -154,7 +154,7 @@ def test_moment_paths_sparse_matches_dense(label, make, get):
 
 
 # joint-reward *inversion* cases (the LST and its cosine CDF/PDF) on small, multi-epoch state spaces. These exercise
-# the one sparse path in ``_lst_from_shift`` that the size threshold would not trigger here: the sparse block-
+# the one sparse path in ``_lst_from_shift_batch`` that the size threshold would not trigger here: the sparse block-
 # triangular LU of the final-epoch solve (``closed_form_sparse_min_states``). The finite-epoch expm stays dense on
 # both paths (the expm_multiply action cannot evaluate the s->inf atom shifts the inversion needs). The two-locus
 # case has a *cyclic* (recombination) transient block, so its sparse LU goes through the strongly-connected-component

@@ -2316,3 +2316,64 @@ def test_quantile_passes_nan_through():
     assert np.isnan(out[1]) and np.isnan(d.quantile(np.nan))
     assert out[0] == pytest.approx(d.quantile(0.5))
     assert d.quantile(0.99) == pytest.approx(q1, rel=1e-8)
+
+
+def test_joint_axis_terms_follow_live_cos_terms():
+    """The axis terms of the joint CDF are rebuilt with the term count of a changed ``Settings.cos_terms``, as the
+    marginal is. Regression: they kept the term count of their first evaluation."""
+    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    Settings.cos_terms = 48
+    joint.cdf(0.5, 0.5)
+    assert len(joint._cos_axis_coeffs['a']['w']) == 48
+
+    Settings.cos_terms = 96
+    fresh = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    assert len(joint._cos_axis_coeffs['a']['w']) == 96
+    assert float(joint.cdf(0.5, 0.5)) == pytest.approx(float(fresh.cdf(0.5, 0.5)), abs=1e-12)
+
+
+def _dirac_five_epoch_joint():
+    """The SFS joint of bins 1 and 2 of a Dirac coalescent of 10 lineages over five epochs, whose atom probe shifts the
+    rewarded states by a rate about 1e11 times the others."""
+    return pg.Coalescent(n=10, model=pg.DiracCoalescent(psi=0.7, c=5), demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 2, 1.1: 0.3, 3.5: 0.5, 4.2: 8, 7.5: 2.3}})).sfs.joint_distribution(1, 2)
+
+
+def test_joint_atom_matches_zero_reward_restriction():
+    """The atom ``P(R_b = 0) = Phi(0, inf)`` of a five-epoch Dirac joint equals the absorption probability of the
+    process restricted to the states without reward b, and the scalar and batched transforms agree. Regression: the
+    scaling and squaring of the exponential at the atom probe lost 1.5e-6 in the batched and 9e-8 in the scalar
+    transform, against a 40-digit reference."""
+    joint = _dirac_five_epoch_joint()
+    st = joint._setup
+    zero = st['rb'] == 0
+
+    # absorption without ever entering a state of positive reward b, epoch by epoch
+    vec = np.append(st['alpha'][zero], 0.0)
+    for T, t0, t1 in st['T_epochs'][:-1]:
+        Td = T.toarray() if sp.issparse(T) else np.asarray(T)
+        Q = np.zeros((zero.sum() + 1,) * 2)
+        Q[:-1, :-1] = Td[np.ix_(zero, zero)]
+        Q[:-1, -1] = -Td[zero].sum(1)
+        vec = vec @ sla.expm(Q * (t1 - t0))
+    Tm = st['T_epochs'][-1][0]
+    Tm = (Tm.toarray() if sp.issparse(Tm) else np.asarray(Tm))
+    ref = vec[-1] + vec[:-1] @ np.linalg.solve(-Tm[np.ix_(zero, zero)], -Tm[zero].sum(1))
+
+    big = joint._s_inf
+    assert joint.lst(0.0, big).real == pytest.approx(ref, abs=1e-9)
+    assert joint.lst_batch([0.0], [big])[0] == joint.lst(0.0, big)
+
+
+def test_multi_epoch_joint_grid_matches_pointwise_transform():
+    """The grid of the joint transform of several epochs, evaluated batched along its longer axis, equals the
+    pointwise transform, the atom probe included."""
+    joint = pg.Coalescent(n=5, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint_distribution(1, 2)
+    big = joint._s_inf
+    sa = np.array([-0.5j, 0.3, -2j, big])
+    sb = np.array([-1j, 1j, 0.0, 0.7, -3j, big])
+
+    for x, y in ((sa, sb), (sb, sa)):
+        ref = np.array([[joint.lst(a, b) for b in y] for a in x])
+        np.testing.assert_allclose(joint._lst_grid(x, y), ref, rtol=1e-12, atol=1e-15)

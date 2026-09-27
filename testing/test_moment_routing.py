@@ -133,7 +133,7 @@ def test_closed_form_path_taken_when_enabled():
     the sparse-action sub-path)."""
     Settings.closed_form_last_epoch = True
     coal = pg.Coalescent(n=5)
-    with _spy('_accumulate_closed_form') as cf, _spy('_accumulate_action') as action:
+    with _spy('_accumulate_closed_form') as cf, _spy('_action_operator') as action:
         _ = coal.tree_height.mean
     assert cf.call_count >= 1
     assert action.call_count == 0
@@ -151,11 +151,11 @@ def test_matrix_exponential_path_when_closed_form_disabled():
 
 
 def test_sparse_action_path_taken_below_threshold():
-    """A zero ``expm_action_min_dim`` forces the sparse matrix-exponential action (``_accumulate_action``)."""
+    """A zero ``expm_action_min_dim`` forces the sparse matrix-exponential action (``_action_operator``)."""
     Settings.closed_form_last_epoch = False
     Settings.expm_action_min_dim = 0
     coal = pg.Coalescent(n=5)
-    with _spy('_accumulate_action') as action:
+    with _spy('_action_operator') as action:
         _ = coal.tree_height.mean
     assert action.call_count >= 1
 
@@ -165,7 +165,7 @@ def test_dense_expm_path_taken_above_threshold():
     Settings.closed_form_last_epoch = False
     Settings.expm_action_min_dim = 10 ** 12
     coal = pg.Coalescent(n=5)
-    with _spy('_accumulate_action') as action:
+    with _spy('_action_operator') as action:
         _ = coal.tree_height.mean
     assert action.call_count == 0
 
@@ -174,8 +174,8 @@ def test_dense_expm_path_taken_above_threshold():
 def test_accumulate_restores_input_order_for_unsorted_times(force_sparse):
     """``accumulate`` must return moments aligned to the *input* end-time order, not the internal sorted order.
     Regression for the inverse-permutation bug (``argsort`` instead of ``argsort(argsort(...))``) which mis-attached
-    moments for >= 3 unsorted times, in both the dense (``_accumulate``) and sparse-action (``_accumulate_action``)
-    paths."""
+    moments for >= 3 unsorted times, with both the dense and the sparse-action exponential of ``_accumulate_windowed``.
+    """
     Settings.closed_form_last_epoch = False
     Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 12
 
@@ -397,3 +397,40 @@ def test_batched_spectrum_means_validate_the_window():
 
         with pytest.raises(ValueError, match="End time must be greater than equal start time"):
             dist.moment(1, start_time=1.0, end_time=0.5)
+
+
+def test_identical_rewards_accumulate_one_ordering():
+    """A moment of identical rewards accumulates a single ordering, all k! orderings being the same. Regression: the
+    ninth moment accumulated 9! identical orderings and took 0.97 s instead of 1 ms."""
+    th = pg.Coalescent(n=3).tree_height
+
+    with _spy('_accumulate') as acc:
+        m = th.moment(7, center=False)
+
+    assert acc.call_count == 1
+    assert m == pytest.approx(pg.Coalescent(n=3).tree_height.moment(7, center=False, permute=False), rel=1e-14)
+
+
+@pytest.mark.parametrize('start_time', [20.0, 30.0])
+def test_windowed_mean_near_absorption_is_accurate(start_time):
+    """The mean of the tree height of two lineages over ``[start_time, inf)`` is ``exp(-start_time)`` to full
+    relative precision. Regression: it was the difference of two cumulative means, off by 4.9e-3 relative at 30."""
+    th = pg.Coalescent(n=2).tree_height
+
+    assert th.moment(1, start_time=start_time) == pytest.approx(np.exp(-start_time), rel=1e-10)
+
+
+@pytest.mark.parametrize('force_sparse', [False, True])
+def test_accumulate_passes_nan_end_time_through(caplog, force_sparse):
+    """A NaN end time gives a NaN moment without a warning and leaves the other end times unchanged. Regression: it
+    logged a warning blaming an ill-conditioned rate matrix."""
+    Settings.closed_form_last_epoch = False
+    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 12
+    th = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
+
+    with caplog.at_level('WARNING'):
+        out = th.accumulate(k=2, end_times=[1.0, np.nan, 2.0])
+
+    assert np.isnan(out[1])
+    np.testing.assert_allclose(out[[0, 2]], th.accumulate(k=2, end_times=[1.0, 2.0]), rtol=1e-12)
+    assert not [r for r in caplog.records if r.levelname == 'WARNING']

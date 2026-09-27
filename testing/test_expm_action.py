@@ -2,8 +2,8 @@
 Tests for the sparse matrix-exponential-action moment computation.
 
 For large state spaces moments are computed via the action of the matrix exponential on a vector
-(``_accumulate_action``) instead of the dense Van Loan propagator. These tests force both paths and check that they
-agree across state-space types, models, moment orders, multiple epochs and cross-moments.
+(``MomentEvaluator._advance_action``) instead of the dense Van Loan propagator. These tests force both paths and check
+that they agree across state-space types, models, moment orders, multiple epochs and cross-moments.
 """
 import numpy as np
 import pytest

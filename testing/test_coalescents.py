@@ -1913,22 +1913,38 @@ def test_state_spaces_lists_the_spaces_the_configuration_supports():
 
 @pytest.mark.parametrize('pop_sizes, n_epochs', [({0: 1}, 1), ({0: 1, 0.3: 0.2, 1.0: 3}, 3)])
 def test_stability_warning_names_real_epochs_once_each(caplog, pop_sizes, n_epochs):
-    """The rate-spread warning of a Dirac coalescent at large n names the epoch and fires once per epoch. Regression:
-    the tree-height grid passed its segment index as the epoch, logging 168 warnings for 'epochs' 0 to 129 on a single
-    epoch."""
+    """The exit-rate spread warning of two demes joined by rare migration names the epoch and fires once per epoch.
+    Regression: the tree-height grid passed its segment index as the epoch, logging 168 warnings for 'epochs' 0 to
+    129 on a single epoch."""
     import re
 
-    coal = pg.Coalescent(n=20, model=pg.DiracCoalescent(psi=0.3, c=2), demography=pg.Demography(pop_sizes=pop_sizes))
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': pop_sizes, 'b': {0: 1}}, migration_rates={('a', 'b'): {0: 1e-11}, ('b', 'a'): {0: 1e-11}}))
 
     with caplog.at_level('WARNING'):
         coal.tree_height.quantile(0.5)
         coal.tree_height.cdf(1.0)
 
-    epochs = [int(m.group(1)) for r in caplog.records if (m := re.search(r'epoch (\d+) contains rates', r.getMessage()))]
+    pattern = r'epoch (\d+) has total exit'
+    epochs = [int(m.group(1)) for r in caplog.records if (m := re.search(pattern, r.getMessage()))]
 
     assert epochs
     assert len(epochs) == len(set(epochs))
     assert set(epochs) == set(range(n_epochs))
+
+
+@pytest.mark.parametrize('n, psi', [(10, 0.1), (10, 0.05), (20, 0.3)])
+def test_no_stability_warning_for_rare_dirac_mergers(caplog, n, psi):
+    """A Dirac merger rate far below the other rates out of the same state leaves the exit rates, and the exact
+    moments, unaffected, so no stability warning is logged. Regression: the warning compared every positive rate and
+    fired on moments exact to 1e-16 once psi ** n fell below 1e-10 of the largest rate."""
+    coal = pg.Coalescent(n=n, model=pg.DiracCoalescent(psi=psi, c=1))
+
+    with caplog.at_level('WARNING'):
+        coal.tree_height.mean
+        coal.tree_height.var
+
+    assert not [r for r in caplog.records if 'orders of magnitude' in r.getMessage()]
 
 
 def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference():

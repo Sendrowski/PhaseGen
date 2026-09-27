@@ -48,6 +48,9 @@ _EULER_N0 = 30
 #: Largest Fourier truncation of the Euler inversion tried by ``_NestedConditional``.
 _EULER_N0_MAX = 480
 
+#: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
+_LST_BATCH_ENTRIES = 2 ** 21
+
 
 class RewardDistribution(CallableDistributionFunctions):
     r"""
@@ -279,7 +282,8 @@ class RewardDistribution(CallableDistributionFunctions):
         _assert_lst_absorbs(self._host)
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
         # exactly but stays well-conditioned for large N (see ``time_scale``)
-        return _lst_from_shift((s * st['tau']) * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
+        shift = ((s * st['tau']) * st['r']).astype(complex)[None]
+        return complex(_lst_from_shift_batch(shift, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])[0])
 
     def _invert(self, transform, t: float) -> float:
         r"""
@@ -390,25 +394,15 @@ def _build_epoch_data(host) -> dict:
 
 def _assert_lst_absorbs(host) -> None:
     """
-    Raise unless every state carrying mass can still reach absorption in the final epoch, which is what makes the
-    shifted final-epoch system invertible at ``s = 0``. The state selection of :func:`_build_epoch_data` is a forward
-    closure of the initial vector and so cannot establish this; the backward reachability of the moment engine can.
-    Without it the final-epoch solve is singular and the transform is ``nan``, surfacing much later as an opaque
-    failure of the inversion.
+    Raise unless every state carrying mass can still reach absorption in the final epoch
+    (``MomentEvaluator._absorption_certain_in_last_epoch``), which is what makes the shifted final-epoch system
+    invertible at ``s = 0``. Without it the final-epoch solve is singular and the transform is ``nan``, surfacing much
+    later as an opaque failure of the inversion.
 
     :param host: The phase-type distribution whose state space and demography are checked.
     :raises ModelError: if some state carrying mass can never reach a common ancestor.
     """
-    # one backward reachability per host, memoized: an SFS evaluates many bins through the same state space
-    absorbs = getattr(host, '_lst_absorbs_cache', None)
-
-    if absorbs is None:
-        idx = host._reward_epoch_data['idx']
-        host.state_space.update_epoch(host._get_epochs_until_unbounded()[-1])
-        _, reach_absorption = MomentEvaluator._reaches_absorption(host)
-        absorbs = host._lst_absorbs_cache = bool(reach_absorption[idx].all())
-
-    if absorbs:
+    if host._absorption_certain_in_last_epoch():
         return
 
     raise ModelError(
@@ -451,39 +445,11 @@ def _exit_rates(T) -> np.ndarray:
     return -np.asarray(T @ np.ones(T.shape[0])).ravel()
 
 
-def _lst_from_shift(shift: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool, perm=_AUTO_PERM) -> complex:
-    r"""
-    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
-    arbitrary vector ``shift``, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform.
-    ``perm`` is the block-triangular ordering of the last-epoch sub-intensity matrix, which depends only on its
-    sparsity pattern and is passed to ``MomentEvaluator._lu_solver``.
-    """
-    nt = len(alpha)
-    vec = np.concatenate([alpha, [0.0]]).astype(complex)
-
-    for T, t0, t1 in T_epochs[:-1]:
-        exit_col = _exit_rates(T)
-        tau = t1 - t0
-        # finite-epoch propagation by a dense matrix exponential. A sparse transient block (large-space build) is
-        # densified here: the expm_multiply *action* alternative is norm-driven and cannot evaluate the s->inf atom
-        # shifts the inversion needs, so it has no usable role on this path (see ``_build_epoch_data``).
-        Q = np.zeros((nt + 1, nt + 1), dtype=complex)
-        Q[:nt, :nt] = (T.toarray() if sp.issparse(T) else np.asarray(T)) - np.diag(shift)
-        Q[:nt, nt] = exit_col
-        vec = vec @ sla.expm(Q * tau)
-
-    a, c = vec[:nt], vec[nt]
-    Tm = T_epochs[-1][0]
-    A = (sp.diags(shift) if sparse else np.diag(shift)) - Tm
-    solve = MomentEvaluator._lu_solver(A, sparse, perm)
-    return complex(c + a @ solve(_exit_rates(Tm)))
-
-
 def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
                            perm=_AUTO_PERM, order: int = 2) -> list:
-    """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift`` at the shift ``shift + eps * deriv``,
-    described at ``JointRewardDistribution.lst_taylor``: bounded epochs exponentiate the block-bidiagonal matrix over
-    the truncated polynomial ring, the last epoch back-substitutes with one LU."""
+    """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift_batch`` at the shift
+    ``shift + eps * deriv``, described at ``JointRewardDistribution.lst_taylor``: bounded epochs exponentiate the
+    block-bidiagonal matrix over the truncated polynomial ring, the last epoch back-substitutes with one LU."""
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
 
@@ -629,13 +595,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
         """
-        st = self._setup
-        _assert_lst_absorbs(self._host)
-        # both rewards share the time-scale tau (R -> R/tau): evaluate at s*tau against the tau-scaled generators;
-        # the value equals the unscaled joint LST exactly but stays well-conditioned for large N (see ``time_scale``)
-        tau = st['tau']
-        return _lst_from_shift((s_a * tau) * st['ra'] + (s_b * tau) * st['rb'], st['alpha'], st['T_epochs'],
-                               st['sparse'], st['lu_perm'])
+        return complex(self.lst_batch(s_a, s_b)[0])
 
     def lst_taylor(self, s: complex, on: str = 'a', order: int = 2) -> list:
         r"""
@@ -707,13 +667,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """``Phi`` on the outer grid ``s_a_vals x s_b_vals``. For one dense epoch, one QZ decomposition of the pencil
         ``(diag(s r_outer) - T, diag(r_inner))`` per node of the shorter axis solves every node of the other axis by
-        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space use ``lst`` per
-        element."""
+        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate
+        ``lst_batch`` along the longer axis at each node of the shorter one."""
         st = self._setup
         s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
 
         if st['sparse'] or len(st['T_epochs']) != 1:
-            return np.array([[self.lst(sa, sb) for sb in s_b_vals] for sa in s_a_vals], dtype=complex)
+            if len(s_a_vals) >= len(s_b_vals):
+                cols = [self.lst_batch(s_a_vals, sb) for sb in s_b_vals]
+                return np.array(cols, dtype=complex).reshape(len(s_b_vals), len(s_a_vals)).T
+            rows = [self.lst_batch(sa, s_b_vals) for sa in s_a_vals]
+            return np.array(rows, dtype=complex).reshape(len(s_a_vals), len(s_b_vals))
 
         tau = st['tau']
         Tm = np.asarray(st['T_epochs'][-1][0], dtype=float)
@@ -867,11 +831,15 @@ class JointRewardDistribution(CallableDistributionFunctions):
         big = self._s_inf
         return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
 
-    @cached_property
+    @property
     def _cos_axis_coeffs(self) -> dict:
         """Cosine coefficients of the axis sub-distributions ``g_b`` (key ``'b'``, transform ``Phi(., inf)``) and
         ``g_a`` (key ``'a'``, transform ``Phi(inf, .)``) of ``JointCDF``, on the marginal's cumulant window with the
         marginal's term count."""
+        return self._cos_memo('axis', self._build_cos_axis_coeffs)
+
+    def _build_cos_axis_coeffs(self) -> dict:
+        """Build ``_cos_axis_coeffs``."""
         big = self._s_inf
         both0 = self._atoms['both0']
         out = {}
@@ -880,7 +848,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
             b = marg._range(12.0)
             w = np.arange(marg.cdf._cos_terms) * np.pi / b
             # chi(w) = phi(-i w) of the sub-transform: for 'b' it is lst(., inf) (sweep s_a), for 'a' lst(inf, .)
-            # (sweep s_b); the batched _lst_grid does the whole sweep with a single QZ (one fixed inf-coordinate)
+            # (sweep s_b), one batched sweep of _lst_grid at the fixed inf-coordinate
             chi = (self._lst_grid(-1j * w, np.array([big]))[:, 0] if key == 'b'
                    else self._lst_grid(np.array([big]), -1j * w)[0, :])
             cont = total - both0
@@ -899,21 +867,23 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Fc = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
         return c['atom'] + c['cont'] * np.clip(Fc, 0.0, 1.0)
 
-    def _cos2d_memo(self, name: str, build) -> Any:
+    def _cos_memo(self, name: str, build) -> Any:
         """
-        A value derived from the 2D cosine expansion, built once per :attr:`Settings.cos_terms_2d
-        <phasegen.settings.Settings.cos_terms_2d>`: changing the term count on a live distribution discards every such
-        value. Honours :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
+        A value derived from the cosine expansions of ``JointCDF``, built once per :attr:`Settings.cos_terms
+        <phasegen.settings.Settings.cos_terms>` and :attr:`Settings.cos_terms_2d
+        <phasegen.settings.Settings.cos_terms_2d>`: changing either term count on a live distribution discards every
+        such value. Honours :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
 
         :param name: Name of the value.
         :param build: Builds the value.
         :return: The value.
         """
-        memo = self.__dict__.setdefault('_cos2d_cache', {})
+        memo = self.__dict__.setdefault('_cos_cache', {})
+        terms = (Settings.cos_terms, Settings.cos_terms_2d)
 
-        if memo.get('_terms') != Settings.cos_terms_2d:
+        if memo.get('_terms') != terms:
             memo.clear()
-            memo['_terms'] = Settings.cos_terms_2d
+            memo['_terms'] = terms
 
         if name in memo:
             return memo[name]
@@ -928,7 +898,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _cos2d(self) -> dict:
         """The coefficient matrix ``A``, windows ``ba``, ``bb`` and frequencies ``ua``, ``ub`` of the 2D cosine
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
-        return self._cos2d_memo('cos2d', self._build_cos2d)
+        return self._cos_memo('cos2d', self._build_cos2d)
 
     def _cos2d_window(self, axis: str) -> float:
         """
@@ -987,7 +957,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         logged as a warning above 0.03. The cosine error concentrates near the axes, so this margin comparison detects
         an under-resolved near-origin rise. It reads the coefficients directly, so it does not recurse into
         ``_cc_box``."""
-        return self._cos2d_memo('wiggle', self._build_cos2d_wiggle_check)
+        return self._cos_memo('wiggle', self._build_cos2d_wiggle_check)
 
     def _build_cos2d_wiggle_check(self) -> float:
         """Build ``_cos2d_wiggle_check``."""
@@ -1017,7 +987,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """The bicubic spline of ``JointDensity`` through the mixed central difference of ``_cc_box``, and the interior
         nodes it is built on. The grid is uniform over the cosine window ``ba`` x ``bb``, so a density value does not
         depend on the queried grid."""
-        return self._cos2d_memo('density_grid', self._build_density_grid)
+        return self._cos_memo('density_grid', self._build_density_grid)
 
     def _build_density_grid(self) -> dict:
         """Build ``_density_grid``."""
@@ -1791,9 +1761,16 @@ _PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1
 
 
 def _expm_batch(A: np.ndarray) -> np.ndarray:
-    """Matrix exponential of a stack ``(k, n, n)`` by Pade-13 with scaling and squaring, vectorised over the leading
-    axis, for the Euler node batch of ``_lst_from_shift_batch``. The per-call analysis of ``scipy.linalg.expm``
-    dominates at the small sizes of this batch."""
+    r"""
+    Matrix exponential of a stack ``(k, n, n)`` by Pade-13 with scaling and squaring, vectorised over the leading
+    axis, the exponential of the transforms of this module. The squarings carry :math:`\mathbf{F} = e^{\mathbf{A}}
+    - \mathbf{I}` by :math:`\mathbf{F} \mapsto 2\mathbf{F} + \mathbf{F}^2`, which keeps the relative precision of
+    the entries that the scaling takes far below one, as it does beside the large diagonal shift of the atom probe
+    ``_s_inf``.
+
+    :param A: The stack of matrices.
+    :return: The stack of their exponentials.
+    """
     n = A.shape[-1]
     nrm = np.abs(A).sum(-2).max(-1)
     sq = np.maximum(0, np.ceil(np.log2(np.maximum(nrm / 5.37, 1e-300))).astype(int))
@@ -1806,19 +1783,40 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
               + _PADE13[7] * A6 + _PADE13[5] * A4 + _PADE13[3] * A2 + _PADE13[1] * I)
     V = (A6 @ (_PADE13[12] * A6 + _PADE13[10] * A4 + _PADE13[8] * A2)
          + _PADE13[6] * A6 + _PADE13[4] * A4 + _PADE13[2] * A2 + _PADE13[0] * I)
-    R = np.linalg.solve(V - U, V + U)
-    for k in np.nonzero(sq)[0]:  # square each back up to its own scaling
-        for _ in range(int(sq[k])):
-            R[k] = R[k] @ R[k]
-    return R
+    F = np.linalg.solve(V - U, 2.0 * U)
+    for i in range(int(sq.max(initial=0))):  # square each back up to its own scaling
+        m = sq > i
+        if m.all():
+            F = 2.0 * F + F @ F
+        else:
+            F[m] = 2.0 * F[m] + F[m] @ F[m]
+    return I + F
 
 
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, perm=_AUTO_PERM) -> np.ndarray:
-    """``_lst_from_shift`` over a stack of shift vectors ``(k, nt)``, sharing the per-epoch assembly and exponentiating
-    the batch with ``_expm_batch``. A dense last epoch is solved as one stacked ``np.linalg.solve`` over the batch, a
-    sparse one by the block-triangular sparse LU of the scalar path per shift."""
+    r"""
+    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
+    arbitrary vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of
+    a stack of shift vectors ``(k, nt)``. The per-epoch assembly is shared and the batch exponentiated with
+    ``_expm_batch``, in chunks of at most ``_LST_BATCH_ENTRIES`` matrix entries. A dense last epoch is solved as one
+    stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver`` per
+    shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
+    pattern.
+
+    :param shifts: The shift vectors.
+    :param alpha: The initial vector on the transient states.
+    :param T_epochs: The per-epoch transient sub-intensity matrices with their start and end times.
+    :param sparse: Whether the last-epoch solve is sparse.
+    :param perm: The block-triangular ordering of the last-epoch sub-intensity matrix.
+    :return: The transform at each shift vector.
+    """
     nt = len(alpha)
     k = len(shifts)
+    chunk = max(1, _LST_BATCH_ENTRIES // (nt + 1) ** 2)
+    if k > chunk:
+        return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, sparse, perm)
+                               for i in range(0, k, chunk)])
+
     diag = np.arange(nt)
     vec = np.zeros((k, nt + 1), dtype=complex)
     vec[:, :nt] = alpha
