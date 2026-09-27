@@ -839,3 +839,16 @@ def test_cdf_and_pdf_at_infinity_on_infinitely_many_epochs():
     for t in (np.inf, np.nan, -1.0):
         with pytest.raises(ValueError):
             dem.get_epoch(t)
+
+
+def test_to_json_restores_a_lambda_trajectory():
+    """A coalescent with a lambda trajectory round-trips through JSON. Regression: the lambda was dropped silently and
+    the restored coalescent raised AttributeError on its first uncached statistic."""
+    def make():
+        return pg.Coalescent(n=3, demography=pg.Demography(events=[pg.DiscretizedRateChange(
+            trajectory=lambda t: 1 + t, start_time=0, end_time=1, pop='pop_0'
+        )]))
+
+    restored = pg.Coalescent.from_json(make().to_json())
+
+    assert restored.tree_height.mean == pytest.approx(make().tree_height.mean, rel=1e-12)

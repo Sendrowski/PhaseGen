@@ -11,6 +11,7 @@ from collections import defaultdict
 from .caching import cached_property
 from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Literal, Sequence, TYPE_CHECKING
 
+import dill
 import numpy as np
 
 from .settings import Settings
@@ -1141,6 +1142,28 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
         #: Destination population name.
         self.dest_pop: str | None = dest
+
+    def __getstate__(self) -> dict:
+        """
+        The state for serialization, with the trajectory dumped by ``dill``, which also restores a lambda or a closure.
+
+        :return: State.
+        """
+        state = self.__dict__.copy()
+        state['trajectory'] = dill.dumps(self.trajectory, recurse=True)
+
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """
+        Restore the state from a serialized state.
+
+        :param state: State.
+        """
+        self.__dict__.update(state)
+
+        if isinstance(self.__dict__.get('trajectory'), bytes):
+            self.trajectory = dill.loads(self.trajectory)
 
     def _broadcast(self, epoch: Epoch) -> None:
         """
