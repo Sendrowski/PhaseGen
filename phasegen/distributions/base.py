@@ -250,10 +250,10 @@ class _HazardGrid:
         """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
         (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`~phasegen.settings.Settings.cache`."""
         cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
-        # the grid is built for one inversion configuration: the tail cut decides where the per-point nodes join the
-        # fit, the de Hoog degree the value at each of those nodes of a multi-epoch reward, and the term count the fit
-        # below them. If any of the three was changed on this live distribution the cached entries no longer answer the
-        # question being asked, so discard them and rebuild.
+        # the grid is built for one inversion configuration: the tail cut decides where the exact nodes join the fit,
+        # the de Hoog degree the value at each of those nodes, and the term count the fit below them. If any of the
+        # three was changed on this live distribution the cached entries no longer answer the question being asked,
+        # so discard them and rebuild.
         config = (Settings.dehoog_tail_quantile, Settings.dehoog_degree, Settings.cos_terms)
         if cache.get('_config', config) != config:
             cache.clear()
@@ -338,8 +338,8 @@ class _LSTFunction(_HazardGrid):
     """
     The inversion of an accumulated-reward transform, described at ``RewardDistribution``, for the function objects
     of a ``RewardDistribution`` and its conditional subclasses. The transform and its scales come from
-    ``self._distribution`` (``lst``, ``_survival``, ``_range``, ``_s_inf``). ``_cdf_point`` is the per-point CDF behind
-    the tail nodes and the conditional support bracket.
+    ``self._distribution`` (``lst``, ``_invert``, ``_range``, ``_s_inf``). ``_cdf_point`` is the per-point de Hoog CDF
+    behind the tail nodes and the conditional support bracket.
     """
     #: Equispaced nodes :math:`N` on which the expansion is evaluated.
     _cos_n_grid: int = 8192
@@ -381,21 +381,20 @@ class _LSTFunction(_HazardGrid):
         return self._distribution._range(scale)
 
     def _cdf_point(self, t: float) -> float:
-        """Per-point CDF at ``t``, one minus ``RewardDistribution._survival``, the atom at ``t = 0`` and 0 below it.
-        Memoised per distribution. It supplies the tail nodes of the grid, the conditional support bracket and the exact
-        reference of the tests."""
+        """Per-point de Hoog CDF at ``t``, the atom at ``t = 0`` and 0 below it. Memoised per distribution. It supplies
+        the tail nodes of the grid, the conditional support bracket and the exact reference of the tests."""
         if t < 0:
             return 0.0
         d = self._distribution
         if t == 0:
             # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
-            # tail and cosine curves (which split the atom off and add it back). The inversion below is skipped
+            # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
             # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
             return max(d.lst(d._s_inf).real, 0.0)
 
         cache = self._shared('cdf_points', dict)
         if t not in cache:
-            cache[t] = 1.0 - d._survival(float(t))
+            cache[t] = d._invert(lambda s: d.lst(s) / s, float(t))
         return cache[t]
 
     def _pdf_point(self, t: float) -> float:
@@ -579,7 +578,7 @@ class _LSTFunction(_HazardGrid):
 
     def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
         """
-        The ``(x, F)`` per-point nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
+        The ``(x, F)`` de Hoog nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
         They are cached on the distribution and extended when a query reaches past their end, never trimmed, so an
         answer does not depend on later queries. The march advances on exact values, because the cosine quantile
         saturates at the end of its window.
@@ -626,8 +625,8 @@ class _LSTFunction(_HazardGrid):
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """
         The grid described at ``RewardDistribution``: the cosine nodes below ``Settings.dehoog_tail_quantile``, whose
-        saturated nodes are dropped, joined to the per-point nodes of ``_exact_nodes`` above it. A cut of 1 or
-        ``None`` uses the cosine nodes only, and a cut of 0 the per-point nodes only.
+        saturated nodes are dropped, joined to the de Hoog nodes of ``_exact_nodes`` above it. A cut of 1 or ``None``
+        uses the cosine nodes only, and a cut of 0 the de Hoog nodes only.
 
         :param x_max: Largest point the caller will evaluate.
         :param q_max: Largest probability level the caller will invert.

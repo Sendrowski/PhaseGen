@@ -11,7 +11,6 @@ from typing import Any, TYPE_CHECKING, Optional, Sequence
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 from scipy.integrate import simpson
 
 from ..caching import cached_property
@@ -84,25 +83,8 @@ class RewardDistribution(CallableDistributionFunctions):
     .. rubric:: Tail
 
     Above the CDF level set by :attr:`Settings.dehoog_tail_quantile
-    <phasegen.settings.Settings.dehoog_tail_quantile>`, the grid carries the CDF evaluated at single points.
-
-    With a single epoch, :math:`R` is itself phase-type distributed (Hobolth et al., 2019). Split the transient states
-    into those of positive reward, indexed :math:`+`, and those of zero reward, indexed :math:`0`. With
-
-    .. math::
-
-        \mathbf{M} = (-\mathbf{T}_{00})^{-1} \mathbf{T}_{0+}, \qquad
-        \mathbf{Q} = \operatorname{diag}(\mathbf{r}_+)^{-1} (\mathbf{T}_{++} + \mathbf{T}_{+0} \mathbf{M}), \qquad
-        \mathbf{a} = \boldsymbol{\alpha}_+ + \boldsymbol{\alpha}_0 \mathbf{M},
-
-    the CDF is :math:`F(x) = 1 - \mathbf{a}\, e^{\mathbf{Q} x}\, \mathbf{e}`. Here :math:`\mathbf{M}` holds the
-    probabilities of entering each positive-reward state from each zero-reward state, :math:`\mathbf{Q}` is the
-    sub-intensity matrix of the process run on the clock of the accumulated reward, :math:`\mathbf{a}` its initial
-    vector, whose deficit :math:`1 - \mathbf{a}\mathbf{e}` is the atom, and :math:`\mathbf{e}` the vector of ones.
-
-    With several epochs the sub-intensity matrix changes at fixed times, which the reward reaches at random levels, so
-    :math:`R` is not phase-type. The CDF is then the inverse transform of :math:`\varphi(s)/s` by the method of
-    de Hoog et al. (1982),
+    <phasegen.settings.Settings.dehoog_tail_quantile>`, the CDF is evaluated pointwise as the inverse transform of
+    :math:`\varphi(s)/s` by the method of de Hoog et al. (1982),
 
     .. math::
 
@@ -122,10 +104,8 @@ class RewardDistribution(CallableDistributionFunctions):
       support, and the second window ends where the first expansion comes close to 1. The window width is what the
       expansion resolves, no feature narrower than :math:`\beta / K`.
     - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
-      :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and per-point nodes
-      above it. The per-point nodes are computed only when a query reaches the tail, and they are kept.
-    - The exponential :math:`e^{\mathbf{Q} x}` is applied to :math:`\mathbf{a}` as a sparse action (Al-Mohy and
-      Higham, 2011), from the nearest per-point node below :math:`x`.
+      :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
+      above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
     - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
       the expansion is not monotone, and when its truncation error, estimated from how much the last :math:`K/2`
@@ -135,21 +115,15 @@ class RewardDistribution(CallableDistributionFunctions):
 
     .. rubric:: References
 
-    Al-Mohy, A. H. and Higham, N. J. (2011). Computing the action of the matrix exponential, with an application to
-    exponential integrators. SIAM Journal on Scientific Computing 33(2), 488-511.
-
     de Hoog, F. R., Knight, J. H. and Stokes, A. N. (1982). An improved method for numerical inversion of Laplace
     transforms. SIAM Journal on Scientific and Statistical Computing 3(3), 357-366.
 
     Fang, F. and Oosterlee, C. W. (2008). A novel pricing method for European options based on Fourier-cosine series
     expansions. SIAM Journal on Scientific Computing 31(2), 826-848.
 
-    Hobolth, A., Siri-Jégousse, A. and Bladt, M. (2019). Phase-type distributions in population genetics.
-    Theoretical Population Biology 127, 16-32.
-
     .. versionadded:: 2.0
     """
-    #: the 1D LST function-object flavours owning the cosine and tail inversion machinery
+    #: the 1D LST function-object flavours owning the de Hoog / cosine inversion machinery
     _cdf_function = _LSTCumulativeDistributionFunction
     _pdf_function = _LSTDensityFunction
     _quantile_function = _LSTQuantileFunction
@@ -302,67 +276,6 @@ class RewardDistribution(CallableDistributionFunctions):
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
         # exactly but stays well-conditioned for large N (see ``time_scale``)
         return _lst_from_shift((s * st['tau']) * st['r'], st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
-
-    def _survival(self, t: float) -> float:
-        r"""
-        The survival :math:`\mathbb{P}(R > t)` at ``t > 0`` behind the tail nodes, described at ``RewardDistribution``:
-        ``_chain_survival`` with a single epoch, and one minus the de Hoog inverse of :math:`\varphi(s)/s` otherwise.
-
-        :param t: The point.
-        :return: The survival at ``t``.
-        """
-        if self._reward_time_chain is None:
-            return 1.0 - self._invert(lambda s: self.lst(s) / s, t)
-
-        return self._chain_survival(t)
-
-    @cached_property
-    def _reward_time_chain(self) -> Optional[tuple]:
-        r"""
-        The transposed sub-intensity matrix :math:`\mathbf{Q}^\top` of the process run on the reward clock and its
-        initial vector :math:`\mathbf{a}`, described at ``RewardDistribution``, with time in the unit of
-        ``_time_scale``. ``None`` with several epochs.
-        """
-        self._host._assert_not_windowed()
-        st = self._setup
-        _assert_lst_absorbs(self._host)
-
-        if len(st['T_epochs']) > 1:
-            return None
-
-        T = sp.csr_matrix(st['T_epochs'][0][0])
-        r, alpha = st['r'], st['alpha']
-        pos, zero = r > 0, r <= 0
-        T_pp, a = T[pos][:, pos], alpha[pos]
-
-        if zero.any():
-            M = spla.splu(sp.csc_matrix(-T[zero][:, zero])).solve(T[zero][:, pos].toarray())
-            T_pp = T_pp + sp.csr_matrix(T[pos][:, zero] @ M)
-            a = a + alpha[zero] @ M
-
-        return sp.csr_matrix((sp.diags(1.0 / r[pos]) @ T_pp).T), a
-
-    def _chain_survival(self, t: float) -> float:
-        r"""
-        :math:`\mathbf{a}\, e^{\mathbf{Q} t}\, \mathbf{e}` for ``_reward_time_chain``, advanced by the action of the
-        exponential from the nearest point below ``t`` evaluated before.
-
-        :param t: The point.
-        :return: The survival at ``t``.
-        """
-        QT, a = self._reward_time_chain
-
-        if not a.size:
-            return 0.0
-
-        points = self.__dict__.setdefault('_chain_points', {0.0: a})
-        start = max(x for x in points if x <= t)
-        v = points[start]
-
-        if t > start:
-            v = points[t] = Backend.expm_multiply(QT * ((t - start) / self._time_scale), v)
-
-        return float(v.sum())
 
     def _invert(self, transform, t: float) -> float:
         r"""
@@ -1679,9 +1592,6 @@ class ConditionalRewardDistribution(RewardDistribution):
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         raise NotImplementedError
-
-    #: The conditional transform is not that of a reward on a Markov chain, so its tail takes the de Hoog inversion.
-    _reward_time_chain = None
 
     def _refine(self) -> None:
         """Refine the inner inversion before the first cosine expansion, nothing for a transform without one."""
