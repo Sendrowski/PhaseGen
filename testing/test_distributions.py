@@ -906,3 +906,18 @@ def test_windowed_moments_balance_each_epoch_on_its_own_rates():
     for k, exact in expected.items():
         moment = pg.Coalescent(n=5, demography=dem).tree_height.moment(k, start_time=0.005, end_time=1e5, center=False)
         np.testing.assert_allclose(moment, exact, rtol=1e-5, err_msg=f"k={k}")
+
+
+def test_tree_height_propagation_does_not_stop_early_on_rates_far_apart(caplog):
+    """A later epoch whose rates span 1e18 warns about the rate spread and propagates the transient mass on, past
+    steps that leave it unchanged in the last bit. Regression: the propagation ended at the first such step and the
+    CDF froze at 0.46 up to infinity, against the exact 0.99999999889 at t = 1e19."""
+    coal = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1},
+        migration_rates={('pop_0', 'pop_1'): {0: 1, 0.5: 1e-18}, ('pop_1', 'pop_0'): {0: 1, 0.5: 1e-18}}))
+
+    with caplog.at_level('WARNING'):
+        cdf = coal.tree_height.cdf(np.array([1e17, 1e19]))
+
+    assert cdf[1] > 0.8
+    assert any('10 orders of magnitude' in r.getMessage() for r in caplog.records)

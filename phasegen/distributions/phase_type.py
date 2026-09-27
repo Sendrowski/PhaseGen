@@ -1046,10 +1046,10 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
         ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
-        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step leaves the
-        transient entries unchanged. The absorbing states never feed the transient ones, so those entries are then
-        stationary, and the CDF and density they carry are final. This makes ``tau`` of any size, infinity included,
-        a finite number of exponentials.
+        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step at least as
+        long as the slowest mean exit time of a transient state leaves the transient entries unchanged. The absorbing
+        states never feed the transient ones, so those entries are then stationary, and the CDF and density they carry
+        are final. This makes ``tau`` of any size, infinity included, a finite number of exponentials.
 
         :param w: The row vector to advance.
         :param tau: Time to advance by, within the current epoch.
@@ -1062,6 +1062,10 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         norm = float(abs(S).sum(axis=1).max())
         h = self._max_step_norm / norm if norm > 0 else tau
 
+        exit_rates = -np.asarray(S.diagonal())[self._e > 0]
+        exit_rates = exit_rates[exit_rates > 0]
+        t_exit = 1 / exit_rates.min() if exit_rates.size else 0
+
         while tau > 0:
             step = min(tau, h)
 
@@ -1071,7 +1075,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             else:
                 v = w @ expm(self._dense_rate_matrix() * step)
 
-            stationary = np.array_equal(v * self._e, w * self._e)
+            stationary = step >= t_exit and np.array_equal(v * self._e, w * self._e)
             w, tau, h = v, tau - step, 2 * h
 
             if stationary:
