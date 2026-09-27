@@ -278,7 +278,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._reward_curves('cdf', [('cdf', self._reward_distribution)], t, n_points, 'CDF')
+        return self._reward_curves('cdf', [('', self._reward_distribution)], t, n_points, 'CDF')
 
     def _plot_data_pdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
@@ -288,7 +288,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._reward_curves('pdf', [('pdf', self._reward_distribution)], t, n_points, 'PDF')
+        return self._reward_curves('pdf', [('', self._reward_distribution)], t, n_points, 'PDF')
 
     def _plot_data_quantile(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
@@ -298,8 +298,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._reward_curves('quantile', [('quantile', self._reward_distribution)], q, n_points,
-                                   'Quantile function')
+        return self._reward_curves('quantile', [('', self._reward_distribution)], q, n_points, 'Quantile function')
 
     @staticmethod
     def _reward_curves(

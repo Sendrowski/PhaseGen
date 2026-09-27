@@ -198,7 +198,8 @@ class Visualization:
 
         :param data: The bivariate function on its grid.
         :param surface: Whether to draw a 3D surface. Otherwise a heatmap is drawn.
-        :param ax: Axes to draw on (a 3D axes is created if needed for ``surface``).
+        :param ax: Axes to draw on, a new figure by default. For ``surface``, 2D axes are replaced by 3D axes in the same
+            position.
         :param title: Title replacing the title of the data, ``None`` to keep it.
         :param file: File to save the plot to.
         :param show: Whether to show the plot.
@@ -207,16 +208,20 @@ class Visualization:
         zlim = {key: value for key, value in dict(vmin=data.vmin, vmax=data.vmax).items() if value is not None}
         z = np.asarray(data.z).T
 
+        if ax is None:
+            plt.close()
+            ax = plt.gca()
+
         if surface:
-            if ax is None:
-                ax = plt.figure().add_subplot(projection='3d')
+            if ax.name != '3d':
+                fig, spec = ax.figure, ax.get_subplotspec()
+                ax.remove()
+                ax = fig.add_subplot(spec, projection='3d')
             ax.plot_surface(*np.meshgrid(data.x, data.y), z, cmap='viridis', **zlim)
             ax.set_zlabel(data.zlabel)
             if data.vmax is not None:
                 ax.set_zlim(data.vmin if data.vmin is not None else 0.0, data.vmax)
         else:
-            if ax is None:
-                ax = plt.gca()
             mesh = ax.pcolormesh(data.x, data.y, z, shading='auto', cmap='viridis', **zlim)
             ax.figure.colorbar(mesh, ax=ax)
 

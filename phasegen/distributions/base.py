@@ -660,49 +660,16 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 
         return out if np.ndim(t) > 0 else float(out[0])
 
-    def _plot_data(self, x: np.ndarray = None, n_points: int = None) -> '_CurveData':
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
         The CDF curve :meth:`plot` draws.
 
-        :param x: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._curve(x, n_points, 'x', self._distribution._titled('CDF'))
-
-    def plot(
-            self,
-            ax: 'plt.Axes' = None,
-            x: np.ndarray = None,
-            n_points: int = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = None,
-            **kwargs
-    ) -> 'plt.Axes':
-        """
-        Plot the function up to the configured plot-endpoint quantile. The curve is ``self(x)``, the function the
-        caller evaluates.
-
-        :param ax: Axes to plot on.
-        :param x: Points to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
-            the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
-        :param n_points: Number of points of the default grid.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
-        :param label: Legend label of the curve, ``None`` for none.
-        :param title: Plot title, ``None`` for the default title.
-        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, n_points=n_points), file=file, show=show,
-                                         clear=clear, label=label, title=title, **kwargs)
+        return self._curve(t, n_points, 'x', self._distribution._titled('CDF'))
 
 
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
@@ -723,18 +690,16 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
         out = d._warn_if_negative(out, d._titled('density'))
         return out if np.ndim(t) > 0 else float(out[0])
 
-    def _plot_data(self, x: np.ndarray = None, n_points: int = None) -> '_CurveData':
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
         The density curve :meth:`plot` draws.
 
-        :param x: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._curve(x, n_points, 'x', self._distribution._titled('PDF'))
-
-    plot = _LSTCumulativeDistributionFunction.plot
+        return self._curve(t, n_points, 'x', self._distribution._titled('PDF'))
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
@@ -872,8 +837,8 @@ class _JointFunction:
 
         # the axes are clipped to the cosine window the representation was built on
         q = Settings.plot_endpoint_quantile
-        xs = np.linspace(0, min(d.marginal('a').quantile(q), d._cos2d['ba']), n_points)
-        ys = np.linspace(0, min(d.marginal('b').quantile(q), d._cos2d['bb']), n_points)
+        xs = np.linspace(0, min(d.marginal('a').quantile(q), d._cos2d_window('a')), n_points)
+        ys = np.linspace(0, min(d.marginal('b').quantile(q), d._cos2d_window('b')), n_points)
         name = self.kind.upper()
 
         return _SurfaceData(

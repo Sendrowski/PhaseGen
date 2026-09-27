@@ -878,7 +878,7 @@ def test_plot_draws_the_function_it_evaluates():
 
     x = np.linspace(0.1, float(d.quantile(0.9)), 15)
     for kind in ('cdf', 'pdf'):
-        ax = getattr(d, kind).plot(x=x, show=False)
+        ax = getattr(d, kind).plot(t=x, show=False)
         assert np.allclose(ax.lines[-1].get_ydata(), getattr(d, kind)(x), rtol=1e-12, atol=1e-12)
         ax.figure.clf()
 

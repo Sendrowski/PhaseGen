@@ -152,7 +152,7 @@ class _EmpiricalFunction:  # pragma: no cover
 
         samples = np.asarray(self._distribution.samples)
         per_bin = samples.ndim == 2
-        columns = [int(i) for i in (range(1, samples.shape[1] - 1) if bins is None else np.atleast_1d(bins))] \
+        columns = [int(i) for i in (self._distribution._polymorphic_bins() if bins is None else np.atleast_1d(bins))] \
             if per_bin else []
 
         included = samples[:, columns] if per_bin else samples
@@ -402,6 +402,14 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         #: Standard error of each moment statistic, estimated from blocks of the samples, retained when they are freed.
         self._standard_errors: dict = {}
+
+    def _polymorphic_bins(self) -> range:
+        """
+        The polymorphic frequency classes of a spectrum sample, ``1, ..., n - 1``.
+
+        :return: The frequency classes.
+        """
+        return range(1, self.samples.shape[1] - 1)
 
     def _touch(self, t: np.ndarray) -> None:
         """
@@ -941,6 +949,16 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     def _tajima_n(self) -> int:
         # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
         return len(np.asarray(self.mean)) - 1
+
+    def _polymorphic_bins(self) -> range:
+        """
+        The polymorphic frequency classes, ``1, ..., n // 2`` for a folded spectrum and ``1, ..., n - 1`` otherwise.
+
+        :return: The frequency classes.
+        """
+        n = self.samples.shape[1] - 1
+
+        return range(1, n // 2 + 1) if issubclass(self._sfs_dist, FoldedSFSDistribution) else range(1, n)
 
     def _tajima_mean(self) -> np.ndarray:
         n = self._tajima_n()

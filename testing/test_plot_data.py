@@ -49,11 +49,11 @@ def test_plot_signatures_select_data_and_style_the_curves():
         return list(inspect.signature(f.plot).parameters)[:4]
 
     assert names(coal.tree_height.pdf) == ['ax', 't', 'n_points', 'show']
-    assert names(coal.sfs.bin(1).cdf) == ['ax', 'x', 'n_points', 'show']
+    assert names(coal.sfs.bin(1).cdf) == ['ax', 't', 'n_points', 'show']
     assert names(coal.sfs.bin(1).quantile) == ['ax', 'q', 'n_points', 'show']
-    assert names(coal.sfs.pdf) == ['ax', 'x', 'bins', 'n_points']
+    assert names(coal.sfs.pdf) == ['ax', 't', 'bins', 'n_points']
     assert names(coal.sfs.quantile) == ['ax', 'q', 'bins', 'n_points']
-    assert names(jsfs.cdf) == ['ax', 'x', 'configs', 'n_points']
+    assert names(jsfs.cdf) == ['ax', 't', 'configs', 'n_points']
 
     ax = coal.sfs.pdf.plot(bins=[1, 3], n_points=9, show=False, lw=3, alpha=0.4)
     assert len(ax.lines) == 2
@@ -279,4 +279,93 @@ def test_plot_onto_a_passed_ax_saves_and_returns_that_ax(tmp_path):
     assert out is ax
     assert len(ax.lines) > 0
     assert plt.imread(tmp_path / 'cdf.png')[..., :3].std() > 0
+    plt.close('all')
+
+
+def test_univariate_plots_share_the_grid_keyword_t():
+    """Every univariate function takes its grid as ``t``, so an exact curve and its empirical reference are drawn with
+    the same call. Regression: the reward and spectrum functions took ``x`` and raised on ``t``, while the tree height
+    and the empirical functions took ``t`` and raised on ``x``."""
+    coal = pg.Coalescent(n=4)
+    grid = np.linspace(0.1, 3, 20)
+
+    functions = (
+        coal.tree_height.cdf, coal.tree_height.pdf, coal.total_branch_length.cdf,
+        coal.distribution(pg.TotalBranchLengthReward()).pdf, coal.sfs.bin(1).cdf,
+        coal.tree_height.to_empirical(200, seed=0).cdf
+    )
+    for f in functions:
+        ax = f.plot(t=grid, show=False)
+        np.testing.assert_allclose(ax.lines[-1].get_xdata(), grid)
+        np.testing.assert_allclose(ax.lines[-1].get_ydata(), f(grid), rtol=1e-12, atol=1e-12)
+        plt.close('all')
+
+    ax = coal.sfs.cdf.plot(t=grid, show=False)
+    assert len(ax.lines) == 3
+    np.testing.assert_allclose(ax.lines[0].get_xdata(), grid)
+    plt.close('all')
+
+
+def test_single_reward_plot_has_no_legend():
+    """A single accumulated reward draws one unlabelled curve without a legend. Regression: the curve of a
+    ``PhaseTypeDistribution`` was labelled with its kind, ``'cdf'``, ``'pdf'`` or ``'quantile'``."""
+    tbl = pg.Coalescent(n=4).total_branch_length
+
+    for f in (tbl.cdf, tbl.pdf, tbl.quantile):
+        assert f._plot_data(n_points=9).labels == ['']
+
+        ax = f.plot(n_points=9, show=False)
+        assert ax.get_legend() is None
+        plt.close('all')
+
+
+def test_empirical_folded_sfs_plots_its_polymorphic_bins():
+    """The empirical folded SFS draws the bins ``1, ..., n // 2`` of the analytic one. Regression: its default curves
+    ran over ``1, ..., n - 1`` and drew the empty upper bins as constant curves."""
+    fsfs = pg.Coalescent(n=5).fsfs
+
+    for kind in ('cdf', 'pdf', 'quantile'):
+        assert getattr(fsfs.to_empirical(300, seed=0), kind)._plot_data().labels == ['1', '2']
+
+    assert pg.Coalescent(n=5).sfs.to_empirical(300, seed=0).cdf._plot_data().labels == ['1', '2', '3', '4']
+
+
+def test_joint_plots_draw_on_one_fresh_axes():
+    """Without ``ax`` each joint plot draws onto a fresh figure, and a surface replaces passed 2D axes by 3D ones.
+    Regression: repeated heatmaps stacked meshes and colorbars on one axes, every surface opened a figure that was
+    never closed, and a 2D ``ax`` raised."""
+    Settings.plot_joint_cdf_n_grid = 5
+    jd = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
+    plt.close('all')
+
+    for _ in range(2):
+        ax = jd.cdf.plot(show=False)
+    assert len(ax.collections) == 1 and len(ax.figure.axes) == 2  # the heatmap and its colorbar
+
+    for _ in range(2):
+        ax = jd.cdf.plot_surface(show=False)
+    assert ax.name == '3d' and len(plt.get_fignums()) == 1
+
+    fig, (left, right) = plt.subplots(1, 2)
+    ax = jd.cdf.plot_surface(ax=right, show=False)
+    assert ax.name == '3d' and ax.figure is fig and len(fig.axes) == 2 and left in fig.axes
+    plt.close('all')
+
+
+def test_proportional_joint_plot_skips_the_2d_expansion():
+    """The plotting grid of a pair with one reward a multiple of the other takes the window ends without building the
+    2D cosine expansion, which its CDF does not use and its density refuses."""
+    Settings.plot_joint_cdf_n_grid = 5
+    jd = pg.Coalescent(n=5).sfs.joint_distribution(1, 1)
+    assert jd._ratio == 1.0
+
+    data = jd.cdf._plot_data()
+    with pytest.raises(NotImplementedError):
+        jd.pdf.plot(show=False)
+
+    assert 'cos2d' not in jd.__dict__.get('_cos2d_cache', {})
+    assert data.x[-1] <= jd._cos2d_window('a')
+
+    other = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
+    assert (other._cos2d_window('a'), other._cos2d_window('b')) == (other._cos2d['ba'], other._cos2d['bb'])
     plt.close('all')

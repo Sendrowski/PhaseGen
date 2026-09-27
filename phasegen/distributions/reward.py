@@ -930,11 +930,21 @@ class JointRewardDistribution(CallableDistributionFunctions):
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
         return self._cos2d_memo('cos2d', self._build_cos2d)
 
+    def _cos2d_window(self, axis: str) -> float:
+        """
+        The window end of the 2D cosine expansion on one axis, ``mean + scale * std`` of the marginal with
+        :attr:`_cos2d_window_scale` as the scale.
+
+        :param axis: The axis, ``'a'`` or ``'b'``.
+        :return: The window end.
+        """
+        return self.marginal(axis)._range(self._cos2d_window_scale)
+
     def _build_cos2d(self) -> dict:
         """Build ``_cos2d``."""
-        n_terms, scale, big = Settings.cos_terms_2d, self._cos2d_window_scale, self._s_inf
+        n_terms, big = Settings.cos_terms_2d, self._s_inf
         p00 = self._atoms['both0']
-        ba, bb = self.marginal('a')._range(scale), self.marginal('b')._range(scale)
+        ba, bb = self._cos2d_window('a'), self._cos2d_window('b')
 
         # the expansion folds the mass beyond its window back into it, so the joint CDF near the window end is too
         # high by up to that mass

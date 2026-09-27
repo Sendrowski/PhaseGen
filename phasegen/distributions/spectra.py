@@ -58,7 +58,7 @@ class _SFSAggregateFunction:
     def plot(
             self,
             ax: 'plt.Axes' = None,
-            x: np.ndarray = None,
+            t: np.ndarray = None,
             bins: Sequence[int] = None,
             n_points: int = None,
             show: bool = True,
@@ -72,7 +72,7 @@ class _SFSAggregateFunction:
         Plot the function of every SFS bin at once, one curve per bin.
 
         :param ax: Axes to plot on.
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
         :param bins: The bins (frequency classes) to plot. By default, all polymorphic bins.
         :param n_points: Number of points of the default grid.
@@ -86,7 +86,7 @@ class _SFSAggregateFunction:
         """
         from ..visualization import Visualization
 
-        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, bins=bins, n_points=n_points), file=file,
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, bins=bins, n_points=n_points), file=file,
                                          show=show, clear=clear, label=label, title=title, **kwargs)
 
 
@@ -583,29 +583,29 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         jd.label = f"SFS bins ({i}, {j})"
         return jd
 
-    def _plot_data_cdf(self, x: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+    def _plot_data_cdf(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
         """
         The CDF curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by bin.
         """
-        return self._reward_curves('cdf', self._bin_items(bins), x, n_points, 'SFS bin CDFs', 'bin')
+        return self._reward_curves('cdf', self._bin_items(bins), t, n_points, 'SFS bin CDFs', 'bin')
 
-    def _plot_data_pdf(self, x: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
+    def _plot_data_pdf(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
         """
         The density curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by bin.
         """
-        return self._reward_curves('pdf', self._bin_items(bins), x, n_points, 'SFS bin PDFs', 'bin')
+        return self._reward_curves('pdf', self._bin_items(bins), t, n_points, 'SFS bin PDFs', 'bin')
 
     def _plot_data_quantile(
             self,
@@ -1429,7 +1429,7 @@ class _JointSFSAggregateFunction:
     def plot(
             self,
             ax: 'plt.Axes' = None,
-            x: np.ndarray = None,
+            t: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
             n_points: int = None,
             show: bool = True,
@@ -1443,7 +1443,7 @@ class _JointSFSAggregateFunction:
         Plot the function of every joint SFS bin at once, one curve per descendant configuration.
 
         :param ax: Axes to plot on.
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
         :param configs: The joint bins (descendant configurations) to plot. By default, all polymorphic bins.
         :param n_points: Number of points of the default grid.
@@ -1457,7 +1457,7 @@ class _JointSFSAggregateFunction:
         """
         from ..visualization import Visualization
 
-        return Visualization.plot_curves(ax=ax, data=self._plot_data(x=x, configs=configs, n_points=n_points),
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, configs=configs, n_points=n_points),
                                          file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
@@ -1756,37 +1756,37 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
     def _plot_data_cdf(
             self,
-            x: np.ndarray = None,
+            t: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
         The CDF curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param configs: The joint bins (descendant configurations) to include. By default, all of them.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by configuration.
         """
-        return self._reward_curves('cdf', self._config_items(configs), x, n_points, 'Joint SFS bin CDFs', 'config')
+        return self._reward_curves('cdf', self._config_items(configs), t, n_points, 'Joint SFS bin CDFs', 'config')
 
     def _plot_data_pdf(
             self,
-            x: np.ndarray = None,
+            t: np.ndarray = None,
             configs: Sequence[Tuple[int, ...]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
         The density curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param x: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
+        :param t: Points to evaluate at. By default, an evenly spaced grid up to the largest bin's
             :attr:`Settings.plot_endpoint_quantile` quantile.
         :param configs: The joint bins (descendant configurations) to include. By default, all of them.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by configuration.
         """
-        return self._reward_curves('pdf', self._config_items(configs), x, n_points, 'Joint SFS bin PDFs', 'config')
+        return self._reward_curves('pdf', self._config_items(configs), t, n_points, 'Joint SFS bin PDFs', 'config')
 
     def _plot_data_quantile(
             self,
