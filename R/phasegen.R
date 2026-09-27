@@ -7,7 +7,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' is_installed()  # Returns TRUE or FALSE based on the installation status of phasegen
+#' phasegen_is_installed()  # Returns TRUE or FALSE based on the installation status of phasegen
 #' }
 #'
 #' @export
@@ -187,7 +187,13 @@ deme <- function(x, name) {
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' coal <- pg$Coalescent(n = list(pop_0 = 3L, pop_1 = 2L))
+#' coal <- pg$Coalescent(
+#'   n = list(pop_0 = 3L, pop_1 = 2L),
+#'   demography = pg$Demography(
+#'     pop_sizes = list(pop_0 = 1, pop_1 = 1),
+#'     events = c(pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 1))
+#'   )
+#' )
 #' coal$sfs$demes$pop_0$mean
 #' coal$sfs$demes[["pop_1"]]$mean
 #' }
@@ -961,7 +967,14 @@ joint_sfs_data <- function(x, pops, mask_monomorphic) {
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' plot(pg$Coalescent(n = list(pop_0 = 4L, pop_1 = 4L))$jsfs$mean)
+#' coal <- pg$Coalescent(
+#'   n = list(pop_0 = 3L, pop_1 = 3L),
+#'   demography = pg$Demography(
+#'     pop_sizes = list(pop_0 = 1, pop_1 = 1),
+#'     events = c(pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 1))
+#'   )
+#' )
+#' plot(coal$jsfs$mean)
 #' }
 #'
 #' @method plot sfsutils.spectrum.JointSFS
@@ -997,7 +1010,14 @@ plot.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, log
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' persp(pg$Coalescent(n = list(pop_0 = 4L, pop_1 = 4L))$jsfs$mean, title = "Mean joint SFS")
+#' coal <- pg$Coalescent(
+#'   n = list(pop_0 = 3L, pop_1 = 3L),
+#'   demography = pg$Demography(
+#'     pop_sizes = list(pop_0 = 1, pop_1 = 1),
+#'     events = c(pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 1))
+#'   )
+#' )
+#' persp(coal$jsfs$mean, title = "Mean joint SFS")
 #' }
 #'
 #' @method persp sfsutils.spectrum.JointSFS
@@ -1032,7 +1052,10 @@ persp.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, ma
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' d <- pg$Demography(pop_sizes = list(pop_0 = 1, pop_1 = 2))
+#' d <- pg$Demography(
+#'   pop_sizes = list(pop_0 = 1, pop_1 = 2),
+#'   events = c(pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 1))
+#' )
 #' plot(d)
 #' plot(d, which = "migration")
 #' }
@@ -1136,6 +1159,28 @@ plot_accumulation.phasegen.distributions.phase_type.PhaseTypeDistribution <- fun
 #'
 #' @examples
 #' \dontrun{
+#' pg <- load_phasegen()
+#'
+#' inf <- pg$Inference(
+#'   bounds = list(t = c(0, 4), Ne = c(0.1, 1)),
+#'   observation = pg$SFS(c(177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652)),
+#'   coal = function(t, Ne) pg$Coalescent(
+#'     n = 10,
+#'     demography = pg$Demography(events = c(
+#'       pg$PopSizeChange(pop = "pop_0", time = 0, size = 1),
+#'       pg$PopSizeChange(pop = "pop_0", time = t, size = Ne)
+#'     ))
+#'   ),
+#'   loss = function(coal, obs) pg$PoissonLikelihood()$compute(
+#'     observed = obs$normalize()$polymorphic,
+#'     modelled = coal$sfs$mean$normalize()$polymorphic
+#'   ),
+#'   resample = function(sfs, rng) sfs$resample(seed = rng),
+#'   do_bootstrap = TRUE,
+#'   n_bootstraps = 10L,
+#'   seed = 42L
+#' )
+#'
 #' inf$run()
 #' plot(inf, which = "pop_sizes")
 #' plot(inf, which = "bootstraps")

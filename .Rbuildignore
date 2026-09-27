@@ -1,4 +1,4 @@
-# The R package is only the reticulate shim (R/, NAMESPACE, DESCRIPTION, LICENSE);
+# The R package is only the reticulate shim (R/, man/, tests/, NAMESPACE, DESCRIPTION, LICENSE);
 # the Python package is fetched at load time via reticulate, so everything below is
 # excluded from the built/installed package. This does not shrink the GitHub source
 # archive that install_github downloads, only what R CMD build copies into the package.
@@ -7,7 +7,6 @@
 ^results$
 ^resources$
 ^testing$
-^tests$
 ^scripts$
 ^phasegen$
 ^docs$
@@ -25,7 +24,6 @@
 ^conftest\.py$
 ^pyproject\.toml$
 ^poetry\.lock$
-^environment\.yml$
 ^codecov\.yml$
 ^\.coveragerc$
 ^\.coverage$
