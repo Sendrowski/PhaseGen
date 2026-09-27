@@ -844,10 +844,11 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
         # order and shape afterwards
         # NaN points are passed through, the sweep taking the others
         flat = ta.ravel()
-        finite = ~np.isnan(flat)
+        finite = d._sweepable(flat)
         order = np.argsort(flat[finite])
         probs = np.full_like(flat, np.nan)
         probs[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[0]
+        probs[np.isinf(flat) & ~finite] = 1.0
 
         if np.isnan(probs[finite]).any():
             d._logger.critical("NaN values in CDF. This is likely due to an ill-conditioned rate matrix.")
@@ -904,10 +905,11 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
             raise ValueError("Negative values are not allowed.")
 
         flat = ta.ravel()
-        finite = ~np.isnan(flat)
+        finite = d._sweepable(flat)
         order = np.argsort(flat[finite])
         dens = np.full_like(flat, np.nan)
         dens[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[1]
+        dens[np.isinf(flat) & ~finite] = 0.0
 
         return dens.reshape(ta.shape) if ta.ndim > 0 else float(dens[0])
 
@@ -1120,6 +1122,23 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         self._check_numerical_stability(self.state_space.S, epoch.index)
 
         return self._propagate(w, u - u_prev)
+
+    def _sweepable(self, t: np.ndarray) -> np.ndarray:
+        """
+        The times ``_sweep`` evaluates: those not NaN, and not infinite on a demography with infinitely many epochs,
+        where the sweep would never reach infinity. There the CDF is 1 and the density 0, the demography absorbing
+        almost surely, which ``t_max`` asserts.
+
+        :param t: Times.
+        :return: Mask of the times the sweep evaluates.
+        """
+        mask = ~np.isnan(t)
+
+        if np.isinf(t).any() and not self.demography._has_finitely_many_epochs:
+            _ = self.t_max
+            mask &= ~np.isinf(t)
+
+        return mask
 
     def _exit_rates(self) -> np.ndarray:
         """The per-state absorption rates of the current epoch, see ``_sweep``."""

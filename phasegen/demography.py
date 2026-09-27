@@ -377,8 +377,15 @@ class Demography:
 
         :param t: Times.
         :return: Array of epochs.
+        :raises ValueError: If a time is negative or NaN, or infinite on a demography with infinitely many epochs.
         """
         t = np.asarray(list(t), dtype=float)
+
+        if np.isnan(t).any() or (t < 0).any():
+            raise ValueError(f'Epochs are defined at non-negative times, got {t[np.isnan(t) | (t < 0)][0]}.')
+
+        if np.isinf(t).any() and not self._has_finitely_many_epochs:
+            raise ValueError('The demography has infinitely many epochs, so there is no epoch at infinity.')
 
         # build the epochs up to the latest time, then look each time up among their start times
         t_max = t.max(initial=0.0)
@@ -397,8 +404,18 @@ class Demography:
 
         :param t: Time.
         :return: Epoch.
+        :raises ValueError: If ``t`` is negative or NaN, or infinite on a demography with infinitely many epochs.
         """
         return self.get_epochs([t])[0]
+
+    @property
+    def _has_finitely_many_epochs(self) -> bool:
+        """
+        Whether the demography has finitely many epochs, which holds unless a discretized event has no end.
+
+        :return: Whether the number of epochs is finite.
+        """
+        return all(e.end_time < np.inf for e in self.events if isinstance(e, DiscretizedDemographicEvent))
 
     def add_events(self, events: List['DemographicEvent']) -> None:
         """

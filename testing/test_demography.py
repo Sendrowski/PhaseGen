@@ -823,3 +823,19 @@ def test_to_msprime_warns_when_truncating_epochs(caplog):
     with caplog.at_level('WARNING'):
         dem.to_msprime(max_epochs=10)
     assert any('more than 11 epochs' in r.getMessage() for r in caplog.records)
+
+
+def test_cdf_and_pdf_at_infinity_on_infinitely_many_epochs():
+    """The tree-height CDF is 1 and the density 0 at infinity on a demography with infinitely many epochs, and an
+    epoch lookup at infinity or NaN raises. Regression: all of them never returned."""
+    dem = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=0.5, start_time=0, step_size=0.1
+    )])
+    coal = pg.Coalescent(n=3, demography=dem)
+
+    np.testing.assert_array_equal(coal.tree_height.cdf([1.0, np.inf])[1:], [1.0])
+    assert coal.tree_height.pdf(np.inf) == 0.0
+
+    for t in (np.inf, np.nan, -1.0):
+        with pytest.raises(ValueError):
+            dem.get_epoch(t)
