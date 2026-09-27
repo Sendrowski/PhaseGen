@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
 from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, Union, TYPE_CHECKING
 import numpy as np
+from ..errors import ModelError
 import scipy.sparse as sp
 from ..demography import Demography
 from ..expm import Backend
@@ -1679,7 +1680,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
                 )
 
         if np.isnan(out).any():
-            raise ValueError(
+            raise ModelError(
                 "NaN value encountered when computing moment. "
                 "This is likely due to an ill-conditioned rate matrix."
             )

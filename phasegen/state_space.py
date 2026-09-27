@@ -23,6 +23,7 @@ from itertools import product
 from typing import List, Tuple, Dict, Callable, cast
 
 import numpy as np
+from .errors import ModelError
 import scipy.sparse as sp
 from tqdm import tqdm
 
@@ -286,7 +287,10 @@ class StateSpace(ABC):
         the rate of the event taking state :math:`x` to state :math:`y`. The diagonal follows the zero-row-sum
         convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`, and the
         absorption rates are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`.
+
+        :raises ModelError: If a population size of the epoch is not positive.
         """
+        self._assert_positive_sizes(self.epoch)
         return self._get_rate_matrix()
 
     @cached_property
@@ -341,6 +345,7 @@ class StateSpace(ABC):
         """
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
+            self._assert_positive_sizes(epoch)
 
             # update S by rescaling if already cached, provided there is only one population and one locus
             if (
@@ -354,6 +359,24 @@ class StateSpace(ABC):
                 self.drop_S()
 
         self.epoch = epoch
+
+    @staticmethod
+    def _assert_positive_sizes(epoch: Epoch) -> None:
+        """
+        Raise if a population size of ``epoch`` is not positive, since the coalescence rates divide by it. A decaying
+        trajectory may reach zero, which a simulation accepts, but the exact computation needs a positive size in
+        every epoch it reaches.
+
+        :param epoch: Epoch.
+        :raises ModelError: If a population size is not positive.
+        """
+        for pop, size in epoch.pop_sizes.items():
+            if not size > 0:
+                raise ModelError(
+                    f"The population size of {pop} is {size} in the epoch starting at {epoch.start_time:g}, but the "
+                    f"exact computation needs a positive size in every epoch it reaches. Floor the trajectory at a "
+                    f"small positive size."
+                )
 
     def _get_scaling_factor(self, epoch_prev: Epoch, epoch_next: Epoch) -> float:
         """

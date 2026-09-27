@@ -16,6 +16,7 @@ import scipy.sparse.linalg as spla
 import scipy.sparse.csgraph as csg
 from ..coalescent_models import StandardCoalescent
 from ..demography import Epoch
+from ..errors import ModelError
 from ..expm import Backend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
@@ -375,7 +376,7 @@ class MomentEvaluator:
             )[0])
 
         if np.isnan(m):
-            raise ValueError(
+            raise ModelError(
                 "NaN value encountered when computing moment. "
                 "This is likely due to an ill-conditioned rate matrix."
             )
@@ -550,7 +551,7 @@ class MomentEvaluator:
         which makes both the absorption-time search and the closed-form solve unreliable. Keyed on the demography, not
         the rate matrix, whose range multiple-merger models widen legitimately.
 
-        :raises ValueError: if the population sizes and migration rates differ by a factor of more than ``1e16``.
+        :raises ModelError: if the population sizes and migration rates differ by a factor of more than ``1e16``.
         """
         epoch = self.demography.get_epoch(0)
 
@@ -560,7 +561,7 @@ class MomentEvaluator:
         ratio = max(scales) / min(scales) if scales else 1
 
         if ratio > 1e16:
-            raise ValueError(
+            raise ModelError(
                 "The demography is too ill-conditioned to reliably compute the time of almost sure absorption: its "
                 f"population sizes and migration rates differ by a factor of {ratio:.1e}. Use less extreme "
                 "parameters, or set the end time manually (see ``Coalescent.end_time``)."
@@ -1352,13 +1353,13 @@ class MomentEvaluator:
         (``state_space`` updated to it) is permanent. Called by the absorption-time search.
 
         :param w: State distribution at a large time in the final, unbounded epoch.
-        :raises ValueError: if a non-negligible fraction of the mass can never reach a common ancestor.
+        :raises ModelError: if a non-negligible fraction of the mass can never reach a common ancestor.
         """
         _, reach = self._reaches_absorption()
         stuck = float(np.asarray(w)[~reach].sum())
 
         if stuck > 1e-8:
-            raise ValueError(
+            raise ModelError(
                 f"The demography does not absorb: a fraction {stuck:.2e} of the probability mass remains on "
                 "states that can never reach a common ancestor, so there is no almost-sure absorption time. "
                 "This typically means a deme is isolated or migration is one-way/blocked in the final "

@@ -781,3 +781,17 @@ def test_a_decaying_trajectory_underflowing_to_zero_converts_to_msprime():
     )])
 
     assert dem.to_msprime() is not None
+
+
+def test_a_zero_size_reached_by_the_exact_computation_raises_clearly():
+    """A trajectory reaching a population size of zero is accepted for simulation, but the exact computation raises a
+    clear ValueError where it reaches that epoch. Regression: it raised ZeroDivisionError from the rate-matrix builder
+    or returned a NaN CDF."""
+    dem = pg.Demography(events=[pg.DiscretizedRateChange(
+        trajectory=lambda t: max(1 - t, 0), start_time=0, end_time=3, pop='pop_0', step_size=0.1
+    )])
+    coal = pg.Coalescent(n=3, demography=dem)
+
+    for call in (lambda: coal.tree_height.mean, lambda: coal.tree_height.cdf(1.5), lambda: coal.sfs.mean):
+        with pytest.raises(ValueError, match='needs a positive size'):
+            call()

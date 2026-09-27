@@ -1158,7 +1158,8 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
                 return {(self.source_pop, self.dest_pop)}
 
-            # a decaying trajectory may underflow to zero far out, which is not an invalid size
+            # a decaying trajectory may underflow to zero far out, which a simulation accepts and the exact
+            # computation rejects where it reaches that epoch
             if not rate >= 0:
                 raise ValueError(f'The population size trajectory of {self.pop} gives {rate} on '
                                  f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative.')

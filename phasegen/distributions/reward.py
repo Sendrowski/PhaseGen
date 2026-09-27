@@ -14,7 +14,7 @@ import scipy.sparse as sp
 from scipy.integrate import simpson
 
 from ..caching import cached_property
-from ..expm import Backend
+from ..errors import ModelError
 from ..rewards import Reward
 from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
@@ -393,7 +393,7 @@ def _assert_lst_absorbs(host) -> None:
     failure of the inversion.
 
     :param host: The phase-type distribution whose state space and demography are checked.
-    :raises ValueError: if some state carrying mass can never reach a common ancestor.
+    :raises ModelError: if some state carrying mass can never reach a common ancestor.
     """
     # one backward reachability per host, memoized: an SFS evaluates many bins through the same state space
     absorbs = getattr(host, '_lst_absorbs_cache', None)
@@ -407,7 +407,7 @@ def _assert_lst_absorbs(host) -> None:
     if absorbs:
         return
 
-    raise ValueError(
+    raise ModelError(
         "The demography does not absorb: some states carrying probability mass can never reach a common "
         "ancestor in the final (unbounded) epoch, so the accumulated reward has no proper distribution. This "
         "typically means a deme is isolated or migration is one-way/blocked in the last epoch, leaving lineages "

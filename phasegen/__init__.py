@@ -207,6 +207,7 @@ from .spectrum import (
     TwoLocusSFS
 )
 
+from .errors import ModelError
 from .inference import Inference
 
 from .lineage import LineageConfig
@@ -265,6 +266,7 @@ __all__ = [
     'TwoLocusSFS',
     'Spectra',
     'Inference',
+    'ModelError',
     'LNorm',
     'L1Norm',
     'L2Norm',
