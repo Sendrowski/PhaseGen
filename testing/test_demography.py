@@ -675,6 +675,36 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
     assert mean == pytest.approx(0.01, rel=0.05)
 
 
+@pytest.mark.parametrize('model, N', [
+    (pg.StandardCoalescent(), 0.1),
+    (pg.DiracCoalescent(psi=0.5, c=50), 1.0),
+    (pg.DiracCoalescent(psi=0.5, c=1), 0.1),
+    (pg.BetaCoalescent(alpha=1.5), 100.0),
+])
+def test_population_split_drain_time_is_a_fixed_fraction_of_the_pairwise_coalescence_time(model, N):
+    """
+    The drain rate of a split was ``multiplier / min(N)`` under every coalescent model, ignoring the model's time
+    scale and the Dirac point-mass rate, so the drain was only 7.4 times faster than pairwise coalescence under
+    Dirac(psi=0.5, c=50) at N = 1 and inflated split-demography moments by 4 to 11% under the Beta and Dirac
+    coalescents. With one lineage in each of two demes of equal size and a split at time 0, the lineage in the
+    derived deme leaves after a mean time ``1 / m`` and the pair then coalesces after a mean time ``tau(N) / lambda``,
+    with ``lambda`` the pairwise merger rate and ``tau`` the model's time scale, so the tree height has the closed-form
+    mean ``tau(N) / lambda * (1 + 1 / multiplier)``. The tolerance only absorbs the precision of the phase-type
+    computation.
+    """
+    pair = model._get_timescale(N) / model._get_rate(b=2, k=2)
+
+    d = pg.Demography(
+        pop_sizes={'a': N, 'b': N},
+        events=[pg.PopulationSplit(time=0, derived='a', ancestral='b')]
+    )
+
+    coal = pg.Coalescent(n={'a': 1, 'b': 1}, model=model, demography=d)
+
+    assert coal.demography.get_epoch(0).migration_rates[('a', 'b')] == pytest.approx(100 / pair, rel=1e-12)
+    assert coal.tree_height.mean == pytest.approx(pair * (1 + 1 / 100), rel=1e-8)
+
+
 def test_exponential_growth_survives_a_serialization_round_trip():
     """An exponential rate change keeps its trajectory through to_json / from_json. Regression: the trajectory was a
     closure, which jsonpickle drops, so a coalescent saved before computing anything raised AttributeError on every

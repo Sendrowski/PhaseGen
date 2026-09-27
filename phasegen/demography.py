@@ -14,6 +14,7 @@ from typing import List, Callable, Dict, Iterable, Tuple, Any, Iterator, Literal
 import dill
 import numpy as np
 
+from .coalescent_models import CoalescentModel, StandardCoalescent
 from .settings import Settings
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class Demography:
     #: Whether the warning about events setting the same rate in one epoch was issued. Static for backward
     #: compatibility.
     _issued_overlap_warning: bool = False
+
+    #: Coalescent model whose pairwise coalescence rate sets the drain rate of a population split. ``None`` stands
+    #: for the standard coalescent. Static for backward compatibility.
+    _model: CoalescentModel | None = None
 
     def __init__(
             self,
@@ -266,7 +271,7 @@ class Demography:
 
         :return: The epochs, in order.
         """
-        key = tuple(map(id, self.events))
+        key = (id(self._model),) + tuple(map(id, self.events))
 
         if self.__dict__.get('_epoch_key') != key:
             self.__dict__['_epoch_key'] = key
@@ -335,8 +340,10 @@ class Demography:
         for e in splits:
             e._isolate(epoch)
 
+        model = StandardCoalescent() if self._model is None else self._model
+
         for e in splits:
-            e._apply(epoch)
+            e._apply(epoch, model)
 
         epoch.index = i
 
@@ -1007,10 +1014,15 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
         :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
-            is set to :math:`m = c / \min_i N_i`, the multiplier :math:`c` divided by the smallest population size
-            :math:`N_i`, in the epoch of the split and again in every later epoch, so that :math:`m` is a multiple of
-            the fastest coalescence rate of each epoch. It should be large enough that the lineages move to the
-            ancestral population within a time that is negligible on the coalescent time scale.
+            is set to :math:`m = c \max_i \lambda_{2,2} / \tau(N_i)`, the multiplier :math:`c` times the fastest
+            pairwise coalescence rate of the epoch, where :math:`\lambda_{2,2}` is the rate at which two lineages
+            merge under the coalescent model (1 for the standard and the Beta coalescent, :math:`1 + c_D \psi^2` for
+            the Dirac coalescent with parameters :math:`\psi` and :math:`c_D`), and :math:`\tau(N_i)` is the
+            model's time scale for population size :math:`N_i` (:math:`N_i` for the standard coalescent). The rate is
+            set in the epoch of the split and again in every later epoch. A lineage thus leaves a derived population
+            after a mean time :math:`1 / m`, a fraction :math:`1 / c` of the mean time to coalescence of a pair in the
+            population that coalesces fastest. With more than two lineages in a population the first coalescence
+            comes sooner, so the fraction of coalescent time the drain displaces is larger than :math:`1 / c`.
         """
         if isinstance(derived, str):
             derived = [derived]
@@ -1054,7 +1066,7 @@ class PopulationSplit(DiscreteDemographicEvent):
                         epoch.migration_rates[(p, q)] = 0
                         epoch.migration_rates[(q, p)] = 0
 
-    def _apply(self, epoch: Epoch) -> set:
+    def _apply(self, epoch: Epoch, model: CoalescentModel) -> set:
         """
         Set the drain rate from each derived population to the ancestral population in every epoch from the split
         onwards, so that a later split isolating the ancestral population does not strand lineages still in a derived
@@ -1062,14 +1074,16 @@ class PopulationSplit(DiscreteDemographicEvent):
         :meth:`PopulationSplit._isolate() <phasegen.demography.PopulationSplit._isolate>` of every split.
 
         :param epoch: Epoch.
+        :param model: Coalescent model, whose pairwise coalescence rate and time scale set the drain rate.
         :return: The keys of the drain rates set.
         """
         if self.start_time >= epoch.end_time:
             return set()
 
-        # the drain rate is a multiple of the fastest coalescence rate of the epoch, 1 / min(N), so that the lineages
+        # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch, so that the lineages
         # leave the derived populations before any coalescence the split displaces
-        rate = self.multiplier / min(epoch.pop_sizes.values())
+        timescale = min(model._get_timescale(N) for N in epoch.pop_sizes.values())
+        rate = self.multiplier * model._get_rate(b=2, k=2) / timescale
 
         for p in self.derived:
             epoch.migration_rates[(p, self.ancestral)] = rate
