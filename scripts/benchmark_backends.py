@@ -50,7 +50,6 @@ def run(backend: pg.ExpmBackend, warm_start: bool = True) -> float:
 backends = dict(
     scipy64=pg.SciPyExpmBackend(np.float64),
     scipy32=pg.SciPyExpmBackend(np.float32),
-    scipy16=pg.SciPyExpmBackend(np.float16),
     tensorflow=pg.TensorFlowExpmBackend(),
     pytorch=pg.PyTorchExpmBackend(),
     jax=pg.JaxExpmBackend()

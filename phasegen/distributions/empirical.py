@@ -1869,6 +1869,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             func=simulate_batch,
             data=self._batch_seeds(),
             parallelize=self.parallelize,
+            pbar=Settings.use_pbar,
             batch_size=num_replicates,
             desc="Simulating trees",
             dtype=object

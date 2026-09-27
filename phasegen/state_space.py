@@ -40,14 +40,25 @@ logger = logging.getLogger('phasegen')
 def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, float]:
     """
     Pack a coalescent model into ``(model_id, alpha, psi, c)`` for the numba kernels (0 standard, 1 beta, 2 dirac).
+
+    :param model: Coalescent model.
+    :return: The model parameters of the kernels.
+    :raises NotImplementedError: If the kernels do not implement the rates of the model's type.
     """
-    if isinstance(model, BetaCoalescent):
+    if type(model) is StandardCoalescent:
+        return 0, 0.0, 0.0, 0.0
+
+    if type(model) is BetaCoalescent:
         return 1, model.alpha, 0.0, 0.0
 
-    if isinstance(model, DiracCoalescent):
+    if type(model) is DiracCoalescent:
         return 2, 0.0, model.psi, model.c
 
-    return 0, 0.0, 0.0, 0.0
+    raise NotImplementedError(
+        f"The numba state-space construction implements the rates of StandardCoalescent, BetaCoalescent and "
+        f"DiracCoalescent only, got {type(model).__name__}. Set Settings.use_numba = False to use the pure-Python "
+        f"construction, which evaluates the rates of the model."
+    )
 
 
 class StateSpace(ABC):
@@ -128,10 +139,11 @@ class StateSpace(ABC):
         """
         start = time.time()
 
-        # The construction is guarded against a prohibitively large (out-of-memory) state space by an abort cap in
-        # the builder (``Settings.max_state_space_size``), which raises before memory is exhausted — this works for
-        # every state-space type, without needing an a-priori size formula. After a successful build the actual
-        # count is warned about (escalating with size), again for every type.
+        # The builder aborts with a MemoryError once the number of states exceeds ``Settings.max_state_space_size``,
+        # for every state-space type and without an a-priori size formula. The cap bounds the number of states, not
+        # the memory, which grows with the width of a state, so the joint block-counting space of several demes can
+        # exhaust memory below it. After a successful build the actual count is warned about (escalating with size),
+        # again for every type.
         if self._use_numba():
             states, S = self._construct_numba()
             # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it

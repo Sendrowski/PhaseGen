@@ -358,6 +358,7 @@ class Demography:
         state = self.__dict__.copy()
         state.pop('_epoch_cache', None)
         state.pop('_epoch_key', None)
+        state.pop('_epoch_index', None)
 
         return state
 
@@ -397,14 +398,22 @@ class Demography:
 
         # build the epochs up to the latest time, then look each time up among their start times
         t_max = t.max(initial=0.0)
-        for epoch in self.epochs:
-            if epoch.end_time > t_max:
-                break
-
         epochs = self._built_epochs()
-        starts = np.array([e.start_time for e in epochs])
 
-        return np.array(epochs, dtype=object)[np.searchsorted(starts, t, side='right') - 1]
+        if not epochs or epochs[-1].end_time <= t_max:
+            for epoch in self.epochs:
+                if epoch.end_time > t_max:
+                    break
+
+            epochs = self._built_epochs()
+
+        # the start times and the object array of the built epochs, rebuilt when epochs are added or discarded
+        index = self.__dict__.get('_epoch_index')
+        if index is None or index[0] is not epochs or len(index[1]) != len(epochs):
+            index = (epochs, np.array([e.start_time for e in epochs]), np.array(epochs, dtype=object))
+            self.__dict__['_epoch_index'] = index
+
+        return index[2][np.searchsorted(index[1], t, side='right') - 1]
 
     def get_epoch(self, t: float = 0) -> 'Epoch':
         """

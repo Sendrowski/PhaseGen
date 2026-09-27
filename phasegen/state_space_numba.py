@@ -222,8 +222,7 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
 
     cur = 0
     while cur < len(rows):
-        # abort the BFS once the discovered states exceed the cap (the caller raises); this guards against building
-        # a prohibitively large state space (which would otherwise exhaust memory before returning)
+        # abort the BFS once the discovered states exceed the cap (the caller raises)
         if len(rows) > max_states:
             break
 
@@ -394,8 +393,12 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
 
         cur += 1
 
-    # convert to arrays
+    # convert to arrays, an aborted build returning only its state count in the row dimension of an empty array
     n_states = len(rows)
+    if n_states > max_states:
+        empty = np.empty(0, dtype=np.int64)
+        return np.empty((n_states, 0), dtype=np.int64), empty, empty, np.empty(0, dtype=np.float64)
+
     rows_arr = np.empty((n_states, dim), dtype=np.int64)
     for i in range(n_states):
         rows_arr[i] = rows[i]
@@ -433,11 +436,12 @@ def build_rate_matrix(
     """
     Python entry point: build the state rows and the rate matrix via the numba kernel.
 
-    The kernel's BFS is aborted once it discovers more than ``max_states`` states, which guards against building a
-    prohibitively large state space by raising a clear error before memory is exhausted. The COO transitions it
-    returns are assembled, in one place, into either a dense array (below ``dense_max_states`` states, where dense is
-    cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above it, since the generator
-    is sparse, each state coalescing to only O(n) others, and a dense ``n_states**2`` matrix would be prohibitive).
+    The kernel's BFS is aborted once it discovers more than ``max_states`` states, and a :class:`MemoryError` is
+    raised. The cap bounds the number of states, not the memory, which grows with the width of a state row. The COO
+    transitions the kernel returns are assembled, in one place, into either a dense array (below ``dense_max_states``
+    states, where dense is cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above
+    it, since the generator is sparse, each state coalescing to only O(n) others, and a dense ``n_states**2`` matrix
+    would be prohibitive).
 
     :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
         order) and ``S`` is the dense or sparse intensity matrix, whose diagonal holds the negative row sums.

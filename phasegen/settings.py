@@ -42,7 +42,8 @@ class Settings(metaclass=_SettingsMeta):
     #: <phasegen.distributions.PhaseTypeDistribution.moment>`.
     flatten_block_counting: bool = True
 
-    #: Whether to show a progress bar for long-running operations.
+    #: Whether to show a progress bar when simulating with :class:`~phasegen.distributions.MsprimeCoalescent` and when
+    #: building a state space with the pure-Python construction.
     use_pbar: bool = False
 
     #: Whether to allow parallel computation over worker processes. Set to ``False`` to run everything sequentially,
@@ -148,9 +149,9 @@ class Settings(metaclass=_SettingsMeta):
     @contextmanager
     def set_pbar(enabled: bool = True) -> Iterator[None]:
         """
-        Context manager to temporarily enable or disable the progress bar.
+        Context manager to temporarily enable or disable the progress bars governed by :attr:`use_pbar`.
 
-        :param enabled: Whether to show the progress bar within the context.
+        :param enabled: Whether to show the progress bars within the context.
         """
         prev = Settings.use_pbar
         Settings.use_pbar = enabled

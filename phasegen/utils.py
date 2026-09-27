@@ -24,8 +24,9 @@ class _ConfiguredCall:
     A function together with a snapshot of the process-global configuration of the process that wrapped it, which it
     applies in the process that calls it.
 
-    The configuration is the public :class:`~phasegen.settings.Settings` attributes and the registered matrix
-    exponentiation backend, both of which a worker started by ``spawn`` holds at the value declared in the package.
+    The configuration is the public :class:`~phasegen.settings.Settings` attributes, the registered matrix
+    exponentiation backend and the level of the ``phasegen`` logger, all of which a worker started by ``spawn`` holds
+    at the value declared in the package.
     Applying it immediately before each call also gives it precedence over a module that registers a backend or
     assigns a setting when the worker imports it.
     """
@@ -47,6 +48,9 @@ class _ConfiguredCall:
 
         #: Registered matrix exponentiation backend, serialized by reference, or ``None`` if it cannot be serialized.
         self.backend: Optional[bytes] = self._dump_backend()
+
+        #: Level of the ``phasegen`` logger.
+        self.log_level: int = logger.level
 
     @staticmethod
     def _dump_backend() -> Optional[bytes]:
@@ -77,6 +81,8 @@ class _ConfiguredCall:
         """
         for name, value in self.settings.items():
             setattr(Settings, name, value)
+
+        logger.setLevel(self.log_level)
 
         if self.backend is not None:
             Backend.backend = dill.loads(self.backend)
@@ -110,9 +116,10 @@ def parallelize(
     """
     Parallelize given function or execute sequentially.
 
-    Each call in a worker runs under the calling process's :class:`~phasegen.settings.Settings` and its registered
-    matrix exponentiation backend, which the ``spawn`` start method would otherwise reset to their defaults, so that
-    the result does not depend on whether it was computed in the calling process or in a worker.
+    Each call in a worker runs under the calling process's :class:`~phasegen.settings.Settings`, its registered
+    matrix exponentiation backend and the level of its ``phasegen`` logger, which the ``spawn`` start method would
+    otherwise reset to their defaults, so that the result does not depend on whether it was computed in the calling
+    process or in a worker.
 
     On macOS the worker pool uses the ``spawn`` start method, not the ``fork`` default of ``multiprocess``.
     Forking a process that has initialized threaded native libraries (numba/llvmlite, and on macOS the

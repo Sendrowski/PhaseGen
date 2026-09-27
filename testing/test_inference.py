@@ -941,6 +941,37 @@ if __name__ == '__main__':
         self.assertTrue(inf.do_bootstrap)
         self.assertFalse(inf.create_run(index=0).do_bootstrap)
 
+    def test_spawned_run_performs_one_optimization(self):
+        """add_run records one row per spawned run, so a spawned run that inherited the parent's n_runs performed
+        n_runs optimizations per cluster job and the runs table under-counted them."""
+        inf = pg.Inference(
+            bounds={'Ne': (0.5, 2.0)},
+            coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+            loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2),
+            observation=1.0,
+            pbar=False
+        )
+
+        run = inf.create_run(index=0)
+        run.run()
+
+        self.assertEqual(10, inf.n_runs)
+        self.assertEqual(1, len(run.runs))
+
+    def test_invalid_bounds_and_method_raise_at_construction(self):
+        """Reversed bounds raised numpy's 'high - low < 0' or blamed x0, and an unknown optimizer skipped every run
+        and blamed the loss function. Both are rejected at construction with an error naming the cause."""
+        kwargs = dict(coal=lambda Ne: pg.Coalescent(n=2), loss=lambda coal, obs: 0.0, observation=1.0)
+
+        for x0 in (None, {'Ne': 1.0}):
+            with self.assertRaisesRegex(ValueError, r"lower bound exceeds the upper bound for parameters \['Ne'\]"):
+                pg.Inference(bounds={'Ne': (2.0, 0.5)}, x0=x0, **kwargs)
+
+        with self.assertRaisesRegex(ValueError, "Unknown optimization method 'L-BFGS'"):
+            pg.Inference(bounds={'Ne': (0.5, 2.0)}, method_mle='L-BFGS', **kwargs)
+
+        pg.Inference(bounds={'Ne': (0.5, 2.0)}, method_mle='nelder-mead', **kwargs)
+
     def test_everywhere_invalid_loss_warns_that_the_start_point_is_reported(self):
         """A loss that is non-finite at every point is replaced by the finite penalty, so the optimizer 'converges'
         and the start point is presented as an estimate. That must be said out loud."""

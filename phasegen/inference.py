@@ -119,9 +119,20 @@ class Inference(Serializable):
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
         :param method_mle: Method to use for optimization. See `scipy.optimize.minimize` for available methods.
+        :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds, or
+            ``method_mle`` is not a method of `scipy.optimize.minimize`.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
+
+        reversed_bounds = [key for key, (lower, upper) in bounds.items() if not lower <= upper]
+        if reversed_bounds:
+            raise ValueError(f'The lower bound exceeds the upper bound for parameters {reversed_bounds}.')
+
+        try:
+            opt.show_options(solver='minimize', method=method_mle, disp=False)
+        except ValueError:
+            raise ValueError(f'Unknown optimization method {method_mle!r}, see scipy.optimize.minimize.') from None
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -902,8 +913,8 @@ class Inference(Serializable):
 
     def create_run(self, x0: Dict[str, float] = None, index: int = None) -> 'Inference':
         """
-        Create a new Inference object which can be run independently. This is useful when parallelizing runs on a
-        cluster. You can add performed runs by using the :meth:`add_run` method.
+        Create a new Inference object which performs a single optimization run independently. This is useful when
+        parallelizing runs on a cluster. You can add performed runs by using the :meth:`add_run` method.
 
         :param x0: Initial parameters. By default, they are sampled within the bounds.
         :param index: Index of the run, such as a cluster job index. Runs with distinct indices sample independent
@@ -914,6 +925,7 @@ class Inference(Serializable):
         other = self._spawn(index)
         other._x0 = other._sample() if x0 is None else x0
         other._check_x0_within_bounds()
+        other.n_runs = 1
 
         return other
 

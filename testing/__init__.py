@@ -54,8 +54,7 @@ logger.info(f"phasegen version: {pg.__version__}")
 logger.info(f"Exponentiation backend: {pg.expm.Backend.backend.__class__.__name__}")
 
 # create scratch directory if it doesn't exist
-if not os.path.exists('scratch'):
-    os.makedirs('scratch')
+os.makedirs('scratch', exist_ok=True)
 
 
 class TestCase(BaseTestCase):

@@ -136,3 +136,22 @@ def test_fallback_setting_disables_numba():
 
     assert not ss._use_numba()
     assert ss.S.shape[0] == ss.k
+
+
+class _DoubledRateCoalescent(pg.StandardCoalescent):
+    """Standard coalescent whose merger rates are doubled."""
+
+    def _get_rate(self, b: int, k: int) -> float:
+        """Twice the standard rate."""
+        return 2 * super()._get_rate(b, k)
+
+
+def test_numba_rejects_a_model_subclass():
+    """The numba kernels implement the rates of the built-in models only. Regression: a subclass was dispatched to the
+    kernel of its built-in ancestor, so overridden rates were silently ignored (E[T_MRCA] = 1 at n = 2 for doubled
+    rates). The pure-Python construction evaluates the rates of the subclass."""
+    with pytest.raises(NotImplementedError, match='_DoubledRateCoalescent'):
+        _ = pg.Coalescent(n=2, model=_DoubledRateCoalescent()).tree_height.mean
+
+    Settings.use_numba = False
+    np.testing.assert_allclose(pg.Coalescent(n=2, model=_DoubledRateCoalescent()).tree_height.mean, 0.5)

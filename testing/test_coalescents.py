@@ -1530,8 +1530,7 @@ class CoalescentTestCase(TestCase):
 
         exact = coal.moment(1, (pg.UnfoldedSFSReward(2),))
 
-        with pg.Settings.set_pbar():
-            empirical = coal.sfs.sample(100000, seed=42)[:, 2].mean()
+        empirical = coal.sfs.sample(100000, seed=42)[:, 2].mean()
 
         # 100,000 draws give a relative standard error of about 0.8%
         rel_diff = np.abs(empirical - exact) / exact

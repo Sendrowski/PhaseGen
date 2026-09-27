@@ -1,6 +1,8 @@
 """
 Tests for :mod:`phasegen.utils`.
 """
+import logging
+
 import numpy as np
 import pytest
 
@@ -46,8 +48,8 @@ def _read_worker_config(_) -> tuple:
     Report the configuration a worker process sees, and a quantity that depends on it.
 
     :param _: Ignored.
-    :return: The values of three settings, the name and precision of the registered backend, and the mean tree height
-        of the standard coalescent of four lineages.
+    :return: The values of three settings, the name and precision of the registered backend, the level of the
+        ``phasegen`` logger, and the mean tree height of the standard coalescent of four lineages.
     """
     import phasegen as pg
 
@@ -57,6 +59,7 @@ def _read_worker_config(_) -> tuple:
         Settings.max_state_space_size,
         type(pg.Backend.backend).__name__,
         str(pg.Backend.backend.precision),
+        logging.getLogger('phasegen').level,
         float(pg.Coalescent(n=4).tree_height.mean)
     )
 
@@ -66,31 +69,36 @@ def test_parallelize_workers_inherit_settings_and_backend(monkeypatch):
     and the registered matrix exponentiation backend to its declared default. A computation performed in a worker
     therefore ran under a configuration the caller had not asked for: ``max_state_space_size`` no longer bounded the
     state space, and a backend registered with single precision was replaced by the double-precision default, which
-    moved the mean tree height in the eighth significant digit. The pool is forced to ``spawn``, since a forked worker
-    inherits the caller's state on any platform."""
+    moved the mean tree height in the eighth significant digit. A level set on the ``phasegen`` logger was reset to
+    INFO in the same way. The pool is forced to ``spawn``, since a forked worker inherits the caller's state on any
+    platform."""
     import phasegen as pg
 
     get_context = utils.mp.get_context
     monkeypatch.setattr(utils.mp, 'get_context', lambda *args, **kwargs: get_context('spawn'))
 
     original = pg.Backend.backend
+    log = logging.getLogger('phasegen')
+    level = log.level
 
     Settings.dehoog_degree = 4
     Settings.closed_form_last_epoch = False
     Settings.max_state_space_size = 12345
     pg.Backend.register(pg.SciPyExpmBackend(precision=np.float32))
+    log.setLevel(logging.ERROR)
 
     try:
         expected = _read_worker_config(0)
         results = utils.parallelize(func=_read_worker_config, data=[0, 1], parallelize=True, pbar=False, dtype=object)
     finally:
         pg.Backend.register(original)
+        log.setLevel(level)
 
-    assert expected[:5] == (4, False, 12345, 'SciPyExpmBackend', 'float32')
+    assert expected[:6] == (4, False, 12345, 'SciPyExpmBackend', 'float32', logging.ERROR)
 
     for result in results:
-        assert tuple(result[:5]) == expected[:5]
-        np.testing.assert_allclose(float(result[5]), expected[5], rtol=1e-12)
+        assert tuple(result[:6]) == expected[:6]
+        np.testing.assert_allclose(float(result[6]), expected[6], rtol=1e-12)
 
 
 def test_parallel_workers_do_not_warn_about_the_backend(caplog):
@@ -157,3 +165,15 @@ def test_worker_pool_is_sized_by_the_cpu_allocation_and_the_data(monkeypatch):
     utils.parallelize(abs, [-1.0, -2.0, -3.0], pbar=False)
 
     assert sizes == [2, 3]
+
+
+def test_use_pbar_governs_the_msprime_simulation_bar(capsys):
+    """Settings.use_pbar decides whether MsprimeCoalescent.simulate shows its progress bar. Regression: the bar was
+    always shown, and use_pbar reached only the pure-Python state-space construction."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    for enabled in (False, True):
+        with Settings.set_pbar(enabled):
+            MsprimeCoalescent(n=2, num_replicates=20, parallelize=False, seed=0).simulate()
+
+        assert ('Simulating trees' in capsys.readouterr().err) == enabled
