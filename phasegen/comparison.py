@@ -147,6 +147,11 @@ class Comparison(Serializable):
 
         self.model = self.load_coalescent_model(model)
 
+        for dist, data in self._expand_keys((comparisons or {}).get('tolerance', {})).items():
+            if 'atom' in self._loci_conditional(data):
+                raise ValueError(f"'{dist}: loci: pairwise: conditional' does not support the 'atom' check: a "
+                                 f"per-locus reward has no atom at 0.")
+
         #: Number of assertions made
         self.n_assertions: int = 0
 
@@ -995,7 +1000,7 @@ class Comparison(Serializable):
 
                 # per-bin SFS targeting: ``sfs: {i}: {stat}`` compares only spectrum bin ``i`` (its mean/var and its
                 # 1D pdf/cdf/quantile), rather than the spectrum-wide statistic
-                self._compare_sfs_bin(ph=ph, ms=ms, i=int(stat), tols=sub, title=title, name=name, mode=mode)
+                self._compare_sfs_bin(ph=ph, ms=ms, i=int(stat), tols=sub, title=title, name=name)
 
             else:
 
@@ -1026,7 +1031,7 @@ class Comparison(Serializable):
         if 'conditional' in sub:
             self._compare_conditional(ph.loci.joint_distribution(0, 1), (0, 1), sub['conditional'], title, name, ms=ms)
 
-    def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str, mode: str = None) -> None:
+    def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str) -> None:
         """
         Compare a single SFS bin's statistics (config ``sfs: {i}: {stat}``) against the msprime ground truth: the
         scalar ``mean`` / ``var`` of bin ``i``, and its 1D ``pdf`` / ``cdf`` / ``quantile`` (bin ``i``'s reward
@@ -1038,8 +1043,7 @@ class Comparison(Serializable):
         for stat, tol in tols.items():
             # a tolerance group (``sfs: {i}: {cosine}: {stat}``) nests the bin's own stats
             if stat == 'cosine':
-                self._compare_sfs_bin(ph=ph, ms=ms, i=i, tols=tol, title=f"{title}: {stat}", name=f"{name}_{stat}",
-                                      mode=stat)
+                self._compare_sfs_bin(ph=ph, ms=ms, i=i, tols=tol, title=f"{title}: {stat}", name=f"{name}_{stat}")
                 continue
             t0 = time.perf_counter()
             sub_title = f"{title}: {i}: {stat}"
@@ -1671,24 +1675,35 @@ class Comparison(Serializable):
 
     def _windowed_conditional_specs(self, spec: dict) -> dict:
         """The ``(i, j, on, value, half_width)`` conditioning windows requested by any ``conditional: {pair}:
-        windowed:`` block, per distribution. The centres come from the **exact** marginal's quantiles, so they are
-        deterministic and the msprime side can be cached against them."""
+        windowed:`` block, and by a ``loci: pairwise: conditional: windowed:`` block over the locus pair ``(0, 1)``,
+        per distribution. The centres come from the **exact** marginal's quantiles, so they are deterministic and the
+        msprime side can be cached against them."""
         out = {}
         for dist, data in self._expand_keys(spec).items():
             conditional = data.get('conditional') if isinstance(data, dict) else None
-            if not isinstance(conditional, dict):
-                continue
 
             specs = []
-            for key, sub in conditional.items():
+            for key, sub in (conditional.items() if isinstance(conditional, dict) else ()):
                 if not isinstance(sub, dict) or 'windowed' not in sub:
                     continue
                 pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
                 specs += self._windows_of(getattr(self.ph, dist).joint_distribution(*pair), pair, sub['windowed'])
 
+            loci = self._loci_conditional(data)
+            if 'windowed' in loci:
+                specs += self._windows_of(getattr(self.ph, dist).loci.joint_distribution(0, 1), (0, 1),
+                                          loci['windowed'])
+
             if specs:
                 out[dist] = specs
         return out
+
+    @staticmethod
+    def _loci_conditional(data) -> dict:
+        """The ``loci: pairwise: conditional:`` block of one distribution's tolerance spec, empty if absent."""
+        for key in ('loci', 'pairwise', 'conditional'):
+            data = data.get(key) if isinstance(data, dict) else None
+        return data if isinstance(data, dict) else {}
 
     def _windows_of(self, jd, pair: tuple, tols: dict) -> list:
         """The conditioning windows of one pair: each axis, each requested quantile of that axis's exact marginal."""

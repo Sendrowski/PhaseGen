@@ -337,42 +337,6 @@ class DemographyTestCase(TestCase):
         for epoch1, epoch2 in zip(d1.epochs, d2.epochs):
             self.assertEqual(epoch1, epoch2)
 
-    def test_to_demes(self):
-        """
-        Test converting a demography without migration to a demes graph.
-        """
-        d = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.5}, 'pop_1': {0: 2.5}})
-
-        graph = d._to_demes()
-
-        self.assertEqual(sorted(d.pop_names), sorted(deme.name for deme in graph.demes))
-
-    def test_to_demes_with_migration(self):
-        """
-        Migration rates of at most 1 convert, one migration record per direction.
-        """
-        d = pg.Demography(
-            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5}},
-            migration_rates={('pop_0', 'pop_1'): 0.3, ('pop_1', 'pop_0'): 0.6}
-        )
-
-        graph = d._to_demes()
-
-        self.assertEqual(sorted([0.3, 0.6]), sorted(m.rate for m in graph.migrations))
-
-    def test_to_demes_with_migration_raises(self):
-        """
-        demes accepts migration rates of at most 1, so msprime's conversion rejects larger rates as an invalid
-        migration, and the wrapper surfaces that rather than returning a graph.
-        """
-        d = pg.Demography(
-            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 2.5}},
-            migration_rates={('pop_0', 'pop_1'): 1.7, ('pop_1', 'pop_0'): 3}
-        )
-
-        with self.assertRaises(ValueError):
-            d._to_demes()
-
     def test_population_split(self):
         """
         Test population split.

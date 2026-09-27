@@ -163,6 +163,35 @@ class WindowedConditionalConfigTestCase(TestCase):
                                             tols={'cdf': 0.0, 'cdf_axes': [0, 1]}, title='t')
         self.assertIn('cdf_axes', str(ctx.exception))
 
+    @staticmethod
+    def _loci_comparison(conditional: dict) -> Comparison:
+        """A two-locus comparison whose tree height carries the given ``loci: pairwise: conditional`` block."""
+        c = Comparison(
+            n=2, n_loci=2, recombination_rate=1, pop_sizes={'pop_0': {0: 1}}, num_replicates=20000, seed=0,
+            parallelize=False,
+            comparisons={'tolerance': {'tree_height': {'loci': {'pairwise': {'conditional': conditional}}}}}
+        )
+        c.visualize = False
+        return c
+
+    def test_loci_windowed_conditional_is_cached_and_asserted(self):
+        """A ``windowed`` block under ``loci: pairwise: conditional`` caches its msprime ground truth over the locus
+        pair and asserts the window means against it."""
+        c = self._loci_comparison({'windowed': {'mean': 4}})
+        c.cache_ground_truth()
+
+        self.assertEqual({(i, j) for i, j, *_ in c.ms.tree_height._windowed_conditional}, {(0, 1)})
+
+        c.compare()
+        self.assertEqual(c.n_assertions, 1)
+
+    def test_loci_atom_conditional_raises_at_config_load(self):
+        """A per-locus reward has no atom at 0, so an ``atom`` block under ``loci: pairwise: conditional`` is
+        rejected when the comparison is created."""
+        with self.assertRaises(ValueError) as ctx:
+            self._loci_comparison({'atom': {'mass': 0.01}})
+        self.assertIn("'atom'", str(ctx.exception))
+
 
 class _ExplodingJD:
     """A joint distribution whose curve inversions raise -- used to prove the degenerate guard returns *before* it

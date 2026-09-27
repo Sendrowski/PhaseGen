@@ -641,6 +641,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Cross-locus full-grid joint surface ground truth: ``[(l1, l2, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._loci_joint_surface: list = []
 
+        #: Cached windowed-conditional ground truth of the locus pairs, see ``_cache_windowed_conditional``.
+        self._windowed_conditional: list = []
+
         # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -771,6 +774,46 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             cdf = ((a[:, None] <= xs[None, :]).astype(float).T @ (b[:, None] <= ys[None, :]).astype(float)) / n
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
+
+    def _pair_samples(self, i: int, j: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-replicate accumulated rewards at loci ``i`` and ``j``."""
+        return self._locus_samples(i), self._locus_samples(j)
+
+    def _cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
+        """
+        Cache, per conditioning window of a pair of :meth:`_pair_samples`, the plain window mean of the other reward
+        (not the local-linear mean), its standard error and its step CDF over a grid, as
+        ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``. The comparison
+        averages the exact conditional over the same window, so both sides estimate the same functional.
+
+        :param specs: ``(i, j, on, value, half_width)`` windows to cache, the values fixed by the exact marginal.
+        :param n_grid: Points of the CDF grid.
+        :param q_max: Quantile of the windowed samples the grid runs to.
+        :raises ValueError: If a window holds no replicates at all.
+        """
+        self._windowed_conditional = []
+
+        for i, j, on, v, h in specs:
+            a, b = self._pair_samples(i, j)
+            cond, other = (a, b) if on == 'a' else (b, a)
+            sel = other[np.abs(cond - v) <= h]
+
+            if sel.size == 0:
+                raise ValueError(
+                    f"No replicate of pair ({i}, {j}) falls in the conditioning window R_{on} = {v:g} +- {h:g}, so "
+                    f"the windowed conditional cannot be estimated there."
+                )
+
+            ys = np.linspace(0.0, float(np.quantile(sel, q_max)), n_grid)
+
+            # from the sorted sample, not an (n_win x n_grid) boolean matrix, which at this resolution would be
+            # hundreds of millions of entries
+            cdf = np.searchsorted(np.sort(sel), ys, side='right') / sel.size
+
+            self._windowed_conditional.append(
+                (int(i), int(j), on, float(v), float(h), int(sel.size), float(sel.mean()),
+                 float(sel.std() / np.sqrt(sel.size)), ys, cdf)
+            )
 
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
@@ -1161,41 +1204,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                 dist._drop()
                 self._atom_conditional.append((int(i), int(j), on, mass, dist))
 
-    def _cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
-        """
-        Cache, per conditioning window, the plain window mean of the other bin (not the local-linear mean), its
-        standard error and its step CDF over a grid, as
-        ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``. The comparison
-        averages the exact conditional over the same window, so both sides estimate the same functional.
-
-        :param specs: ``(i, j, on, value, half_width)`` windows to cache, the values fixed by the exact marginal.
-        :param n_grid: Points of the CDF grid.
-        :param q_max: Quantile of the windowed samples the grid runs to.
-        :raises ValueError: If a window holds no replicates at all.
-        """
+    def _pair_samples(self, i: int, j: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-replicate branch lengths of frequency classes ``i`` and ``j``."""
         s = np.asarray(self.samples)
-        self._windowed_conditional = []
-
-        for i, j, on, v, h in specs:
-            cond, other = (s[:, i], s[:, j]) if on == 'a' else (s[:, j], s[:, i])
-            sel = other[np.abs(cond - v) <= h]
-
-            if sel.size == 0:
-                raise ValueError(
-                    f"No replicate of bins ({i}, {j}) falls in the conditioning window R_{on} = {v:g} +- {h:g}, so "
-                    f"the windowed conditional cannot be estimated there."
-                )
-
-            ys = np.linspace(0.0, float(np.quantile(sel, q_max)), n_grid)
-
-            # from the sorted sample, not an (n_win x n_grid) boolean matrix, which at this resolution would be
-            # hundreds of millions of entries
-            cdf = np.searchsorted(np.sort(sel), ys, side='right') / sel.size
-
-            self._windowed_conditional.append(
-                (int(i), int(j), on, float(v), float(h), int(sel.size), float(sel.mean()),
-                 float(sel.std() / np.sqrt(sel.size)), ys, cdf)
-            )
+        return s[:, i], s[:, j]
 
     def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
@@ -1422,14 +1434,13 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
             n_pops: int,
             num_replicates: int,
             sample_size: int,
-            samples: dict,
             axis: np.ndarray
     ) -> None:
         self.heights = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.total_branch_lengths = np.zeros((n_loci, n_pops, num_replicates), dtype=float)
         self.sfs = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=float)
 
-        #: Deme axis, in the order of ``samples``, of each msprime population id.
+        #: Deme axis of each msprime population id.
         self._axis = axis
 
     def process_tree(self, i, j, tree, ts, ctx) -> None:
@@ -1821,7 +1832,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
             # is recorded either directly from each tree or, with migration recording, from the migration history
             n_loci = self.locus_config.n
-            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, samples, axis)
+            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, axis)
                           if self.record_migration
                           else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
             jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)

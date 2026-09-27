@@ -18,7 +18,8 @@ from testing import TestCase
 configs = [
     # empirical (self-consistency) scenarios validated against PhaseGen's own sampler via a nested
     # ``tolerance.empirical`` block. The five with a demographic sibling carry that block on the sibling config
-    # itself (e.g. 1_epoch_n_4, 2_epoch_2_pops_n_4); these three have no sibling, so they are empirical-only
+    # itself (e.g. 1_epoch_n_4, 2_epoch_2_pops_n_4); these three have no sibling, and only the last two also carry
+    # msprime conditional checks
     '1_epoch_2_pops_n_3_jsfs',
     '4_epoch_up_down_n_4',
     '5_epoch_beta_n_6',
@@ -250,21 +251,22 @@ slow_configs = [
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
 ]
 
-def configs_asserting(key: str) -> List[str]:
+def configs_asserting(*keys: str) -> List[str]:
     """
-    The configs whose tolerance block contains ``key``, i.e. whose scenario asserts that kind of leaf. Used to mark
-    the scenarios a numerical setting reaches, so its cost and accuracy can be measured on those alone rather than
-    on the whole suite.
+    The configs whose tolerance block contains any of ``keys``, i.e. whose scenario asserts that kind of leaf. Used to
+    mark the scenarios a numerical setting reaches, so its cost and accuracy can be measured on those alone rather
+    than on the whole suite.
 
-    :param key: The tolerance key, e.g. ``cosine``.
+    :param keys: The tolerance keys, e.g. ``cosine``.
     :return: Config names, in the order of ``configs``.
     """
-    return [c for c in configs if f'{key}:' in Path(f'resources/configs/{c}.yaml').read_text()]
+    return [c for c in configs if any(f'{key}:' in Path(f'resources/configs/{c}.yaml').read_text() for key in keys)]
 
 
-#: Scenarios asserting a curve obtained by the Fourier-cosine inversion, which is what
-#: ``Settings.cos_terms`` governs. Select them with ``pytest -m cosine``.
-cosine_configs = configs_asserting('cosine')
+#: Scenarios asserting a curve obtained by the Fourier-cosine inversion, which is what ``Settings.cos_terms``
+#: governs: the ``cosine`` groups, the conditional ``grid_moments`` and the atom-conditional cdf / pdf / quantile.
+#: Select them with ``pytest -m cosine``.
+cosine_configs = configs_asserting('cosine', 'grid_moments', 'atom')
 
 for config in configs:
     test = generate_tests(config)

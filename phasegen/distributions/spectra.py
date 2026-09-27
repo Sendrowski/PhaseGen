@@ -5,7 +5,7 @@ import itertools
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Set, Union, TYPE_CHECKING
+from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..errors import ModelError
 import scipy.sparse as sp
@@ -1373,36 +1373,6 @@ class FoldedSFSDistribution(SFSDistribution):
         """
         return StateSpace._get_partitions(n=k, k=n // 2)
 
-    def _unfold(self, config: Sequence[int]) -> Set[Tuple[int, ...]]:
-        """
-        Unfold a folded configuration into all possible unfolded configurations.
-
-        :param config: The folded configuration. A sequence of integers of length n // 2 where n is the number of
-            lineages.
-        :return: The unfolded configurations.
-        """
-        n = self.lineage_config.n
-
-        if n // 2 != len(config):
-            raise ValueError("The length of the configuration must equal n // 2 where n is the number of lineages.")
-
-        if n % 2 == 1:
-            lower_counts = [range(i + 1) for i in config]
-            i_center = len(config)
-        else:
-            lower_counts = [range(i + 1) for i in config[:-1]] + [[config[-1]]]
-            i_center = len(config) - 1
-
-        unfolded = []
-        # iterate over unfolded configurations
-        for lower in itertools.product(*lower_counts):
-            # get higher counts
-            higher = (np.array(config) - np.array(lower))[:i_center][::-1]
-
-            unfolded += [list(lower) + list(higher)]
-
-        return set(tuple(u) for u in unfolded)
-
 
 class _JointSFSAggregateFunction:
     """Per-bin joint-SFS function, looping ``JointSFSDistribution._bin_distribution`` over the descendant
@@ -2180,24 +2150,17 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
 
     def _mean_batched(self) -> Optional[TwoLocusSFS]:
         """
-        Batched mean two-locus SFS by the factored form of ``PhaseTypeDistribution.moment``, which never forms the
-        dense two-point occupation matrix. Single epoch without an accumulation window only.
+        Batched mean two-locus SFS, contracting ``_two_point_occupation`` with the stacked per-locus bin rewards as in
+        ``PhaseTypeDistribution.moment``.
 
         :return: The mean two-locus SFS, or ``None`` when not applicable, and the caller evaluates per pair.
         """
-        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None
-                and self.tree_height.start_time == 0):
+        two_point = self._two_point_occupation()
+        if two_point is None:
             return None
 
-        epochs = self._get_epochs_until_unbounded()
-        if len(epochs) > 1 or not self._absorption_certain_in_last_epoch():
-            return None
-
+        m, solve, idx_t = two_point
         ss = self.state_space
-        ss.update_epoch(epochs[-1])
-        idx_t = np.where(~ss.absorbing)[0]
-        use_action = self._solve_sparse(len(idx_t))
-
         indices = self._get_indices()
         R0 = np.column_stack([
             np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(0, i)])._get(ss), dtype=float)[idx_t]
@@ -2208,10 +2171,6 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             for j in indices
         ])
 
-        neg_t = -self._transient_block(idx_t, sparse=use_action)
-        alpha = np.asarray(ss.alpha)[idx_t].astype(float)
-        m = self._lu_solver(neg_t.T, use_action)(alpha)  # m = alpha (-T)^{-1}
-        solve = self._lu_solver(neg_t, use_action)
         uncentered = (m[:, None] * R0).T @ solve(R1) + solve(R0).T @ (m[:, None] * R1)
 
         n = self.lineage_config.n

@@ -3,7 +3,6 @@ Test distributions.
 """
 
 import itertools
-from typing import Sequence, List
 from testing import TestCase
 
 import numpy as np
@@ -572,63 +571,6 @@ class DistributionTestCase(TestCase):
                     sfs.get_mutation_config(config=[1, 1, 0], theta=1)
                 )
 
-    def test_unfold_folded_config_odd_number_of_lineages(self):
-        """
-        Test unfolding folded block configurations for odd number of lineages.
-        """
-        coal = pg.Coalescent(n=5)
-
-        folded = [2, 2]
-        configs = coal.fsfs._unfold(folded)
-
-        for unfolded in configs:
-            np.testing.assert_array_equal(
-                pg.SFS([0] + list(folded) + [0] * 3).data,
-                pg.SFS([0] + list(unfolded) + [0]).fold().data
-            )
-
-    def test_unfolded_folded_configs(self):
-        """
-        Test unfolding folded block configurations.
-        """
-
-        def compare(n: int, config: Sequence[int], unfolded: List[Sequence[int]]):
-            """
-            Compare folded and unfolded configurations.
-
-            :param n: Number of lineages.
-            :param config: Folded configuration.
-            :param unfolded: Unfolded configurations.
-            :raises AssertionError: If the configurations are not equal.
-            """
-            observed = pg.Coalescent(n=n).fsfs._unfold(config)
-            expected = set(tuple(c) for c in unfolded)
-
-            return self.assertEqual(observed, expected)
-
-        compare(2, [0], [(0,)])
-        compare(2, [1], [(1,)])
-        compare(2, [5], [(5,)])
-        compare(3, [0], [(0, 0)])
-        compare(3, [1], [(0, 1), (1, 0)])
-        compare(3, [2], [(2, 0), (0, 2), (1, 1)])
-        compare(5, [1, 1], [(1, 1, 0, 0), (0, 1, 0, 1), (0, 0, 1, 1), (1, 0, 1, 0)])
-
-    def test_unfold_folded_config_even_number_of_lineages(self):
-        """
-        Test unfolding folded block configurations for even number of lineages.
-        """
-        coal = pg.Coalescent(n=4)
-
-        folded = [2, 2]
-        configs = coal.fsfs._unfold(folded)
-
-        for unfolded in configs:
-            np.testing.assert_array_equal(
-                pg.SFS([0] + list(folded) + [0] * 2).data,
-                pg.SFS([0] + list(unfolded) + [0]).fold().data
-            )
-
     def test_get_folded_mutation_config(self):
         """
         Test that the folded SFS probability is equal to the sum of the unfolded SFS probabilities.
@@ -648,7 +590,11 @@ class DistributionTestCase(TestCase):
         ]:
             p_folded = coal.fsfs.get_mutation_config(config=config, theta=1)
 
-            p_unfolded = [coal.sfs.get_mutation_config(config=u, theta=1) for u in coal.fsfs._unfold(config)]
+            # unfolded configurations (u_1, ..., u_4) with u_1 + u_4 and u_2 + u_3 equal to the folded counts
+            unfolded = [
+                (a, b, config[1] - b, config[0] - a) for a in range(config[0] + 1) for b in range(config[1] + 1)
+            ]
+            p_unfolded = [coal.sfs.get_mutation_config(config=u, theta=1) for u in unfolded]
 
             self.assertAlmostEqual(p_folded, sum(p_unfolded))
 

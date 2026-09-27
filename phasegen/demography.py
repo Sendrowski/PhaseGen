@@ -234,17 +234,6 @@ class Demography:
 
         return names
 
-    def _to_demes(self) -> 'demes.Graph':
-        """
-        Convert to demes object (see https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography.to_demes).
-        demes accepts migration rates of at most 1, so a larger rate is rejected by msprime's conversion.
-
-        :return: Demes object.
-        :raise ImportError: If msprime is not installed.
-        :raise ValueError: If a migration rate exceeds 1 (``migration[0]: invalid migration``).
-        """
-        return self.to_msprime().to_demes()
-
     @property
     def epochs(self) -> Iterator['Epoch']:
         """
