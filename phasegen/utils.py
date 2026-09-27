@@ -3,6 +3,7 @@ Utility functions.
 """
 import itertools
 import logging
+import os
 import sys
 from types import FunctionType
 from typing import Callable, Dict, List, Sequence, Generator, Tuple, Any, Iterable, Iterator, Optional
@@ -83,6 +84,19 @@ class _ConfiguredCall:
         return self.func(item)
 
 
+def _available_cpus() -> int:
+    """
+    The number of CPUs the process may run on, which a CPU affinity or a scheduler allocation such as SLURM's can set
+    below the number of CPUs of the machine.
+
+    :return: Number of CPUs.
+    """
+    if hasattr(os, 'sched_getaffinity'):
+        return len(os.sched_getaffinity(0))
+
+    return os.cpu_count() or 1
+
+
 def parallelize(
         func: Callable,
         data: List | np.ndarray,
@@ -131,7 +145,7 @@ def parallelize(
         ctx = mp.get_context('spawn') if sys.platform == 'darwin' else mp.get_context()
         try:
             # consume the lazy imap iterator while the pool is still open
-            with ctx.Pool() as pool:
+            with ctx.Pool(min(_available_cpus(), len(data))) as pool:
                 return np.array(list(with_pbar(pool.imap(_ConfiguredCall(func), data))), dtype=dtype)
         except RuntimeError as e:
             # ``spawn`` re-imports the caller's module in every worker; if the entry point is not import-safe the

@@ -20,7 +20,7 @@ def test_parallelize_spawn_guard_message(monkeypatch):
         def __exit__(self, *args):
             return False
 
-    monkeypatch.setattr(utils.mp, 'get_context', lambda *a, **k: type('Ctx', (), {'Pool': lambda self: _FakePool()})())
+    monkeypatch.setattr(utils.mp, 'get_context', lambda *a, **k: type('Ctx', (), {'Pool': lambda self, processes=None: _FakePool()})())
 
     with pytest.raises(RuntimeError, match="import-safe"):
         utils.parallelize(func=lambda x: x, data=[1, 2, 3], parallelize=True, pbar=False)
@@ -126,3 +126,30 @@ def test_plot_clear_false_draws_onto_the_current_axes():
     ax3 = dist.cdf.plot(show=False)
     assert len(ax3.get_lines()) == 1
     plt.close('all')
+
+
+def test_worker_pool_is_sized_by_the_cpu_allocation_and_the_data(monkeypatch):
+    """The pool starts no more workers than the CPUs the process may run on and the items to map. Regression: it
+    started one per CPU of the machine, 192 on a SLURM job allocated 2."""
+    import phasegen.utils as utils
+
+    sizes = []
+    real = utils.mp.get_context
+
+    class Context:
+        def __init__(self, ctx):
+            self._ctx = ctx
+
+        def Pool(self, processes=None):
+            sizes.append(processes)
+            return self._ctx.Pool(processes)
+
+    monkeypatch.setattr(utils.os, 'sched_getaffinity', lambda pid: {0, 1}, raising=False)
+    monkeypatch.setattr(utils.mp, 'get_context', lambda *args: Context(real(*args)))
+
+    utils.parallelize(abs, [-1.0, -2.0, -3.0], pbar=False)
+    utils.parallelize(abs, [-1.0], pbar=False)
+    monkeypatch.setattr(utils.os, 'sched_getaffinity', lambda pid: set(range(8)), raising=False)
+    utils.parallelize(abs, [-1.0, -2.0, -3.0], pbar=False)
+
+    assert sizes == [2, 3]
