@@ -111,11 +111,12 @@ class Visualization:
             func(*args, **kwargs)
 
             # make layout tight
-            plt.tight_layout()
+            kwargs['ax'].figure.tight_layout()
 
             # show or save
             # show by default here
             return Visualization.show_and_save(
+                kwargs['ax'],
                 file=kwargs['file'] if 'file' in kwargs else None,
                 show=kwargs['show'] if 'show' in kwargs else True
             )
@@ -123,24 +124,24 @@ class Visualization:
         return wrapper
 
     @staticmethod
-    def show_and_save(file: str = None, show: bool = True) -> 'plt.Axes':
+    def show_and_save(ax: 'plt.Axes | np.ndarray', file: str = None, show: bool = True) -> 'plt.Axes | np.ndarray':
         """
-        Show and save plot.
+        Show and save the figure of the given axes.
 
-        :param file: File path to save plot to
-        :param show: Whether to show plot
-        :return: Axes
+        :param ax: Axes, or an array of axes of one figure.
+        :param file: File path to save the figure to
+        :param show: Whether to show the figure
+        :return: The axes passed
         """
         # save figure if file path given
         if file is not None:
-            plt.savefig(file, dpi=200, bbox_inches='tight', pad_inches=0.1)
+            np.ravel(ax)[0].figure.savefig(file, dpi=200, bbox_inches='tight', pad_inches=0.1)
 
         # show figure if specified and if not in interactive mode
         if show and not plt.isinteractive():
             plt.show()
 
-        # return current axes
-        return plt.gca()
+        return ax
 
     @staticmethod
     @clear_show_save
@@ -222,8 +223,7 @@ class Visualization:
         ax.set_xlabel(data.xlabel)
         ax.set_ylabel(data.ylabel)
         ax.set_title(data.title if title is None else title)
-        Visualization.show_and_save(file=file, show=show)
-        return ax
+        return Visualization.show_and_save(ax, file=file, show=show)
 
     @staticmethod
     @clear_show_save

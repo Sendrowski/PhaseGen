@@ -266,3 +266,17 @@ def test_inference_demography_plot_colours_each_series_and_lists_it_once():
     named = {k: v for k, v in colours.items() if k is not None}
     assert len({c for v in named.values() for c in v}) == len(named) > 1
     assert colours[None] <= {c for v in named.values() for c in v}
+
+
+def test_plot_onto_a_passed_ax_saves_and_returns_that_ax(tmp_path):
+    """Plotting onto axes of a figure that is not current saves that figure and returns those axes. Regression: the
+    current figure was saved, blank here, and plt.gca() was returned."""
+    fig, ax = plt.subplots()
+    plt.figure()
+
+    out = pg.Coalescent(n=3).tree_height.cdf.plot(ax=ax, show=False, file=str(tmp_path / 'cdf.png'), n_points=15)
+
+    assert out is ax
+    assert len(ax.lines) > 0
+    assert plt.imread(tmp_path / 'cdf.png')[..., :3].std() > 0
+    plt.close('all')

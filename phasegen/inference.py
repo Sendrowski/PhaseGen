@@ -690,7 +690,6 @@ class Inference(Serializable):
         :return: Axes or list of axes.
         """
         from .visualization import Visualization
-        import matplotlib.pyplot as plt
 
         if kwargs is None:
             kwargs = {}
@@ -701,9 +700,6 @@ class Inference(Serializable):
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
 
-        # avoid empty plots
-        # plt.close()
-
         ax = self.bootstraps[self.param_names].plot(
             ax=ax,
             kind=kind,
@@ -713,11 +709,9 @@ class Inference(Serializable):
         )
 
         # make layout tight
-        plt.tight_layout()
+        np.ravel(ax)[0].figure.tight_layout()
 
-        Visualization.show_and_save(show=show, file=file)
-
-        return ax
+        return Visualization.show_and_save(ax, show=show, file=file)
 
     def plot_demography(
             self,
@@ -856,9 +850,7 @@ class Inference(Serializable):
                 style = {'color': color, 'alpha': 0.3} | kwargs
                 ax.plot(data.x, y, drawstyle='steps-post', label='_nolegend_', **style)
 
-        Visualization.show_and_save(show=show, file=file)
-
-        return ax
+        return Visualization.show_and_save(ax, show=show, file=file)
 
     def _spawn(self, index: int | None) -> 'Inference':
         """
