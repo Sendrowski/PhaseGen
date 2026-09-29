@@ -248,47 +248,28 @@ stopifnot(isTRUE(all.equal(demes_sum, coal$sfs$mean$data)))
 
 +++
 ## Initial distributions
-The lineages may also start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds pairs of a positive weight and a lineage configuration, or a {class}`~phasegen.locus.LocusConfig` when passed as ``loci``, and every statistic is the average over the configurations weighted by the normalized weights. All configurations must share one state space, with the same populations and total number of lineages. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75, and in ``pop_0`` otherwise.
+The lineages may also start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds weighted lineage configurations, or {class}`~phasegen.locus.LocusConfig` instances when passed as ``loci``, and every statistic averages over them with the normalized weights. The configurations must share one state space. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75.
 
 ```{code-cell} python
-components = [(1, {'pop_0': 3, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 3})]
+init = pg.InitialDistribution([(1, {'pop_0': 3, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 3})])
 
 demography = pg.Demography(
-    pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 0.5}},
-    migration_rates={('pop_0', 'pop_1'): {0: 0.5}, ('pop_1', 'pop_0'): {0: 0.5}}
+    pop_sizes={'pop_0': 1, 'pop_1': 0.5},
+    events=[pg.SymmetricMigrationRateChanges(['pop_0', 'pop_1'], 0.5)]
 )
 
-coal = pg.Coalescent(n=pg.InitialDistribution(components), demography=demography)
-
-coal.tree_height.mean
-```
-
-```{code-cell} python
-:tags: [remove-cell]
-means = [pg.Coalescent(n=c, demography=demography).tree_height.mean for _, c in components]
-assert abs(coal.tree_height.mean - (means[0] + 3 * means[1]) / 4) < 1e-12
+pg.Coalescent(n=init, demography=demography).tree_height.mean
 ```
 
 ```{code-cell} r
-components <- list(list(1, list(pop_0 = 3, pop_1 = 1)), list(3, list(pop_0 = 1, pop_1 = 3)))
+init <- pg$InitialDistribution(list(list(1, list(pop_0 = 3, pop_1 = 1)), list(3, list(pop_0 = 1, pop_1 = 3))))
 
 demography <- pg$Demography(
     pop_sizes = list(pop_0 = 1, pop_1 = 0.5),
-    events = c(
-        pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 0.5),
-        pg$MigrationRateChange(source = "pop_1", dest = "pop_0", time = 0, rate = 0.5)
-    )
+    events = list(pg$SymmetricMigrationRateChanges(c("pop_0", "pop_1"), 0.5))
 )
 
-coal <- pg$Coalescent(n = pg$InitialDistribution(components), demography = demography)
-
-coal$tree_height$mean
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-means <- sapply(components, function(c) pg$Coalescent(n = c[[2]], demography = demography)$tree_height$mean)
-stopifnot(abs(coal$tree_height$mean - (means[1] + 3 * means[2]) / 4) < 1e-12)
+pg$Coalescent(n = init, demography = demography)$tree_height$mean
 ```
 
 +++
