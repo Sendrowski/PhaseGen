@@ -1557,6 +1557,27 @@ def test_far_tail_is_exact_not_saturated():
         assert float(d.pdf(x)) == pytest.approx(pdf_point(x), rel=1e-2), f"density past the window at q = {q}"
 
 
+def test_density_is_continuous_at_the_tail_join():
+    """The density read off the grid must not step where the de Hoog tail joins the cosine fit.
+
+    The tail is anchored at the fit's value at the cut. On the total branch length of an extreme bottleneck, the de
+    Hoog CDF sits 1.1e-3 below the fit there, and a tail made of the raw de Hoog values put that difference into the
+    first tail segment of width 6e-3: the served density fell from 0.87 to 0.66 across the cut and the pdf missed the
+    msprime reference beyond its tolerance. Shifting the de Hoog hazard onto the anchor over a band above the cut
+    keeps the density within about ten percent across the join.
+    """
+    d = pg.Coalescent(
+        n=5, demography=pg.Demography(pop_sizes={0: 1, 0.3: 0.01, 1: 1})
+    ).total_branch_length._reward_distribution
+
+    xs, cdf = d.cdf._cos_cdf_grid
+    x_cut = float(np.interp(Settings.dehoog_tail_quantile, cdf, xs))
+    below, above = float(d.pdf(x_cut - 1e-9)), float(d.pdf(x_cut + 1e-9))
+
+    assert above == pytest.approx(below, rel=0.15), f"the density steps from {below:.4f} to {above:.4f} at the join"
+    assert float(d.cdf(x_cut + 1e-9)) == pytest.approx(float(d.cdf(x_cut - 1e-9)), abs=1e-6)
+
+
 def test_windowed_reward_distribution_functions_raise():
     """A reward accumulated over a bounded window (start_time > 0 or a finite end_time) has windowed moments but a
     to-absorption LST inversion, so its cdf / pdf / quantile would silently disagree with its own mean. The guard

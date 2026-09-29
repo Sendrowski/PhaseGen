@@ -125,7 +125,8 @@ class RewardDistribution(CallableDistributionFunctions):
       expansion resolves, no feature narrower than :math:`\beta / K`.
     - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
       :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
-      above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
+      above it. Just above the tail level, the de Hoog nodes are shifted in cumulative hazard to meet the expansion
+      without a step. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
     - The atom :math:`p_0 = \varphi(\infty)` is evaluated exactly, as described at :meth:`RewardDistribution.lst()
       <phasegen.distributions.RewardDistribution.lst>`.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when

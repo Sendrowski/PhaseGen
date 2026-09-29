@@ -377,6 +377,10 @@ class _LSTFunction(_HazardGrid):
     _tail_target: float = 1.0 - 1e-6
     _max_exact_nodes: int = 512
 
+    #: Largest relative change of the density across the band above the cut over which the de Hoog nodes are shifted
+    #: onto the fit.
+    _join_density_tol: float = 0.1
+
     # ---- distribution primitives (thin accessors) --------------------------------------------------------------
     def _range(self, scale: float = 12.0) -> float:
         return self._distribution._range(scale)
@@ -605,11 +609,19 @@ class _LSTFunction(_HazardGrid):
         return float(min(increment / density, limit)) if density > 0 else limit
 
     def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
-        """
+        r"""
         The ``(x, F)`` de Hoog nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
         They are cached on the distribution and extended when a query reaches past their end, never trimmed, so an
-        answer does not depend on later queries. The march advances on exact values, because the cosine quantile
+        answer does not depend on later queries. The march advances on the de Hoog values, because the cosine quantile
         saturates at the end of its window.
+
+        The anchor carries the fit's cumulative hazard :math:`H_c` at ``x_cut``, where the de Hoog hazard is
+        :math:`H_d(x_\mathrm{cut})`. Every later node carries the de Hoog hazard :math:`H_d(x)` shifted by
+        :math:`\Delta = H_c - H_d(x_\mathrm{cut})` times :math:`\max(0, 1 - (H_d(x) - H_d(x_\mathrm{cut})) / h)`,
+        with the band :math:`h = |\Delta| / \epsilon` and :math:`\epsilon` = ``_join_density_tol``. The tail joins the
+        fit without a step, its density departs by at most a factor :math:`1 \pm \epsilon` from the de Hoog density,
+        and it is the de Hoog CDF from :math:`h` above the anchor's hazard. Where the grid is exact throughout, the
+        anchor carries the de Hoog value and :math:`\Delta = 0`.
 
         :param x_cut: Where the CDF reaches the cut.
         :param cut: CDF value at or above which the exact inversion supplies the grid.
@@ -620,17 +632,20 @@ class _LSTFunction(_HazardGrid):
         nodes = self._shared('cdf_exact', list)
 
         if not nodes:
-            # the anchor carries the *fit's* value at the cut, so it sits exactly on the fit's own curve and joins the
-            # two halves without a step. That value is usually the cut itself, but not always: an atom at 0 carries
-            # the CDF straight past the cut in one jump, so ``x_cut`` is 0 and the value there is the atom, well above
-            # the cut. Stamping the cut on it instead shifted the whole grid by the difference (2e-2 on a Dirac bin
-            # whose atom is 0.99). Where the grid is exact throughout there is no fit to anchor to, so the value is
-            # the exact one.
+            # an atom at 0 can carry the CDF past the cut in one jump, so ``x_cut`` is 0 and the fit's value there is
+            # the atom, above the cut
             xs, cdf = self._cos_cdf_grid
             nodes.append((x_cut, self._cdf_point(x_cut) if cut <= 0.0 else float(np.interp(x_cut, xs, cdf))))
 
         if x_max <= x_cut and q_max <= cut:
             return nodes  # the query stays in the fit's half, so the expensive nodes are left unbuilt
+
+        x_anchor, cdf_anchor = nodes[0]
+        hazard_anchor = float(self._hazard(self._cdf_point(x_anchor)))
+        shift = float(self._hazard(cdf_anchor)) - hazard_anchor
+        if not np.isfinite(shift):
+            shift = 0.0
+        band = abs(shift) / self._join_density_tol
 
         target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
         while len(nodes) < self._max_exact_nodes:
@@ -646,7 +661,12 @@ class _LSTFunction(_HazardGrid):
             if not x_next > x:
                 break
 
-            nodes.append((x_next, self._cdf_point(x_next)))
+            cdf_next = self._cdf_point(x_next)
+            if shift != 0.0:
+                hazard = float(self._hazard(cdf_next))
+                hazard += shift * max(0.0, 1.0 - (hazard - hazard_anchor) / band)
+                cdf_next = -np.expm1(-hazard)
+            nodes.append((x_next, cdf_next))
 
         return nodes
 
