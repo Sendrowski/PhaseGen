@@ -1661,14 +1661,42 @@ def test_dehoog_inversion_matches_closed_form_inverses(name, transform, inverse,
 def test_dehoog_inversion_converges_below_the_default_degree(name, transform, inverse, points):
     """The accuracy of the inversion must improve with the degree over the whole range of degrees, not only at the
     default. Regression: the improved remainder divided by ``h`` where the period-2 tail of the continued fraction
-    requires ``h ** 2``, costing one to two digits. At the default degree the contour roundoff floor hides it
+    requires ``h ** 2``, costing one to two digits. At the default degree the aliasing floor of the contour hides it
     entirely, so only a lower degree, which ``Settings.dehoog_degree`` is free to take, separates the two forms."""
     from phasegen.distributions.reward import _dehoog_invert
 
-    # the wrong remainder gives 4.8e-7, 7.1e-9 and 6.2e-11 on the exponential CDF at these degrees
-    for degree, tol in ((6, 5e-7), (8, 1e-9), (10, 1e-11)):
+    # the correct remainder gives 3.1e-5, 7.0e-7 and 4.2e-10 on the exponential CDF at these degrees, the wrong one
+    # 5.9e-4, 1.9e-5 and 1.7e-8, and 1.3e-4, 2.0e-6 and 3.1e-9 on the gamma density
+    for degree, tol in ((5, 1e-4), (6, 3e-6), (8, 2e-9)):
         error = max(abs(_dehoog_invert(transform, t, degree) - inverse(t)) for t in points)
         assert error < tol, (name, degree, error)
+
+
+def test_dehoog_tail_resolves_the_rise_after_a_bottleneck():
+    """Across the extreme bottleneck of ``3_epoch_extreme_bottleneck_n_5`` the total branch length has its 0.99
+    quantile on a steep rise at 1.56, where lineages that did not coalesce before the bottleneck coalesce almost at
+    once. The contour ``T = 2t`` whose abscissa grew with the degree extrapolated this series through an
+    ill-conditioned Pade approximant, giving 0.98982 against 0.9901197 at degree 15. The reference is the transform in
+    80-digit arithmetic inverted by de Hoog at degree 100 on the contour ``T = t``, ``eps = 1e-40``."""
+    d = pg.Coalescent(
+        n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.01, 1: 1}})
+    ).total_branch_length.distribution()
+
+    assert abs(d.cdf._cdf_point(1.561995) - 0.9901197135048715) < 2e-5
+
+
+def test_dehoog_points_evaluated_together_match_single_points():
+    """An array of points is inverted in one batched transform evaluation, point by point equal to single points,
+    with the atom at 0 and 0 below it, for the CDF and the density."""
+    d = pg.Coalescent(n=4).sfs._bin_distribution(2)
+    xs = np.array([-1.0, 0.0, 0.3, 1.2, 4.0, 1.2])
+    single = [d.cdf._cdf_point(float(x)) for x in xs]
+    d.__dict__.pop('_lst_curve_cache', None)
+
+    np.testing.assert_allclose(d.cdf._cdf_point(xs), single, rtol=1e-13, atol=1e-15)
+    assert single[0] == 0.0 and single[1] == pytest.approx(d.lst(np.inf).real, abs=1e-15)
+    np.testing.assert_allclose(d.pdf._pdf_point(xs[2:]), [d.pdf._pdf_point(float(x)) for x in xs[2:]], rtol=1e-13)
+    assert np.isnan(d.cdf._cdf_point(np.nan))
 
 
 @pytest.mark.parametrize('ne_ancestral', [5e3, 2e4])

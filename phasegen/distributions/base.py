@@ -385,27 +385,34 @@ class _LSTFunction(_HazardGrid):
     def _range(self, scale: float = 12.0) -> float:
         return self._distribution._range(scale)
 
-    def _cdf_point(self, t: float) -> float:
-        """Per-point de Hoog CDF at ``t``, the atom at ``t = 0`` and 0 below it. Memoised per distribution. It supplies
-        the tail nodes of the grid, the conditional support bracket and the exact reference of the tests."""
-        if t < 0:
-            return 0.0
-        d = self._distribution
-        if t == 0:
-            # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
-            # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
-            # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
-            return max(d.lst(np.inf).real, 0.0)
+    def _cdf_point(self, t) -> 'float | np.ndarray':
+        """Per-point de Hoog CDF at ``t``, the atom at ``t = 0`` and 0 below it. Memoised per distribution. The points
+        of an array not yet cached are inverted together. It supplies the tail nodes of the grid, the conditional
+        support bracket and the exact reference of the tests.
 
+        :param t: The point, or a 1D array of points.
+        :return: The CDF, a float for a scalar ``t`` and an array otherwise.
+        """
+        d = self._distribution
         cache = self._shared('cdf_points', dict)
-        if t not in cache:
-            cache[t] = d._invert(lambda s: d.lst(s) / s, float(t))
-        return cache[t]
+        ts = [float(v) for v in np.atleast_1d(t)]
+        new = sorted({v for v in ts if v > 0 and v not in cache})
 
-    def _pdf_point(self, t: float) -> float:
-        r"""Per-point de Hoog density (transform :math:`\mathcal{L}[f] = \varphi(s)`)."""
+        if new:
+            cache.update(zip(new, np.atleast_1d(d._invert(lambda s: d._lst_nodes(s) / s, np.array(new)))))
+
+        # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
+        # de Hoog / cosine curves (which split the atom off and add it back). The inversion is skipped there both to
+        # avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
+        out = [0.0 if v < 0 else max(d.lst(np.inf).real, 0.0) if v == 0 else float(cache.get(v, np.nan)) for v in ts]
+
+        return out[0] if np.ndim(t) == 0 else np.array(out)
+
+    def _pdf_point(self, t) -> 'float | np.ndarray':
+        r"""Per-point de Hoog density (transform :math:`\mathcal{L}[f] = \varphi(s)`), a float for a scalar ``t`` and an
+        array for a 1D array of points, which are inverted together."""
         d = self._distribution
-        return d._invert(d.lst, float(t))
+        return d._invert(d._lst_nodes, t)
 
     # ---- shared CDF representation (cached on the distribution) -------------------------------------------------
     @property

@@ -59,6 +59,10 @@ _MOMENT_N0_MAX = 1920
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
 _LST_BATCH_ENTRIES = 2 ** 21
 
+#: Aliasing level :math:`\varepsilon` of the de Hoog contour of ``_dehoog_invert``, the double-precision machine
+#: epsilon to the power 2/3.
+_DEHOOG_EPS = np.finfo(float).eps ** (2 / 3)
+
 #: Coefficients of the Pade-13 approximant of ``_expm_batch``.
 _PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1187353796428800.,
                     129060195264000., 10559470521600., 670442572800., 33522128640.,
@@ -108,15 +112,18 @@ class RewardDistribution(CallableDistributionFunctions):
 
     .. math::
 
-        F(x) \approx \frac{e^{\gamma x}}{2x}\, \mathrm{Re} \sum_{l=0}^{2D} w_l\,
-        \frac{\varphi(z_l)}{z_l}\, e^{\mathrm{i} l \pi / 2},
+        F(x) \approx \frac{e^{\gamma x}}{x}\, \mathrm{Re} \sum_{l=0}^{2D} w_l\,
+        \frac{\varphi(z_l)}{z_l}\, (-1)^l,
 
-    where the transform is evaluated at the nodes :math:`s = z_l = \gamma + \mathrm{i} l \pi / (2x)`. They lie on a
-    vertical line in the complex plane, and their real part :math:`\gamma > 0` damps the function being inverted by
-    :math:`e^{-\gamma x}`, which keeps the series convergent. The weights are :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and :math:`D` is given by
-    :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in
-    :math:`e^{\mathrm{i} \pi / 2}`, the sum converges slowly, so it is replaced by its Padé approximant: a continued
-    fraction that matches its first :math:`2D + 1` terms, with coefficients from the quotient-difference algorithm.
+    where the transform is evaluated at the nodes :math:`s = z_l = \gamma + \mathrm{i} l \pi / x`. They lie on a
+    vertical line in the complex plane, and their real part :math:`\gamma = -\ln(\varepsilon) / (2x)` damps the
+    function being inverted by :math:`e^{-\gamma x}`, which keeps the series convergent and bounds its aliasing error by
+    about :math:`\varepsilon F(3x)`, with :math:`\varepsilon = \epsilon_\mathrm{mach}^{2/3} \approx 3.7 \times
+    10^{-11}` for the double-precision machine epsilon :math:`\epsilon_\mathrm{mach}`. The weights are
+    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and the degree :math:`D` is given by :attr:`Settings.dehoog_degree
+    <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in :math:`e^{\mathrm{i} \pi} = -1`, the sum
+    converges slowly, so it is replaced by its Padé approximant: a continued fraction that matches its first
+    :math:`2D + 1` terms, with coefficients from the quotient-difference algorithm.
 
     .. rubric:: Implementation
 
@@ -294,23 +301,40 @@ class RewardDistribution(CallableDistributionFunctions):
         return complex(_lst_from_shift_batch(shift, st['alpha'], st['T_epochs'], st['exits'], st['sparse'],
                                              st['lu_perm'])[0])
 
-    def _invert(self, transform, t: float) -> float:
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """
+        The transform :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>` at the 1D
+        array ``s`` in one batched evaluation, the nodes of ``_invert``.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
+        self._host._assert_not_windowed()
+        st = self._setup
+        self._host._assert_absorbs()
+        return _lst_from_shift_batch(_shift_rows(s, st['r'], st['tau']), st['alpha'], st['T_epochs'], st['exits'],
+                                     st['sparse'], st['lu_perm'])
+
+    def _invert(self, transform, t):
         r"""
         De Hoog inversion of ``transform`` at ``t``, described at ``RewardDistribution``. It runs in the time unit
         :math:`\zeta` of ``_time_scale``, using
         :math:`g(t) = \zeta^{-1} \mathcal{L}^{-1}[\sigma \mapsto G(\sigma / \zeta)](t / \zeta)` for a transform
         :math:`G` with inverse :math:`g`, so the contour nodes stay of order one.
 
-        :param transform: The transform to invert, a function of a complex argument.
-        :param t: The point at which to evaluate the inverse.
-        :return: The inverse at ``t``, 0 for ``t <= 0``.
+        :param transform: The transform to invert, a function of a 1D array of complex arguments.
+        :param t: The point, or a 1D array of points, at which to evaluate the inverse.
+        :return: The inverse at ``t``, 0 for ``t <= 0``, a float for a scalar ``t`` and an array otherwise.
         """
-        if t <= 0:
-            return 0.0
-
         tau = self._time_scale
+        ts = np.atleast_1d(np.asarray(t, dtype=float))
+        out = np.zeros(len(ts))
+        pos = ts > 0
 
-        return _dehoog_invert(lambda s: transform(s / tau), t / tau, Settings.dehoog_degree) / tau
+        if pos.any():
+            out[pos] = _dehoog_invert(lambda s: transform(s / tau), ts[pos] / tau, Settings.dehoog_degree) / tau
+
+        return float(out[0]) if np.ndim(t) == 0 else out
 
     def _titled(self, base: str) -> str:
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
@@ -1011,7 +1035,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         xs = np.linspace(0.0, float(ma.quantile(a0 + 0.4 * (1.0 - a0))), 5)[1:]
         # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
         box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
-        g_b = np.array([ma._invert(lambda s: self.lst(s, np.inf) / s, float(x)) for x in xs])
+        g_b = ma._invert(lambda s: self.lst_batch(s, np.inf) / s, xs)
         cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
         true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
         err = float(np.abs(cos_cdf - true_cdf).max())
@@ -1621,6 +1645,10 @@ class ConditionalRewardDistribution(RewardDistribution):
         """
         raise NotImplementedError
 
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """The conditional transform at the 1D array ``s``, one ``lst`` call per argument."""
+        return np.array([self.lst(complex(v)) for v in s])
+
     def _refine(self) -> None:
         """Refine the inner inversion before the first cosine expansion, nothing for a transform without one."""
 
@@ -1908,64 +1936,67 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
     return c + np.einsum('ki,ki->k', a, np.linalg.solve(A, np.broadcast_to(exit_m[:, None], (k, nt, 1)))[..., 0])
 
 
-def _dehoog_invert(transform, t: float, degree: int) -> float:
+def _dehoog_invert(transform, t, degree: int):
     """
     Inverse Laplace transform of ``transform`` at ``t > 0`` by the method of de Hoog, Knight and Stokes (1982), the
-    tail inversion of ``RewardDistribution``. The Fourier series on the ``2 * degree + 1`` contour nodes
-    ``gamma + i k pi / T``, ``T = 2t``, is accelerated by a continued fraction whose coefficients come from the
-    quotient-difference algorithm, with the improved remainder of the last term. The contour abscissa follows the
-    degree through ``alpha = 10 ** -int(1.38 * degree)``, ``tol = 10 * alpha`` and ``gamma = alpha - log(tol) / (2T)``.
+    tail inversion of ``RewardDistribution``. The Fourier series of ``exp(-gamma x) f(x)`` on the period ``2t``, whose
+    coefficients are the transform at the ``2 * degree + 1`` contour nodes ``gamma + i k pi / t``, is accelerated by a
+    continued fraction whose coefficients come from the quotient-difference algorithm, with the improved remainder of
+    the last term. The abscissa ``gamma = -log(eps) / (2t)``, with ``eps = _DEHOOG_EPS``, bounds the aliasing error by
+    about ``eps f(3t)`` at every degree, and the degree sets the truncation of the series. The transform is called
+    once, on the nodes of all points.
 
-    :param transform: The transform, a function of a complex argument.
-    :param t: The point at which to evaluate the inverse.
+    :param transform: The transform, a function of a 1D array of complex arguments returning its values there.
+    :param t: The point, or a 1D array of points, at which to evaluate the inverse.
     :param degree: The degree ``M``.
-    :return: The inverse at ``t``.
+    :return: The inverse at ``t``, a float for a scalar ``t`` and an array otherwise.
     """
     M = degree
     n = 2 * M + 1
-    alpha = 10.0 ** -int(1.38 * degree)
-    T = 2.0 * t
-    gamma = alpha - np.log(10.0 * alpha) / (2.0 * T)
-    fp = np.array([complex(transform(gamma + 1j * np.pi * k / T)) for k in range(n)])
+    ts = np.atleast_1d(np.asarray(t, dtype=float))
+    gamma = -np.log(_DEHOOG_EPS) / (2.0 * ts)
+    nodes = gamma[:, None] + 1j * np.pi * np.arange(n) / ts[:, None]
+    fp = np.asarray(transform(nodes.ravel()), dtype=complex).reshape(nodes.shape)
 
-    # quotient-difference table, filled by the rhombus rule
-    e = np.zeros((n, M + 1), dtype=complex)
-    q = np.zeros((2 * M, M), dtype=complex)
-    q[0, 0] = fp[1] / (fp[0] / 2)
-    q[1:, 0] = fp[2:2 * M + 1] / fp[1:2 * M]
+    # quotient-difference table, filled by the rhombus rule, one table per point along the first axis
+    e = np.zeros((len(ts), n, M + 1), dtype=complex)
+    q = np.zeros((len(ts), 2 * M, M), dtype=complex)
+    q[:, 0, 0] = fp[:, 1] / (fp[:, 0] / 2)
+    q[:, 1:, 0] = fp[:, 2:2 * M + 1] / fp[:, 1:2 * M]
 
     for r in range(1, M + 1):
         mr = 2 * (M - r) + 1
-        e[:mr, r] = q[1:mr + 1, r - 1] - q[:mr, r - 1] + e[1:mr + 1, r - 1]
+        e[:, :mr, r] = q[:, 1:mr + 1, r - 1] - q[:, :mr, r - 1] + e[:, 1:mr + 1, r - 1]
 
         if r < M:
-            mq = 2 * (M - r) + 1
-            q[:mq, r] = q[1:mq + 1, r - 1] * e[1:mq + 1, r] / e[:mq, r]
+            q[:, :mr, r] = q[:, 1:mr + 1, r - 1] * e[:, 1:mr + 1, r] / e[:, :mr, r]
 
     # continued-fraction coefficients
-    d = np.empty(n, dtype=complex)
-    d[0] = fp[0] / 2
-    d[1:2 * M:2] = -q[0, :M]
-    d[2:2 * M + 1:2] = -e[0, 1:M + 1]
+    d = np.empty((len(ts), n), dtype=complex)
+    d[:, 0] = fp[:, 0] / 2
+    d[:, 1:2 * M:2] = -q[:, 0, :M]
+    d[:, 2:2 * M + 1:2] = -e[:, 0, 1:M + 1]
 
-    # three-term recurrence of the numerator and denominator of the Pade approximant
-    z = np.exp(1j * np.pi * t / T)
-    A = np.zeros(n + 1, dtype=complex)
-    B = np.ones(n + 1, dtype=complex)
-    A[1] = d[0]
+    # three-term recurrence of the numerator and denominator of the Pade approximant, evaluated at
+    # z = exp(i pi t / t) = -1
+    A = np.zeros((len(ts), n + 1), dtype=complex)
+    B = np.ones((len(ts), n + 1), dtype=complex)
+    A[:, 1] = d[:, 0]
 
     for i in range(1, 2 * M):
-        A[i + 1] = A[i] + d[i] * A[i - 1] * z
-        B[i + 1] = B[i] + d[i] * B[i - 1] * z
+        A[:, i + 1] = A[:, i] - d[:, i] * A[:, i - 1]
+        B[:, i + 1] = B[:, i] - d[:, i] * B[:, i - 1]
 
     # improved remainder of the continued fraction: the period-2 tail u = d_e z / (1 + v), v = d_o z / (1 + u)
     # solves u^2 + u (1 + (d_o - d_e) z) - d_e z = 0, so u = h (sqrt(1 + d_e z / h^2) - 1)
-    h = (1 + (d[2 * M - 1] - d[2 * M]) * z) / 2
-    rem = h * np.expm1(0.5 * np.log1p(d[2 * M] * z / h ** 2))
-    A[n] = A[2 * M] + rem * A[2 * M - 1]
-    B[n] = B[2 * M] + rem * B[2 * M - 1]
+    h = (1 - (d[:, 2 * M - 1] - d[:, 2 * M])) / 2
+    rem = h * np.expm1(0.5 * np.log1p(-d[:, 2 * M] / h ** 2))
+    A[:, n] = A[:, 2 * M] + rem * A[:, 2 * M - 1]
+    B[:, n] = B[:, 2 * M] + rem * B[:, 2 * M - 1]
 
-    return float(np.exp(gamma * t) / T * (A[n] / B[n]).real)
+    out = np.exp(gamma * ts) / ts * (A[:, n] / B[:, n]).real
+
+    return float(out[0]) if np.ndim(t) == 0 else out
 
 
 def _euler_series(t: float, truncations: Sequence[int], A: float = 16.0, m: int = 12) -> tuple:

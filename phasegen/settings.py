@@ -125,9 +125,11 @@ class Settings(metaclass=_SettingsMeta):
     #: Default number of time points of inference plots.
     plot_inference_n_grid: int = 100
 
-    #: Degree :math:`D` of the de Hoog Laplace inversion, which evaluates the transform at :math:`2D + 1` points, as
-    #: described at :class:`~phasegen.distributions.RewardDistribution`. The cost is linear in the degree.
-    dehoog_degree: int = 15
+    #: Degree :math:`D` of the de Hoog Laplace inversion, which evaluates the transform at :math:`2D + 1` points spaced
+    #: :math:`\pi / x` apart on a vertical contour whose abscissa is fixed by the point :math:`x` alone, as described
+    #: at :class:`~phasegen.distributions.RewardDistribution`. The degree sets the truncation error of the series,
+    #: which is largest at steep features of the distribution, and the cost is linear in it.
+    dehoog_degree: int = 20
 
     #: CDF level above which the grid of an accumulated-reward distribution carries exact de Hoog values in place of
     #: the cosine expansion, as described at :class:`~phasegen.distributions.RewardDistribution`. Set to ``None`` to
