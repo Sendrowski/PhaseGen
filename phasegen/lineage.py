@@ -23,7 +23,7 @@ class LineageConfig:
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
             By default, the populations are named 'pop_0', 'pop_1', etc.
-        :raises TypeError: If a lineage count is not a number.
+        :raises TypeError: If a lineage count is not a number or a population name is not a string.
         :raises ValueError: If a lineage count is negative or not integral, or fewer than two lineages are given.
         """
         #: Logger
@@ -31,15 +31,20 @@ class LineageConfig:
 
         if isinstance(n, dict):
             # we have a dictionary
+            names = [k for k in n if not isinstance(k, str)]
+
+            if names:
+                raise TypeError(f"Population names must be strings, got {names}.")
+
             n_lineages = {k: self._to_count(v) for k, v in n.items()}
 
-        elif isinstance(n, Iterable):
+        elif isinstance(n, Iterable) and not (isinstance(n, np.ndarray) and n.ndim == 0):
             # we have an iterable
             n_lineages = {f"pop_{i}": self._to_count(n) for i, n in enumerate(n)}
 
         else:
-            # assume we have a scalar
-            n_lineages = dict(pop_0=self._to_count(n))
+            # assume we have a scalar, possibly a 0-d array
+            n_lineages = dict(pop_0=self._to_count(n.item() if isinstance(n, np.ndarray) else n))
 
         #: Number of lineages per deme.
         self.lineages: np.ndarray = np.array(list(n_lineages.values()))

@@ -79,3 +79,14 @@ def test_non_numeric_lineage_count_raises_type_error():
     """
     with pytest.raises(TypeError):
         pg.LineageConfig({'pop_0': None, 'pop_1': 2})
+
+
+def test_zero_dimensional_array_is_a_single_lineage_count():
+    """A 0-d array was sent to the iterable branch and raised 'iteration over a 0-d array'."""
+    assert pg.Coalescent(n=np.array(3)).tree_height.mean == pytest.approx(4 / 3, rel=1e-12)
+
+
+def test_population_names_must_be_strings():
+    """Integer population names were accepted and failed later when the names were sorted with the defaults."""
+    with pytest.raises(TypeError, match="Population names must be strings"):
+        pg.LineageConfig({0: 2, 1: 1})

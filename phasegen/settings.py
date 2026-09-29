@@ -55,18 +55,20 @@ class Settings(metaclass=_SettingsMeta):
     regularize: bool = True
 
     #: Whether to memoize cached properties and results. With ``False``, values already stored are still served and
-    #: anything not yet computed is recomputed on every access, which helps debugging.
+    #: anything not yet computed is recomputed on every access, which helps debugging. The internal memos a
+    #: distribution object keeps of its epochs, state reachability and reward ranges are stored regardless.
     cache: bool = True
 
-    #: Whether to use the numba-accelerated state-space construction when numba is available. Set to ``False`` to
-    #: force the pure-Python construction path.
+    #: Whether to use the numba-accelerated state-space construction. Set to ``False`` to force the deprecated
+    #: pure-Python construction.
     use_numba: bool = True
 
     #: Matrix dimension at or above which a matrix exponential is applied to a vector by the sparse action algorithm
-    #: and not formed densely. It is compared against the Van Loan dimension for moments not taken in closed form (see
-    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), against the
-    #: number of states for the tree-height distribution functions, and against the number of transient states for
-    #: the multi-epoch mutational configurations. The result is unchanged. Set to 0 or very large to force either path.
+    #: and not formed densely. It is compared against the Van Loan dimension for moments (see
+    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), in closed form
+    #: only for stiff rates, against the number of states for the tree-height distribution functions, and against the
+    #: number of transient states for the multi-epoch mutational configurations. The result is unchanged. Set to 0 or
+    #: very large to force either path.
     expm_action_min_dim: int = 1500
 
     #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see
@@ -77,9 +79,10 @@ class Settings(metaclass=_SettingsMeta):
     #: Number of transient states at or above which linear solves with the transient block of the last epoch use a
     #: sparse block-triangular LU factorization and not a dense one. It applies to the closed-form moments (see
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), whose
-    #: finite-epoch matrix exponentials then also take the sparse action, the last-epoch solve of the Laplace transform
-    #: and the multi-epoch mutational configurations. The result is unchanged. Set to 0 to always use the sparse path,
-    #: or very large to always use the dense path.
+    #: finite-epoch matrix exponentials then also take the sparse action, except for stiff rates below
+    #: :attr:`expm_action_min_dim`, the last-epoch solve of the Laplace transform and the multi-epoch mutational
+    #: configurations. The result is unchanged. Set to 0 to always use the sparse path, or very large to always use the
+    #: dense path.
     closed_form_sparse_min_states: int = 256
 
     #: State count at or above which the rate matrix is stored sparse. A dense matrix is faster but needs

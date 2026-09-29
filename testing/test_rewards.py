@@ -780,12 +780,161 @@ def test_deme_and_locus_rewards_name_an_unknown_deme_or_locus():
 
 
 def test_distribution_rejects_a_sequence_of_rewards():
-    """Coalescent.distribution and Coalescent.joint_distribution take single rewards and raise a TypeError naming the
-    argument for a list. Regression: the list reached the state-space selection and raised an AttributeError."""
+    """Coalescent.distribution, Coalescent.joint_distribution and their PhaseTypeDistribution counterparts take single
+    rewards and raise a TypeError naming the argument for a list. Regression: the list reached the state-space
+    selection and raised an AttributeError, the PhaseTypeDistribution path accepted it and raised an AttributeError
+    at the first evaluation, and the message of the Coalescent path named a tuple for a list."""
     coal = pg.Coalescent(n=3)
 
-    with pytest.raises(TypeError, match='reward must be a single Reward, but got tuple'):
-        coal.distribution([pg.TreeHeightReward()])
+    for dist in (coal, coal.total_branch_length):
+        with pytest.raises(TypeError, match='reward must be a single Reward, but got a sequence'):
+            dist.distribution([pg.TreeHeightReward()])
 
-    with pytest.raises(TypeError, match='reward_b must be a single Reward, but got tuple'):
-        coal.joint_distribution(pg.TreeHeightReward(), [pg.TotalBranchLengthReward()])
+        with pytest.raises(TypeError, match='reward_b must be a single Reward, but got a sequence'):
+            dist.joint_distribution(pg.TreeHeightReward(), [pg.TotalBranchLengthReward()])
+
+    with pytest.raises(TypeError, match='reward must be a single Reward, but got str'):
+        coal.total_branch_length.distribution('tree_height')
+
+
+@pytest.mark.parametrize("inner", [
+    [pg.DemeReward('a')],
+    [pg.DemeReward('a'), pg.rewards.UnitReward()],
+])
+def test_a_nested_combined_reward_restricts_as_its_members_do(inner):
+    """A combined reward member contributes its members, so nesting leaves the reward and its hash unchanged.
+    Regression: a restricting combined reward was taken as a factor splitting by lineage counts, giving an SFS bin
+    1 mean of 1.9215 against 1.5996 for deme a."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 2},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 0.5})
+    )
+    sfs = pg.UnfoldedSFSReward(1)
+    nested = pg.CombinedReward([pg.CombinedReward(inner), sfs])
+    flat = pg.CombinedReward(inner + [sfs])
+
+    assert hash(nested) == hash(flat)
+    assert coal.moment(1, [nested], center=False) == pytest.approx(coal.moment(1, [flat], center=False), rel=1e-12)
+
+
+@pytest.mark.parametrize("make", [
+    lambda: pg.UnfoldedSFSReward(1.5),
+    lambda: pg.FoldedSFSReward(0.5),
+    lambda: pg.LineageReward(2.7),
+    lambda: pg.LocusReward(-0.5),
+    lambda: pg.rewards.TwoLocusSFSReward(0, 1.7),
+    lambda: pg.RestrictedReward(pg.TreeHeightReward(), locus=0.5),
+    lambda: pg.JointSFSReward((1.5, 0)),
+    lambda: pg.UnfoldedSFSReward(True),
+])
+def test_a_non_integral_reward_index_raises(make):
+    """Reward indices, lineage counts, loci and frequency classes must be integers. Regression: they were truncated
+    by int(), selecting another bin, lineage count or locus, and LocusReward(-0.5) passed the existence check as
+    locus 0."""
+    with pytest.raises(ValueError, match='must be an integer'):
+        make()
+
+
+def test_integral_reward_indices_of_any_numeric_type_are_accepted():
+    """Integral values of any numeric type select the same bin as the integer."""
+    assert pg.UnfoldedSFSReward(np.int64(2)).index == pg.UnfoldedSFSReward(2.0).index == 2
+    assert pg.JointSFSReward((np.float64(1), 0)).config == (1, 0)
+
+
+@pytest.mark.parametrize("config", [(3, 0), (1, 0, 0), (0, 0), (-1, 1)])
+def test_a_joint_sfs_bin_outside_the_sample_raises_a_value_error(config):
+    """A descendant vector that is not one of the sample raises a ValueError naming the admissible range. Regression:
+    it raised a bare KeyError."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 1},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    )
+
+    with pytest.raises(ValueError, match='descendant configuration must hold one integer count per population'):
+        _ = coal.jsfs.bin(*config).mean
+
+
+def test_a_non_integral_joint_sfs_bin_raises():
+    """jsfs.bin rejects a non-integral count. Regression: it truncated the count."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 1},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    )
+
+    with pytest.raises(ValueError, match='descendant configuration must hold one integer count per population'):
+        coal.jsfs.bin(1.5, 0)
+
+
+@pytest.mark.parametrize("cls", [pg.ProductReward, pg.SumReward, pg.CombinedReward])
+def test_an_empty_composite_reward_raises(cls):
+    """A composite reward needs a member. Regression: an empty one raised a bare IndexError when accumulated."""
+    with pytest.raises(ValueError, match='needs at least one reward'):
+        cls([])
+
+
+@pytest.mark.parametrize("func", [lambda s: np.ones(s.k - 1), lambda s: None, lambda s: np.ones((s.k, 2))])
+def test_a_custom_reward_of_the_wrong_shape_raises(func):
+    """A custom reward must give one entry per state. Regression: a wrong length raised a bare numpy IndexError."""
+    coal = pg.Coalescent(n=4)
+
+    with pytest.raises(ValueError, match='must be a vector of length'):
+        coal.moment(1, [pg.CustomReward(func)], center=False)
+
+
+
+@pytest.mark.parametrize("reward", [
+    pg.TwoLocusSFSReward(0, 1),
+    pg.ProductReward([pg.LocusReward(0), pg.UnfoldedSFSReward(1)]),
+    pg.CustomReward(lambda s: np.ones(s.k), supports=lambda s: s is pg.TwoLocusBlockCountingStateSpace)
+])
+def test_rewards_without_a_single_locus_space_are_rejected(reward):
+    """
+    On one locus the block-counting space was chosen without checking that the rewards support it, so a reward that
+    supports no single-locus space failed inside the reward with a NotImplementedError, or was evaluated on a space it
+    excludes, instead of raising the documented ValueError.
+    """
+    with pytest.raises(ValueError, match="not jointly compatible"):
+        pg.Coalescent(n=3).moment(1, rewards=[reward])
+
+
+def test_rewards_evaluated_on_the_single_locus_block_counting_space_route_there():
+    """LineageReward, a restriction to the single locus and StateReward are evaluated on the block-counting space."""
+    coal = pg.Coalescent(n=4)
+    sfs = pg.UnfoldedSFSReward(1)
+    expected = coal.moment(1, rewards=[sfs])
+
+    assert coal.moment(1, rewards=[pg.RestrictedReward(sfs, locus=0)]) == pytest.approx(expected, rel=1e-12)
+    assert coal.moment(1, rewards=[pg.CombinedReward([pg.LocusReward(0), sfs])]) == pytest.approx(expected, rel=1e-12)
+    assert np.isfinite(coal.moment(2, rewards=[pg.LineageReward(2), sfs]))
+
+    transient = np.where(~coal.block_counting_state_space.absorbing)[0]
+    assert coal.moment(1, rewards=[pg.StateReward(int(transient[0]))]) > 0
+
+
+def test_locus_trivial_rewards_evaluate_on_the_joint_state_space():
+    """On a single locus, the tree height restricted to locus 0 and the total tree height equal the tree height. They
+    also evaluate on the joint block-counting space, which a joint-SFS reward requires. Regression: they raised
+    ValueError there."""
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 0.5}))
+    jsfs = pg.JointSFSReward((1, 0))
+
+    expected = coal.moment(2, rewards=(jsfs, pg.TreeHeightReward()))
+
+    for reward in [pg.RestrictedReward(pg.TreeHeightReward(), locus=0),
+                   pg.CombinedReward([pg.LocusReward(0), pg.TreeHeightReward()]),
+                   pg.TotalTreeHeightReward()]:
+        assert coal.moment(2, rewards=(jsfs, reward)) == pytest.approx(expected, rel=1e-10)
+
+
+def test_state_reward_validates_its_index():
+    """Regression: a non-integer, negative or out-of-range state gave an all-zero reward and a moment of zero."""
+    assert pg.StateReward(1.0).state == 1
+    assert hash(pg.StateReward(1.0)) == hash(pg.StateReward(1))
+
+    for state in [1.5, -1]:
+        with pytest.raises(ValueError):
+            pg.StateReward(state)
+
+    with pytest.raises(ValueError, match='does not exist'):
+        pg.Coalescent(n=4).moment(1, rewards=[pg.StateReward(1000)])

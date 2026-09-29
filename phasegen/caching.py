@@ -72,24 +72,19 @@ def cache(func) -> 'Callable':
     """
     Like :func:`functools.cache`, but only stores new results when :attr:`Settings.cache` is ``True``. Existing
     memoized results are always served. With caching disabled, an un-memoized call is recomputed and not stored.
-    Exposes ``cache_clear`` / ``cache_info`` like :func:`functools.cache`.
 
     All ``@cache``-decorated functions in the library are methods, so the memo is kept per instance in a
     :class:`weakref.WeakKeyDictionary` keyed on ``self``. The cached results of an instance, which may reference its
     state space and dense rate matrix, are dropped when the instance is garbage-collected.
     """
     memo = weakref.WeakKeyDictionary()  # self -> {argkey: result}
-    hits = misses = 0
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs) -> 'Any':
-        nonlocal hits, misses
         key = functools._make_key(args, kwargs, typed=False)
         entries = memo.get(self)
         if entries is not None and key in entries:
-            hits += 1
             return entries[key]
-        misses += 1
         _enter_computation()
         try:
             result = func(self, *args, **kwargs)
@@ -99,11 +94,4 @@ def cache(func) -> 'Callable':
             memo.setdefault(self, {})[key] = result
         return result
 
-    def cache_clear() -> None:
-        nonlocal hits, misses
-        memo.clear()
-        hits = misses = 0
-
-    wrapper.cache_clear = cache_clear
-    wrapper.cache_info = lambda: functools._CacheInfo(hits, misses, None, sum(len(v) for v in list(memo.values())))
     return wrapper

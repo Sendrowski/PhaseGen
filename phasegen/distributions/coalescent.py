@@ -10,7 +10,7 @@ from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
+from ..rewards import Reward, TreeHeightReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
@@ -63,12 +63,20 @@ class AbstractCoalescent(ABC):
         :param end_time: Time when to end the computation. If ``None`` or infinite, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
+        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel` or
+            ``demography`` is not a :class:`~phasegen.demography.Demography`.
         """
         self._logger = logger.getChild(self.__class__.__name__)
 
         # set up default coalescent model
         if model is None:
             model = StandardCoalescent()
+
+        if not isinstance(model, CoalescentModel):
+            raise TypeError(f"model must be a {CoalescentModel.__name__}, but got {type(model).__name__}.")
+
+        if demography is not None and not isinstance(demography, Demography):
+            raise TypeError(f"demography must be a {Demography.__name__}, but got {type(demography).__name__}.")
 
         if not isinstance(n, LineageConfig):
             #: Population configuration
@@ -267,8 +275,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :math:`r(x) = \mathbb{1}\{x \notin B\}`. With multiple loci this is the time until every locus has reached its
         MRCA (absorption of the two-locus ancestral process), the maximum of the per-locus heights. Its distribution is
         that of the single-locus height when fully linked (:math:`\rho = 0`, with :math:`\rho` the recombination rate)
-        and tends to that of the maximum of independent per-locus heights as the loci decouple
-        (:math:`\rho \to \infty`).
+        and, for the standard coalescent, tends to that of the maximum of independent per-locus heights as the loci
+        decouple (:math:`\rho \to \infty`).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,
@@ -576,8 +584,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint_distribution` (all via
         :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
         every reward must also support it). Otherwise the lineage-counting space is used if all rewards support it,
-        then the two-locus block-counting space if all rewards support it and there are two loci and one deme, else
-        the block-counting space.
+        then the two-locus block-counting space if all rewards support it and there are two loci and one deme, then
+        the block-counting space if all rewards support it and there is one locus.
 
         :param rewards: The rewards to be accumulated jointly.
         :return: The state space supporting all the rewards.
@@ -600,7 +608,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         if two_locus and Reward.support(TwoLocusBlockCountingStateSpace, rewards):
             return self.two_locus_block_counting_state_space
 
-        if self.locus_config.n != 1:
+        if self.locus_config.n != 1 or not Reward.support(BlockCountingStateSpace, rewards):
             raise ValueError(
                 "The given rewards are not jointly compatible with any state space of this coalescent: "
                 f"{[r.__class__.__name__ for r in rewards]}."
@@ -683,33 +691,6 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute=permute
         )
 
-    def _raw_moment(
-            self,
-            k: int,
-            rewards: Sequence[Reward] = None,
-            start_time: float = None,
-            end_time: float = None
-    ) -> float:
-        """
-        Get the kth raw moment using the specified rewards and state space.
-
-        :param k: The order of the moment
-        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :return: The kth raw moment
-        """
-        return self.moment(
-            k=k,
-            rewards=rewards,
-            start_time=start_time,
-            end_time=end_time,
-            center=False,
-            permute=False
-        )
-
     def accumulate(
             self,
             k: int,
@@ -773,7 +754,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
@@ -810,6 +791,11 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param state: State.
         """
         self.__dict__.update(state)
+
+        # the drain rate of a population split depends on the coalescent model
+        demography = self.__dict__.get('demography')
+        if demography is not None and '_model' not in demography.__dict__:
+            demography._model = self.__dict__.get('model')
 
     def __getstate__(self) -> dict:
         """
@@ -888,7 +874,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             seed: int | np.random.Generator = None
     ) -> 'SampledCoalescent':
         """
-        Estimate every statistic by simulation, see :class:`~phasegen.distributions.SampledCoalescent`.
+        Estimate the tree height, total branch length and site-frequency spectra by simulation, see
+        :class:`~phasegen.distributions.SampledCoalescent`.
 
         :param n_samples: Number of trajectories to sample per statistic.
         :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one is drawn. ``None`` draws fresh

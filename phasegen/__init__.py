@@ -94,7 +94,7 @@ class DeduplicatingFilter(logging.Filter):
     computation (not a time or record window, neither of which can robustly bound an arbitrarily slow per-pair
     loop): the caching layer bumps :data:`phasegen.caching.computation_epoch` at each outermost cached/memoised
     computation, and this filter resets its seen-set whenever that epoch changes — so a later computation logs
-    afresh while repeats within a computation are suppressed.
+    afresh while repeats within a computation are suppressed. Records logged outside any computation pass unchanged.
     """
 
     def __init__(self) -> None:
@@ -104,6 +104,10 @@ class DeduplicatingFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         from . import caching
+
+        # records logged outside any computation are not deduplicated
+        if caching._computation_depth == 0:
+            return True
 
         if caching.computation_epoch != self._epoch:
             self._epoch = caching.computation_epoch
@@ -272,6 +276,7 @@ __all__ = [
     'L2Norm',
     'LInfNorm',
     'PoissonLikelihood',
+    'MultinomialLikelihood',
     'Reward',
     'TreeHeightReward',
     'TotalTreeHeightReward',

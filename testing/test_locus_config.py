@@ -52,9 +52,9 @@ class LocusConfigTestCase(TestCase):
         self.assertEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(1, 0, 0))
 
         self.assertNotEqual(pg.LocusConfig(1), pg.LocusConfig(2))
-        self.assertNotEqual(pg.LocusConfig(1, 0), pg.LocusConfig(1, 1))
-        self.assertNotEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(1, 0, 1))
-        self.assertNotEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(1, 1, 0))
+        self.assertNotEqual(pg.LocusConfig(2, 0), pg.LocusConfig(2, 1))
+        self.assertNotEqual(pg.LocusConfig(2, 0, 0), pg.LocusConfig(2, 0, 1))
+        self.assertNotEqual(pg.LocusConfig(2, 0, 0), pg.LocusConfig(2, 1, 0))
         self.assertNotEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(2, 0, 0))
         self.assertNotEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(2, 1, 0))
         self.assertNotEqual(pg.LocusConfig(1, 0, 0), pg.LocusConfig(2, 1, 3))
@@ -154,3 +154,14 @@ def test_non_finite_recombination_rate_raises_value_error(rate):
     """
     with pytest.raises(ValueError, match="finite and non-negative"):
         pg.LocusConfig(n=2, recombination_rate=rate)
+
+
+@pytest.mark.parametrize("make", [
+    lambda: pg.LocusConfig(n=1, n_unlinked=1),
+    lambda: pg.LocusConfig(n=1, recombination_rate=0.5),
+    lambda: pg.Coalescent(n=3, recombination_rate=0.5)
+])
+def test_single_locus_with_unlinked_lineages_or_recombination_raises(make):
+    """Unlinked lineages and recombination were silently ignored on a single locus."""
+    with pytest.raises(ValueError, match="single locus"):
+        make()

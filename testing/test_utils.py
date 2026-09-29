@@ -177,3 +177,30 @@ def test_use_pbar_governs_the_msprime_simulation_bar(capsys):
             MsprimeCoalescent(n=2, num_replicates=20, parallelize=False, seed=0).simulate()
 
         assert ('Simulating trees' in capsys.readouterr().err) == enabled
+
+
+def test_identical_warnings_outside_a_computation_are_not_deduplicated():
+    """Repeats of a warning logged outside any cached computation, such as constructor validation, were dropped."""
+    from phasegen import DeduplicatingFilter
+
+    record = logging.LogRecord('phasegen.MsprimeCoalescent', logging.WARNING, '', 0, 'message', None, None)
+    log_filter = DeduplicatingFilter()
+
+    assert [log_filter.filter(record) for _ in range(3)] == [True, True, True]
+
+
+def test_public_names_are_exported():
+    """MultinomialLikelihood was importable from phasegen but missing from its __all__."""
+    import phasegen as pg
+
+    assert 'MultinomialLikelihood' in pg.__all__
+
+
+def test_log_factorial_is_exact():
+    """The Stirling approximation above 100 was off by up to 3.4e-7 at 101."""
+    from scipy.special import gammaln
+    from phasegen._likelihood import Likelihood
+
+    n = np.array([0, 1, 5, 100, 101, 1000])
+
+    np.testing.assert_array_equal(Likelihood.log_factorial(n), gammaln(n + 1.0))

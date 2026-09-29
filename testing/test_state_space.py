@@ -2,7 +2,6 @@
 Test StateSpace class.
 """
 import itertools
-import shutil
 import sys
 from collections import defaultdict
 from testing import TestCase
@@ -74,11 +73,17 @@ class StateSpaceTestCase(TestCase):
             for model, lineage_config, epoch in cases:
                 def build(use_numba):
                     pg.Settings.use_numba = use_numba
-                    return pg.LineageCountingStateSpace(
+                    ss = pg.LineageCountingStateSpace(
                         lineage_config=lineage_config,
                         locus_config=pg.LocusConfig(n=2, recombination_rate=1.0),
                         model=model, epoch=epoch,
                     )
+
+                    # the construction path is fixed when the states are first built
+                    _ = ss.S
+                    self.assertEqual(ss._use_numba(), use_numba)
+
+                    return ss
 
                 numba_ss, python_ss = build(True), build(False)
                 self.assertEqual(numba_ss.k, python_ss.k)
@@ -319,11 +324,6 @@ class StateSpaceTestCase(TestCase):
         """
         Test plot rates.
         """
-        # graphviz is an optional dependency (Python package and the ``dot`` binary)
-        pytest.importorskip('graphviz')
-        if shutil.which('dot') is None:
-            pytest.skip('graphviz "dot" executable not on PATH')
-
         s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             model=pg.StandardCoalescent(),

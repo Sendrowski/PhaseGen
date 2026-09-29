@@ -16,7 +16,6 @@ The absorption-rate vector is :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for t
 
 import logging
 import time
-import warnings
 from abc import ABC, abstractmethod
 from .caching import cached_property
 from itertools import product
@@ -32,9 +31,12 @@ from .settings import Settings
 from .demography import Epoch
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .state_space_numba import HAS_NUMBA, build_rate_matrix
+from .state_space_numba import build_rate_matrix
 
 logger = logging.getLogger('phasegen')
+
+#: The coalescent models whose rates the numba kernels implement.
+_NUMBA_MODELS = (StandardCoalescent, BetaCoalescent, DiracCoalescent)
 
 
 def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, float]:
@@ -56,8 +58,7 @@ def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, floa
 
     raise NotImplementedError(
         f"The numba state-space construction implements the rates of StandardCoalescent, BetaCoalescent and "
-        f"DiracCoalescent only, got {type(model).__name__}. Set Settings.use_numba = False to use the pure-Python "
-        f"construction, which evaluates the rates of the model."
+        f"DiracCoalescent only, got {type(model).__name__}."
     )
 
 
@@ -77,6 +78,9 @@ class StateSpace(ABC):
     :class:`TwoLocusBlockCountingStateSpace`) resolve the descendant composition of each lineage. Positive merger
     rates are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
     """
+
+    #: Whether the states and rate matrices are built by the numba kernel, fixed by the first call of :meth:`_use_numba`
+    _numba: bool | None = None
 
     def __init__(
             self,
@@ -136,7 +140,12 @@ class StateSpace(ABC):
     def states(self) -> List['State']:
         """
         The states.
+
+        :raises ModelError: If a population size of the current epoch is not positive.
         """
+        # both constructions evaluate the rates of the current epoch
+        self._assert_positive_sizes(self.epoch)
+
         start = time.time()
 
         # The builder aborts with a MemoryError once the number of states exceeds ``Settings.max_state_space_size``,
@@ -173,16 +182,14 @@ class StateSpace(ABC):
     @cached_property
     def lineages(self) -> np.ndarray:
         """
-        The lineage configurations. Each configuration describes the lineages per block, deme and locus, i.e.,
-        ``[[[a_ijk]]]`` for block ``i``, deme ``j`` and locus ``k``.
+        The lineage configurations, an array indexed ``[state, locus, deme, block]``.
         """
         return np.array([s.lineages for s in self.states])
 
     @cached_property
     def linked(self) -> np.ndarray:
         """
-        The linked lineages per block, deme and locus.
-        :return:
+        The linked lineages, an array indexed ``[state, locus, deme, block]``.
         """
         return np.array([s.linked for s in self.states])
 
@@ -342,7 +349,6 @@ class StateSpace(ABC):
         Update the epoch.
 
         :param epoch: Epoch.
-        :return: State space.
         """
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
@@ -446,23 +452,33 @@ class StateSpace(ABC):
 
     def _use_numba(self) -> bool:
         """
-        Whether numba-accelerated construction applies: numba is available and enabled, and the state space is one of
-        the supported types -- the single-locus lineage/block/joint spaces, the two-locus lineage-counting space
-        (recombination), and the two-locus block-counting space (recombination).
+        Whether numba-accelerated construction applies: it is enabled, the coalescent model is a
+        :class:`~phasegen.coalescent_models.StandardCoalescent`, :class:`~phasegen.coalescent_models.BetaCoalescent`
+        or :class:`~phasegen.coalescent_models.DiracCoalescent`, and the state space is one of the supported
+        types -- the single-locus lineage/block/joint spaces, the two-locus lineage-counting space (recombination),
+        and the two-locus block-counting space (recombination). The two constructions order the states differently,
+        so the path is fixed at the first call, and every rate matrix of the state space is built in the order of its
+        :attr:`states` whatever :attr:`Settings.use_numba <phasegen.settings.Settings.use_numba>` is set to later.
+        The deprecated pure-Python construction is logged as a warning when it is chosen.
         """
-        if not (HAS_NUMBA and Settings.use_numba):
-            return False
+        if self._numba is None:
+            self._numba = bool(Settings.use_numba and type(self.model) in _NUMBA_MODELS and (
+                # lineage-counting: single locus (kernel kind 0) or two loci with recombination (kind 3)
+                (type(self) is LineageCountingStateSpace and self.locus_config.n in (1, 2)) or
+                # the single-locus block-/joint-counting spaces (kind 1)
+                (self.locus_config.n == 1 and type(self) in (BlockCountingStateSpace, JointBlockCountingStateSpace)) or
+                # the two-locus block-counting space (recombination, kind 2)
+                type(self) is TwoLocusBlockCountingStateSpace
+            ))
 
-        # lineage-counting: single locus (kernel kind 0) or two loci with recombination (kind 3)
-        if type(self) is LineageCountingStateSpace and self.locus_config.n in (1, 2):
-            return True
+            if not self._numba:
+                self._logger.warning(
+                    "Building the %s with the pure-Python construction, which is deprecated. It is used when "
+                    "Settings.use_numba is False or the state space or coalescent model has no numba kernel.",
+                    type(self).__name__
+                )
 
-        # the single-locus block-/joint-counting spaces (kind 1)
-        if self.locus_config.n == 1 and type(self) in (BlockCountingStateSpace, JointBlockCountingStateSpace):
-            return True
-
-        # the two-locus block-counting space (recombination, kind 2)
-        return type(self) is TwoLocusBlockCountingStateSpace
+        return self._numba
 
     def _numba_kind(self) -> int:
         """
@@ -502,7 +518,9 @@ class StateSpace(ABC):
         """
         Build the states and rate matrix for the current epoch via the numba kernel.
 
-        :return: The states (in kernel discovery order) and the dense intensity matrix.
+        :return: The states (in kernel discovery order) and the intensity matrix, a :class:`scipy.sparse.csr_matrix`
+            from :attr:`Settings.dense_rate_matrix_max_states <phasegen.settings.Settings.dense_rate_matrix_max_states>`
+            states on and dense below.
         """
         init = self._get_initial()
         n_demes = init.lineages.shape[1]
@@ -559,13 +577,6 @@ class StateSpace(ABC):
                 self._warn_if_large(len(states))
             return S
 
-        warnings.warn(
-            "Building the state space with the pure-Python construction; the numba kernel is the preferred path and "
-            "this fallback is deprecated. It is used when numba is unavailable or disabled (Settings.use_numba).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
         if self.epoch not in self._cache:
             self._cache[self.epoch] = self.get_transitions()
 
@@ -620,8 +631,8 @@ class StateSpace(ABC):
             ratio: float = 0.6,
             background_color: str = 'white',
             extension: str = 'png',
-            format_state: Callable[[np.ndarray], str] = None,
-            format_transition: Callable[['Transition'], str] = None
+            format_state: Callable[[Tuple[np.ndarray, np.ndarray]], str] = None,
+            format_transition: Callable[[float, str], str] = None
     ) -> None:
         """
         Plot the rate matrix using graphviz. Note that graphviz must be installed which is an external dependency.
@@ -633,8 +644,8 @@ class StateSpace(ABC):
         :param ratio: Aspect ratio.
         :param background_color: Background color.
         :param extension: File format.
-        :param format_state: Function to format state with state array as argument.
-        :param format_transition: Function to format transition with transition as argument.
+        :param format_state: Function formatting a state, called with its ``(lineages, linked)`` array pair.
+        :param format_transition: Function formatting a transition, called with its rate and kind.
         """
         import graphviz
 

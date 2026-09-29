@@ -146,12 +146,117 @@ class _DoubledRateCoalescent(pg.StandardCoalescent):
         return 2 * super()._get_rate(b, k)
 
 
-def test_numba_rejects_a_model_subclass():
-    """The numba kernels implement the rates of the built-in models only. Regression: a subclass was dispatched to the
-    kernel of its built-in ancestor, so overridden rates were silently ignored (E[T_MRCA] = 1 at n = 2 for doubled
-    rates). The pure-Python construction evaluates the rates of the subclass."""
-    with pytest.raises(NotImplementedError, match='_DoubledRateCoalescent'):
-        _ = pg.Coalescent(n=2, model=_DoubledRateCoalescent()).tree_height.mean
+def test_model_subclass_uses_the_python_construction():
+    """The numba kernels implement the rates of the built-in models only. A subclass takes the pure-Python
+    construction, which evaluates its rates, whatever ``Settings.use_numba`` is. Regression: a subclass was dispatched
+    to the kernel of its built-in ancestor, so overridden rates were silently ignored (E[T_MRCA] = 1 at n = 2 for
+    doubled rates), and later the construction raised NotImplementedError on the same coalescent even after
+    ``Settings.use_numba = False``."""
+    from phasegen.state_space import _numba_model_params
 
+    with pytest.raises(NotImplementedError, match='_DoubledRateCoalescent'):
+        _numba_model_params(_DoubledRateCoalescent())
+
+    coal = pg.Coalescent(n=2, model=_DoubledRateCoalescent())
+    np.testing.assert_allclose(coal.tree_height.mean, 0.5)
+    assert not coal.lineage_counting_state_space._use_numba()
+
+
+@pytest.mark.parametrize('first', [True, False])
+def test_toggling_use_numba_after_the_states_keeps_their_order(first):
+    """The construction path is fixed when the states are built, so toggling ``Settings.use_numba`` afterwards leaves
+    every epoch's rate matrix in the order of the states. Regression: the rate matrix of a later epoch was built by
+    the other path, whose state order differs, giving a two-locus tree height of 0.7236 against 0.8035 and a two-deme
+    joint SFS off by up to 4.66."""
+    def two_loci():
+        return pg.Coalescent(n=3, loci=2, recombination_rate=1.0,
+                             demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+    def two_demes():
+        return pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+            pop_sizes={'a': {0: 1, 0.5: 3}, 'b': {0: 2}}, migration_rates={('a', 'b'): 1, ('b', 'a'): 0.5}))
+
+    for make, space, stat in [
+        (two_loci, 'lineage_counting_state_space', lambda c: c.tree_height.mean),
+        (two_demes, 'joint_block_counting_state_space', lambda c: c.jsfs.mean.data),
+    ]:
+        Settings.use_numba = first
+        expected = np.asarray(stat(make()))
+
+        coal = make()
+        _ = getattr(coal, space).states
+        Settings.use_numba = not first
+
+        np.testing.assert_allclose(np.asarray(stat(coal)), expected, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize('model', [pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.3, c=2)])
+def test_multiple_merger_rates_are_finite_and_exact_for_large_samples(model):
+    """The kernel rates agree with the model formulae on both sides of the switch to log space, and stay finite beyond
+    the range of a float binomial coefficient. Regression: they overflowed to inf (nan for Beta) from about 1026
+    lineages."""
+    from scipy.special import betaln, gammaln
+    from phasegen.state_space import _numba_model_params
+    from phasegen.state_space_numba import _rate_block, _rate_pairwise
+
+    model_id, alpha, psi, c = _numba_model_params(model)
+
+    for b, k in [(2, 2), (7, 3), (40, 17), (100, 50)]:
+        assert _rate_pairwise(model_id, alpha, psi, c, b, k) == pytest.approx(model._get_rate(b=b, k=k), rel=1e-12)
+        assert _rate_block(model_id, alpha, psi, c, b + 3, np.array([b, 3]), np.array([k, 1])) == pytest.approx(
+            model._get_rate_block_counting(n=b + 3, b=[b, 3], k=[k, 1]), rel=1e-12)
+
+    log_comb = lambda n, j: gammaln(n + 1) - gammaln(j + 1) - gammaln(n - j + 1)
+
+    for b in [511, 512, 1100, 3000]:
+        for k in [2, b // 2, b]:
+            if model_id == 1:
+                expected = np.exp(log_comb(b, k) + betaln(k - alpha, b - k + alpha) - betaln(alpha, 2 - alpha))
+            else:
+                expected = (b * (b - 1) / 2 if k == 2 else 0) + c * np.exp(
+                    log_comb(b, k) + k * np.log(psi) + (b - k) * np.log1p(-psi))
+
+            assert _rate_pairwise(model_id, alpha, psi, c, b, k) == pytest.approx(expected, rel=1e-10)
+
+    assert 0 < _rate_block(model_id, alpha, psi, c, 1103, np.array([1100, 3]), np.array([550, 1])) < np.inf
+
+
+def test_python_beta_rates_match_the_kernel_in_log_space():
+    """The Python Beta rates switch to log space at the kernel's threshold and agree with the kernel bitwise from
+    there on, staying finite beyond the range of a float binomial coefficient. Regression: _get_rate raised
+    OverflowError from about 1030 lineages."""
+    from phasegen.state_space_numba import _LOG_SPACE_MIN_LINEAGES, _rate_block, _rate_pairwise
+
+    model = pg.BetaCoalescent(alpha=1.5)
+
+    for b in [_LOG_SPACE_MIN_LINEAGES, 1100, 3000]:
+        for k in [2, b // 2, b]:
+            rate = model._get_rate(b=b, k=k)
+            assert 0 <= rate < np.inf
+            assert rate == _rate_pairwise(1, 1.5, 0.0, 0.0, b, k)
+
+        assert model._get_rate_block_counting(n=b + 3, b=[b, 3], k=[b // 2, 1]) == _rate_block(
+            1, 1.5, 0.0, 0.0, b + 3, np.array([b, 3]), np.array([b // 2, 1]))
+
+    b = _LOG_SPACE_MIN_LINEAGES - 1
+    assert model._get_rate(b=b, k=b // 2) == pytest.approx(_rate_pairwise(1, 1.5, 0.0, 0.0, b, b // 2), rel=1e-12)
+
+
+def test_the_pure_python_construction_logs_its_deprecation_once(caplog):
+    """Choosing the pure-Python construction is logged as a deprecation warning, once per state space. Regression:
+    a DeprecationWarning attributed to the package was hidden by the default filters."""
+    import logging
+
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)  # the phasegen logger does not propagate, so capture it directly
     Settings.use_numba = False
-    np.testing.assert_allclose(pg.Coalescent(n=2, model=_DoubledRateCoalescent()).tree_height.mean, 0.5)
+    try:
+        ss = LineageCountingStateSpace(pg.LineageConfig(n=3))
+        _ = ss.S
+        ss.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+        _ = ss.S
+    finally:
+        Settings.use_numba = True
+        log.removeHandler(caplog.handler)
+
+    assert sum('pure-Python construction, which is deprecated' in r.getMessage() for r in caplog.records) == 1

@@ -3,7 +3,7 @@ Poisson log-likelihood utilities, vendored from fastDFE to avoid the dependency.
 """
 
 import numpy as np
-from scipy.special import factorial
+from scipy.special import gammaln
 
 
 class Likelihood:
@@ -43,31 +43,11 @@ class Likelihood:
         return k * np.log(mu) - mu - Likelihood.log_factorial(k)
 
     @staticmethod
-    def log_factorial_stirling(n: np.ndarray | float) -> np.ndarray | float:
-        """
-        Use Stirling's approximation for values larger than n_threshold.
-        https://en.wikipedia.org/wiki/Stirling%27s_approximation
-
-        :param n: n
-        :return: log(n!)
-        """
-        return 0.5 * np.log(2 * np.pi * n) + n * np.log(n / np.e) + np.log(1 + 1 / (12 * n))
-
-    @staticmethod
-    def log_factorial(n: np.ndarray, n_threshold: int = 100) -> np.ndarray:
+    def log_factorial(n: np.ndarray) -> np.ndarray:
         """
         Compute log(n!).
 
         :param n: n
-        :param n_threshold: Threshold for using Stirling's approximation
         :return: log(n!)
         """
-        x = np.zeros_like(n, dtype=np.float64)
-
-        low = n <= n_threshold
-
-        # exact for small n, Stirling's approximation for large n
-        x[low] = np.log(factorial(n[low]))
-        x[~low] = Likelihood.log_factorial_stirling(n[~low])
-
-        return x
+        return gammaln(np.asarray(n, dtype=np.float64) + 1)

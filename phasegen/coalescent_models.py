@@ -3,12 +3,15 @@ Coalescent models for simulating genealogies. Besides the standard Kingman coale
 this module implements the beta coalescent and Dirac coalescent models.
 """
 import itertools
+import math
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Sequence
 
 import numpy as np
 from scipy.special import comb, beta
 from scipy.stats import binom
+
+from .state_space_numba import _LOG_SPACE_MIN_LINEAGES, _log_beta, _log_comb
 
 
 class CoalescentModel(ABC):
@@ -356,6 +359,12 @@ class BetaCoalescent(MultipleMergerCoalescent):
         if k < 1 or k > b:
             return 0
 
+        # log space from _LOG_SPACE_MIN_LINEAGES lineages on, where the binomial coefficient overflows a float,
+        # evaluated as in the numba kernel
+        if b >= _LOG_SPACE_MIN_LINEAGES:
+            a = float(self.alpha)
+            return math.exp(_log_comb(int(b), int(k)) + _log_beta(k - a, b - k + a) - _log_beta(a, 2.0 - a))
+
         return comb(b, k, exact=True) * self._get_base_rate(b, k)
 
     def _get_rate_block_counting(self, n: int, b: Sequence[int], k: Sequence[int]) -> float:
@@ -373,6 +382,14 @@ class BetaCoalescent(MultipleMergerCoalescent):
         :param k: Number of lineages that merge for blocks that experience a merger.
         :return: The rate.
         """
+        if n >= _LOG_SPACE_MIN_LINEAGES:
+            a = float(self.alpha)
+            sum_k = int(sum(k))
+            log_rate = _log_beta(sum_k - a, n - sum_k + a) - _log_beta(a, 2.0 - a)
+            for b_i, k_i in zip(b, k):
+                log_rate += _log_comb(int(b_i), int(k_i))
+            return math.exp(log_rate)
+
         combinations = np.prod([comb(N=b_i, k=k_i, exact=True) for b_i, k_i in zip(b, k)])
 
         return combinations * self._get_base_rate(b=n, k=sum(k))

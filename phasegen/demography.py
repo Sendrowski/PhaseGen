@@ -15,6 +15,7 @@ import dill
 import numpy as np
 
 from .coalescent_models import CoalescentModel, StandardCoalescent
+from .errors import ModelError
 from .settings import Settings
 
 if TYPE_CHECKING:
@@ -67,9 +68,12 @@ class Demography:
             ``time1`` etc., or alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration
             rate is constant over time.
         :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
+        :raises TypeError: If ``events`` is not a list of :class:`DemographicEvent` objects.
         """
         if events is None:
             events = []
+
+        events = self._check_events(events)
 
         if pop_sizes is None:
             pop_sizes = {}
@@ -91,7 +95,7 @@ class Demography:
 
         # wrap migration rate in dictionary if only one time per migration pair is given
         elif isinstance(migration_rates, dict) and migration_rates and isinstance(list(migration_rates.values())[0], numbers.Real):
-            migration_rates = {(p, q): {0: r} for (p, q), r in migration_rates.items()}
+            migration_rates = {key: {0: r} for key, r in migration_rates.items()}
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -423,13 +427,37 @@ class Demography:
         """
         return all(e.end_time < np.inf for e in self.events if isinstance(e, DiscretizedDemographicEvent))
 
+    @staticmethod
+    def _check_events(events: List['DemographicEvent']) -> List['DemographicEvent']:
+        """
+        Check that ``events`` is a list of demographic events.
+
+        :param events: The argument to check.
+        :return: The events as a list.
+        :raises TypeError: If ``events`` is a single event or holds an object that is not a :class:`DemographicEvent`.
+        """
+        if isinstance(events, DemographicEvent):
+            raise TypeError(
+                f"events must be a list of {DemographicEvent.__name__} objects, but a single "
+                f"{type(events).__name__} was given. Wrap it in a list, e.g. events=[event]."
+            )
+
+        events = list(events)
+        invalid = [type(e).__name__ for e in events if not isinstance(e, DemographicEvent)]
+
+        if invalid:
+            raise TypeError(f"events must be {DemographicEvent.__name__} objects, but got {invalid}.")
+
+        return events
+
     def add_events(self, events: List['DemographicEvent']) -> None:
         """
         Add demographic events.
 
         :param events: List of demographic events.
+        :raises TypeError: If ``events`` is not a list of :class:`DemographicEvent` objects.
         """
-        self.events += events
+        self.events += self._check_events(events)
 
         self._prepare_events()
 
@@ -438,6 +466,7 @@ class Demography:
         Add a demographic event.
 
         :param event: Demographic event.
+        :raises TypeError: If ``event`` is not a :class:`DemographicEvent`.
         """
         self.add_events([event])
 
@@ -670,12 +699,16 @@ class Epoch:
 
     def __eq__(self, other) -> bool:
         """
-        Compare epochs using their hash.
+        Compare epochs by their population sizes and migration rates, in the order that :meth:`__hash__` hashes them.
 
         :param other: The other epoch.
         :return: Whether the epochs are equal.
         """
-        return hash(self) == hash(other)
+        return (
+                isinstance(other, Epoch) and
+                tuple(self.pop_sizes.items()) == tuple(other.pop_sizes.items()) and
+                tuple(self.migration_rates.items()) == tuple(other.migration_rates.items())
+        )
 
     def __hash__(self) -> int:
         """
@@ -854,11 +887,11 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 
         migration = np.array([rates[k][t] for k in rates for t in migration_rates if t in rates[k]], dtype=float)
         if np.any(~((migration >= 0) & (migration < np.inf))):
-            raise ValueError('Migration rates must be finite and non-negative at all times.')
+            raise ModelError('Migration rates must be finite and non-negative at all times.')
 
         sizes = np.array([rates[k][t] for k in rates for t in pop_sizes if t in rates[k]], dtype=float)
         if np.any(~((sizes > 0) & (sizes < np.inf))):
-            raise ValueError('Population sizes must be finite and positive at all times.')
+            raise ModelError('Population sizes must be finite and positive at all times.')
 
         #: Times at which the population size changes occur.
         self.times: np.ndarray = times
@@ -1076,6 +1109,14 @@ class PopulationSplit(DiscreteDemographicEvent):
         # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch, so that the lineages
         # leave the derived populations before any coalescence the split displaces
         timescale = min(model._get_timescale(N) for N in epoch.pop_sizes.values())
+
+        if not timescale > 0:
+            raise ModelError(
+                f"A population size is not positive in the epoch starting at {epoch.start_time:g}, but the exact "
+                f"computation needs a positive size in every epoch it reaches. Floor the trajectory at a small positive "
+                f"size."
+            )
+
         rate = self.multiplier * model._get_rate(b=2, k=2) / timescale
 
         for p in self.derived:
@@ -1116,9 +1157,14 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         :param source: Source population name or None if no migration rate changes.
         :param dest: Destination population name or None if no migration rate changes.
         :param step_size: Step size used for the discretization.
+        :raises ValueError: If neither ``pop`` nor both ``source`` and ``dest`` are given, or if ``pop`` is given
+            together with ``source`` or ``dest``.
         """
         if pop is None and (source is None or dest is None):
             raise ValueError('Either pop or source_pop and dest_pop must be specified.')
+
+        if pop is not None and (source is not None or dest is not None):
+            raise ValueError('Specify either pop or source and dest, not both.')
 
         if pop is None and source == dest:
             raise ValueError(f'Migration must be between distinct populations, got source and destination {source!r}.')
@@ -1214,7 +1260,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
             if self.pop is None:
                 if not 0 <= rate < np.inf:
-                    raise ValueError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
+                    raise ModelError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
                                      f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not finite and '
                                      f'non-negative.')
 
@@ -1225,7 +1271,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             # a decaying trajectory may underflow to zero far out, which a simulation accepts and the exact
             # computation rejects where it reaches that epoch
             if not 0 <= rate < np.inf:
-                raise ValueError(f'The population size trajectory of {self.pop} gives {rate} on '
+                raise ModelError(f'The population size trajectory of {self.pop} gives {rate} on '
                                  f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative or not finite.')
 
             epoch.pop_sizes[self.pop] = rate
@@ -1254,10 +1300,15 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         :param start_time: Start times of the events. A single value or a dictionary mapping keys to values.
         :param end_time: End times of the events.
         :param step_size: Step size used for the discretization.
+        :raises ValueError: If a key is neither a population name nor a (source, destination) pair of population names.
         """
         #: Discretized rate change events.
         self.events = {}
         for k in trajectory:
+            if not (isinstance(k, str) or (isinstance(k, tuple) and len(k) == 2 and all(isinstance(p, str) for p in k))):
+                raise ValueError(f'Rates must be keyed by a population name or by a (source, destination) pair of '
+                                 f'population names, got {k!r}.')
+
             self.events[k] = DiscretizedRateChange(
                 trajectory=trajectory[k],
                 start_time=start_time[k] if isinstance(start_time, dict) else start_time,

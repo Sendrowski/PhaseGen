@@ -7,6 +7,7 @@ to calculate different coalescent tree statistics but can also be passed directl
 complex statistics and their distributions.
 """
 
+import numbers
 from abc import abstractmethod, ABC
 from typing import List, Callable, Tuple, Iterable, Type
 
@@ -54,6 +55,21 @@ class Reward(ABC):
         rewards = np.asarray(self._get(state_space), dtype=float) * ~state_space.absorbing
 
         return rewards[:, None, None] * shares
+
+    @staticmethod
+    def _integer(value: int, name: str) -> int:
+        """
+        Validate an integral argument.
+
+        :param value: The value, of any numeric type with an integral value.
+        :param name: The name of the argument, for the error message.
+        :return: The value as an integer.
+        :raises ValueError: If the value is not integral.
+        """
+        if isinstance(value, bool) or not isinstance(value, numbers.Real) or not float(value).is_integer():
+            raise ValueError(f"The {name} must be an integer, got {value!r}.")
+
+        return int(value)
 
     def __hash__(self) -> int:
         """
@@ -130,10 +146,18 @@ class Reward(ABC):
 
         :param state_space: The state space the rewards are resolved against.
         :param rewards: The rewards to accumulate.
-        :raises ValueError: If a reward is non-zero on an absorbing state.
+        :raises ValueError: If a reward is not a vector with one entry per state, or is non-zero on an absorbing state.
         """
         for reward in rewards:
-            values = np.asarray(reward._get(state_space), dtype=float)[state_space.absorbing]
+            values = np.asarray(reward._get(state_space), dtype=float)
+
+            if values.shape != (state_space.k,):
+                raise ValueError(
+                    f"Reward {reward.__class__.__name__} gives an array of shape {values.shape}, but the state space "
+                    f"has {state_space.k} states, so the reward must be a vector of length {state_space.k}."
+                )
+
+            values = values[state_space.absorbing]
 
             if np.any(values != 0):
                 raise ValueError(
@@ -217,8 +241,26 @@ class JointSFSReward(JointBlockCountingReward):
 
         :param config: The descendant vector identifying the joint SFS bin, i.e. the number of descendants subtended
             from each population.
+        :raises ValueError: If an entry is not an integer.
         """
-        self.config: Tuple[int, ...] = tuple(int(c) for c in config)
+        self.config: Tuple[int, ...] = tuple(self._integer(c, "descendant count") for c in config)
+
+    def _block(self, state_space: JointBlockCountingStateSpace) -> int:
+        """
+        The block index of the descendant vector.
+
+        :param state_space: state space
+        :return: block index
+        :raises ValueError: If the descendant vector is not one of the state space.
+        """
+        if self.config not in state_space.block_index:
+            sizes = tuple(int(n_p) for n_p in state_space.lineage_config.lineages)
+            raise ValueError(
+                f"The descendant vector must have one entry per population, the entry of population p lying in "
+                f"0, ..., n_p for the sample sizes {sizes}, and at least one non-zero entry, got {self.config}."
+            )
+
+        return state_space.block_index[self.config]
 
     def _get(self, state_space: JointBlockCountingStateSpace) -> np.ndarray:
         """
@@ -232,7 +274,7 @@ class JointSFSReward(JointBlockCountingReward):
         if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
                 state_space, TwoLocusBlockCountingStateSpace):
             # sum over demes and loci, and select the block corresponding to the descendant vector
-            index = state_space.block_index[self.config]
+            index = self._block(state_space)
             return state_space.lineages[:, :, :, index].sum(axis=(1, 2))
 
         raise NotImplementedError(
@@ -251,7 +293,7 @@ class JointSFSReward(JointBlockCountingReward):
         """
         if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
                 state_space, TwoLocusBlockCountingStateSpace):
-            index = state_space.block_index[self.config]
+            index = self._block(state_space)
 
             parts = state_space.lineages[:, :, :, index].astype(float)
 
@@ -288,13 +330,13 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
         :param locus: The locus index (0 or 1).
         :param count: The number of subtended samples at ``locus`` identifying the SFS bin, a polymorphic class from
             1 to :math:`n - 1`.
-        :raises ValueError: If ``locus`` is not 0 or 1.
+        :raises ValueError: If ``locus`` is not 0 or 1, or ``count`` is not an integer.
         """
         if locus not in (0, 1):
             raise ValueError(f"The locus must be 0 or 1, got {locus}.")
 
-        self.locus: int = int(locus)
-        self.count: int = int(count)
+        self.locus: int = self._integer(locus, "locus")
+        self.count: int = self._integer(count, "frequency class")
 
     def _mask(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
         """
@@ -413,7 +455,7 @@ class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingR
         )
 
 
-class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward):
+class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     r"""
     Reward based on tree height, unit reward per non-absorbing locus,
     :math:`r(i) = \sum_l \mathbb{1}\{\text{locus } l \text{ has } > 1 \text{ lineage in } i\}`. When using multiple
@@ -428,7 +470,11 @@ class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCoun
         :return: reward vector
         :raises: NotImplementedError if the state space is not supported
         """
-        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace)):
+        # the two-locus state space encodes its loci in the blocks, not on the locus axis
+        if (
+                isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace))
+                and not isinstance(state_space, TwoLocusBlockCountingStateSpace)
+        ):
             # sum over demes and blocks to obtain the number of ancestral lineages per locus
             loci = state_space.lineages.sum(axis=(2, 3))
 
@@ -496,8 +542,9 @@ class SFSReward(BlockCountingReward, ABC):
         Initialize the reward.
 
         :param index: The index of the SFS bin to use, starting from 1.
+        :raises ValueError: If ``index`` is not an integer.
         """
-        self.index = int(index)
+        self.index = self._integer(index, "SFS bin index")
 
     @abstractmethod
     def _block_sizes(self, n: int) -> List[int]:
@@ -622,9 +669,9 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
         return [self.index, n - self.index]
 
 
-class StateReward(Reward):
+class StateReward(BlockCountingReward):
     """
-    Reward for a specific state in the state space. This is useful for debugging or testing purposes.
+    Reward for a specific state of the block-counting state space. This is useful for debugging or testing purposes.
     """
 
     def __init__(self, state: int) -> None:
@@ -632,8 +679,12 @@ class StateReward(Reward):
         Initialize the reward.
 
         :param state: The state index to reward.
+        :raises ValueError: If ``state`` is not a non-negative integer.
         """
-        self.state: int = state
+        self.state: int = self._integer(state, "state")
+
+        if self.state < 0:
+            raise ValueError(f"The state must be non-negative, got {state!r}.")
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -641,7 +692,11 @@ class StateReward(Reward):
 
         :param state_space: state space
         :return: reward vector
+        :raises ValueError: If the state does not exist.
         """
+        if self.state >= state_space.k:
+            raise ValueError(f"State {self.state} does not exist, the state space has {state_space.k} states.")
+
         return (np.arange(state_space.k) == self.state).astype(int)
 
     def __hash__(self) -> int:
@@ -653,7 +708,7 @@ class StateReward(Reward):
         return hash(self.__class__.__name__ + str(self.state))
 
 
-class LineageReward(LineageCountingReward, JointBlockCountingReward):
+class LineageReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
     """
     Reward for a specific number of lineages present across all demes, on a single locus. It tracks, for example, the
     individual coalescence times.
@@ -664,11 +719,14 @@ class LineageReward(LineageCountingReward, JointBlockCountingReward):
         Initialize the reward.
 
         :param n: The number of lineages to reward. Must be at least 2.
+        :raises ValueError: If ``n`` is not an integer of at least 2.
         """
+        n = self._integer(n, "number of lineages")
+
         if n < 2:
             raise ValueError('Number of lineages must be at least 2.')
 
-        self.n: int = int(n)
+        self.n: int = n
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -764,8 +822,9 @@ class LocusReward(LineageCountingReward):
         Initialize the reward.
 
         :param locus: The locus index to use.
+        :raises ValueError: If ``locus`` is not an integer.
         """
-        self.locus: int = int(locus)
+        self.locus: int = self._integer(locus, "locus")
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -838,7 +897,11 @@ class CompositeReward(Reward, ABC):
         Initialize the composite reward.
 
         :param rewards: Rewards to composite
+        :raises ValueError: If no reward is given.
         """
+        if len(rewards) == 0:
+            raise ValueError(f"{self.__class__.__name__} needs at least one reward.")
+
         self.rewards: List[Reward] = rewards
 
     def supports(self, state_space: Type[StateSpace]) -> bool:
@@ -947,10 +1010,11 @@ class RestrictedReward(CompositeReward):
         :param reward: The reward to restrict.
         :param locus: The locus index to restrict to, ``None`` for no restriction by locus.
         :param pop: The population id to restrict to, ``None`` for no restriction by deme.
+        :raises ValueError: If ``locus`` is not an integer.
         """
         super().__init__([reward])
 
-        self.locus: int = None if locus is None else int(locus)
+        self.locus: int = None if locus is None else self._integer(locus, "locus")
         self.pop: str = pop
 
     @property
@@ -1017,12 +1081,15 @@ class RestrictedReward(CompositeReward):
     def supports(self, state_space: Type[StateSpace]) -> bool:
         """
         Check if the reward supports the given state space. A restriction by locus requires a state space whose
-        locus axis resolves the loci.
+        locus axis resolves the loci, which the lineage-counting space does and the single-locus block-counting and
+        joint block-counting spaces do trivially.
 
         :param state_space: state space
         :return: True if the reward supports the state space, False otherwise
         """
-        if self.locus is not None and state_space is not LineageCountingStateSpace:
+        if self.locus is not None and state_space not in (
+                LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace
+        ):
             return False
 
         return super().supports(state_space)
@@ -1042,8 +1109,12 @@ class CombinedReward(ProductReward):
     :class:`RestrictedReward` member restricts the product of the remaining members as :class:`RestrictedReward`
     does, the restriction of a :class:`RestrictedReward` member acting on its wrapped reward together with them. A
     :class:`SumReward` of :class:`DemeReward` members, or of :class:`LocusReward` members, restricts to the union of
-    those demes or loci, as the sum of the single restrictions.
+    those demes or loci, as the sum of the single restrictions. A :class:`CombinedReward` member contributes its own
+    members, so that nesting does not change the reward.
     """
+
+    #: The members as passed, with those of nested :class:`CombinedReward` members in their place
+    _members: List[Reward] = None
 
     def __init__(self, rewards: List[Reward]) -> None:
         """
@@ -1051,12 +1122,14 @@ class CombinedReward(ProductReward):
 
         :param rewards: Rewards to combine
         """
+        self._members = [m for r in rewards for m in (r._members if isinstance(r, CombinedReward) else [r])]
+
         loci, pops, rest = [], [], []
 
         # unions of loci or demes, one list per SumReward member made of LocusReward or DemeReward members only
         loci_unions, pop_unions = [], []
 
-        for reward in rewards:
+        for reward in self._members:
             if isinstance(reward, LocusReward):
                 loci.append(reward.locus)
             elif isinstance(reward, DemeReward):
@@ -1076,7 +1149,7 @@ class CombinedReward(ProductReward):
 
         if not loci and not pops and not loci_unions and not pop_unions:
             # copy so we never mutate (or alias) the caller's list
-            super().__init__(list(rewards))
+            super().__init__(list(self._members))
             return
 
         if not rest:

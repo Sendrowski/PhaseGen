@@ -1,16 +1,15 @@
 """
 Numba-accelerated kernels for state-space construction.
 
-This module is imported behind a guard (:data:`HAS_NUMBA`). When numba is unavailable the public classes fall back
-to the pure-Python construction in :mod:`phasegen.state_space`. The kernels operate on integer state rows (the
-flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
+The kernels operate on integer state rows (the flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
 build the single-locus lineage- and block-/joint-counting spaces, and kinds 2 and 3 the two-locus block- and
 lineage-counting spaces under recombination.
 
 Coalescent rates are reproduced from the model formulae (exact ``comb`` via an integer loop, the Euler beta via
-``math.lgamma``, and the binomial pmf via ``comb`` and powers), parameterised by a ``model_id`` (0 standard,
-1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate matrix are precomputed in
-Python and passed in, so no transcendental model code other than the rates lives here.
+``math.lgamma``, and the binomial pmf via ``comb`` and powers, all three in log space from
+``_LOG_SPACE_MIN_LINEAGES`` lineages on, where the float binomial coefficient would overflow), parameterised by a
+``model_id`` (0 standard, 1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate
+matrix are precomputed in Python and passed in, so no transcendental model code other than the rates lives here.
 
 States are numbered in discovery order, which differs from the pure-Python enumeration. Parity tests compare the two
 constructions up to a permutation of the states.
@@ -20,24 +19,13 @@ import math
 
 import numpy as np
 
-try:
-    from numba import njit
-    from numba.typed import Dict, List
-    from numba.core import types
+from numba import njit
+from numba.typed import Dict, List
+from numba.core import types
 
-    HAS_NUMBA = True
-except ImportError:  # pragma: no cover - exercised only when numba is absent
-    HAS_NUMBA = False
-
-    def njit(*args, **kwargs) -> 'Callable':
-        """No-op ``njit`` shim so the kernels remain importable without numba (the Python fallback is used)."""
-        if args and callable(args[0]):
-            return args[0]
-
-        def _decorator(func) -> 'Callable':
-            return func
-
-        return _decorator
+#: Number of lineages from which the multiple-merger rates are evaluated in log space. The float binomial coefficient
+#: overflows from about 1030 lineages, and the factor it multiplies underflows correspondingly.
+_LOG_SPACE_MIN_LINEAGES = 512
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -60,6 +48,18 @@ def _comb(n, k) -> float:
 
 
 @njit(cache=True)
+def _log_comb(n, k) -> float:
+    """Logarithm of the binomial coefficient C(n, k) for 0 <= k <= n, via log-gamma."""
+    return math.lgamma(n + 1.0) - math.lgamma(k + 1.0) - math.lgamma(n - k + 1.0)
+
+
+@njit(cache=True)
+def _log_beta(a, b) -> float:
+    """Logarithm of the absolute value of the Euler beta function, via log-gamma."""
+    return math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+
+
+@njit(cache=True)
 def _beta(a, b) -> float:
     """Euler beta function via log-gamma."""
     return math.exp(math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b))
@@ -70,6 +70,8 @@ def _binom_pmf(k, n, p) -> float:
     """Binomial pmf P(X = k) for X ~ Binom(n, p)."""
     if k < 0 or k > n:
         return 0.0
+    if n >= _LOG_SPACE_MIN_LINEAGES:
+        return math.exp(_log_comb(n, k) + k * math.log(p) + (n - k) * math.log1p(-p))
     return _comb(n, k) * p ** k * (1.0 - p) ** (n - k)
 
 
@@ -90,6 +92,8 @@ def _rate_pairwise(model_id, alpha, psi, c, b, k) -> float:
     if model_id == 1:  # beta
         if k < 1 or k > b:
             return 0.0
+        if b >= _LOG_SPACE_MIN_LINEAGES:
+            return math.exp(_log_comb(b, k) + _log_beta(k - alpha, b - k + alpha) - _log_beta(alpha, 2.0 - alpha))
         base = _beta(k - alpha, b - k + alpha) / _beta(alpha, 2.0 - alpha)
         return _comb(b, k) * base
 
@@ -122,6 +126,11 @@ def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr) -> float:
         sum_b += b_arr[i]
 
     if model_id == 1:  # beta
+        if n >= _LOG_SPACE_MIN_LINEAGES:
+            log_rate = _log_beta(sum_k - alpha, n - sum_k + alpha) - _log_beta(alpha, 2.0 - alpha)
+            for i in range(m):
+                log_rate += _log_comb(b_arr[i], k_arr[i])
+            return math.exp(log_rate)
         combs = 1.0
         for i in range(m):
             combs *= _comb(b_arr[i], k_arr[i])
@@ -196,14 +205,15 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
     Build the state graph by BFS over integer ``lineages`` rows.
 
     :param initial: Flattened initial lineage row (length ``n_demes * n_blocks``).
-    :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination).
+    :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination), 3 two-locus
+        lineage-counting (recombination).
     :param mig: ``(n_demes, n_demes)`` migration-rate matrix.
     :param timescales: per-deme timescale by which coalescence rates are divided.
     :param block_vectors: ``(n_blocks, vdim)`` block labels (descendant vectors / size classes); the merged block of a
         merger is the one whose label equals the summed label of the merging blocks (found by linear search).
-    :param recomb_rate: recombination rate (kind 2 only).
-    :param recomb0: ``recomb0[b]`` is the block index of ``(a_0, 0)`` for block ``b`` (kind 2 only).
-    :param recomb1: ``recomb1[b]`` is the block index of ``(0, a_1)`` for block ``b`` (kind 2 only).
+    :param recomb_rate: recombination rate (kinds 2 and 3 only).
+    :param recomb0: ``recomb0[b]`` is the block index of ``(a_0, 0)`` for block ``b`` (kinds 2 and 3 only).
+    :param recomb1: ``recomb1[b]`` is the block index of ``(0, a_1)`` for block ``b`` (kinds 2 and 3 only).
     :return: ``(rows_arr, src_arr, dst_arr, rate_arr)`` — the state rows and the COO transitions.
     """
     dim = n_demes * n_blocks
@@ -449,7 +459,7 @@ def build_rate_matrix(
     """
     from scipy.sparse import coo_matrix
 
-    # the recombination split maps are only used for the two-locus kernel (kind 2); pass dummies otherwise
+    # the recombination split maps are only used for the two-locus kernels (kinds 2 and 3), pass dummies otherwise
     if recomb0 is None:
         recomb0 = np.zeros(n_blocks, dtype=np.int64)
     if recomb1 is None:

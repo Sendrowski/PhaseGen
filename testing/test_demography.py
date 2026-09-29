@@ -907,3 +907,135 @@ def test_split_onto_derived_population_raises():
 
     with pytest.raises(ValueError, match='must not be among the derived'):
         pg.PopulationSplit(time=1, derived='a', ancestral='a')
+
+
+@pytest.mark.parametrize('model', [pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5)])
+@pytest.mark.parametrize('event', [
+    pg.DiscretizedRateChange(trajectory=lambda t: 0, start_time=0, end_time=1, pop='pop_0', step_size=0.5),
+    pg.ExponentialPopSizeChanges(initial_size={'pop_0': 0}, growth_rate=1, start_time=0, end_time=1, step_size=0.5),
+])
+def test_a_zero_size_in_the_first_epoch_raises_a_model_error(event, model):
+    """A population size of zero in the first epoch raises ModelError wherever the state space is built. Regression:
+    the numba construction of the states evaluated the rates of the first epoch unchecked and raised
+    ZeroDivisionError."""
+    for stat in ('tree_height', 'sfs'):
+        coal = pg.Coalescent(n=3, model=model, demography=pg.Demography(events=[event]))
+
+        with pytest.raises(pg.ModelError, match='needs a positive size'):
+            _ = getattr(coal, stat).mean
+
+
+def test_epochs_whose_float_hashes_collide_are_not_equal():
+    """Epochs differing by a factor of 2^-61 have equal hashes but are different epochs, so the state space rebuilds
+    its rate matrix. Regression: equality compared hashes, update_epoch kept the old generator, and the tree height
+    of n=2 came out at 1.0 against 0.632."""
+    a, b = pg.Epoch(pop_sizes={'pop_0': 1.0}), pg.Epoch(pop_sizes={'pop_0': 2.0 ** -61})
+
+    assert hash(a) == hash(b)
+    assert a != b
+    assert a == pg.Epoch(pop_sizes={'pop_0': 1.0}, start_time=3)
+    assert a != 'epoch'
+
+    coal = pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1: 2.0 ** -61}}))
+
+    assert coal.tree_height.mean == pytest.approx(1 - np.exp(-1), rel=1e-6)
+
+
+@pytest.mark.parametrize('model', [pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5),
+                                   pg.DiracCoalescent(psi=0.5, c=1)])
+def test_a_zero_size_after_a_population_split_raises_a_model_error(model):
+    """A population size reaching zero after a split raises ModelError where the drain rate is set. Regression: a
+    zero given as a Python float raised ZeroDivisionError under the standard coalescent."""
+    dem = pg.Demography(
+        events=[
+            pg.PopulationSplit(time=0.5, derived='a', ancestral='b'),
+            pg.DiscretizedRateChange(trajectory=lambda t: 0.0, start_time=1, end_time=2, pop='b', step_size=0.5),
+        ],
+        pop_sizes={'a': 1, 'b': 1},
+        migration_rates={('a', 'b'): 1, ('b', 'a'): 1}
+    )
+    dem._model = model
+
+    with pytest.raises(pg.ModelError, match='needs a positive size'):
+        list(islice(dem.epochs, 4))
+
+
+@pytest.mark.parametrize('key', [('a', 'b', 'c'), ('a',), (1, 2), 5])
+def test_discretized_rate_changes_reject_malformed_keys(key):
+    """Discretized and exponential rate changes accept only population names and (source, destination) pairs, as
+    discrete rate changes do. Regression: a 3-tuple was read as its first two names and a pair of numbers passed."""
+    with pytest.raises(ValueError, match='keyed by a population name or by a'):
+        pg.DiscretizedRateChanges(trajectory={key: lambda t: 1}, start_time=0)
+
+    with pytest.raises(ValueError, match='keyed by a population name or by a'):
+        pg.ExponentialRateChanges(initial_rate={key: 1}, growth_rate=1, start_time=0)
+
+
+@pytest.mark.parametrize('key', ['ab', ('a', 'b', 'c'), ('a',)])
+def test_the_constant_migration_shorthand_rejects_malformed_keys(key):
+    """The constant-rate migration shorthand of Demography checks its keys as the time-dependent form does.
+    Regression: 'ab' was read as the pair ('a', 'b'), and other keys raised a bare unpacking error."""
+    with pytest.raises(ValueError, match=r'keyed by \(source, destination\) pairs'):
+        pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={key: 1})
+
+
+@pytest.mark.parametrize('model', [pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.5, c=1)])
+def test_a_payload_without_the_demography_model_restores_the_split_drain_rate(model):
+    """A serialized coalescent whose demography predates the stored model restores the model's split drain rate.
+    Regression: the demography fell back to the standard coalescent, shifting the tree-height mean by about 2e-3."""
+    def build():
+        return pg.Coalescent(
+            n={'a': 2, 'b': 1}, model=model,
+            demography=pg.Demography(
+                events=[pg.PopulationSplit(time=0.5, derived='a', ancestral='b')],
+                pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0, ('b', 'a'): 0}
+            )
+        )
+
+    coal = build()
+    del coal.demography.__dict__['_model']
+
+    restored = pg.Coalescent.from_json(coal.to_json())
+
+    assert restored.demography._model == model
+    assert restored.tree_height.mean == pytest.approx(build().tree_height.mean, rel=1e-12)
+
+
+
+def test_events_must_be_a_list_of_demographic_events():
+    """A single event, or an object that is not an event, failed later with an unrelated TypeError or AttributeError."""
+    with pytest.raises(TypeError, match="Wrap it in a list"):
+        pg.Demography(events=pg.PopSizeChange(pop='pop_0', time=0, size=1))
+
+    with pytest.raises(TypeError, match="DemographicEvent"):
+        pg.Demography(events=[1.0])
+
+    with pytest.raises(TypeError, match="DemographicEvent"):
+        pg.Demography(pop_sizes={'pop_0': 1}).add_event('event')
+
+    assert pg.Demography(events=(e for e in [pg.PopSizeChange(pop='pop_0', time=0, size=2)])).pop_names == ['pop_0']
+
+
+def test_non_finite_migration_rates_raise_model_error():
+    """Regression: a non-finite migration rate raised a plain ValueError while a non-finite population size raised
+    ModelError, so inference dropped the run instead of penalising it."""
+    from phasegen.errors import ModelError
+
+    with pytest.raises(ModelError):
+        pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): np.inf, ('b', 'a'): 1})
+
+    dem = pg.Demography(
+        pop_sizes={'a': 1, 'b': 1},
+        migration_rates={('b', 'a'): 1},
+        events=[pg.DiscretizedRateChange(trajectory=lambda t: np.inf, start_time=0, end_time=1, source='a', dest='b')]
+    )
+
+    with pytest.raises(ModelError):
+        _ = dem.get_epoch(0.5)
+
+
+def test_discretized_rate_change_rejects_pop_with_migration():
+    """Regression: passing ``pop`` together with ``source`` and ``dest`` applied only the population-size
+    trajectory."""
+    with pytest.raises(ValueError, match='not both'):
+        pg.DiscretizedRateChange(trajectory=lambda t: 1, start_time=0, end_time=1, pop='a', source='a', dest='b')
