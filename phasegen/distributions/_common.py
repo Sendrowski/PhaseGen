@@ -67,4 +67,5 @@ def _validate_reward(reward: Reward, name: str = 'reward') -> None:
     :raises TypeError: if ``reward`` is not a :class:`~phasegen.rewards.Reward`.
     """
     if not isinstance(reward, Reward):
-        raise TypeError(f"{name} must be a single {Reward.__name__}, but got {type(reward).__name__}.")
+        got = 'a sequence' if isinstance(reward, (list, tuple)) else type(reward).__name__
+        raise TypeError(f"{name} must be a single {Reward.__name__}, but got {got}.")

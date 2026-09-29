@@ -47,6 +47,18 @@ _MIN_SCALED_STEP = 0.1
 #: reward terms below double resolution, and a smaller factor would overflow the rebased extended vector.
 _MIN_BALANCE = np.finfo(float).eps
 
+#: Summed 1-norm of the steps ``S tau`` per cubed Van Loan dimension above which the closed form takes the dense
+#: exponential in its finite epochs and its propagation to the start time, and below which the sparse action. The
+#: action takes a number of matrix-vector products proportional to the step norm, the dense exponential a cost cubic
+#: in the dimension. Measured crossover about 1e-5 to 1e-4 on block-counting spaces of 297 to 627 states, with the
+#: dense exponential 8 to 30 times faster on lineage-counting chains of 260 to 600 states at 2e-4 to 2e-3.
+#: ``_occupation_times`` applies it to each epoch on its own, with the dimension of its augmented generator.
+_DENSE_EXPM_STEP_NORM = 5e-5
+
+#: Largest ratio of the pairwise coalescence and migration rates of an epoch that double precision resolves, see
+#: ``MomentEvaluator._rate_spread``.
+_MAX_RATE_SPREAD = 1e16
+
 
 class MomentEvaluator:
     """Moment-evaluation methods of :class:`~phasegen.distributions.PhaseTypeDistribution`, described in its
@@ -60,29 +72,34 @@ class MomentEvaluator:
     lineage_config: 'LineageConfig'
     locus_config: 'LocusConfig'
     _logger: logging.Logger
-    _absorption_certain_cache: Dict[int, tuple]
-    _alpha_support_cache: Dict[int, tuple]
-    _last_epoch_reach_cache: Dict[int, tuple]
+    _absorption_certain_cache: Dict[tuple, tuple]
+    _alpha_support_cache: Dict[tuple, tuple]
+    _last_epoch_reach_cache: Dict[tuple, tuple]
     _epoch_csr_cache: Dict[int, tuple]
-    _epochs_cache: Optional[List[Epoch]]
+    _epochs_cache: Dict[int, Tuple[List[Epoch], bool]]
 
     @staticmethod
-    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
+    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False, heads: int = 1) -> 'sp.spmatrix | np.ndarray':
         """
         The Van Loan matrix of ``PhaseTypeDistribution.moment``, assembled directly as sparse CSR when ``sparse``.
+        With several ``heads`` (sparse only), the first block row and column are repeated once per head, each head
+        coupled to the shared second block by its own reward.
 
-        :param R: List of length k of reward vectors.
+        :param R: List of reward vectors, one per head followed by the rewards 2, ..., k.
         :param S: Intensity matrix (dense or sparse, matching ``sparse``).
         :param k: The order of the moment.
         :param sparse: Whether to build a sparse matrix.
-        :return: Van Loan matrix of :math:`(k + 1) \times (k + 1)` blocks.
+        :param heads: The number of first blocks.
+        :return: Van Loan matrix of :math:`(k + h) \times (k + h)` blocks for :math:`h` heads.
         """
         if sparse:
-            blocks = [[None] * (k + 1) for _ in range(k + 1)]
-            for i in range(k + 1):
+            blocks = [[None] * (k + heads) for _ in range(k + heads)]
+            for i in range(k + heads):
                 blocks[i][i] = S
-                if i < k:
+                if heads - 1 <= i < k + heads - 1:
                     blocks[i][i + 1] = sp.diags(R[i])
+            for a in range(heads - 1):
+                blocks[a][heads] = sp.diags(R[a])
             return sp.bmat(blocks, format='csr')
 
         O = np.zeros_like(S)
@@ -170,7 +187,8 @@ class MomentEvaluator:
         :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`.
         Distinct from :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, which
         governs the matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
-        one decide both, their Van Loan exponential following the sparsity their factorization already takes.
+        one decide both, their exponentials following the sparsity their factorization already takes, except on the
+        stiff generators of ``_DENSE_EXPM_STEP_NORM``.
 
         :param n_transient: Number of transient states the solve is over.
         :return: Whether to take the sparse path.
@@ -274,7 +292,8 @@ class MomentEvaluator:
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and are otherwise
           applied to vectors as sparse actions (Al-Mohy and Higham, 2011). In the closed form below, the sparse action
           is taken from :attr:`Settings.closed_form_sparse_min_states
-          <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on.
+          <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, except where the rates are
+          stiff enough for the dense exponential to be faster.
         - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
           sparse from :attr:`Settings.closed_form_sparse_min_states
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
@@ -375,17 +394,20 @@ class MomentEvaluator:
         return start_time, end_time
 
     @staticmethod
-    def _get_regularization_factor(S: np.ndarray, duration: float = np.inf) -> float:
+    def _get_regularization_factor(S: np.ndarray, duration: float = np.inf, scale: float = 1.0) -> float:
         """
         The balancing factor of the Van Loan matrix, the reciprocal geometric mean of the positive rates of ``S``
-        capped at ``duration``, or 1 when ``Settings.regularize`` is disabled. Scaling ``S`` by it and the step by its
-        inverse divides the reward blocks by the factor, which the callers undo by multiplying the moment by its
-        ``k``-th power. The cap keeps the scaled step at or above one: the block of order ``j`` of the exponential
-        scales as the ``j``-th power of the scaled step, and below one the higher orders fall under the resolution of
-        double precision. The cap is floored at ``_MIN_BALANCE`` times the factor.
+        capped at ``duration``, times the reward scale ``scale`` (see :meth:`_reward_scale`), or 1 when
+        ``Settings.regularize`` is disabled. Scaling ``S`` by it and the step by its inverse divides the reward blocks
+        by the factor, which the callers undo by multiplying the moment by its ``k``-th power. The reward scale brings
+        the largest reward to one, since larger reward blocks force the scaling-and-squaring of the exponential into
+        more squarings than its generator blocks need. The cap keeps the scaled step at or above one: the block of
+        order ``j`` of the exponential scales as the ``j``-th power of the scaled step, and below one the higher orders
+        fall under the resolution of double precision. The cap is floored at ``_MIN_BALANCE`` times the factor.
 
         :param S: Intensity matrix.
         :param duration: Length of the epoch within the accumulation window.
+        :param scale: The reward scale of the Van Loan matrix.
         :return: Regularization factor.
         """
         if not Settings.regularize:
@@ -394,23 +416,38 @@ class MomentEvaluator:
         # obtain positive rates (for a sparse matrix, the positive stored entries)
         rates = S.data[S.data > 0] if sp.issparse(S) else S[S > 0]
 
-        # rewards in the Van Loan matrix are of order 1
         factor = 10 ** - np.log10(rates).mean()
 
-        return min(factor, max(duration, _MIN_BALANCE * factor)) if duration > 0 else factor
+        if duration > 0:
+            factor = min(factor, max(duration, _MIN_BALANCE * factor))
 
-    def _balance(self, epoch: 'Epoch', start: float, end: float) -> float:
+        return scale * factor
+
+    @staticmethod
+    def _reward_scale(R: Sequence[np.ndarray]) -> float:
+        """
+        The largest absolute entry of the reward vectors ``R``, or 1 where it is not positive and finite.
+
+        :param R: Reward vectors.
+        :return: Reward scale.
+        """
+        scale = max((float(np.max(np.abs(r), initial=0.0)) for r in R), default=0.0)
+
+        return scale if 0 < scale < np.inf else 1.0
+
+    def _balance(self, epoch: 'Epoch', start: float, end: float, scale: float) -> float:
         """
         The regularization factor of the current rate matrix for the part of ``epoch`` within ``[start, end]``.
 
         :param epoch: The epoch the state space is set to.
         :param start: Start of the accumulation window.
         :param end: End of the accumulation window.
+        :param scale: The reward scale of the Van Loan matrix.
         :return: Regularization factor.
         """
         duration = min(epoch.end_time, end) - max(epoch.start_time, start)
 
-        return self._get_regularization_factor(self.state_space.S, duration)
+        return self._get_regularization_factor(self.state_space.S, duration, scale)
 
     @staticmethod
     def _rebase(z: np.ndarray, lamb: float, lamb_new: float, k: int, n: int) -> float:
@@ -470,26 +507,29 @@ class MomentEvaluator:
         :param rewards: Sequence of k rewards.
         :param k: The order of the moment.
         :param i_epoch: The epoch number, for the stability warning.
-        :return: The matrix, its data restricted to the generator blocks and to the reward blocks (zero elsewhere), and
-            the balancing factor of the epoch before capping.
+        :return: The matrix, its data restricted to the generator blocks and to the reward blocks (zero elsewhere), the
+            balancing factor of the epoch before capping and the reward scale it includes.
         """
         n = self.state_space.k
         S = self.state_space.S
         self._check_numerical_stability(S, i_epoch)
         r_vecs = [np.asarray(r._get(state_space=self.state_space), dtype=float) for r in rewards]
+        scale = self._reward_scale(r_vecs)
         Vt = self._van_loan_matrix(r_vecs, sp.csr_matrix(S), k, sparse=True).T.tocsr()
 
         # entries off the block diagonal are the reward blocks
         rows = np.repeat(np.arange(Vt.shape[0]), np.diff(Vt.indptr))
         reward = rows // n != Vt.indices // n
 
-        return Vt, np.where(reward, 0.0, Vt.data), np.where(reward, Vt.data, 0.0), self._get_regularization_factor(S)
+        return (Vt, np.where(reward, 0.0, Vt.data), np.where(reward, Vt.data, 0.0),
+                self._get_regularization_factor(S, scale=scale), scale)
 
     def _advance_action(self, w: np.ndarray, tau: float, lamb: float, op: Tuple, k: int) -> Tuple[np.ndarray, float]:
         """
         Advance the forward extended vector by ``tau`` within the current epoch by the sparse matrix-exponential
-        action. Each step is balanced on the factor of the epoch capped at ``tau / _MIN_SCALED_STEP``, since block ``j``
-        of the vector gains the ``j``-th power of the scaled step, and floored at ``_MIN_BALANCE`` times the factor.
+        action. Each step is balanced on the factor of the epoch capped at the reward scale times
+        ``tau / _MIN_SCALED_STEP``, since block ``j`` of the vector gains the ``j``-th power of the scaled step, and
+        floored at ``_MIN_BALANCE`` times the factor.
 
         :param w: Extended row vector of ``(k + 1)`` blocks, stored against ``lamb`` and rebased in place.
         :param tau: The step, non-positive for none.
@@ -501,58 +541,110 @@ class MomentEvaluator:
         if tau <= 0:
             return w, lamb
 
-        Vt, gen, rew, factor = op
+        Vt, gen, rew, factor, scale = op
         if Settings.regularize:
-            lamb_step = min(factor, max(tau / _MIN_SCALED_STEP, _MIN_BALANCE * factor))
+            lamb_step = min(factor, max(scale * tau / _MIN_SCALED_STEP, _MIN_BALANCE * factor))
             lamb = self._rebase_forward(w, lamb, lamb_step, k, self.state_space.k)
 
         A = sp.csr_matrix((tau * gen + (tau / lamb) * rew, Vt.indices, Vt.indptr), shape=Vt.shape)
 
         return Backend.expm_multiply(A, w), lamb
 
-    def _check_demography_conditioning(self) -> None:
+    def _rate_spread(self, epoch: 'Epoch', duration: float = np.inf) -> float:
+        r"""
+        The ratio of the largest to the smallest of the pairwise coalescence rates and migration rates of ``epoch``.
+        The pairwise coalescence rate of a deme of size :math:`N` is :math:`\lambda_{2,2} / \tau(N)`, with
+        :math:`\lambda_{2,2}` the rate at which two lineages merge under the coalescent model and :math:`\tau(N)` its
+        time scale. Keyed on these rates, not on the rate matrix, whose range multiple-merger models widen
+        legitimately. Over a finite ``duration`` :math:`d`, a rate :math:`r` with :math:`r d` at most
+        ``1 / _MAX_RATE_SPREAD`` is left out, its events over the epoch lying below double precision.
+
+        :param epoch: The epoch.
+        :param duration: The time over which the rates act.
+        :return: The ratio, 1 without positive rates.
         """
-        Fail fast when the population sizes and migration rates of the first epoch span more than double precision,
-        which makes both the absorption-time search and the closed-form solve unreliable. Keyed on the demography, not
-        the rate matrix, whose range multiple-merger models widen legitimately.
+        model = self.state_space.model
 
-        :raises ModelError: if the population sizes and migration rates differ by a factor of more than ``1e16``.
+        rates = [model._get_rate(b=2, k=2) / model._get_timescale(v) for v in epoch.pop_sizes.values() if v > 0]
+        rates += [v for v in epoch.migration_rates.values() if v > 0]
+        rates = [r for r in rates if r > 0 and r * duration > 1 / _MAX_RATE_SPREAD]
+
+        return max(rates) / min(rates) if rates else 1
+
+    def _check_demography_conditioning(self, epochs: Iterable['Epoch']) -> None:
         """
-        epoch = self.demography.get_epoch(0)
+        Fail fast when the rates of an epoch span more than double precision over its duration (see
+        ``_rate_spread``), which makes the matrix exponentials of the epoch, the absorption-time search and the
+        closed-form solve unreliable.
 
-        # coalescence rates scale as 1 / pop_size, migration enters at its own rate
-        scales = [1 / v for v in epoch.pop_sizes.values() if v > 0]
-        scales += [v for v in epoch.migration_rates.values() if v > 0]
-        ratio = max(scales) / min(scales) if scales else 1
+        :param epochs: The epochs, the last of which may be held until absorption.
+        :raises ModelError: if the pairwise coalescence and migration rates of an epoch differ by a factor of more than
+            ``_MAX_RATE_SPREAD``.
+        """
+        for epoch in epochs:
+            ratio = self._rate_spread(epoch, epoch.end_time - epoch.start_time)
 
-        if ratio > 1e16:
-            raise ModelError(
-                "The demography is too ill-conditioned to reliably compute the time of almost sure absorption: its "
-                f"population sizes and migration rates differ by a factor of {ratio:.1e}. Use less extreme "
-                "parameters, or set the end time manually (see ``Coalescent.end_time``)."
-            )
+            if ratio > _MAX_RATE_SPREAD:
+                raise ModelError(
+                    "The demography is too ill-conditioned to reliably compute the time of almost sure absorption and "
+                    f"the moments: the pairwise coalescence and migration rates of epoch {epoch.index} differ by a "
+                    f"factor of {ratio:.1e}. Use less extreme parameters, or set the end time manually (see "
+                    "``Coalescent.end_time``)."
+                )
 
     def _check_numerical_stability(self, S: np.ndarray, epoch: int) -> None:
         """
-        Warn about potential numerical instability when the total exit rates of the states, the inverse time scales
-        the exponentials and solves resolve, differ by more than 10 orders of magnitude, once per epoch. A small
+        Warn about potential numerical instability when the inverse time scales the exponentials and solves resolve
+        differ by more than 10 orders of magnitude, once per epoch. These are the total exit rates of the transient
+        states and, for each communicating class of several states, the largest total rate out of the class from one of
+        its states, which fast transitions within the class, such as migration, hide from the exit rates. A small
         transition rate beside larger ones out of the same state, such as a rare multiple merger, leaves them unchanged.
 
-        :param S: (Regularized) intensity matrix.
+        :param S: (Regularized) intensity matrix of the current state space.
         :param epoch: Epoch number.
         """
         warned = self.__dict__.setdefault('_stability_warned', set())
         if epoch in warned:
             return
 
-        exit_rates = -np.asarray(S.diagonal()).ravel()
+        # the spread does not change with a scalar multiple of the rates, so each epoch is checked once per state space
+        memo = self._state_space_memo('_stability_checked')
+        ss = self.state_space
+        if id(ss) not in memo or memo[id(ss)][0] is not ss:
+            memo[id(ss)] = (ss, set())
+
+        checked = memo[id(ss)][1]
+        if epoch in checked:
+            return
+        checked.add(epoch)
+
+        exit_rates = -np.asarray(S.diagonal()).ravel()[~self.state_space.absorbing]
         rates = exit_rates[exit_rates > 0]
+
+        # only migration and recombination create cycles, so a single population at a single locus has classes of one
+        # state each
+        if self.lineage_config.n_pops > 1 or self.locus_config.n > 1:
+            A = sp.coo_matrix(S)
+            off = (A.row != A.col) & (A.data > 0)
+            rows, cols, data = A.row[off], A.col[off], A.data[off]
+
+            n_classes, labels = csg.connected_components(
+                sp.csr_matrix((data, (rows, cols)), shape=A.shape), directed=True, connection='strong'
+            )
+
+            if n_classes < A.shape[0]:
+                leaving = labels[rows] != labels[cols]
+                out = np.bincount(rows[leaving], weights=data[leaving], minlength=A.shape[0])
+                escape = np.zeros(n_classes)
+                np.maximum.at(escape, labels, out)
+                rates = np.concatenate([rates, escape[escape > 0]])
 
         if rates.size and rates.min() / rates.max() < 1e-10:
             warned.add(epoch)
             self._logger.warning(
-                "Intensity matrix in epoch %d has total exit rates that differ by more than 10 orders of magnitude: "
-                "min: %g, max: %g. This may lead to numerical instability, despite matrix regularization.",
+                "Intensity matrix in epoch %d has total exit rates of its states and communicating classes that "
+                "differ by more than 10 orders of magnitude: min: %g, max: %g. This may lead to numerical "
+                "instability, despite matrix regularization.",
                 epoch, rates.min(), rates.max()
             )
 
@@ -578,12 +670,21 @@ class MomentEvaluator:
             equals the cross-moment only when all rewards are equal.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
         :return: The moment at each end time.
-        :raises ValueError: If ``k`` is not a non-negative integer, or if the number of rewards differs from it.
+        :raises ValueError: If ``k`` is not a non-negative integer, if the number of rewards differs from it, if the
+            start time is negative, or if it lies beyond the time of almost sure absorption while an end time is
+            infinite.
         """
         k = _validate_order(k)
+        end_times = tuple(end_times)
 
         if start_time is None:
             start_time = self.tree_height.start_time
+
+        if not start_time >= 0:
+            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+
+        if start_time > 0 and np.isinf(end_times).any():
+            self._resolve_window(start_time, np.inf)
 
         if rewards is None:
             rewards = [self.reward] * k
@@ -654,7 +755,8 @@ class MomentEvaluator:
             self,
             k: int,
             end_times: Sequence[float],
-            rewards: Sequence[Reward] = None
+            rewards: Sequence[Reward] = None,
+            start_time: float = 0.0
     ) -> np.ndarray:
         """
         Evaluate the kth (non-central) moment at different end times using the lineage counting state space.
@@ -662,6 +764,7 @@ class MomentEvaluator:
         :param k: The order of the moment.
         :param end_times: Sequence of end times or end time when to evaluate the moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :param start_time: Time from which to start accumulation.
         :return: The moment accumulated at the specified times or time.
         :raises ValueError: If the state space is not a :class:`~phasegen.state_space.BlockCountingStateSpace`, or if
             k is not 1, or if there are multiple populations or loci or if the coalescent model is not the standard
@@ -680,7 +783,23 @@ class MomentEvaluator:
         if not isinstance(self.state_space.model, StandardCoalescent):
             raise ValueError("Flattened accumulation is only supported for standard coalescent.")
 
-        reward = rewards[0] if rewards else self.reward
+        weights = self._flattened_weights(rewards[0] if rewards else self.reward)
+
+        # Create a custom reward that returns the weights.
+        weighted_reward = CustomReward(lambda _: weights)
+
+        return self.tree_height._accumulate(
+            k=k, end_times=end_times, rewards=(weighted_reward,), start_time=start_time
+        )
+
+    def _flattened_weights(self, reward: Reward) -> np.ndarray:
+        """
+        The reward of :meth:`_accumulate_flattened` on the lineage-counting state space, indexed by ``n - k`` for
+        ``k`` lineages: the expected reward of the block-counting states with ``k`` lineages.
+
+        :param reward: The reward on the block-counting state space.
+        :return: Weight vector over the lineage-counting states.
+        """
         n = self.lineage_config.n
 
         # Prefer the closed-form Kingman block-size weights, which never build the (p(n)-state) block-counting space.
@@ -702,10 +821,7 @@ class MomentEvaluator:
                 len(self.state_space.states), self.tree_height.state_space.k
             )
 
-        # Create a custom reward that returns the weights.
-        weighted_reward = CustomReward(lambda _: weights)
-
-        return self.tree_height._accumulate(k=k, end_times=end_times, rewards=(weighted_reward,))
+        return weights
 
     def _flattened_sfs_weights(self, reward: Reward, n: int) -> Optional[np.ndarray]:
         """
@@ -788,9 +904,9 @@ class MomentEvaluator:
 
         # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost) and
         # re-enters this method on the lineage-counting state space, where the flattened reward is checked
-        if start_time <= 0 and self._flattening_applies(k):
+        if self._flattening_applies(k):
             self._logger.debug("accumulate (k=%d): flattened block-counting", k)
-            return self._accumulate_flattened(k, end_times, rewards)
+            return self._accumulate_flattened(k, end_times, rewards, start_time)
 
         Reward._check_accumulable(self.state_space, rewards)
 
@@ -798,7 +914,7 @@ class MomentEvaluator:
         # epoch and otherwise over the estimated absorption time
         infinite = np.isinf(end_times)
         if infinite.any():
-            if Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch():
+            if Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch(k):
                 self._logger.debug("accumulate (k=%d): closed-form last epoch", k)
                 moments = np.empty(end_times.shape)
                 moments[infinite] = self._accumulate_closed_form(k, rewards, start_time)
@@ -905,11 +1021,12 @@ class MomentEvaluator:
         # rewards are epoch-invariant (they depend on the states, not the rates), so only the intensity matrix, and
         # hence the Van Loan matrix, is refreshed per epoch
         R = [r._get(state_space=self.state_space) for r in rewards]
+        scale = self._reward_scale(R)
 
         if use_action:
             op, lamb = self._action_operator(rewards, k, i_epoch), 1.0
         else:
-            lamb = self._balance(epoch, start_time, t_sorted[-1])
+            lamb = self._balance(epoch, start_time, t_sorted[-1], scale)
             op = self._dense_van_loan(R, lamb, k, i_epoch)
 
         def advance(w, tau, lamb) -> Tuple[np.ndarray, float]:
@@ -942,7 +1059,8 @@ class MomentEvaluator:
                         op = self._action_operator(rewards, k, i_epoch)
                     else:
                         # balance each epoch on its own rates (see ``_rebase``)
-                        lamb = self._rebase_forward(w, lamb, self._balance(epoch, start_time, t_sorted[-1]), k, n)
+                        lamb_new = self._balance(epoch, start_time, t_sorted[-1], scale)
+                        lamb = self._rebase_forward(w, lamb, lamb_new, k, n)
                         op = self._dense_van_loan(R, lamb, k, i_epoch)
 
                 # remaining time in the current epoch
@@ -975,27 +1093,75 @@ class MomentEvaluator:
 
         return self.tree_height._get_absorption_time()
 
-    def _get_epochs_until_unbounded(self) -> List[Epoch]:
+    def _get_epochs_until_unbounded(self, k: int = 1) -> List[Epoch]:
         """
         Materialize the demographic epochs up to and including the one taken to hold until absorption. The iteration
         stops at an epoch with an infinite end time, or at the first epoch beginning at or after the time of almost
         sure absorption (``TreeHeightDistribution.t_max`` without an accumulation window) whose extension is
-        negligible, at most ``TreeHeightDistribution._max_extension_epochs`` epochs past that time. The rates of that
-        epoch are then extended over the remaining time.
+        negligible under its own rates and those of every later epoch, at most
+        ``TreeHeightDistribution._max_extension_epochs`` epochs past that time. The rates of that epoch are then
+        extended over the remaining time. Negligible refers to the moment of order ``k``, whose share of the reward
+        accumulated past that time grows with the order.
 
+        :param k: The order of the moment.
         :return: List of epochs, the last of which is unbounded.
         """
-        # the epochs depend only on the demography and the absorption time, both fixed for the distribution, while
-        # the closed form queries them once per moment and an SFS evaluates many bins
-        if getattr(self, '_epochs_cache', None) is not None:
-            return self._epochs_cache
+        # the epochs depend only on the tree height, which fixes the demography and the absorption time, and on the
+        # order, while the closed form queries them once per moment and an SFS evaluates many bins
+        th = self.tree_height
+        memo = th.__dict__.get('_epochs_cache')
+        if not isinstance(memo, dict):
+            memo = th.__dict__['_epochs_cache'] = {}
 
-        epochs, t_absorption, survival, scale, extra = [], None, None, None, 0
+        if k in memo:
+            return memo[k][0]
+
+        # the order matters only where an epoch is held past the time of almost sure absorption
+        if k > 1:
+            self._get_epochs_until_unbounded(1)
+            if not memo[1][1]:
+                memo[k] = memo[1]
+                return memo[k][0]
+
+        epochs, t_absorption, survival, scale, extra, extended = [], None, None, None, 0, False
 
         # the state distribution propagated to the start of each finite epoch. Where the CDF there is still below the
         # absorption level, the epoch starts before the time of almost sure absorption, whose search is then spared
-        th = self.tree_height
         w, prev = np.asarray(th.state_space.alpha, dtype=float), None
+
+        # the transient mass reaching each epoch after the time of almost sure absorption, by epoch index, from a
+        # propagation shared across orders that advances with the search, which visits the epochs in turn
+        reach = th.__dict__.setdefault('_extension_reach', {})
+
+        def mass(e: Epoch) -> float:
+            if e.index not in reach:
+                w_e, t_e, epoch_e = reach.get('cursor', (None, np.inf, None))
+                if t_e > e.start_time:
+                    w_e, t_e, epoch_e = np.asarray(th.state_space.alpha, dtype=float), 0.0, self.demography.get_epoch(0)
+
+                w_e = th._sweep_to(w_e, t_e, e.start_time, epoch_e)
+                reach['cursor'] = (w_e, e.start_time, e)
+                reach[e.index] = float(w_e @ th._e / w_e.sum())
+
+            return reach[e.index]
+
+        def holds(first: Epoch) -> bool:
+            if not th._extension_is_negligible(first, survival, scale, k, t_absorption):
+                return False
+
+            # the search ends where the transient mass underflows, or at a population size of zero, which absorbs it
+            # at once
+            try:
+                for e in itertools.islice(
+                        self.demography.epochs, first.index + 1, first.index + th._max_extension_epochs - extra):
+                    if not th._extension_is_negligible(e, mass(e), scale, k, t_absorption):
+                        return False
+                    if mass(e) == 0:
+                        break
+            except ModelError:
+                pass
+
+            return True
 
         for epoch in self.demography.epochs:
 
@@ -1022,10 +1188,10 @@ class MomentEvaluator:
                 scale = self.tree_height._get_absorption_scale()
 
             # an epoch reached after absorption is almost sure stands in for every epoch after it, so it may only be
-            # held where the reward that substitution misplaces is negligible. The count bounds the search, a
-            # demography having infinitely many epochs by design.
-            if (epoch.start_time >= t_absorption and extra < self.tree_height._max_extension_epochs
-                    and not self.tree_height._extension_is_negligible(epoch, survival, scale)):
+            # held where the reward that substitution misplaces is negligible under its own rates and under those of
+            # every later epoch the transient mass reaches. The count bounds the search, a demography having
+            # infinitely many epochs by design.
+            if epoch.start_time >= t_absorption and extra < th._max_extension_epochs and not holds(epoch):
                 epochs.append(epoch)
                 extra += 1
                 continue
@@ -1039,45 +1205,100 @@ class MomentEvaluator:
                 )
                 last.index = epoch.index
                 epochs.append(last)
+                extended = True
                 break
 
             epochs.append(epoch)
 
-        self._epochs_cache = epochs
+        memo[k] = (epochs, extended)
 
         return epochs
 
-    def _absorption_certain_in_last_epoch(self) -> bool:
+    def _absorption_certain_in_last_epoch(self, k: int = 1) -> bool:
         """
         Whether every transient state that can carry mass (see ``_alpha_support``) can reach an absorbing state in the
-        final epoch, so that ``-T`` restricted to those states is non-singular and the closed form applies. When
-        ``False``, for example for a migration barrier in the last epoch, absorption may still happen in earlier
-        epochs, and callers use the matrix exponential up to the absorption-time estimate.
+        final epoch of ``_get_epochs_until_unbounded`` (see ``_absorbs_in``), so that ``-T`` restricted to those
+        states is non-singular and the closed form applies. When ``False``, callers use the matrix exponential up to
+        the absorption-time estimate, whose search raises for a demography that does not absorb.
 
+        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
         :return: Whether absorption is certain from every transient state of the last epoch that can carry mass.
         """
         # the result depends only on the (fixed) last-epoch structure, so memoize it: the closed form queries this
         # once per moment, and an SFS/jSFS evaluates many bins, so recomputing the reachability each time dominated.
         # One host serves several state spaces (the lineage-counting one for a tree height, the block-counting one
-        # for a spectrum), so the memo is per state space.
+        # for a spectrum), so the memo is per state space and epoch list. The lists of all orders share their finite
+        # epochs and differ in where they end, so the length identifies the list.
         cache = self._state_space_memo('_absorption_certain_cache')
         ss = self.state_space
+        key = (id(ss), len(self._get_epochs_until_unbounded(k)))
 
-        if id(ss) in cache and cache[id(ss)][0] is ss:
-            return cache[id(ss)][1]
+        if key in cache and cache[key][0] is ss:
+            return cache[key][1]
 
-        # only the states that can carry mass matter. A state the initial vector never reaches, such as a deme
-        # declared with no samples and no migration into it, has no bearing on whether absorption is certain.
-        certain = self._absorbs_from_every_state() or bool(self._reaches_absorption_in_last_epoch()[
-            self._alpha_support() & ~self.state_space.absorbing].all())
-        cache[id(ss)] = (ss, certain)
+        certain = self._absorbs_in(self._get_epochs_until_unbounded(k))
+        cache[key] = (ss, certain)
         return certain
+
+    def _absorbs_in(self, epochs: Sequence[Epoch]) -> bool:
+        """
+        Whether every transient state that can carry mass over ``epochs`` (see ``_forward_closure``) reaches an
+        absorbing state in the last of them. A state the initial vector never reaches, such as a deme declared with no
+        samples and no migration into it, has no bearing on the answer. Leaves the state space in the last epoch.
+
+        :param epochs: The epochs in order, the last of which is held until absorption.
+        :return: Whether absorption is certain.
+        """
+        self.state_space.update_epoch(epochs[-1])
+        _, reach = self._reaches_absorption()
+
+        if reach.all():
+            return True
+
+        support = self._forward_closure(epochs)
+        self.state_space.update_epoch(epochs[-1])
+
+        return bool(reach[support & ~self.state_space.absorbing].all())
+
+    def _forward_closure(self, epochs: Sequence[Epoch]) -> np.ndarray:
+        """
+        The states that can carry probability mass over ``epochs``: the forward closure of the initial support under
+        each epoch's transitions in turn. Leaves the state space in the last epoch.
+
+        :param epochs: The epochs in order.
+        :return: Boolean mask over the states.
+        """
+        ss = self.state_space
+        support = np.asarray(ss.alpha) > 0
+
+        for epoch in epochs:
+            ss.update_epoch(epoch)
+            support = self._close_forward(support, ss.S)
+
+        return support
+
+    @staticmethod
+    def _close_forward(support: np.ndarray, S) -> np.ndarray:
+        """
+        The states reachable from ``support`` through the transitions of the generator ``S``, including ``support``.
+
+        :param support: Boolean mask over the states of ``S``.
+        :param S: The generator or a diagonal block of it, dense or sparse.
+        :return: Boolean mask over the states of ``S``.
+        """
+        adj = ((S if sp.issparse(S) else sp.csr_matrix(np.asarray(S))) != 0).T.tocsr()
+
+        while True:
+            nxt = support | (adj @ support > 0)
+            if np.array_equal(nxt, support):
+                return support
+            support = nxt
 
     def _state_space_memo(self, name: str) -> dict:
         """
-        A memo of the host keyed by state space, holding ``(state_space, value)`` so that an entry is used only for
-        the very state space it was computed on, which a key reused by another object after deserialization is not.
-        A payload that stored the memo in another form starts afresh.
+        A memo of the host keyed by state space, or by state space and epoch list, holding ``(state_space, value)`` so
+        that an entry is used only for the very state space it was computed on, which a key reused by another object
+        after deserialization is not. A payload that stored the memo in another form starts afresh.
 
         :param name: Attribute name of the memo.
         :return: The memo.
@@ -1089,74 +1310,65 @@ class MomentEvaluator:
 
         return memo
 
-    def _alpha_support(self) -> np.ndarray:
+    def _alpha_support(self, k: int = 1) -> np.ndarray:
         """
-        The states that can carry probability mass: the forward closure of the initial support under each epoch's
-        transitions in turn. Memoized per state space, one host serving several of them.
+        The states that can carry probability mass over the epochs of ``_get_epochs_until_unbounded``, see
+        ``_forward_closure``. Memoized per state space and epoch list, one host serving several state spaces.
 
+        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
         :return: Boolean mask over the states of the current state space.
         """
         ss = self.state_space
         cache = self._state_space_memo('_alpha_support_cache')
+        key = (id(ss), len(self._get_epochs_until_unbounded(k)))
 
-        if id(ss) in cache and cache[id(ss)][0] is ss:
-            return cache[id(ss)][1]
+        if key in cache and cache[key][0] is ss:
+            return cache[key][1]
 
         # where every state reaches absorption the restriction changes no solve, so the closure is skipped
-        if self._absorbs_from_every_state():
+        if self._absorbs_from_every_state(k):
             support = np.ones(ss.k, dtype=bool)
-            cache[id(ss)] = (ss, support)
+            cache[key] = (ss, support)
             return support
 
-        support = np.asarray(ss.alpha) > 0
-
-        for epoch in self._get_epochs_until_unbounded():
-            ss.update_epoch(epoch)
-            S = ss.S
-            adj = (S.tocsr() if sp.issparse(S) else sp.csr_matrix(np.asarray(S)))
-            adj = (adj != 0).T.tocsr()
-
-            while True:
-                nxt = support | (adj @ support > 0)
-                if np.array_equal(nxt, support):
-                    break
-                support = nxt
-
-        cache[id(ss)] = (ss, support)
+        support = self._forward_closure(self._get_epochs_until_unbounded(k))
+        cache[key] = (ss, support)
         return support
 
-    def _reaches_absorption_in_last_epoch(self) -> np.ndarray:
+    def _reaches_absorption_in_last_epoch(self, k: int = 1) -> np.ndarray:
         """
-        The states that reach absorption in the final epoch, memoized per state space. Leaves the state space in the
-        final epoch.
+        The states that reach absorption in the final epoch, memoized per state space and epoch list. Leaves the
+        state space in the final epoch.
 
+        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
         :return: Boolean mask over the states, including the absorbing ones.
         """
         ss = self.state_space
         cache = self._state_space_memo('_last_epoch_reach_cache')
-        ss.update_epoch(self._get_epochs_until_unbounded()[-1])
+        ss.update_epoch(self._get_epochs_until_unbounded(k)[-1])
+        key = (id(ss), len(self._get_epochs_until_unbounded(k)))
 
-        if id(ss) in cache and cache[id(ss)][0] is ss:
-            return cache[id(ss)][1]
+        if key in cache and cache[key][0] is ss:
+            return cache[key][1]
 
         _, reach = self._reaches_absorption()
-        cache[id(ss)] = (ss, reach)
+        cache[key] = (ss, reach)
         return reach
 
-    def _absorbs_from_every_state(self) -> bool:
+    def _absorbs_from_every_state(self, k: int = 1) -> bool:
         """
         Whether every state reaches absorption in the final epoch, so that absorption is certain whatever the initial
         vector.
 
+        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
         :return: Whether every state reaches absorption.
         """
-        return bool(self._reaches_absorption_in_last_epoch().all())
+        return bool(self._reaches_absorption_in_last_epoch(k).all())
 
     def _reaches_absorption(self) -> Tuple[np.ndarray, np.ndarray]:
         """
         Backward reachability over the rate graph of the current epoch: a state reaches absorption if it is absorbing
-        or has a positive rate to a state that does, propagated with a sparse adjacency matrix. Used by
-        ``_absorption_certain_in_last_epoch`` and the absorption-time search.
+        or has a positive rate to a state that does, propagated with a sparse adjacency matrix.
 
         :return: ``(absorbing, reach)`` boolean masks over the states; ``reach`` includes the absorbing states.
         """
@@ -1179,43 +1391,52 @@ class MomentEvaluator:
 
         return absorbing, reach
 
-    def _assert_absorbs(self, w: np.ndarray, reach: np.ndarray) -> None:
+    def _assert_absorbs(self, epochs: Sequence[Epoch] = None) -> None:
         """
-        Raise if the demography can never absorb, for example for an isolated deme or one-way migration in the final
-        epoch. Mass of the propagated distribution ``w`` on states that cannot reach absorption in the final epoch
-        is permanent and never decreases there. Called by the absorption-time search at each step in the final,
-        unbounded epoch.
+        Raise unless absorption is certain from every transient state that can carry mass, see ``_absorbs_in``.
 
-        :param w: State distribution at a time in the final, unbounded epoch.
-        :param reach: The states that reach absorption in the final epoch, see ``_reaches_absorption``.
-        :raises ModelError: if a non-negligible fraction of the mass can never reach a common ancestor.
+        :param epochs: The epochs in order, the last of which is held until absorption. By default, those of
+            ``_get_epochs_until_unbounded``.
+        :raises ModelError: if some state carrying mass can never reach a common ancestor.
         """
-        stuck = float(np.asarray(w)[~reach].sum())
+        certain = self._absorption_certain_in_last_epoch() if epochs is None else self._absorbs_in(epochs)
 
-        if stuck > 1e-8:
+        if not certain:
             raise ModelError(
-                f"The demography does not absorb: a fraction {stuck:.2e} of the probability mass remains on "
-                "states that can never reach a common ancestor, so there is no almost-sure absorption time. "
-                "This typically means a deme is isolated or migration is one-way/blocked in the final "
-                "(unbounded) epoch, leaving lineages that can never coalesce. Check the migration structure "
-                "of the last epoch."
+                "The demography does not absorb: some states carrying probability mass can never reach a common "
+                "ancestor in the final (unbounded) epoch, so there is no almost-sure absorption time. This typically "
+                "means a deme is isolated or migration is one-way/blocked in the last epoch, leaving lineages that "
+                "can never coalesce. Check the migration structure of the last epoch."
             )
 
-    def _accumulate_closed_form(self, k: int, rewards: Sequence[Reward], start_time: float = 0.0) -> float:
+    def _accumulate_closed_form(
+            self,
+            k: int,
+            rewards: Sequence[Reward],
+            start_time: float = 0.0,
+            heads: Sequence[Reward] = None
+    ) -> np.ndarray:
         """
         Raw moment of a single reward ordering from ``start_time`` to absorption with the closed-form last epoch of
         ``PhaseTypeDistribution.moment``: the backward recursion with one LU of ``-T`` (``_lu_solver``), then the
         finite epochs from ``start_time`` on applied backwards to the extended vector, and last the entry distribution
         propagated to ``start_time``.
 
-        :param k: The order of the moment.
+        With ``heads``, each head takes the place of the first reward in turn. The blocks of the extended vector after
+        the first do not depend on the first reward, so one extended vector holds a first block per head and the
+        remaining blocks once, and a single LU and, on the sparse action, a single action per epoch serve every head.
+
+        :param k: The order of the moment, at least 1.
         :param rewards: Sequence of k rewards (a single ordering).
         :param start_time: The non-negative start time.
-        :return: The kth moment accumulated until absorption.
+        :param heads: Rewards each substituted for the first of ``rewards``. By default, the first of ``rewards``.
+        :return: The kth moment accumulated until absorption, one per head.
         """
-        self._check_demography_conditioning()
+        heads = tuple(rewards[:1]) if heads is None else tuple(heads)
+        m = len(heads)
 
-        epochs = self._get_epochs_until_unbounded()
+        epochs = self._get_epochs_until_unbounded(k)
+        self._check_demography_conditioning(epochs)
         n = self.state_space.k
 
         # --- final, unbounded epoch: limit vector z ---
@@ -1226,45 +1447,62 @@ class MomentEvaluator:
         # restrict to the states that can carry mass: a transient state outside the support contributes nothing and
         # makes ``-T`` singular when it cannot reach absorption. Mass leaves the support nowhere, the support being
         # a forward closure, so the restricted solve is exact on it.
-        support = self._alpha_support()
+        support = self._alpha_support(k)
         idx_t = np.where(~absorbing & support)[0]
         idx_a = np.where(absorbing)[0]
         e = np.asarray(self.state_space.e)
 
         # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
-        # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. The same
-        # threshold, on ``len(idx_t)`` alone, selects the sparse action for the finite-epoch Van Loan exponentials.
-        use_action = self._solve_sparse(len(idx_t))
+        # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. The
+        # finite-epoch Van Loan exponentials take the sparse action with the sparse LU, except on the stiff generators
+        # of ``_dense_expm_is_faster``.
+        sparse = self._solve_sparse(len(idx_t))
+        use_action = sparse and not self._dense_expm_is_faster(k, epochs, start_time)
+
+        # the dense exponential of the stacked Van Loan matrix grows with the cube of the number of heads, so there each
+        # head is evaluated on its own
+        if m > 1 and not use_action:
+            return np.concatenate([
+                self._accumulate_closed_form(k, (h,) + tuple(rewards[1:]), start_time) for h in heads
+            ])
 
         # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution
-        T = self._transient_block(idx_t, sparse=use_action)
-        if use_action:
+        T = self._transient_block(idx_t, sparse=sparse)
+        if sparse:
             self._logger.debug(
-                "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %d finite epoch(s)",
-                k, len(idx_t), Settings.closed_form_sparse_min_states, len(epochs) - 1
+                "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %s exponential, %d finite epoch(s)",
+                k, len(idx_t), Settings.closed_form_sparse_min_states, "sparse" if use_action else "dense",
+                len(epochs) - 1
             )
         else:
             self._logger.debug(
                 "closed form (k=%d): dense LU of T (n_t=%d), %d finite epoch(s)", k, len(idx_t), len(epochs) - 1
             )
-        solve = self._lu_solver(-T, use_action)
+        solve = self._lu_solver(-T, sparse)
 
         # the j-th block of the extended vector is stored divided by lamb ** (k - j), which balances the Van Loan
-        # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end
-        lamb = self._get_regularization_factor(self.state_space.S)
+        # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end. The heads share one
+        # factor, whose reward scale spans every head.
+        r_all = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
+        r_heads = [np.asarray(h._get(self.state_space), dtype=float) for h in heads]
+        scale = self._reward_scale(r_heads + r_all[1:])
+        lamb = self._get_regularization_factor(self.state_space.S, scale=scale)
 
         # reward diagonals restricted to the transient states (the off-diagonal Van Loan reward blocks are diagonal)
-        r_t = [np.asarray(r._get(self.state_space), dtype=float)[idx_t] for r in rewards]
+        r_t = [r[idx_t] for r in r_all]
 
         nu = [None] * (k + 1)
         nu[k] = e[idx_t]
-        for j in range(k - 1, -1, -1):
+        for j in range(k - 1, 0, -1):
             nu[j] = solve(r_t[j] * nu[j + 1]) / lamb
 
-        z = np.zeros((k + 1) * n)
-        for j in range(k + 1):
-            z[j * n + idx_t] = nu[j]
-        z[k * n + idx_a] = e[idx_a]
+        # the extended vector holds the first block of each head, then the blocks 1, ..., k shared by the heads
+        z = np.zeros((m + k) * n)
+        for a, r_h in enumerate(r_heads):
+            z[a * n + idx_t] = solve(r_h[idx_t] * nu[1]) / lamb
+        for j in range(1, k + 1):
+            z[(m - 1 + j) * n + idx_t] = nu[j]
+        z[(m - 1 + k) * n + idx_a] = e[idx_a]
 
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
@@ -1277,17 +1515,19 @@ class MomentEvaluator:
             # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an
             # epoch with a different rate scale far from one, and the scaling-and-squaring of the exponential loses
             # their cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it.
-            lamb = self._rebase(z, lamb, self._balance(epoch, start_time, np.inf), k, n)
+            lamb_new = self._balance(epoch, start_time, np.inf, scale)
+            z[:(m - 1) * n] *= (lamb / lamb_new) ** k
+            lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_new, k, n)
 
             self._check_numerical_stability(self.state_space.S, i_epoch)
             tau = (epoch.end_time - max(epoch.start_time, start_time)) / lamb
 
             if use_action:
-                r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
-                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb, k, sparse=True)
+                r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in heads + tuple(rewards[1:])]
+                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb, k, sparse=True, heads=m)
                 z = Backend.expm_multiply(V * tau, z)
             else:
-                R = [r._get(self.state_space) for r in rewards]
+                R = [r._get(self.state_space) for r in heads + tuple(rewards[1:])]
                 V = self._van_loan_matrix(R, self._dense_rate_matrix() * lamb, k)
                 z = self._van_loan_expm(V * tau, k, n) @ z
 
@@ -1302,7 +1542,38 @@ class MomentEvaluator:
             alpha_ext[:n] = self._propagate_plain(alpha_ext[:n], min(epoch.end_time, start_time) - epoch.start_time,
                                                   use_action)
 
-        return factorial(k) * lamb ** k * float(alpha_ext @ z)
+        return factorial(k) * lamb ** k * np.array([
+            float(alpha_ext @ np.concatenate([z[a * n:(a + 1) * n], z[m * n:]])) for a in range(m)
+        ])
+
+    def _dense_expm_is_faster(self, k: int, epochs: List[Epoch], start_time: float) -> bool:
+        """
+        Whether the dense exponentials of ``_accumulate_closed_form``, those of the finite epochs and of the propagation
+        to ``start_time``, are cheaper than the sparse action: below :attr:`Settings.expm_action_min_dim
+        <phasegen.settings.Settings.expm_action_min_dim>` in the Van Loan dimension, where the summed 1-norm of the
+        steps ``S tau`` exceeds ``_DENSE_EXPM_STEP_NORM`` times the cube of the dimension. Leaves the state space in
+        the last epoch.
+
+        :param k: The order of the moment.
+        :param epochs: The epochs of ``_get_epochs_until_unbounded``.
+        :param start_time: The non-negative start time.
+        :return: Whether to form the dense exponentials.
+        """
+        dim = (k + 1) * self.state_space.k
+        if dim >= Settings.expm_action_min_dim:
+            return False
+
+        # the exponentials span the time up to the later of the start time and the start of the last epoch
+        horizon, norm = max(start_time, epochs[-1].start_time), 0.0
+        for epoch in epochs:
+            tau = min(epoch.end_time, horizon) - epoch.start_time
+            if tau > 0:
+                self.state_space.update_epoch(epoch)
+                norm += float(abs(self.state_space.S).sum(axis=0).max()) * tau
+
+        self.state_space.update_epoch(epochs[-1])
+
+        return norm > _DENSE_EXPM_STEP_NORM * dim ** 3
 
     def _flattening_applies(self, k: int) -> bool:
         """
@@ -1342,13 +1613,17 @@ class MomentEvaluator:
     def _epoch_csr(self, i_epoch: int) -> sp.csr_matrix:
         """
         The rate matrix of epoch ``i_epoch`` of ``_get_epochs_until_unbounded`` as a CSR matrix, the state space being
-        set to that epoch. Memoized per state space, since every bin, reward ordering and order of a closed-form
-        moment reads it.
+        set to that epoch. A rate matrix stored as CSR is returned as is, since ``StateSpace.update_epoch`` may rescale
+        it in place. A conversion is memoized per state space, since every bin, reward ordering and order of a
+        closed-form moment reads it.
 
         :param i_epoch: The epoch number.
         :return: The rate matrix.
         """
         ss = self.state_space
+        if sp.issparse(ss.S) and ss.S.format == 'csr':
+            return ss.S
+
         memo = self._state_space_memo('_epoch_csr_cache')
 
         if id(ss) not in memo or memo[id(ss)][0] is not ss:
@@ -1367,16 +1642,28 @@ class MomentEvaluator:
         epochs with the augmented generator ``[[S, I], [0, 0]]`` of ``PhaseTypeDistribution.moment``, for the batched
         mean accumulation of a spectrum. A positive start time subtracts the occupation up to it.
 
-        :param end_times: Times at which to evaluate the occupation.
+        :param end_times: Times at which to evaluate the occupation. A NaN end time gives a NaN occupation.
         :param start_time: Time from which to accumulate. By default, the start time of the distribution.
         :return: Array of shape ``(len(end_times), n_states)``.
+        :raises ValueError: If an end time or the start time is negative.
         """
         end_times = np.asarray(end_times, dtype=float)
+
+        undefined = np.isnan(end_times)
+        if undefined.any():
+            out = np.full((len(end_times), self.state_space.k), np.nan)
+            if not undefined.all():
+                out[~undefined] = self._mean_occupation_grid(end_times[~undefined], start_time=start_time)
+            return out
+
         if np.any(end_times < 0):
             raise ValueError("Negative end times are not allowed.")
 
         if start_time is None:
             start_time = self.tree_height.start_time
+
+        if not start_time >= 0:
+            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
 
         if start_time > 0:
             return (
@@ -1456,6 +1743,7 @@ class MomentEvaluator:
         :param cap: If given, accumulate occupation only up to this absolute time instead of to absorption.
         :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
             epoch, or ``None`` if absorption is not almost sure (callers then fall back to per-bin evaluation).
+        :raises ModelError: if the occupation times propagated to an epoch are not finite.
         """
         if not self._absorption_certain_in_last_epoch():
             return None
@@ -1467,7 +1755,7 @@ class MomentEvaluator:
         # only the states that can carry mass; see ``_alpha_support``
         idx_t = np.where(~absorbing & self._alpha_support())[0]
         nt = len(idx_t)
-        use_action = self._solve_sparse(nt)
+        sparse = self._solve_sparse(nt)
 
         p = np.asarray(self.state_space.alpha)[idx_t].astype(float)
         m = np.zeros(nt)
@@ -1475,7 +1763,7 @@ class MomentEvaluator:
         self._logger.debug(
             "occupation times (batched mean%s): %s factorization, n_t=%d, %d finite epoch(s)",
             f", capped at {cap:.3g}" if cap is not None else "",
-            "sparse" if use_action else "dense", nt, len(epochs) - 1
+            "sparse" if sparse else "dense", nt, len(epochs) - 1
         )
 
         # Each epoch contributes its occupation over ``[epoch.start_time, upper]``. Uncapped, the final (unbounded)
@@ -1489,16 +1777,29 @@ class MomentEvaluator:
             self.state_space.update_epoch(epoch)
             self._check_numerical_stability(self.state_space.S, i_epoch)
 
+            if not (np.isfinite(p).all() and np.isfinite(m).all()):
+                raise ModelError(
+                    f"Non-finite occupation times at the start of epoch {i_epoch}. This is likely due to an "
+                    "ill-conditioned rate matrix. Use less extreme population sizes or growth rates."
+                )
+
             upper = epoch.end_time if cap is None else min(epoch.end_time, cap)
 
             if np.isinf(upper):
                 # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
-                neg_t = -self._transient_block(idx_t, sparse=use_action)
-                m += self._lu_solver(neg_t.T, use_action)(p)
+                neg_t = -self._transient_block(idx_t, sparse=sparse)
+                m += self._lu_solver(neg_t.T, sparse)(p)
                 break
 
-            S = self._transient_block(idx_t, sparse=use_action)
+            S = self._transient_block(idx_t, sparse=sparse)
             tau = upper - epoch.start_time
+
+            # the dense exponential where the step is stiff enough to be the cheaper one, see ``_DENSE_EXPM_STEP_NORM``
+            use_action = sparse and not (
+                    2 * nt < Settings.expm_action_min_dim and
+                    float(abs(S).sum(axis=0).max()) * tau > _DENSE_EXPM_STEP_NORM * (2 * nt) ** 3
+            )
+
             if use_action:
                 aug = sp.bmat([
                     [sp.csc_matrix(S), sp.identity(nt, format='csc')],
@@ -1510,7 +1811,7 @@ class MomentEvaluator:
                 p = w[:nt]
             else:
                 aug = np.zeros((2 * nt, 2 * nt))
-                aug[:nt, :nt] = S
+                aug[:nt, :nt] = S.toarray() if sp.issparse(S) else S
                 aug[:nt, nt:] = np.eye(nt)
                 exp_aug = expm(aug * tau)
                 m += p @ exp_aug[:nt, nt:]
@@ -1545,7 +1846,7 @@ class MomentEvaluator:
             )
             return None
 
-        epochs = self._get_epochs_until_unbounded()
+        epochs = self._get_epochs_until_unbounded(2)
 
         # only the single-epoch closed form is used; the multi-epoch ODE is stiffness-fragile (see docstring)
         if len(epochs) > 1:
@@ -1555,14 +1856,14 @@ class MomentEvaluator:
             )
             return None
 
-        if not self._absorption_certain_in_last_epoch():
+        if not self._absorption_certain_in_last_epoch(2):
             return None
 
         self.state_space.update_epoch(epochs[-1])
         self._check_numerical_stability(self.state_space.S, 0)
         absorbing = self.state_space.absorbing
         # only the states that can carry mass; see ``_alpha_support``
-        idx_t = np.where(~absorbing & self._alpha_support())[0]
+        idx_t = np.where(~absorbing & self._alpha_support(2))[0]
 
         sparse = self._solve_sparse(len(idx_t))
         neg_t = -self._transient_block(idx_t, sparse=sparse)

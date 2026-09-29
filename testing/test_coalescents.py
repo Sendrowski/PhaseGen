@@ -2,7 +2,7 @@
 Test coalescents.
 """
 import unittest
-from itertools import islice
+from itertools import islice, permutations
 from typing import cast
 from testing import TestCase
 from unittest.mock import patch
@@ -126,15 +126,7 @@ class CoalescentTestCase(TestCase):
 
     def test_non_absorbing_demography_quantile_raises(self):
         """
-        The quantile must guard against a demography that never absorbs, rather than spinning to its iteration
-        ceiling: it needs the whole support (its grid runs to the absorption time), and a level above the mass that
-        does absorb has no answer at all.
-
-        The *pointwise* cdf and pdf are a different matter and must not raise. The distribution is defective, not
-        undefined: here pop_1 holds a lineage that can never migrate or coalesce, so no mass ever absorbs and
-        ``P(T <= t)`` is identically 0 -- a correct answer, read off the propagated vector without ever asking where
-        the distribution ends. (The pdf used to raise here, but only incidentally: it was a finite difference of the
-        CDF whose step was ``quantile(0.99) / 1e10``, so it went through the quantile to get one.)
+        The quantile, cdf and pdf raise on a demography that never absorbs, like every other statistic.
         """
         coal = pg.Coalescent(
             n={'pop_0': 2, 'pop_1': 1, 'pop_2': 1},
@@ -147,10 +139,11 @@ class CoalescentTestCase(TestCase):
         with self.assertRaisesRegex(ValueError, "does not absorb"):
             _ = coal.tree_height.quantile(0.99)
 
-        # none of the mass absorbs, so the CDF stays at 0 however far out it is asked -- finite, and not an error
-        for t in (1.0, 1e3, 1e6):
-            self.assertAlmostEqual(coal.tree_height.cdf(t), 0.0, delta=1e-12)
-            self.assertAlmostEqual(coal.tree_height.pdf(t), 0.0, delta=1e-12)
+        with self.assertRaisesRegex(pg.ModelError, "does not absorb"):
+            _ = coal.tree_height.cdf(1.0)
+
+        with self.assertRaisesRegex(pg.ModelError, "does not absorb"):
+            _ = coal.tree_height.pdf(1.0)
 
     def test_temporary_isolation_resolves_and_absorbs(self):
         """
@@ -264,7 +257,7 @@ class CoalescentTestCase(TestCase):
         m = coal.tree_height.mean
         coal.tree_height.pdf.plot()
 
-        self.assertAlmostEqual(m, 5.91979, delta=5)
+        self.assertAlmostEqual(m, 5.919799579948861, delta=1e-6 * 5.919799579948861)
 
     @pytest.mark.slow
     def test_demes_complex_coalescent(self):
@@ -325,26 +318,6 @@ class CoalescentTestCase(TestCase):
         )
 
         coal._touch()
-
-        pass
-
-    @pytest.mark.slow
-    def test_msprime_coalescent_two_loci(self):
-        """
-        Test msprime coalescent.
-        """
-        coal = MsprimeCoalescent(
-            n_threads=1,
-            parallelize=False,
-            num_replicates=1000,
-            n=pg.LineageConfig(2),
-            loci=2,
-            recombination_rate=10,
-            model=pg.StandardCoalescent(),
-            demography=pg.Demography([pg.PopSizeChange(pop='pop_0', time=0, size=1)])
-        )
-
-        m = coal.tree_height.mean
 
         pass
 
@@ -726,8 +699,8 @@ class CoalescentTestCase(TestCase):
         sfs = pg.Coalescent(n=4).sfs
         t_max = pg.Coalescent(n=4).tree_height.t_max
 
-        centered = sfs.accumulate(2, [t_max], center=True)[:, 0]
-        uncentered = sfs.accumulate(2, [t_max], center=False)[:, 0]
+        centered = sfs.accumulate(2, [t_max], center=True)[0]
+        uncentered = sfs.accumulate(2, [t_max], center=False)[0]
         var = np.asarray(sfs.var.data)
         mean = np.asarray(sfs.mean.data)
 
@@ -889,7 +862,7 @@ class CoalescentTestCase(TestCase):
         # the SFS mean accumulation is batched (shared occupation grid across bins), an independent matrix-
         # exponential route from the per-bin moment, so they agree to floating point rather than bit-for-bit
         np.testing.assert_allclose(
-            coal.sfs.accumulate(1, [coal.tree_height.t_max])[:, 0],
+            coal.sfs.accumulate(1, [coal.tree_height.t_max])[0],
             coal.sfs.moment(1).data,
             rtol=1e-12, atol=1e-12
         )
@@ -1086,10 +1059,10 @@ class CoalescentTestCase(TestCase):
         )
 
         moment = coal.moment(2, rewards, center=True)
-        xy = coal._raw_moment(2, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3)))
-        yx = coal._raw_moment(2, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2)))
-        x = coal._raw_moment(1, (pg.UnfoldedSFSReward(2),))
-        y = coal._raw_moment(1, (pg.UnfoldedSFSReward(3),))
+        xy = coal.moment(2, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(3)), center=False, permute=False)
+        yx = coal.moment(2, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2)), center=False, permute=False)
+        x = coal.moment(1, (pg.UnfoldedSFSReward(2),), center=False, permute=False)
+        y = coal.moment(1, (pg.UnfoldedSFSReward(3),), center=False, permute=False)
 
         self.assertAlmostEqual(moment, (xy + yx) / 2 - x * y)
 
@@ -1135,70 +1108,24 @@ class CoalescentTestCase(TestCase):
         )
 
         moment = coal.moment(3, rewards, center=False)
-        xyz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
-        xzy = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
-        yxz = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
-        yzx = coal._raw_moment(3, (pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2)))
-        zxy = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
-        zyx = coal._raw_moment(3, (pg.UnfoldedSFSReward(4), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(2)))
+        ordered = [coal.moment(3, order, center=False, permute=False) for order in permutations(rewards)]
 
-        self.assertAlmostEqual(moment, (xyz + xzy + yxz + yzx + zxy + zyx) / 6)
-
-    def test_3rd_order_uncentered_partial_cross_moment(self):
-        """
-        Test 3rd order uncentered partial cross moment.
-        """
-        coal = self.get_complex_coalescent()
-
-        rewards = (
-            pg.UnfoldedSFSReward(3),
-            pg.UnfoldedSFSReward(2),
-            pg.UnfoldedSFSReward(4)
-        )
-
-        moment = coal.moment(3, rewards, center=False, permute=False)
-        moment_raw = coal._raw_moment(3, (pg.UnfoldedSFSReward(3), pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(4)))
-
-        self.assertAlmostEqual(moment, moment_raw)
+        self.assertAlmostEqual(moment, np.mean(ordered))
 
     @pytest.mark.slow
     def test_uncentered_cross_moments_msprime(self):
         """
-        Test higher-order uncentered cross-moments against Msprime coalescent.
+        Test higher-order uncentered cross-moments against Msprime coalescent. Each tolerance is at least four
+        standard errors of the simulated moment at 1e5 replicates, whose relative standard error is about 0.024 for
+        the index set (2, 3, 4) and at most about 0.01 for the others.
         """
         coal = self.get_complex_coalescent()
-        ms = coal.to_msprime(num_replicates=100000)
+        ms = coal.to_msprime(num_replicates=100000, seed=42)
 
         # test uncentered moments
-        for indices in [[2, 3, 4], [1, 1, 4], [1, 1, 1], [4, 2, 1]]:
+        for indices, tol in [([2, 3, 4], 0.1), ([1, 1, 4], 0.07), ([1, 1, 1], 0.07), ([4, 2, 1], 0.07)]:
             m_ms = np.mean(ms.sfs.samples[:, indices].prod(axis=1))
             m_ph = coal.moment(3, tuple(pg.UnfoldedSFSReward(l) for l in indices), center=False)
-
-            self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), 0.07)
-
-    def compare_centered_sfs_cross_moments_msprime(self):
-        """
-        Test higher-order centered SFS cross-moments against Msprime coalescent.
-        """
-        coal = pg.Coalescent(n=6)
-        ms = coal.to_msprime(num_replicates=1000000, n_threads=100, seed=42)
-
-        data = [
-            dict(moments=[2, 3, 4, 4, 4], tol=0.1),
-            dict(moments=[1, 2, 3, 4, 5], tol=0.1),
-            dict(moments=[1, 2, 3, 4], tol=0.1),
-            dict(moments=[3, 2, 3, 4], tol=0.1),
-            dict(moments=[1, 1, 4], tol=0.1),
-            dict(moments=[1, 1, 1], tol=0.1),
-            dict(moments=[4, 2, 1], tol=0.1),
-            dict(moments=[2, 3], tol=0.1)
-        ]
-
-        # test centered moments
-        for config in data:
-            moments, tol = config['moments'], config['tol']
-            m_ph = coal.moment(len(moments), tuple(pg.UnfoldedSFSReward(l) for l in moments), center=True)
-            m_ms = np.mean((ms.sfs.samples[:, moments] - ms.sfs.samples[:, moments].mean(axis=0)).prod(axis=1))
 
             self.assertLess(2 * np.abs((m_ms - m_ph) / (m_ms + m_ph)), tol)
 
@@ -1277,7 +1204,7 @@ class CoalescentTestCase(TestCase):
         times = np.linspace(0, coal.tree_height.quantile(0.99), 10)
 
         for k in [1, 2]:
-            moments = np.array([coal.sfs.moment(k=k, end_time=t).data for t in times]).T
+            moments = np.array([coal.sfs.moment(k=k, end_time=t).data for t in times])
             accumulation = coal.sfs.accumulate(k=k, end_times=times)
 
             np.testing.assert_array_almost_equal(moments, accumulation)
@@ -1662,28 +1589,6 @@ class CoalescentTestCase(TestCase):
         np.testing.assert_array_almost_equal(flattened, original)
         pg.Settings.flatten_block_counting = True
 
-    @unittest.skip("Flattening block counting states for beta coalescent with two epochs doesn't work.")
-    def test_flattened_block_counting_beta_coalescent_2_epochs(self):
-        """
-        Flattening the block counting states for MMCs with two doesn't work.
-        """
-        pg.Settings.flatten_block_counting = True
-        n = 10
-        model = pg.BetaCoalescent(alpha=1.7)
-        demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 10}})
-
-        coal_flattened = pg.Coalescent(n=n, model=model, demography=demography)
-        flattened = coal_flattened.sfs.mean.data
-        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
-
-        pg.Settings.flatten_block_counting = False
-        coal_original = pg.Coalescent(n=n, model=model, demography=demography)
-        original = coal_original.sfs.mean.data
-        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
-
-        self.assertGreater(np.nanmean(np.abs(flattened - original) / original), 0.01)
-        pg.Settings.flatten_block_counting = True
-
     def test_not_flattened_block_counting_beta_coalescent(self):
         """
         Make sure that not flattening block counting states works correctly.
@@ -1804,9 +1709,9 @@ def test_accumulate_starts_at_the_configured_start_time():
     assert coal.tree_height.accumulate(1, [0.2])[0] == 0
 
     # the spectrum takes the same window, through its batched occupation grid
-    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [2.0]))[:, 0],
+    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [2.0]))[0],
                                np.asarray(coal.sfs.moment(1, end_time=2.0).data), rtol=1e-10)
-    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [t_max]))[:, 0],
+    np.testing.assert_allclose(np.asarray(coal.sfs.accumulate(1, [t_max]))[0],
                                np.asarray(coal.sfs.mean.data), rtol=1e-10)
 
     # a coalescent without a window is unaffected
@@ -1852,7 +1757,7 @@ def test_moment_accepts_an_integral_float_order_and_rejects_a_non_integral_one()
     assert coal.moment(2.0) == pytest.approx(coal.moment(2), rel=1e-12)
     assert coal.sfs.moment(2.0).data[1] == pytest.approx(coal.sfs.moment(2).data[1], rel=1e-12)
     assert coal.accumulate(2.0, [1.0])[0] == pytest.approx(coal.accumulate(2, [1.0])[0], rel=1e-12)
-    assert coal.sfs.accumulate(2.0, [1.0])[1][0] == pytest.approx(coal.sfs.accumulate(2, [1.0])[1][0], rel=1e-12)
+    assert coal.sfs.accumulate(2.0, [1.0])[0][1] == pytest.approx(coal.sfs.accumulate(2, [1.0])[0][1], rel=1e-12)
 
     calls = (
         coal.moment,
@@ -1973,6 +1878,7 @@ def test_high_moments_across_a_very_short_epoch_match_an_extended_precision_refe
     References from a 100-digit mpmath Van Loan computation."""
     if sparse:
         pg.Settings.closed_form_sparse_min_states = 1
+        pg.Settings.expm_action_min_dim = 0
 
     two_demes = pg.Coalescent(n=pg.LineageConfig({'a': 2, 'b': 2}), demography=pg.Demography(
         pop_sizes={'a': {0: 1, 1: 2, 1 + 1e-12: 0.5}, 'b': {0: 1, 1: 3}},
@@ -2083,3 +1989,362 @@ def test_infinite_end_time_equals_no_end_time(demography):
     assert coal.tree_height.cdf(1.0) == pytest.approx(ref.tree_height.cdf(1.0), rel=1e-12)
     assert coal.tree_height.mean == pytest.approx(ref.tree_height.mean, rel=1e-12)
     np.testing.assert_array_equal(coal.tree_height._default_end_times(), ref.tree_height._default_end_times())
+
+
+def _migration_switch(n: dict, before: float, after: float, T: float) -> pg.Coalescent:
+    """Two demes of size one whose symmetric migration rate switches from ``before`` to ``after`` at ``T``."""
+    return pg.Coalescent(n=n, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1},
+        migration_rates={('a', 'b'): {0: before, T: after}, ('b', 'a'): {0: before, T: after}}
+    ))
+
+
+def _doubling_point(n: dict, before: float, j: int) -> float:
+    """The time ``scale * 2 ** j`` of the absorption search, which depends on the first epoch alone."""
+    return _migration_switch(n, before, before, 1e6).tree_height._get_absorption_scale() * 2 ** j
+
+
+@pytest.mark.parametrize('n', [{'a': 1, 'b': 1}, {'a': 2, 'b': 1}, {'a': 2, 'b': 2}])
+@pytest.mark.parametrize('j', [1, 2, 3, 4])
+@pytest.mark.parametrize('shift', [1.0, 1.001])
+def test_isolation_then_migration_absorbs_on_and_off_the_doubling_grid(n, j, shift, monkeypatch):
+    """Isolated demes joined by migration in the final epoch absorb, also when the final epoch starts exactly on a
+    doubling point of the absorption search. Regression: there the reachability was read off the isolated epoch
+    before it, and the search raised ModelError. For one lineage per deme the mean is ``T + 2.5``."""
+    T = _doubling_point(n, 0.0, j) * shift
+    coal = _migration_switch(n, 0.0, 1.0, T)
+
+    assert np.isfinite(coal.tree_height.t_max)
+    assert np.isfinite(coal.tree_height.quantile(0.5))
+
+    closed = coal.tree_height.mean
+    monkeypatch.setattr(pg.Settings, 'closed_form_last_epoch', False)
+    windowed = _migration_switch(n, 0.0, 1.0, T).tree_height.mean
+
+    assert windowed == pytest.approx(closed, rel=1e-8)
+    if n == {'a': 1, 'b': 1}:
+        assert closed == pytest.approx(T + 2.5, rel=1e-10)
+
+
+@pytest.mark.parametrize('n', [{'a': 1, 'b': 1}, {'a': 2, 'b': 2}])
+@pytest.mark.parametrize('T', [('grid', 1), ('grid', 3), ('grid', 5), ('off', 1.001 * 2 ** 3), ('off', 20.0)])
+def test_migration_then_isolation_never_absorbs(n, T):
+    """Demes isolated in the final epoch do not absorb, however little mass is left to be stranded there, and every
+    statistic that needs the whole distribution says so alike. Regression: on a doubling point the reachability was
+    read off the migrating epoch before, and a stranded mass below 1e-8 passed the search, so the means came back as
+    the stranded mass times the doubling ceiling."""
+    T = _doubling_point(n, 1.0, T[1]) if T[0] == 'grid' else _doubling_point(n, 1.0, 0) * T[1]
+    coal = _migration_switch(n, 1.0, 0.0, T)
+
+    for get in [lambda: coal.tree_height.t_max, lambda: coal.tree_height.mean,
+                lambda: coal.total_branch_length.mean, lambda: coal.distribution(pg.TreeHeightReward()).cdf(1.0),
+                lambda: coal.tree_height.cdf(1.0), lambda: coal.tree_height.pdf(1.0)]:
+        with pytest.raises(ModelError, match="does not absorb"):
+            get()
+
+
+@pytest.mark.parametrize('n', [2, 4])
+@pytest.mark.parametrize('j', [1, 2, 3])
+def test_one_deme_size_change_on_the_doubling_grid(n, j, monkeypatch):
+    """A single deme whose size changes on a doubling point of the absorption search gives the same mean on the
+    closed-form and the windowed path."""
+    T = pg.Coalescent(n=n).tree_height._get_absorption_scale() * 2 ** j
+    coal = lambda: pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, T: 3}}))
+
+    closed = coal().tree_height.mean
+    monkeypatch.setattr(pg.Settings, 'closed_form_last_epoch', False)
+
+    assert coal().tree_height.mean == pytest.approx(closed, rel=1e-8)
+
+
+def test_conditioning_check_uses_the_coalescence_rates_of_the_model():
+    """The conditioning check measures the pairwise coalescence rates of the model, which for the Beta and Dirac
+    coalescents do not scale as the inverse population size. Regression: it used ``1 / N``, rejecting a
+    well-conditioned Beta coalescent and passing a Dirac coalescent whose rates span 1e20."""
+    def coal(model, sizes):
+        return pg.Coalescent(n={'a': 1, 'b': 1}, model=model, demography=pg.Demography(
+            pop_sizes={'a': sizes[0], 'b': sizes[1]}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    assert coal(pg.BetaCoalescent(alpha=1.1), (1e-9, 1e9)).tree_height.mean == pytest.approx(7.212276119517529,
+                                                                                              rel=1e-8)
+
+    with pytest.raises(ModelError, match="ill-conditioned"):
+        _ = coal(pg.DiracCoalescent(psi=0.5, c=1), (1e-5, 1e5)).tree_height.mean
+
+    with pytest.raises(ModelError, match="ill-conditioned"):
+        _ = coal(pg.StandardCoalescent(), (1e-9, 1e9)).tree_height.mean
+
+
+def test_tree_height_cdf_terminates_when_the_row_sum_norm_overflows():
+    """A population size near 1e-308 gives finite rates whose row sums overflow. Regression: the step length was
+    ``_max_step_norm / inf = 0`` and the propagation never ended."""
+    coal = pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 1.1e-308}}))
+
+    assert coal.tree_height.cdf(2) == 1.0
+
+
+def test_tree_height_cdf_and_pdf_at_infinity_on_the_sparse_action_path(monkeypatch):
+    """At infinity the CDF is one and the density vanishes, on the sparse action path as on the dense one. Regression: the action path propagated until the transient mass underflowed, which left a
+    density of 1e-322 and took about 30 times as long as the CDF at ``t_max``."""
+    def coals():
+        return [pg.Coalescent(n={'a': 6, 'b': 6}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 1}))]
+
+    dense = [(c.tree_height.cdf(np.inf), c.tree_height.cdf(1e6)) for c in coals()]
+    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 2)
+
+    for c, (cdf_inf, cdf_far) in zip(coals(), dense):
+        assert c.tree_height.cdf(np.inf) == pytest.approx(cdf_inf, rel=1e-12)
+        assert c.tree_height.cdf(np.inf) == pytest.approx(cdf_far, rel=1e-12)
+        assert c.tree_height.pdf(np.inf) == 0.0
+
+    assert dense[0][0] == 1.0
+
+
+@pytest.mark.parametrize("kwargs, match", [
+    (dict(model='beta'), "model must be"),
+    (dict(demography={'pop_0': 1}), "demography must be")
+])
+def test_coalescent_rejects_a_model_or_demography_of_the_wrong_type(kwargs, match):
+    """A wrong model or demography failed later with an AttributeError."""
+    with pytest.raises(TypeError, match=match):
+        pg.Coalescent(n=3, **kwargs)
+
+
+
+def test_accumulate_takes_one_shot_iterables():
+    """A centered accumulation of order two or more reads the end times once per component. Regression: a one-shot
+    iterator was exhausted by the first component and the centering raised an IndexError."""
+    c = pg.Coalescent(n=4)
+    times = [0.5, 1.0, np.inf]
+
+    np.testing.assert_allclose(c.accumulate(2, iter(times)), c.accumulate(2, times), rtol=1e-14)
+    np.testing.assert_allclose(c.tree_height.accumulate(2, (t for t in times)), c.tree_height.accumulate(2, times),
+                               rtol=1e-14)
+
+
+def test_accumulate_rejects_a_negative_start_time():
+    """Every accumulation entry point rejects a negative start time, as the moments do. Regression: the windowed
+    path integrated over a window extended below zero while the other paths clamped it to zero."""
+    c = pg.Coalescent(n=3)
+
+    for accumulate in (c.accumulate, c.tree_height.accumulate, c.sfs.accumulate):
+        with pytest.raises(ValueError, match='Start time must be greater than or equal to 0'):
+            accumulate(1, [1.0], start_time=-1.0)
+
+
+def test_batched_spectrum_accumulation_passes_nan_end_times_on_the_action_path(monkeypatch):
+    """A NaN end time gives a NaN bin on the sparse-action path of the batched spectrum accumulation, and the other
+    end times the values of the dense path. Regression: the action path raised a ValueError."""
+    def acc():
+        return pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5)).sfs.accumulate(1, [0.5, np.nan, 2.0])
+
+    dense = acc()
+    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 0)
+    action = acc()
+
+    assert np.isnan(action[1, 1:-1]).all()
+    np.testing.assert_allclose(action[[0, 2]], dense[[0, 2]], rtol=1e-10)
+
+
+def test_conditioning_check_looks_at_the_epoch_held_until_absorption(monkeypatch):
+    """The conditioning check measures the epoch held until absorption. A short first epoch whose rates span more
+    than double precision passes and gives the values of a nearby well-conditioned rate, while such a last epoch
+    raises on both moment paths. Regression: the check read only the first epoch, rejecting the former and passing
+    the latter, whose variance came out negative."""
+    def short_first(m0):
+        return pg.Coalescent(n={'a': 1, 'b': 1}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): {0: m0, 0.01: 1}, ('b', 'a'): {0: m0, 0.01: 1}}))
+
+    reference, extreme = short_first(0), short_first(1e-20)
+    assert extreme.tree_height.mean == pytest.approx(reference.tree_height.mean, rel=1e-12)
+    assert extreme.tree_height.var == pytest.approx(reference.tree_height.var, rel=1e-12)
+    assert extreme.tree_height.quantile(0.5) == pytest.approx(reference.tree_height.quantile(0.5), rel=1e-6)
+
+    def extreme_last():
+        return pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): {0: 1, 1: 1e-20}, ('b', 'a'): {0: 1, 1: 1e-20}}))
+
+    with pytest.raises(ModelError, match='ill-conditioned'):
+        _ = extreme_last().tree_height.mean
+
+    monkeypatch.setattr(pg.Settings, 'closed_form_last_epoch', False)
+
+    with pytest.raises(ModelError, match='ill-conditioned'):
+        _ = extreme_last().tree_height.var
+
+
+@pytest.mark.parametrize('n, expected', [
+    ({'a': 1, 'b': 1}, (1.6345752306153156, 5.290305689088646)),
+    ({'a': 2, 'b': 2}, (2.267200341207237, 6.591136138390849))
+])
+@pytest.mark.parametrize('closed_form', [True, False])
+def test_conditioning_check_looks_at_every_finite_epoch(n, expected, closed_form, monkeypatch):
+    """A finite epoch whose rates span more than double precision over its duration raises on both moment paths,
+    the first as a later one, while a spread within it gives the reference moments. Regression: only the epoch held
+    until absorption was checked, and a first epoch with a pairwise coalescence rate of 1e18 gave a mean of 66.6 and
+    a negative variance for two lineages per deme."""
+    def coal(sizes):
+        return pg.Coalescent(n=n, demography=pg.Demography(
+            pop_sizes={'a': {0: 1}, 'b': sizes}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    monkeypatch.setattr(pg.Settings, 'closed_form_last_epoch', closed_form)
+
+    for sizes in [{0: 1e-18, 1: 1.5}, {0: 1, 0.5: 1e-18, 1: 1.5}]:
+        with pytest.raises(ModelError, match='ill-conditioned'):
+            _ = coal(sizes).tree_height.mean
+
+    th = coal({0: 1e-15, 1: 1.5}).tree_height
+    assert th.mean == pytest.approx(expected[0], rel=1e-10)
+    assert th.var == pytest.approx(expected[1], rel=1e-10)
+
+
+def test_stability_warning_ignores_the_exit_rates_of_absorbing_states(caplog):
+    """The rate-spread warning measures the transient states. Here the transient rates span a factor of three while
+    the single lineage in the slow deme leaves at 1e-12. Regression: the exit rates of the absorbing states were
+    counted, and the warning fired on an exact result."""
+    c = pg.Coalescent(n={'a': 2, 'b': 0}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1e-12}))
+
+    with caplog.at_level('WARNING'):
+        _ = c.tree_height.mean
+
+    assert not [r for r in caplog.records if 'orders of magnitude' in r.getMessage()]
+
+
+def test_tree_height_quantile_behind_a_migration_barrier():
+    """Behind a migration barrier the CDF is exactly zero up to the epoch start ``T = 100``, and the lower-tail
+    quantiles resolve its rise after ``T``. Regression: the locating octaves were geometric from zero, the excess
+    over ``T`` was underestimated by up to 99.9%, and ``cdf(quantile(1e-6))`` was 8.5e-9."""
+    c = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1},
+        migration_rates={('pop_0', 'pop_1'): {0: 0, 100: 1}, ('pop_1', 'pop_0'): {0: 0, 100: 1}}))
+
+    for q in [1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 0.5]:
+        assert c.tree_height.cdf(c.tree_height.quantile(q)) == pytest.approx(q, rel=1e-4)
+
+
+def test_tree_height_quantile_behind_a_migration_barrier_followed_by_a_change():
+    """Behind a migration barrier that ends at ``T = 100`` and is followed by a change of the migration rate at
+    ``T + 1``, the lower-tail quantiles resolve the rise after ``T``. Regression: only the last epoch start before the
+    first positive probe was tested for a zero CDF, and ``cdf(quantile(1e-6))`` was 1.4e-8."""
+    c = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1},
+        migration_rates={('pop_0', 'pop_1'): {0: 0, 100: 1, 101: 0.1}, ('pop_1', 'pop_0'): {0: 0, 100: 1, 101: 0.1}}))
+
+    for q in [1e-6, 1e-4, 1e-2, 0.5]:
+        assert c.tree_height.cdf(c.tree_height.quantile(q)) == pytest.approx(q, rel=1e-4)
+
+
+def test_sfs_mean_under_overflowing_growth_raises_model_error():
+    """Growth by a factor of e^600 over two time units makes the propagated occupation times non-finite, and the
+    batched SFS mean raises ModelError. Regression: the solve of the occupation times raised a plain ValueError of
+    scipy."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography([pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate={'pop_0': 300}, start_time={'pop_0': 0}, end_time={'pop_0': 2})]))
+
+    with pytest.raises(pg.ModelError):
+        _ = coal.sfs.mean
+
+
+def test_accumulate_from_beyond_absorption_raises():
+    """Accumulating to absorption from a start time beyond almost sure absorption raises as ``moment`` does.
+    Regression: a start time of 1e100 or infinity returned NaN."""
+    coal = pg.Coalescent(n=4)
+
+    for start in (1e100, np.inf):
+        with pytest.raises(ValueError, match="beyond the time of almost sure absorption"):
+            coal.tree_height.accumulate(1, [np.inf], start_time=start)
+
+        with pytest.raises(ValueError, match="beyond the time of almost sure absorption"):
+            coal.sfs.accumulate(1, [np.inf], start_time=start)
+
+
+def test_tree_height_quantile_after_a_size_drop_to_a_negligible_size():
+    """A size drop to 1e-100 absorbs every lineage at the drop, so the median lies at the drop time. Regression: the
+    propagator of a grid segment overflowed to NaN and the quantile was NaN."""
+    c = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 1e-100}}))
+
+    assert c.tree_height.cdf(1.0) < 0.5
+    assert c.tree_height.quantile(0.5) == pytest.approx(1.0, rel=1e-6)
+
+
+def test_isolated_epoch_after_almost_sure_absorption_is_not_held(monkeypatch):
+    """A finite epoch of isolated demes that starts after almost sure absorption and is followed by migration is not
+    held until absorption, from which it cannot absorb. The transform then evaluates, and the closed-form moments
+    agree with the windowed ones. Regression: the isolated epoch was held and the transform raised that the
+    demography does not absorb."""
+    def iso():
+        return pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 1},
+            migration_rates={('a', 'b'): {0: 1, 1000: 0, 1010: 1}, ('b', 'a'): {0: 1, 1000: 0, 1010: 1}}))
+
+    connected = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    assert iso().total_branch_length.cdf(3.0) == pytest.approx(connected.total_branch_length.cdf(3.0), rel=1e-6)
+
+    mean = iso().tree_height.mean
+    monkeypatch.setattr(pg.Settings, 'closed_form_last_epoch', False)
+
+    assert iso().tree_height.mean == pytest.approx(mean, rel=1e-10)
+
+
+def test_tree_height_cdf_and_pdf_vanish_below_zero():
+    """The tree-height CDF and density are zero at negative times, as those of every other distribution.
+    Regression: they raised a ValueError."""
+    th = pg.Coalescent(n=3).tree_height
+
+    assert th.cdf(-1.0) == 0.0
+    assert th.cdf(-np.inf) == 0.0
+    np.testing.assert_array_equal(th.pdf(np.array([-1.0, -0.5])), [0.0, 0.0])
+    assert th.pdf(np.array([-1.0, 1.0]))[1] == pytest.approx(th.pdf(1.0), rel=1e-14)
+
+
+def test_plot_accumulation_rejects_a_non_integral_order():
+    """The accumulation plot of a phase-type distribution validates the order as ``accumulate`` does. Regression: it
+    truncated ``k=1.5`` and ``k=True`` to the first moment."""
+    th = pg.Coalescent(n=3).tree_height
+
+    with pytest.raises(ValueError, match='must be an integer'):
+        th.plot_accumulation(k=1.5, show=False)
+
+    with pytest.raises(TypeError, match='must be an integer'):
+        th.plot_accumulation(k=True, show=False)
+
+
+def test_accumulated_reward_density_rejects_unknown_keywords():
+    """The density of an accumulated reward takes no keyword besides the point. Regression: any keyword was
+    swallowed."""
+    c = pg.Coalescent(n=3)
+
+    with pytest.raises(TypeError):
+        c.total_branch_length.pdf(1.0, foo=1)
+
+    with pytest.raises(TypeError):
+        c.distribution(pg.TotalBranchLengthReward()).pdf(1.0, foo=1)
+
+
+@pytest.mark.parametrize("start", [0.5, 1.5])
+def test_windowed_moments_opening_past_an_epoch_boundary(monkeypatch, start):
+    """A moment window that opens after one or two epoch boundaries agrees across the finite-end Van Loan walk, the
+    closed-form infinite end, and the sparse action of both, and its mean is the difference of the accumulations
+    from zero."""
+    def coal():
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 2, 1.0: 0.5}}))
+
+    def moments():
+        th = coal().tree_height
+        return [th.moment(k, start_time=start, end_time=end, center=False) for k in (1, 2) for end in (1e3, None)]
+
+    th = coal().tree_height
+    acc = th.accumulate(1, [start, np.inf], start_time=0.0)
+    dense = moments()
+
+    assert dense[0] == pytest.approx(acc[1] - acc[0], rel=1e-10)
+    np.testing.assert_allclose(dense[::2], dense[1::2], rtol=1e-10)
+
+    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 0)
+    monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1)
+
+    np.testing.assert_allclose(moments(), dense, rtol=1e-8)

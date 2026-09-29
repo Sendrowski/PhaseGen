@@ -66,7 +66,7 @@ def _four_paths(fn):
         "dense-expm": (False, _HI, _HI),
         "sparse-expm": (False, _LO, _HI),
         "dense-cf": (True, _HI, _HI),
-        "sparse-cf": (True, _HI, _LO),
+        "sparse-cf": (True, _LO, _LO),
     }
     out = {}
     for name, (cf, eamd, cfmin) in configs.items():
@@ -168,12 +168,12 @@ def test_disabled_uses_only_matrix_exponential(name):
 _EXPECTED_PATHS = {
     "tree_height.mean": {"_accumulate_closed_form"},
     "tree_height.var": {"_accumulate_closed_form"},
-    # single-population SFS mean flattens (k=1, standard); the small lineage-counting space then uses the closed form
-    "sfs.mean": {"_accumulate_closed_form"},
-    # the cov's mean flattens (closed form on the lineage space); the covariance itself uses the two-point operator
-    "sfs.cov 1-epoch": {"_two_point_occupation", "_accumulate_closed_form"},
-    # multi-epoch covariance: the batched single-epoch operator is declined (returns None) -> per-pair closed form
-    "sfs.cov 3-epoch": {"_two_point_occupation", "_accumulate_closed_form"},
+    # single-population SFS mean flattens (k=1, standard) onto the occupation of the lineage-counting space
+    "sfs.mean": {"_occupation_times"},
+    # the cov's mean flattens onto the lineage-counting occupation, and the covariance uses the two-point operator
+    "sfs.cov 1-epoch": {"_two_point_occupation", "_occupation_times"},
+    # multi-epoch covariance: the batched single-epoch operator is declined (returns None) -> stacked closed form
+    "sfs.cov 3-epoch": {"_two_point_occupation", "_occupation_times", "_accumulate_closed_form"},
     # joint SFS is multi-population, so flattening does not apply: mean uses the batched occupation
     "jsfs.mean": {"_occupation_times"},
     "jsfs.cov": {"_two_point_occupation", "_occupation_times"},
@@ -269,6 +269,7 @@ def test_closed_form_finite_epochs_exact_at_large_population_size(sparse):
     """
     Settings.closed_form_last_epoch = True
     Settings.closed_form_sparse_min_states = _LO if sparse else _HI
+    Settings.expm_action_min_dim = _LO if sparse else _HI
 
     def third_moment(N: float, sizes: dict) -> float:
         demography = pg.Demography(pop_sizes={'pop_0': {t * N: s * N for t, s in sizes.items()}})

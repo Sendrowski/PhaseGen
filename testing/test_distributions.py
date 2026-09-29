@@ -26,7 +26,7 @@ class DistributionTestCase(TestCase):
         end_times = np.linspace(0, 2, 5)
 
         acc = np.asarray(coal.sfs.accumulate(1, end_times=end_times))
-        self.assertEqual(acc.shape[-1], len(end_times))
+        self.assertEqual(acc.shape[0], len(end_times))
 
         coal.sfs.plot_accumulation(end_times=end_times, show=False)
 
@@ -430,6 +430,35 @@ class DistributionTestCase(TestCase):
 
         pass
 
+    def test_single_epoch_mutation_config_holds_one_resolvent(self):
+        """
+        The single-epoch configuration probability cached a dense stack of the ``J`` matrices ``G_j`` for every theta
+        it was called with. One resolvent must be held, for the most recent theta, and the probabilities must equal
+        ``alpha G_{sigma_1} ... G_{sigma_m} g`` summed over the orderings, with the ``G_j`` formed explicitly.
+        """
+        import scipy.sparse as sp
+        from phasegen.rewards import CombinedReward, TreeHeightReward
+
+        sfs = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5)).sfs
+        ss = sfs.state_space
+        keep = TreeHeightReward()._get(ss).astype(bool)
+        S = (ss.S.toarray() if sp.issparse(ss.S) else np.asarray(ss.S))[np.ix_(keep, keep)]
+        R = np.array([CombinedReward([sfs.reward, sfs._get_sfs_reward(i)])._get(ss) for i in (1, 2, 3)])[:, keep]
+        alpha = np.asarray(ss.alpha)[keep]
+
+        for theta in (0.3, 1.0, 2.5):
+            U = np.linalg.inv(theta * np.diag(R.sum(axis=0)) - S)
+            G = [theta * U * r for r in R]
+            g = U @ (-S @ np.ones(len(S)))
+
+            for config in ((0, 0, 0), (2, 1, 0), (1, 1, 1), (0, 3, 1)):
+                classes = [j for j, m in enumerate(config) for _ in range(m)]
+                ref = sum(alpha @ np.linalg.multi_dot([np.eye(len(S))] + [G[j] for j in p] + [g])
+                          for p in set(itertools.permutations(classes)))
+                np.testing.assert_allclose(sfs.get_mutation_config(config, theta), ref, rtol=1e-12)
+
+            self.assertEqual(sfs.__dict__['_resolvent'][0], (3, theta))
+
     def test_plot_prob_10_singletons_2_doubletons(self):
         """
         Test plot of probability of 10 singletons and 2 doubletons.
@@ -669,8 +698,8 @@ class DistributionTestCase(TestCase):
         coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=demography)
         mean = np.asarray(coal.sfs.mean.data)
 
-        np.testing.assert_allclose(coal.sfs.accumulate(1, [np.inf])[:, 0], mean, rtol=1e-10)
-        np.testing.assert_allclose(coal.sfs.accumulate(1, [1.0, np.inf])[:, 1], mean, rtol=1e-10)
+        np.testing.assert_allclose(coal.sfs.accumulate(1, [np.inf])[0], mean, rtol=1e-10)
+        np.testing.assert_allclose(coal.sfs.accumulate(1, [1.0, np.inf])[1], mean, rtol=1e-10)
         np.testing.assert_allclose(np.asarray(coal.sfs.moment(1, end_time=np.inf).data), mean, rtol=1e-10)
         np.testing.assert_allclose(
             np.asarray(pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=demography, end_time=np.inf).sfs.mean.data),
@@ -851,4 +880,85 @@ def test_tree_height_propagation_does_not_stop_early_on_rates_far_apart(caplog):
         cdf = coal.tree_height.cdf(np.array([1e17, 1e19]))
 
     assert cdf[1] > 0.8
+    assert any('10 orders of magnitude' in r.getMessage() for r in caplog.records)
+
+
+def test_sfs_var_reads_the_diagonal_of_a_closed_form_cov(monkeypatch):
+    """The variance after a closed-form covariance is its diagonal and evaluates no bin again. Regression: it
+    recomputed the second moment of every bin, which took 21 s after the covariance at n = 24."""
+    def coal():
+        return pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.4: 0.25, 1.5: 2.0}}))
+
+    var = coal().sfs.var.data
+    c = coal()
+    cov = c.sfs.cov.data
+
+    def fail(*args, **kwargs):
+        raise AssertionError("a bin moment was evaluated")
+
+    monkeypatch.setattr(pg.distributions.spectra.SFSDistribution, '_moment', fail)
+
+    np.testing.assert_allclose(c.sfs.var.data, np.diag(cov), rtol=0, atol=0)
+    np.testing.assert_allclose(c.sfs.var.data, var, rtol=1e-12)
+
+
+def test_high_moments_of_a_large_reward_balance_on_the_reward_scale():
+    """The balancing factor must account for the size of the reward. Regression: it was sized for rewards of order
+    one, so the Van Loan reward blocks of the total branch length, whose reward reaches n, forced the exponential into
+    more squarings than its generator blocks needed, and E[L^4] at n = 200 came back as 10213.70 against 12386.40.
+    The reference is the balancing-invariant value, which a factor 10 to 10^4 times larger reproduces to 1e-14."""
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.3: 0.2, 1.0: 3.0}})
+
+    moment = pg.Coalescent(n=200, demography=dem).total_branch_length.moment(4, center=False)
+
+    np.testing.assert_allclose(moment, 12386.402537073, rtol=1e-10)
+
+
+@pytest.mark.parametrize('sizes, expected', [
+    ({0: 1e-3, 0.05: 1e3, 100: 1e2}, {3: 8.888893084268353e-09, 4: 3.755404427977085e-11}),
+    ({0: 1e-3, 0.05: 1e3, 100: 1e4}, {3: 1.0475438391579955e-08, 4: 6.346201571908804e-05}),
+    ({0: 1e-3, 0.05: 2e-3, 0.06: 1e4}, {3: 8.900585191891565e-09, 4: 4.6788797195885267e-07}),
+])
+def test_high_moments_keep_a_slow_epoch_after_almost_sure_absorption(sizes, expected):
+    """An epoch beginning after the time of almost sure absorption may stand in for the epochs after it only where
+    the moment it misplaces is negligible, and that share grows with the order. Regression: the criterion measured the
+    first order and the held epoch alone, so the epoch beginning at 0.05 was held in place of the final one and
+    E[T^4] came back 186 times too large (final size 1e2) or 1e-4 times too small (the other two). References from an
+    mpmath Van Loan computation at 60 digits."""
+    dem = pg.Demography(pop_sizes={'pop_0': sizes})
+    coal = pg.Coalescent(n=3, demography=dem)
+
+    for k, exact in expected.items():
+        np.testing.assert_allclose(coal.tree_height.moment(k, center=False), exact, rtol=1e-6, err_msg=f"k={k}")
+
+
+def test_sparse_closed_form_moments_survive_drop_cache():
+    """The closed form of a sparse rate matrix must read the rates of the epoch it is in after the state-space cache
+    is dropped. Regression: the per-epoch CSR memo aliased the live rate matrix, which a change of epoch rescales in
+    place, so E[T^3] came back as 6.62 against 15.86 after ``drop_cache``."""
+    pg.Settings.dense_rate_matrix_max_states = 1
+    pg.Settings.closed_form_sparse_min_states = 1
+
+    def build() -> pg.Coalescent:
+        return pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 5.0, 2.0: 0.5}}))
+
+    reference = build().tree_height.moment(3, center=False)
+
+    coal = build()
+    coal.tree_height.moment(2, center=False)
+    coal.drop_cache()
+
+    np.testing.assert_allclose(coal.tree_height.moment(3, center=False), reference, rtol=1e-12)
+
+
+def test_stability_warning_for_fast_migration_hiding_slow_coalescence(caplog):
+    """Fast migration within a class of states hides the slow coalescence out of it from the exit rates, which are all
+    about 2, while the tree height is resolved on the time scale 1e12. Regression: the warning compared the exit rates
+    alone and stayed silent while the CDF and the mean drifted."""
+    coal = pg.Coalescent(n={'a': 1, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1e12, 'b': 1e12}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    with caplog.at_level('WARNING'):
+        coal.tree_height.mean
+
     assert any('10 orders of magnitude' in r.getMessage() for r in caplog.records)

@@ -1,5 +1,6 @@
 """Phase-type distribution (moment engine) and the tree-height distribution."""
 
+import itertools
 import logging
 import warnings
 from ..caching import cached_property
@@ -9,6 +10,7 @@ import scipy.linalg as sla
 import scipy.sparse as sp
 from ..demography import Demography, Epoch
 from ..expm import Backend
+from ..errors import ModelError
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
@@ -16,10 +18,11 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
+from ._common import _validate_order, _validate_reward
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _HazardGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
-from ._moments import MomentEvaluator
+from ._moments import MomentEvaluator, _MAX_RATE_SPREAD
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
@@ -160,8 +163,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         :param reward: The reward whose accumulation is distributed. Defaults to this distribution's own reward.
         :return: The accumulated-reward distribution.
+        :raises TypeError: if ``reward`` is neither ``None`` nor a single :class:`~phasegen.rewards.Reward`.
         """
         from .reward import RewardDistribution
+
+        if reward is not None:
+            _validate_reward(reward)
 
         return RewardDistribution(self, reward)
 
@@ -172,10 +179,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param reward_a: The reward of :math:`R_a`.
         :param reward_b: The reward of :math:`R_b`.
         :return: The joint distribution.
+        :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
 
         .. versionadded:: 2.0
         """
         from .reward import JointRewardDistribution
+
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
 
         return JointRewardDistribution(self, reward_a, reward_b)
 
@@ -225,14 +236,6 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return time_scale(self)
 
-    @property
-    def _s_inf(self) -> float:
-        r"""
-        The :math:`s \to \infty` probe used for the atom :math:`\mathbb{P}(Y = 0) = \varphi(\infty)`, scaled by the
-        inversion time scale as explained at ``RewardDistribution._s_inf``.
-        """
-        return 1e8 / self._time_scale
-
     @cached_property
     def _reward_epoch_data_scaled(self) -> dict:
         """:attr:`_reward_epoch_data` rescaled by :attr:`_time_scale` for the LST inversion (shared across all rewards
@@ -252,7 +255,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return self._reward_distribution.cdf(t)
 
-    def _pdf(self, t: float | Sequence[float], **kwargs) -> float | np.ndarray:
+    def _pdf(self, t: float | Sequence[float]) -> float | np.ndarray:
         """
         Probability density function of the accumulated reward.
 
@@ -687,7 +690,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         from ..visualization import _CurveData
 
-        k = int(k)
+        k = _validate_order(k)
         end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
         rewards = (self.reward,) * k if rewards is None else rewards
 
@@ -730,10 +733,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :return: Axes.
+        :raises ValueError: if ``k`` is not integral or is negative.
         """
         from ..visualization import Visualization
 
@@ -796,6 +800,18 @@ class _ExpmFunction(_HazardGrid):
         # pass 1 (locate): octaves down from t_max, uniform within each, so one exponential covers each octave
         octaves = [0.0] + [t_max * 2.0 ** -k for k in range(self._n_probe_octaves, -1, -1)]
         x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
+
+        # where the CDF is exactly zero up to an epoch start, as behind a migration barrier, the octaves are taken
+        # down from t_max to the largest such start
+        positive = x_probe[cdf_probe > 0]
+        starts = np.array(sorted(e.start_time for e in d._get_epochs_until_unbounded()
+                                 if 0.0 < e.start_time < (positive[0] if positive.size else t_max)))
+        zero = starts[d._sweep(starts)[0] == 0] if starts.size else starts
+        if zero.size:
+            s = float(zero[-1])
+            octaves = [0.0, s] + [s + (t_max - s) * 2.0 ** -k for k in range(self._n_probe_octaves, -1, -1)]
+            x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
+
         h_probe = np.maximum.accumulate(self._hazard(cdf_probe))
 
         # pass 2 (resolve): segment bounds at equal steps of that hazard above one and at equal steps of its logarithm
@@ -826,28 +842,25 @@ class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistribu
         :param t: Point or array of points at which to evaluate the CDF.
         :return: The CDF at ``t``, of the same shape.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``t`` is negative.
+        :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         d = self._distribution
         d._assert_not_windowed()
-
-        if not isinstance(d.reward, TreeHeightReward):
-            raise NotImplementedError("CDF not implemented for non-default rewards.")
+        d._assert_absorbs()
 
         ta = np.asarray(t, dtype=float)
 
-        if np.any(ta < 0):
-            raise ValueError("Negative values are not allowed.")
-
         # the sweep is monotone in time, so evaluate the flattened points in sorted order and restore the caller's
         # order and shape afterwards
-        # NaN points are passed through, the sweep taking the others
+        # NaN points are passed through and negative points lie below the support, the sweep taking the others
         flat = ta.ravel()
-        finite = d._sweepable(flat)
+        negative = flat < 0
+        finite = d._sweepable(flat) & ~negative
         order = np.argsort(flat[finite])
         probs = np.full_like(flat, np.nan)
         probs[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[0]
         probs[np.isinf(flat) & ~finite] = 1.0
+        probs[negative] = 0.0
 
         if np.isnan(probs[finite]).any():
             d._logger.critical("NaN values in CDF. This is likely due to an ill-conditioned rate matrix.")
@@ -890,25 +903,22 @@ class _ExpmDensityFunction(_ExpmFunction, _GridDensityFunction):
         :param t: Point or array of points at which to evaluate the density.
         :return: The density at ``t``, of the same shape.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``t`` is negative.
+        :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         d = self._distribution
         d._assert_not_windowed()
-
-        if not isinstance(d.reward, TreeHeightReward):
-            raise NotImplementedError("PDF not implemented for non-default rewards.")
+        d._assert_absorbs()
 
         ta = np.asarray(t, dtype=float)
 
-        if np.any(ta < 0):
-            raise ValueError("Negative values are not allowed.")
-
         flat = ta.ravel()
-        finite = d._sweepable(flat)
+        negative = flat < 0
+        finite = d._sweepable(flat) & ~negative
         order = np.argsort(flat[finite])
         dens = np.full_like(flat, np.nan)
         dens[np.flatnonzero(finite)[order]] = d._sweep(flat[finite][order])[1]
         dens[np.isinf(flat) & ~finite] = 0.0
+        dens[negative] = 0.0
 
         return dens.reshape(ta.shape) if ta.ndim > 0 else float(dens[0])
 
@@ -1049,7 +1059,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step at least as
         long as the slowest mean exit time of a transient state leaves the transient entries unchanged. The absorbing
         states never feed the transient ones, so those entries are then stationary, and the CDF and density they carry
-        are final. This makes ``tau`` of any size, infinity included, a finite number of exponentials.
+        are final. This makes ``tau`` of any size a finite number of exponentials. An infinite ``tau`` takes the limit
+        of ``_limit``.
 
         :param w: The row vector to advance.
         :param tau: Time to advance by, within the current epoch.
@@ -1058,9 +1069,21 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         if tau <= 0:
             return w
 
+        if tau == np.inf:
+            return self._limit(w)
+
         S = self.state_space.S
-        norm = float(abs(S).sum(axis=1).max())
-        h = self._max_step_norm / norm if norm > 0 else tau
+        rate = float(abs(S).max())
+
+        if not np.isfinite(rate):
+            raise ModelError(
+                f"The rates of epoch {self.state_space.epoch.index} are too large to propagate the state "
+                f"distribution (largest rate {rate:.1e}). Use less extreme population sizes or growth rates."
+            )
+
+        # the row-sum norm, divided by the largest rate so that it stays finite
+        norm = float((abs(S) / rate).sum(axis=1).max()) if rate > 0 else 0
+        h = self._max_step_norm / rate / norm if norm > 0 else tau
 
         exit_rates = -np.asarray(S.diagonal())[self._e > 0]
         exit_rates = exit_rates[exit_rates > 0]
@@ -1082,6 +1105,35 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 break
 
         return w
+
+    def _limit(self, w: np.ndarray) -> np.ndarray:
+        r"""
+        The state distribution ``w`` advanced by an infinite time within the current epoch, as far as the CDF and
+        density read it. With :math:`R` the transient states that reach absorption (see ``_reaches_absorption``),
+        :math:`\mathbf{S}_{RR}` their block of the rate matrix :math:`\mathbf{S}` and :math:`\mathbf{w}_R` their
+        entries of ``w``, the mass on :math:`R` leaves it for good, entering each other state :math:`j` with
+        probability mass :math:`\mathbf{w}_R (-\mathbf{S}_{RR})^{-1} \mathbf{S}_{Rj}`. The entries of :math:`R` are
+        then zero, and the states outside :math:`R` keep their mass, which never absorbs from a transient one.
+
+        :param w: The row vector to advance.
+        :return: The limiting row vector.
+        """
+        absorbing, reach = self._reaches_absorption()
+        r = np.flatnonzero(reach & ~absorbing)
+
+        if not r.size:
+            return w
+
+        S = sp.csr_matrix(self.state_space.S)
+        sparse = self._solve_sparse(r.size)
+        x = self._lu_solver(-self._transient_block(r, sparse=sparse).T, sparse)(w[r])
+
+        v = np.array(w, dtype=float)
+        v[r] = 0
+        v += S[r].T @ x
+        v[r] = 0
+
+        return v
 
     @cached_property
     def _e(self) -> np.ndarray:
@@ -1211,6 +1263,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
                 dense = self.state_space.k < Settings.expm_action_min_dim
                 P = expm(self._dense_rate_matrix() * dt) if dense else None
+                # a propagator that is not finite leaves each step to the split steps of ``_propagate``
+                dense = dense and bool(np.isfinite(P).all())
                 s = self._exit_rates()
 
                 for j in range(n_seg):
@@ -1265,19 +1319,22 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         itself, which the population size alone does not: the Dirac and Beta rates are divided by :math:`N^2` and by
         a multiple of :math:`N^{\alpha - 1}` where the Kingman rates are divided by :math:`N`. The mean population
         size of the first epoch is used instead where that system has no positive solution, as when no state of the
-        first epoch can reach absorption.
+        first epoch can reach absorption, or where its rates span more than double precision resolves (see
+        ``_rate_spread``).
 
         :return: A positive time.
         """
         epoch = self.demography.get_epoch(0)
-        times = self._mean_absorption_times(epoch)
 
-        if times.size:
-            transient = np.where(self._e > 0)[0]
-            seed = float(np.asarray(self.state_space.alpha, dtype=float)[transient] @ times)
+        if self._rate_spread(epoch) <= _MAX_RATE_SPREAD:
+            times = self._mean_absorption_times(epoch)
 
-            if np.isfinite(seed) and seed > 0:
-                return seed
+            if times.size:
+                transient = np.where(self._e > 0)[0]
+                seed = float(np.asarray(self.state_space.alpha, dtype=float)[transient] @ times)
+
+                if np.isfinite(seed) and seed > 0:
+                    return seed
 
         return float(np.mean(list(epoch.pop_sizes.values())))
 
@@ -1326,21 +1383,38 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return float(w @ self._e / w.sum())
 
-    def _extension_is_negligible(self, epoch: Epoch, survival: float, scale: float) -> bool:
+    def _extension_is_negligible(
+            self, epoch: Epoch, survival: float, scale: float, k: int = 1, t_start: float = 0.0
+    ) -> bool:
         """
-        Whether holding ``epoch`` until absorption misplaces at most ``_extension_tol`` of ``scale``. The reward the
-        extension attributes to the wrong epoch is bounded by the probability still transient at its start times the
-        longest mean absorption time under its own rates, so an epoch whose own time scale dwarfs that probability
-        is not a valid stand-in for the epochs after it.
+        Whether holding ``epoch`` until absorption misplaces at most ``_extension_tol`` of the ``k``-th power of
+        ``scale`` in the moment of order ``k``. The reward the extension attributes to the wrong epoch is bounded by
+        the probability still transient at its start times the longest mean absorption time :math:`t` under its own
+        rates, and each further order multiplies it by at most the largest of :math:`t`, ``t_start`` and ``scale``.
+        An epoch whose own time scale dwarfs that probability is not a valid stand-in for the epochs after it, nor is
+        an epoch from which absorption is not certain while transient probability remains.
 
         :param epoch: The epoch that would be held until absorption.
         :param survival: Transient probability at the time the extension starts from.
         :param scale: Time scale the tolerance is taken relative to.
+        :param k: The order of the moment.
+        :param t_start: The time the extension starts from.
         :return: Whether the extension is within tolerance.
         """
-        times = self._mean_absorption_times(epoch)
+        # the time scale of each epoch, by index, which the search reads for every order and candidate
+        cache = self.__dict__.setdefault('_extension_times', {})
+        if epoch.index not in cache:
+            times = self._mean_absorption_times(epoch)
+            cache[epoch.index] = float(times.max()) if times.size else None
 
-        return not times.size or survival * float(times.max()) <= self._extension_tol * scale
+        t = cache[epoch.index]
+        if t is None:
+            return survival == 0
+
+        with np.errstate(over='ignore', under='ignore'):
+            spread = np.float64(max(t, t_start, scale) / scale) ** (k - 1)
+
+        return bool(survival * t * spread <= self._extension_tol * scale)
 
     def _get_absorption_time(self) -> float:
         """
@@ -1353,7 +1427,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         i = 0
         epoch = self.demography.get_epoch(0)
 
-        self._check_demography_conditioning()
+        self._check_demography_conditioning(
+            [epoch, self.demography.get_epoch(np.inf)] if self.demography._has_finitely_many_epochs else [epoch]
+        )
 
         t = self._get_absorption_scale()
         expansion_factor = 2
@@ -1361,8 +1437,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         w = self._sweep_to(np.asarray(self.state_space.alpha, dtype=float), 0.0, t, epoch)
         p = self._cum(w)
 
-        # the states that reach absorption in the unbounded epoch, computed on first entering it
-        reach = None
+        # a demography with finitely many epochs is checked for absorption over all of them, on first entering the
+        # unbounded epoch or after the search
+        checked = not self.demography._has_finitely_many_epochs
 
         # multiple time by expansion_factor until we reach p_absorption
         while p < self.p_absorption and i < self.max_iter:
@@ -1370,11 +1447,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             t = t * expansion_factor
             p = self._cum(w)
 
-            if self.demography.get_epoch(t).end_time == np.inf:
-                if reach is None:
-                    _, reach = self._reaches_absorption()
-
-                self._assert_absorbs(w, reach)
+            if not checked and self.demography.get_epoch(t).end_time == np.inf:
+                self._assert_absorbs(list(self.demography.epochs))
+                checked = True
 
             if np.isnan(p):
                 self._logger.critical(
@@ -1385,6 +1460,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
                 )
 
             i += 1
+
+        # the epochs the search propagated through
+        self._check_demography_conditioning(itertools.takewhile(lambda e: e.start_time < t, self.demography.epochs))
+
+        if not checked:
+            self._assert_absorbs(list(self.demography.epochs))
 
         if i == self.max_iter and p < self.p_absorption:
             self._logger.warning(

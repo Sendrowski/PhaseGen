@@ -16,6 +16,7 @@ import phasegen as pg
 from phasegen.settings import Settings
 from phasegen.distributions import PhaseTypeDistribution
 from phasegen.distributions._moments import MomentEvaluator
+from phasegen.expm import Backend
 
 
 def _spy(method):
@@ -189,12 +190,81 @@ def test_accumulate_restores_input_order_for_unsorted_times(force_sparse):
 
 
 def test_flattened_path_taken_for_sfs_mean():
-    """The single-population standard SFS mean routes through the flattened accumulation."""
+    """The single-population standard SFS mean routes through the flattened rewards and not the block-counting closed
+    form."""
     Settings.flatten_block_counting = True
     coal = pg.Coalescent(n=6)
-    with _spy('_accumulate_flattened') as flat:
+    with _spy('_flattened_weights') as flat, _spy('_accumulate_closed_form') as cf:
         _ = coal.sfs.mean
     assert flat.call_count >= 1
+    assert cf.call_count == 0
+
+
+@pytest.mark.parametrize('end_time', [None, 2.0])
+@pytest.mark.parametrize('folded', [False, True])
+def test_windowed_sfs_mean_flattens(end_time, folded):
+    """A windowed SFS mean (``start_time > 0``) of the standard single-deme coalescent is accumulated on the flattened
+    lineage-counting space and agrees with the block-counting evaluation. Regression: the window bypassed the
+    flattening, up to 2700 times slower."""
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.2, 1: 2}})
+
+    def mean() -> np.ndarray:
+        coal = pg.Coalescent(n=6, demography=demography, start_time=0.5, end_time=end_time)
+        return np.asarray((coal.fsfs if folded else coal.sfs).mean.data)
+
+    with _spy('_accumulate_flattened') as flat:
+        flattened = mean()
+    assert flat.call_count >= 1
+
+    Settings.flatten_block_counting = False
+    np.testing.assert_allclose(flattened, mean(), rtol=1e-10)
+
+
+def test_closed_form_finite_epochs_dense_on_stiff_rates():
+    """The finite epochs of the closed form use the dense Van Loan exponential on stiff rates below
+    ``expm_action_min_dim`` even where the last-epoch LU is sparse. Regression: a sparse LU forced the sparse action,
+    15 to 30 times slower on lineage-counting chains from 256 states on."""
+    Settings.closed_form_sparse_min_states = 0
+    th = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.2, 1: 2}})).tree_height
+
+    with patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply) as action:
+        m = th.moment(2, start_time=0.2)
+    assert action.call_count == 0
+
+    # the block-counting space of 17 lineages is not stiff and keeps the sparse action
+    sfs = pg.Coalescent(n=17, demography=th.demography).sfs
+    reward = pg.rewards.CombinedReward([sfs.reward, sfs._get_sfs_reward(2)])
+    with patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply) as action:
+        PhaseTypeDistribution.moment(sfs, k=2, rewards=(reward, reward))
+    assert action.call_count > 0
+
+    Settings.expm_action_min_dim = 0
+    assert m == pytest.approx(pg.Coalescent(n=10, demography=th.demography).tree_height.moment(2, start_time=0.2),
+                              rel=1e-10)
+
+
+@pytest.mark.parametrize('force_sparse', [False, True])
+@pytest.mark.parametrize('folded', [False, True])
+def test_multi_epoch_sfs_cov_stacks_bins(force_sparse, folded):
+    """The multi-epoch SFS covariance evaluates one closed form per second bin, all first bins stacked in one extended
+    vector, and matches the per-pair cross-moments. Regression: one closed form per ordered bin pair."""
+    Settings.closed_form_sparse_min_states = 0 if force_sparse else 10 ** 9
+    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 9
+    coal = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.2, 1: 2}}))
+    sfs = coal.fsfs if folded else coal.sfs
+    indices = sfs._get_indices()
+
+    with _spy('_accumulate_closed_form') as cf:
+        cov = np.asarray(sfs.cov.data)
+    assert cf.call_count == (len(indices) if force_sparse else len(indices) * (len(indices) + 1))
+
+    mean = np.asarray(sfs.mean.data)
+    for i in indices:
+        for j in indices:
+            rewards = tuple(pg.rewards.CombinedReward([sfs.reward, sfs._get_sfs_reward(b)]) for b in (i, j))
+            m_ij = PhaseTypeDistribution.moment(sfs, k=2, rewards=rewards, center=False, permute=False)
+            m_ji = PhaseTypeDistribution.moment(sfs, k=2, rewards=rewards[::-1], center=False, permute=False)
+            assert cov[i, j] == pytest.approx((m_ij + m_ji) / 2 - mean[i] * mean[j], rel=1e-10, abs=1e-12)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -293,7 +363,7 @@ def test_infinite_end_time_in_grid_accumulates_until_absorption(closed_form):
 
     beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
     np.testing.assert_allclose(beta.tree_height.accumulate(1, [1.0, np.inf])[1], beta.tree_height.mean, rtol=1e-6)
-    np.testing.assert_allclose(beta.sfs.accumulate(1, [np.inf, 1.0])[:, 0], beta.sfs.mean.data, rtol=1e-6)
+    np.testing.assert_allclose(beta.sfs.accumulate(1, [np.inf, 1.0])[0], beta.sfs.mean.data, rtol=1e-6)
 
 
 def test_explicit_infinite_end_time_without_certain_absorption_in_last_epoch():
@@ -373,7 +443,7 @@ def test_accumulate_passes_start_time_through(model):
     assert coal.accumulate(2, [end], start_time=start)[0] == pytest.approx(
         coal.moment(2, start_time=start, end_time=end), rel=1e-8)
 
-    np.testing.assert_allclose(coal.sfs.accumulate(1, [end], start_time=start)[:, 0],
+    np.testing.assert_allclose(coal.sfs.accumulate(1, [end], start_time=start)[0],
                                coal.sfs.moment(1, start_time=start, end_time=end).data, rtol=1e-8, atol=1e-14)
     assert coal.sfs.get_accumulation(2, 1, end, start_time=start) == pytest.approx(
         coal.sfs.moment(2, start_time=start, end_time=end).data[1], rel=1e-8)
