@@ -2090,8 +2090,6 @@ def test_line_atom_masses_follow_the_refined_inner_truncation():
     from the continuous part stayed at the calibration truncation, and the CDF was off by 7.3e-3 at 1.2 v, 36 standard
     errors of the sampler. Reference values from 1e8 sampled trajectories, conditioning within 2% of the median v:
     0.05498 +- 1.1e-4 at v / 2, 0.76359 +- 2.1e-4 at 1.2 v and 0.95804 +- 1.0e-4 at 2 v."""
-    from phasegen.distributions.reward import _euler_invert
-
     joint = pg.Coalescent(
         n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.5),
         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 3, 1: 0.5}})
@@ -2103,7 +2101,7 @@ def test_line_atom_masses_follow_the_refined_inner_truncation():
         assert float(cond.cdf(x * v)) == pytest.approx(ref, abs=4 * se), x
 
     nested = cond._nested
-    f = _euler_invert(lambda u: joint._line_lst_batch(1.0, 'a', u), v, N0=nested._N0).real
+    f = joint._line_density(1.0, 'a', v, (nested._N0,))[0]
     assert nested._N0 > 60
     assert cond._atom_masses[0] == pytest.approx(f / nested._G0, rel=1e-12)
 
@@ -2180,80 +2178,124 @@ def test_joint_window_leaving_out_mass_warns(caplog, monkeypatch):
     assert not [r for r in caplog.records if 'leaves out a mass' in r.getMessage()]
 
 
-def test_conditioning_next_to_an_epoch_time_warns_or_names_the_jump(caplog):
-    """The density of a locus tree height jumps at every epoch time, where the inner inversion converges slowly. A
-    conditioning value within 5% of one logs a warning if the conditional is built, and names the jump if it is
-    refused. Regression: the refusal blamed a density below the resolution of the inversion, and accepted values
-    could be off by several percent without notice."""
-    joint = pg.Coalescent(
+def _locus_jump_joint():
+    """The joint of the tree heights at two linked loci under a tenfold decline at 0.5, where the density of either
+    height jumps."""
+    return pg.Coalescent(
         n=2, loci=pg.LocusConfig(n=2, recombination_rate=1),
         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
     ).tree_height.loci.joint_distribution(0, 1)
 
-    for v in (0.48, 0.505):
-        caplog.clear()
-        try:
-            with caplog.at_level('WARNING'):
-                joint.conditional('a', v)
-            assert any('where an epoch begins' in r.getMessage() for r in caplog.records)
-        except ValueError as e:
-            assert 'where an epoch begins' in str(e)
 
-    caplog.clear()
+def test_conditioning_across_an_epoch_jump(caplog):
+    """The density of a locus tree height jumps by 5.46 at the epoch time 0.5, from about 0.6 to 6.0. The jump is
+    subtracted from the inner inversion, so conditionals just below it, on it and just above it are built without a
+    warning about the jump, the marginal density steps by the jump height, and the conditional on the jump is the
+    limit from the right. The means agree with those of 4e7 sampled paths in windows of half-width 2.5e-4, 0.51247
+    +- 0.00112 at 0.499 and 0.51493 +- 0.00036 at 0.501. Regression: values within 5% of the jump were refused or
+    warned about."""
+    joint = _locus_jump_joint()
+    x0, heights = joint._density_jumps('a')
+    assert x0.tolist() == [0.5]
+    assert heights[0, 0].real == pytest.approx(5.45877594, rel=1e-6)
+
     with caplog.at_level('WARNING'):
-        joint.conditional('a', 0.3)
+        below, on, above = (joint.conditional('a', v) for v in (0.5 * (1 - 1e-7), 0.5, 0.5 * (1 + 1e-7)))
+    assert not [r for r in caplog.records if 'jump' in r.getMessage()]
 
-    assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]
+    assert on._nested._G0 - below._nested._G0 == pytest.approx(heights[0, 0].real, rel=2e-2)
+    assert on._nested._G0 == pytest.approx(above._nested._G0, rel=1e-5)
+    assert on.mean == pytest.approx(above.mean, rel=1e-5)
+
+    assert joint.conditional('a', 0.499).mean == pytest.approx(0.51247, abs=4 * 0.00112)
+    assert joint.conditional('a', 0.501).mean == pytest.approx(0.51493, abs=4 * 0.00036)
 
 
-def test_epoch_jump_warning_requires_initial_mass_on_the_positive_states(caplog):
+def test_euler_step_error_of_a_unit_step():
+    """The Euler series of a unit step converges to the midpoint on the step, half a unit below the value 1 taken
+    there, to half the damped weight of an image point ``(2j + 1) t`` on the step, and to the exact value elsewhere."""
+    from phasegen.distributions.reward import _euler_step_error
+
+    err = _euler_step_error(1.0, np.array([1.0, 3.0, 0.3, 6.0]), (60, 480))
+
+    assert err[0] == pytest.approx([-0.5, -0.5], abs=2e-2)
+    assert np.abs(err[1:]).max() < 1e-5
+    assert np.abs(err[1]).max() < 5e-9  # well below half the image weight, exp(-16) / 2 = 5.6e-8
+
+
+def test_epoch_jump_requires_initial_mass_on_the_positive_states():
     """A reward accrued at one rate has a density jump at an epoch time only if the paths that stay in its positive
     states from time zero leave them for good at a rate that changes there. The doubleton length at n = 3 is zero on
     the initial state, so its density is continuous at the epoch time 0.5, and the tree height at one of two linked
-    loci is positive on the initial state and jumps there. Regression: every single-rate reward was warned about."""
+    loci is positive on the initial state and jumps there."""
     demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
     sfs = pg.Coalescent(n=3, demography=demography).sfs.joint_distribution(1, 2)
-    loci = pg.Coalescent(
-        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=demography
-    ).tree_height.loci.joint_distribution(0, 1)
 
-    with caplog.at_level('WARNING'):
-        cond = sfs.conditional('b', 0.49)
-
-    assert cond._nearby_jump() is None
-    assert not [r for r in caplog.records if 'where an epoch begins' in r.getMessage()]
-
+    assert sfs._density_jumps('b')[0].size == 0
     marginal = sfs.marginal('b')
     assert float(marginal.pdf(0.499)) == pytest.approx(float(marginal.pdf(0.501)), rel=0.02)
 
-    locus = loci.marginal('a')
+    assert _locus_jump_joint()._density_jumps('a')[0].tolist() == [0.5]
+    locus = _locus_jump_joint().marginal('a')
     assert float(locus.pdf(0.52)) > 5 * float(locus.pdf(0.48))
-    assert loci.conditional('a', 0.3)._nested._jumps_at(loci._setup['ra'], 1.0, 1)
 
 
-@pytest.mark.parametrize('label, joint, jump', [
+@pytest.mark.parametrize('label, joint, jump, height', [
     ('Beta singletons', lambda d: pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5), demography=d)
-     .sfs.joint_distribution(1, 2), 1.5),
+     .sfs.joint_distribution(1, 2), 1.5, 0.02950655),
     ('Dirac singletons', lambda d: pg.Coalescent(n=3, model=pg.DiracCoalescent(psi=0.7, c=5), demography=d)
-     .sfs.joint_distribution(1, 2), 1.5),
-    ('Kingman singletons', lambda d: pg.Coalescent(n=3, demography=d).sfs.joint_distribution(1, 2), None),
+     .sfs.joint_distribution(1, 2), 1.5, 0.43121633),
+    ('Kingman singletons', lambda d: pg.Coalescent(n=3, demography=d).sfs.joint_distribution(1, 2), None, None),
     ('two-locus total tree height', lambda d: pg.Coalescent(
         n=2, loci=pg.LocusConfig(n=2, recombination_rate=1.0), demography=d).joint_distribution(
-        pg.rewards.TotalTreeHeightReward(), pg.rewards.TreeHeightReward()), 1.0),
+        pg.rewards.TotalTreeHeightReward(), pg.rewards.TreeHeightReward()), 1.0, 0.55138603),
 ])
-def test_epoch_jump_of_a_reward_with_several_rates(label, joint, jump):
+def test_epoch_jump_of_a_reward_with_several_rates(label, joint, jump, height):
     """A reward with several positive rates jumps at ``c t0`` when the paths that stay in the states of rate ``c``
     from time zero stop accruing reward at a rate that changes at the epoch time ``t0 = 0.5``. The singletons at
     ``n = 3`` accrue at rate 3 on the initial state, which a multiple merger leaves straight into absorption, and at
-    rate 1 afterwards. Under Kingman no path leaves the initial state for good, so the density is continuous. The
-    predicted jumps 0.0295 (Beta), 0.431 (Dirac) and 0.551 (two loci) agree with Monte Carlo samples of 2e7 paths.
-    Regression: rewards with more than one positive rate were never checked."""
+    rate 1 afterwards. Under Kingman no path leaves the initial state for good, so the density is continuous. The jumps
+    0.0295 (Beta), 0.431 (Dirac) and 0.551 (two loci) agree with Monte Carlo samples of 2e7 paths. The Taylor
+    coefficients of the jump of the joint section in the other argument are the finite differences of the jump."""
     joint = joint(pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}}))
-    nested = joint.conditional('a', 0.3)
-    nested = getattr(nested, '_nested', nested)
-    nested._value = 0.98 * (1.5 if jump is None else jump)
+    x0, heights = joint._density_jumps('a', order=2)
 
-    assert nested._nearby_jump() == jump
+    if jump is None:
+        assert x0.size == 0
+        return
+
+    assert x0.tolist() == [jump]
+    assert heights[0, 0].real == pytest.approx(height, rel=1e-6)
+
+    e = 1e-4
+    plus, minus = (joint._density_jumps('a', s)[1][0, 0] for s in (e, -e))
+    assert heights[0, 1] == pytest.approx((plus - minus) / (2 * e), abs=1e-8)
+    assert heights[0, 2] == pytest.approx((plus - 2 * heights[0, 0] + minus) / (2 * e ** 2), abs=1e-5)
+
+
+def test_moments_next_to_a_jump_start_at_the_calibrated_truncation():
+    """The tree height under the extreme bottleneck jumps at 0.3, and the conditional mean of the total branch length
+    at 0.303 agrees with that of 4e7 sampled paths in a window of half-width 1.5e-4, 1.1455 +- 0.00024. The moments at
+    the truncations 30 and 60 agree to 1e-3 by chance at 1.1408, below the truncation 240 at which the marginal
+    density settles."""
+    joint = pg.Coalescent(
+        n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.01, 1: 1}})
+    ).joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+
+    assert joint.conditional('a', 0.303).mean == pytest.approx(1.1455, abs=4 * 0.00024)
+
+
+def test_bottleneck_density_has_no_jump_near_the_bulk_edge():
+    """Under the extreme bottleneck the density of the singleton length rises and falls within a few thousandths
+    around 1.53, but it has no jump there: every path leaves the initial state, whose singleton rate 5 gives the
+    epoch time 0.3 the location 1.5, into states that still carry singletons. The conditional mean in the window
+    [1.5305, 1.5310] agrees with that of 4e7 sampled paths in a window of half-width 5e-4, 0.00842 +- 0.00006 at
+    1.5307."""
+    joint = _bottleneck_joint()
+
+    assert joint._density_jumps('a')[0].size == 0
+    for v in (1.5305, 1.5307, 1.5310):
+        assert joint.conditional('a', v).mean == pytest.approx(0.00842, abs=4 * 0.00006)
 
 
 def test_truncation_warning_reports_the_estimated_error(caplog):
@@ -2724,24 +2766,48 @@ def test_multi_epoch_conditional_mean_is_stable_in_the_conditioning_value(sizes,
 
 
 def test_conditional_moments_warn_when_unresolved(caplog, monkeypatch):
-    """The conditional moments on three epochs at v = 0.5 converge in the truncation only at N0 = 960, where they move
-    by 6.6e-4 when it is halved. Capped at 60, they move by 8.6e-3 and a warning is logged."""
+    """The conditional moments under the extreme bottleneck at v = 1.2 converge in the truncation only at N0 = 480,
+    where they move by less than 1e-3 when it is halved. Capped at 60, they move by 2.8e-2 and a warning is logged."""
     import logging
     from phasegen.distributions import reward
     log = logging.getLogger('phasegen')
     log.addHandler(caplog.handler)
-    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
 
     try:
-        _ = joint.conditional('a', 0.5).mean
+        _ = _bottleneck_joint().conditional('a', 1.2).mean
         assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
 
         monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
-        _ = joint.conditional('a', 0.5).mean
+        _ = _bottleneck_joint().conditional('a', 1.2).mean
         assert any('moments are unresolved' in r.getMessage() for r in caplog.records)
     finally:
         log.removeHandler(caplog.handler)
+
+
+def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
+    """The density of a locus tree height jumps at the epoch times 0.1 and 0.4 below the conditioning value 0.5. With
+    the jumps subtracted, the conditional moments converge at the first truncation, and the mean agrees with that of
+    4e7 sampled paths in a window of half-width 2.5e-3, 0.79910 +- 0.00408. Regression: the moments moved by 8.6e-3
+    at the truncation 60 and converged like the inverse truncation, reaching 1.3e-3 only at 480."""
+    import logging
+    from phasegen.distributions import reward
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+
+    def joint():
+        return pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
+
+    try:
+        mean = joint().conditional('a', 0.5).mean
+        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
+        capped = joint().conditional('a', 0.5).mean
+        assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
+    finally:
+        log.removeHandler(caplog.handler)
+
+    assert capped == pytest.approx(mean, rel=1e-6)
+    assert mean == pytest.approx(0.79910, abs=4 * 0.00408)
 
 
 @pytest.mark.parametrize('sparse', [False, True])

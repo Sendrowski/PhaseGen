@@ -31,13 +31,14 @@ logger = logging.getLogger('phasegen')
 #: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
 _COS2D_TAIL_WARN = 1e-2
 
-#: Relative distance from a rate times an epoch time within which a conditioning value is warned about, where the
-#: density of the reward can jump.
-_JUMP_WARN = 0.05
+#: Error of the Euler inversion of a unit step (``_euler_step_error``) at or below which
+#: ``JointRewardDistribution._jump_correction`` leaves the jumps out. Steps far below the point of inversion err by
+#: rounding only, about ``1e-16 * exp(A / 2)``, and steps far above it by less.
+_STEP_ERROR_FLOOR = 1e-12
 
-#: Relative size below which a jump of the density of a reward counts as zero, on the scale of the contributions on
-#: either side of the jump in ``_NestedConditional._nearby_jump``. Only rounding is below it.
-_JUMP_REL_TOL = 1e-8
+#: Change of a rate of leaving the states of one reward rate for good at an epoch time, relative to the largest rate out
+#: of those states, below which ``JointRewardDistribution._jump_blocks`` counts no jump. Only rounding is below it.
+_JUMP_REL_TOL = 1e-12
 
 #: Smallest atom treated as a positive probability.
 _ATOM_FLOOR = 1e-6
@@ -811,12 +812,32 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The transform values.
         """
         st = self._setup
-        ra, rb = st['ra'], st['rb']
-        ratio = np.divide(ra, rb, out=np.full(len(ra), np.nan), where=rb > 0)
-        on_line = ((ra == 0) & (rb == 0)) | (np.round(ratio, 12) == np.round(c, 12))
-        shifts = _shift_rows(u, ra if on == 'a' else rb, st['tau'])
-        shifts[:, ~on_line] = np.inf
+        shifts = _shift_rows(u, st['ra'] if on == 'a' else st['rb'], st['tau'])
+        shifts[:, ~self._on_line(c)] = np.inf
         return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['exits'], st['sparse'], st['lu_perm'])
+
+    def _on_line(self, c: float) -> np.ndarray:
+        """The transient states :math:`E_c` of ``_line_lst_batch``, where both rewards vanish or ``r_a / r_b`` equals
+        ``c`` to 12 decimals."""
+        ra, rb = self._setup['ra'], self._setup['rb']
+        ratio = np.divide(ra, rb, out=np.full(len(ra), np.nan), where=rb > 0)
+        return ((ra == 0) & (rb == 0)) | (np.round(ratio, 12) == np.round(c, 12))
+
+    def _line_density(self, c: float, on: str, value: float, truncations: Sequence[int]) -> np.ndarray:
+        """
+        The density at ``value`` of the reward ``on`` on the paths of ``_line_lst_batch``, the Euler inversion of the
+        line transform with its jumps subtracted (``_jump_correction``), at each truncation from the nodes of the
+        largest (``_euler_series``).
+
+        :param c: The slope of the line.
+        :param on: The reward the density is of, ``'a'`` or ``'b'``.
+        :param value: The point of inversion, positive.
+        :param truncations: The truncations ``N0``.
+        :return: The densities, one per truncation.
+        """
+        u, weights = _euler_series(value, truncations)
+        inv = weights @ self._line_lst_batch(c, on, u)
+        return (inv - self._jump_correction(on, value, 0.0, truncations, keep=self._on_line(c))[:, 0]).real
 
     def _line_cdf(self, c: float, on: str, ys: np.ndarray) -> np.ndarray:
         """``P(0 < R_on <= y, R_a = c R_b)`` at each ``y``, the Euler inversion of the line transform less its mass at
@@ -824,6 +845,230 @@ class JointRewardDistribution(CallableDistributionFunctions):
         at_zero = self._line_lst_batch(c, on, np.inf)[0]
         return np.array([_euler_invert(lambda u: (self._line_lst_batch(c, on, u) - at_zero) / u, float(y)).real
                          for y in ys])
+
+    def _jump_blocks(self, on: str, keep: Optional[np.ndarray]) -> list:
+        """
+        The blocks of the sub-generators from which ``_density_jumps`` computes the jumps of the density of the reward
+        ``on`` on the process restricted to the states ``keep``, one entry per positive reward rate :math:`c` with
+        initial mass on its states :math:`C`, holding the epochs at whose start the rate of leaving :math:`C` with no
+        more reward to come can change. Memoised per reward and restriction.
+
+        :param on: The reward, ``'a'`` or ``'b'``.
+        :param keep: The kept transient states, all if ``None``.
+        :return: Per rate, a dictionary of the rate ``c``, the jump epochs and locations, and the stacked blocks of the
+            epochs up to the last jump on :math:`C`, and from the first jump on the kept states :math:`Z` of zero
+            reward that paths leaving :math:`C` can reach.
+        """
+        cache = self.__dict__.setdefault('_jump_blocks_cache', {})
+        key = (on, None if keep is None else keep.tobytes())
+        if key in cache:
+            return cache[key]
+
+        keep = np.ones(len(self._setup['alpha']), dtype=bool) if keep is None else keep
+        st = self._setup
+        r, r_other = (st['ra'], st['rb']) if on == 'a' else (st['rb'], st['ra'])
+        Ts = [(T.toarray() if sp.issparse(T) else np.asarray(T), t1 - t0) for T, t0, t1 in st['T_epochs']]
+        # the unscaled epoch times, so that a location is the product of a rate and an epoch time as given
+        starts = [t0 for _, t0, _ in self._host._reward_epoch_data['T_epochs']]
+        zero = keep & (r == 0)
+
+        out = []
+        for c in np.unique(r[keep & (r > 0)]):
+            C = keep & (r == c)
+            if not st['alpha'][C].any():
+                continue
+            # k_s is needed only on the states of zero reward entered from C and on those they reach within zero reward
+            sub = np.any([T[np.ix_(C, zero)] != 0 for T, _ in Ts], axis=(0, 1))
+            while sub.any():
+                grown = sub
+                for T, _ in Ts:
+                    grown = MomentEvaluator._close_forward(grown, T[np.ix_(zero, zero)])
+                if np.array_equal(grown, sub):
+                    break
+                sub = grown
+            Z = np.zeros_like(zero)
+            Z[zero] = sub
+            aC = [q[C] for q in st['exits']]
+            CZ = [T[np.ix_(C, Z)] for T, _ in Ts]
+            # the rates of leaving C for good that change at an epoch time by more than rounding
+            scale = [np.abs(T[C]).max() for T, _ in Ts]
+            epochs = [e for e in range(1, len(Ts))
+                      if max(np.abs(aC[e] - aC[e - 1]).max(), np.abs(CZ[e] - CZ[e - 1]).max(initial=0.0))
+                      > _JUMP_REL_TOL * max(scale[e], scale[e - 1])]
+            if not epochs:
+                continue
+            first, last = min(epochs), max(epochs)
+            out.append(dict(
+                c=float(c), epochs=epochs, locations=[float(c) * starts[e] for e in epochs], alpha=st['alpha'][C],
+                DC=np.diag(r_other[C]).astype(complex), DZ=np.diag(r_other[Z]).astype(complex),
+                CC=np.array([T[np.ix_(C, C)] for T, _ in Ts[:last]]),
+                dtC=np.array([dt for _, dt in Ts[:last]])[:, None, None],
+                ZZ=np.array([T[np.ix_(Z, Z)] for T, _ in Ts[first:-1]]),
+                aZ=np.array([q[Z] for q in st['exits'][first:-1]]),
+                dtZ=np.array([dt for _, dt in Ts[first:-1]])[:, None, None],
+                ZZ_last=Ts[-1][0][np.ix_(Z, Z)], aZ_last=st['exits'][-1][Z],
+                dCZ=[CZ[e] - CZ[e - 1] for e in epochs], daC=[aC[e] - aC[e - 1] for e in epochs]
+            ))
+
+        cache[key] = out
+        return out
+
+    def _density_jumps(self, on: str, s: complex = 0.0, order: int = 0, keep: np.ndarray = None) -> tuple:
+        r"""
+        The locations and heights of the jumps of the section :math:`g(s, x) = \mathbb{E}[e^{-sR_o};\ R_c \in
+        \mathrm{d}x] / \mathrm{d}x` along the conditioning axis, with :math:`R_c` the reward ``on`` and :math:`R_o`
+        the other one, or the Taylor coefficients of the heights in :math:`s`. Let :math:`P` be the set of transient
+        states where :math:`r_c > 0`, :math:`Z` its complement among the transient states, and :math:`C \subseteq P`
+        the states of one rate :math:`r_c = c`. A path that stays in :math:`C` from time zero up to time :math:`\ell`
+        and then accrues no more of :math:`R_c` has :math:`R_c = c\ell`, and these paths add
+        :math:`\mathbf{p}_s(\ell) \cdot \mathbf{q}_s(\ell) / c` to :math:`g(s, c\ell)`, with
+
+        .. math::
+
+            \mathbf{q}_s(\ell) = \mathbf{a}_C + \mathbf{T}_{CZ}\,\mathbf{k}_s(\ell), \qquad
+            \mathbf{k}_s(\ell) = \mathbb{E}_z\big[e^{-s R_o(\ell, \infty)};\ \text{no visit to } P
+            \text{ after } \ell\big]_{z \in Z}.
+
+        Here :math:`\mathbf{p}_s(\ell)` is the initial vector on :math:`C` propagated by the epoch blocks
+        :math:`\mathbf{T}_{CC} - s\,\operatorname{diag}(\mathbf{r}_o)` up to :math:`\ell`, :math:`\mathbf{a}_C` is
+        the absorption rate from :math:`C`, :math:`\mathbf{T}_{CZ}` the block of the sub-generator from :math:`C` to
+        :math:`Z`, and :math:`R_o(\ell, \infty)` the other reward accrued after :math:`\ell`. With
+        :math:`\mathbf{a}_Z` the absorption rate from :math:`Z` and
+        :math:`\mathbf{A}_s = \mathbf{T}_{ZZ} - s\,\operatorname{diag}(\mathbf{r}_o)`, the vector :math:`\mathbf{k}_s`
+        solves :math:`-\mathbf{A}_s \mathbf{k}_s = \mathbf{a}_Z` in the last epoch and is carried back through the
+        others by the exponential of the block matrix :math:`[[\mathbf{A}_s, \mathbf{a}_Z], [0, 0]]`. At the start
+        :math:`t_0` of an epoch, :math:`\mathbf{p}_s` and :math:`\mathbf{k}_s` are continuous and :math:`\mathbf{q}_s`
+        changes with the generator, so :math:`g(s, \cdot)` jumps at :math:`c t_0` by
+
+        .. math::
+
+            H(s) = \mathbf{p}_s(t_0) \cdot \big(\mathbf{q}_s^{+} - \mathbf{q}_s^{-}\big) / c,
+
+        with :math:`\mathbf{q}_s^{-}` and :math:`\mathbf{q}_s^{+}` under the generators of the epochs ending and
+        beginning at :math:`t_0`. Every other path adds a section continuous at :math:`c t_0`: a visit to :math:`Z`
+        before the last reward shifts the epoch time by a random amount, and time at another rate spreads it along
+        :math:`R_c`. At :math:`s = 0`, :math:`H` is the jump of the density of :math:`R_c`. The Taylor coefficients
+        in :math:`s` are the blocks of the same computation over the truncated polynomial ring, as in
+        :meth:`JointRewardDistribution.lst_taylor() <phasegen.distributions.JointRewardDistribution.lst_taylor>`.
+        On the restriction to the states ``keep``, paths that leave them contribute nothing, as in
+        ``_line_lst_batch``. Only the epochs of ``_jump_blocks`` are returned, where :math:`\mathbf{q}_s` can change.
+
+        :param on: The conditioning reward, ``'a'`` or ``'b'``.
+        :param s: The argument of the other reward, ``inf`` for the limit.
+        :param order: Highest order of the Taylor coefficients about ``s``, 0 for the heights.
+        :param keep: The kept transient states, all if ``None``.
+        :return: The locations :math:`c t_0` and the coefficients, of shapes ``(n,)`` and ``(n, order + 1)``.
+        """
+        st = self._setup
+        tau = st['tau']
+        s = complex(s)
+        if s.real == np.inf:
+            restrict = (st['rb'] if on == 'a' else st['ra']) == 0
+            keep, s = restrict if keep is None else keep & restrict, 0.0
+        sigma = s * tau
+        k = order + 1
+
+        locations, heights = [], []
+        for cls in self._jump_blocks(on, keep):
+            DC, DZ = cls['DC'], cls['DZ']
+            nC, nZ = len(DC), len(DZ)
+            first = cls['epochs'][0]
+
+            # the initial vector on C over the ring, propagated to the start of each epoch up to the last jump
+            M0 = cls['CC'] - sigma * DC
+            M = M0 if order == 0 else np.array([_ring_matrix(m, -DC, order) for m in M0])
+            p = np.zeros(k * nC, dtype=complex)
+            p[:nC] = cls['alpha']
+            p_at = [p]
+            for step in _expm_batch(M * cls['dtC']):
+                p = p @ step
+                p_at.append(p)
+
+            # k_s over the ring at the start of each epoch from the first jump on, from the last epoch backwards
+            k_at = {}
+            y = np.zeros(k * nZ, dtype=complex)
+            if nZ:
+                rhs = np.zeros(k * nZ, dtype=complex)
+                rhs[:nZ] = cls['aZ_last']
+                y = np.linalg.solve(_ring_matrix(sigma * DZ - cls['ZZ_last'], DZ, order, lower=True), rhs)
+            k_at[first + len(cls['dtZ'])] = y
+            if nZ and len(cls['dtZ']):
+                M0 = np.zeros((len(cls['dtZ']), nZ + 1, nZ + 1), dtype=complex)
+                M0[:, :-1, :-1] = cls['ZZ'] - sigma * DZ
+                M0[:, :-1, -1] = cls['aZ']
+                M1 = np.zeros((nZ + 1, nZ + 1), dtype=complex)
+                M1[:-1, :-1] = -DZ
+                M = M0 if order == 0 else np.array([_ring_matrix(m, M1, order, lower=True) for m in M0])
+                steps = _expm_batch(M * cls['dtZ'])
+                for i in reversed(range(len(steps))):
+                    aug = np.zeros((k, nZ + 1), dtype=complex)
+                    aug[:, :-1] = y.reshape(k, nZ)
+                    aug[0, -1] = 1.0
+                    y = (steps[i] @ aug.ravel()).reshape(k, nZ + 1)[:, :-1].ravel()
+                    k_at[first + i] = y
+
+            for e, dCZ, daC in zip(cls['epochs'], cls['dCZ'], cls['daC']):
+                dq = k_at.get(e, np.zeros(k * nZ, dtype=complex)).reshape(k, nZ) @ dCZ.T  # (k, nC)
+                dq[0] += daC
+                ps = p_at[e].reshape(k, nC)
+                J = np.array([sum(ps[i] @ dq[j - i] for i in range(j + 1)) for j in range(k)])
+                heights.append(J * tau ** np.arange(k) / (cls['c'] * tau))
+            locations += cls['locations']
+
+        return np.array(locations, dtype=float), np.array(heights, dtype=complex).reshape(len(locations), k)
+
+    def _jump_correction(self, on: str, value: float, s: complex, truncations: Sequence[int], order: int = 0,
+                         keep: np.ndarray = None) -> np.ndarray:
+        r"""
+        The part of the Euler inversion (``_euler_series``) of the joint transform along the axis of the reward ``on``
+        at ``value`` that the jumps of ``_density_jumps`` contribute beyond their exact values, to be subtracted from
+        the inversion. A jump of height :math:`H` at :math:`x_0` is the step :math:`H\,\mathbb{1}\{x \ge x_0\}`, whose
+        transform :math:`H e^{-u x_0} / u` is removed from every node and whose value is restored exactly, so the
+        correction is :math:`H` times the error of the inversion of the unit step (``_euler_step_error``). What
+        remains is continuous at :math:`x_0`, which the series resolves. At ``value`` equal to a jump location the
+        restored step takes its value 1, so the inversion gives the limit from the right. The correction is zero when
+        the unit-step error of every jump is at most ``_STEP_ERROR_FLOOR`` (``_step_errors``).
+
+        :param on: The conditioning reward, ``'a'`` or ``'b'``.
+        :param value: The point of inversion, positive.
+        :param s: The argument of the other reward, ``inf`` for the limit.
+        :param truncations: The truncations ``N0``.
+        :param order: Highest order of the Taylor coefficients in ``s``, 0 for the section itself.
+        :param keep: The kept transient states, all if ``None``.
+        :return: The correction, of shape ``(len(truncations), order + 1)``.
+        """
+        err = self._step_errors(on, value, tuple(truncations), keep)
+        if err is None:
+            return np.zeros((len(truncations), order + 1), dtype=complex)
+
+        at, heights = self._density_jumps(on, s, order, keep)
+        if len(at) != len(err):
+            # an infinite argument restricts the process to the states where the other reward vanishes
+            restricted = self._setup['rb' if on == 'a' else 'ra'] == 0
+            err = self._step_errors(on, value, tuple(truncations), restricted if keep is None else keep & restricted)
+            if err is None:
+                return np.zeros((len(truncations), order + 1), dtype=complex)
+        return err.T @ heights
+
+    def _step_errors(self, on: str, value: float, truncations: tuple, keep: np.ndarray = None) -> Optional[np.ndarray]:
+        """
+        The errors ``_euler_step_error`` of the unit steps at the jumps of ``_jump_blocks``, or ``None`` when there are
+        none or all are below ``_STEP_ERROR_FLOOR``. Memoised per reward, value, truncations and restriction, since the
+        inner inversion evaluates them at every argument of the other reward.
+
+        :param on: The conditioning reward, ``'a'`` or ``'b'``.
+        :param value: The point of inversion.
+        :param truncations: The truncations ``N0``.
+        :param keep: The kept transient states, all if ``None``.
+        :return: The errors, of shape ``(n, len(truncations))``, or ``None``.
+        """
+        cache = self.__dict__.setdefault('_step_error_cache', {})
+        key = (on, value, truncations, None if keep is None else keep.tobytes())
+        if key not in cache:
+            locations = [x for cls in self._jump_blocks(on, keep) for x in cls['locations']]
+            err = _euler_step_error(value, np.array(locations, dtype=float), truncations) if locations else None
+            cache[key] = err if err is not None and np.abs(err).max() > _STEP_ERROR_FLOOR else None
+        return cache[key]
 
     @cached_property
     def _lines(self) -> tuple:
@@ -1128,7 +1373,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The conditional distribution of the other reward.
         :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``value`` is negative or not finite, if ``value`` is
             zero and the conditioning reward has a negligible atom, or if the density of the conditioning reward at
-            ``value`` is below the resolution of the inversion or too close to one of its jumps at an epoch time.
+            ``value`` is below the resolution of the inversion or varies on a scale it does not resolve.
         :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
             that the conditional is a point mass, or on a windowed coalescent.
 
@@ -1152,7 +1397,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         # each line R_a = c R_b of positive probability gives the conditional an atom where it crosses the value
         atoms = []
         for c in self._lines:
-            f = _euler_invert(lambda u, c=c: self._line_lst_batch(c, on, u), float(value), N0=nested._N0).real
+            f = self._line_density(c, on, float(value), (nested._N0,))[0]
             if f / nested._G0 > _ATOM_FLOOR:
                 atoms.append((float(value) / c if on == 'a' else c * float(value), c))
 
@@ -1597,12 +1842,15 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     .. rubric:: Implementation
 
+    - :math:`G(s)` as a function of :math:`v` jumps at :math:`c t_0`, for an epoch time :math:`t_0` and a reward rate
+      :math:`c`, when the paths that stay in the states of rate :math:`c` from time zero stop accruing reward at a
+      rate that changes at :math:`t_0`. A jump of exact height :math:`H(s)` is removed from the transform as
+      :math:`H(s)\, e^{-s_c c t_0} / s_c` before the summation and restored as :math:`H(s)` after it, so the series
+      sums a function continuous there. The same holds for the Taylor coefficients of the moments. At
+      :math:`v = c t_0` the conditional is the limit from the right.
     - :math:`N` is doubled until :math:`G(0)` is positive and stable. If it does not stabilize, construction raises
       :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v` is below the resolution of the
-      inversion, and near a jump of that density, across which the series converges slowly. The density has such a
-      jump at :math:`c t_0`, for an epoch time :math:`t_0` and a reward rate :math:`c`, when the paths that stay in
-      the states of rate :math:`c` from time zero stop accruing reward at a rate that changes at :math:`t_0`. Within
-      5% of such a jump a warning is logged, since a conditional that does stabilize may still be imprecise there.
+      inversion, or varies on a scale that the largest truncation does not resolve.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
     - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
@@ -1668,8 +1916,10 @@ class ConditionalRewardDistribution(RewardDistribution):
         """
         The raw moments of orders ``1..k`` by the derivative identity of ``ConditionalRewardDistribution.moment``, with
         the Taylor coefficients of ``JointRewardDistribution.lst_taylor`` inverted by the Euler-summed Fourier series of
-        the inner inversion (``_euler_series``). The truncation is doubled from ``_EULER_N0`` until no moment moves by
-        more than ``_MOMENT_TOL`` when it is halved, relative to the moment or to 1% of the same power of the root mean
+        the inner inversion (``_euler_series``), less the contribution of the jumps along the conditioning axis
+        (``JointRewardDistribution._jump_correction``). The truncation is doubled from ``_EULER_N0``, or next to a
+        subtracted jump from half the truncation of ``_NestedConditional._calibrate``, until no moment moves by more
+        than ``_MOMENT_TOL`` when it is halved, relative to the moment or to 1% of the same power of the root mean
         square of the unconditional other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving
         there is reported by a warning. Each node is evaluated once, since every truncation weights a subset of the
         nodes of the next, and a node below the real axis takes the conjugate of the coefficients at its mirror image,
@@ -1693,6 +1943,11 @@ class ConditionalRewardDistribution(RewardDistribution):
         coeffs = {}
 
         n0 = _EULER_N0
+        calibrated = getattr(self, '_nested', self).__dict__.get('_N0_calibrated')
+        if calibrated and self._joint._step_errors(self._on, self._value, (calibrated,)) is not None:
+            # next to a subtracted jump the doubling starts at half the calibrated truncation: below it the density in
+            # the denominator is unresolved, and two truncations there can agree by chance
+            n0 = max(n0, calibrated // 2)
         while True:
             u, w = _euler_series(self._value, (n0, 2 * n0))
             new = np.array([x for x in u if x not in coeffs and x.imag >= 0], dtype=complex)
@@ -1700,7 +1955,8 @@ class ConditionalRewardDistribution(RewardDistribution):
                 vals = self._joint._lst_taylor_batch(new, self._on, k)
                 coeffs.update(zip(new, vals))
                 coeffs.update(zip(new.conj(), vals.conj()))
-            inv = (w @ np.array([coeffs[x] for x in u])).real  # the inversions per truncation and order 0..k
+            inv = (w @ np.array([coeffs[x] for x in u])
+                   - self._joint._jump_correction(self._on, self._value, 0.0, (n0, 2 * n0), k)).real
             moments = signs * inv[:, 1:] / inv[:, :1]
             move = float(np.max(np.abs(moments[1] - moments[0]) / np.maximum(np.abs(moments[1]), floors)))
             if move <= _MOMENT_TOL or 2 * n0 >= _MOMENT_N0_MAX:
@@ -2022,6 +2278,55 @@ def _euler_series(t: float, truncations: Sequence[int], A: float = 16.0, m: int 
     return u, (np.exp(A / 2.0) / (2.0 * t)) * ((-1.0) ** ks) * frac
 
 
+def _euler_step_error(t: float, x0: np.ndarray, truncations: Sequence[int], A: float = 16.0, m: int = 12) -> np.ndarray:
+    r"""
+    The error of the Euler inversion (``_euler_series``) at ``t`` of the unit step :math:`\mathbb{1}\{x \ge x_0\}`,
+    whose transform is :math:`e^{-u x_0} / u`, against the value :math:`\sum_{j \ge 0} e^{-jA}\, \mathbb{1}\{(2j + 1)
+    t \ge x_0\}` to which the series converges away from its discontinuities, with the damping error included. The
+    term :math:`j = 0` takes the value 1 at :math:`x_0 = t`, the limit from the right, and a term :math:`j \ge 1` whose
+    point :math:`(2j + 1) t` equals :math:`x_0` takes 1/2, the value of the series there.
+
+    :param t: The point of inversion.
+    :param x0: The locations of the steps.
+    :param truncations: The truncations ``N0``.
+    :param A: The damping.
+    :param m: The number of Euler terms.
+    :return: The errors, of shape ``(len(x0), len(truncations))``.
+    """
+    x0 = np.asarray(x0, dtype=float)
+    u, w = _euler_series(t, truncations, A, m)
+    series = ((np.exp(-np.outer(x0, u)) / u) @ w.T).real
+
+    j = np.maximum(np.ceil((x0 / t - 1.0) / 2.0), 0.0)  # the first term whose point is at or above the step
+    hit = (j >= 1) & ((2.0 * j + 1.0) * t == x0)
+    exact = np.exp(-A * j) / -np.expm1(-A) - np.where(hit, 0.5 * np.exp(-A * j), 0.0)
+    return series - exact[:, None]
+
+
+def _ring_matrix(M0: np.ndarray, M1: np.ndarray, order: int, lower: bool = False) -> np.ndarray:
+    r"""
+    The matrix :math:`\mathbf{M}_0 + \epsilon \mathbf{M}_1` over the polynomials in :math:`\epsilon` truncated after
+    the power ``order``, as a block bidiagonal matrix with :math:`\mathbf{M}_0` on the diagonal (Van Loan, 1978, see
+    :meth:`JointRewardDistribution.lst_taylor() <phasegen.distributions.JointRewardDistribution.lst_taylor>`). The
+    upper form multiplies row vectors of stacked coefficients from the right, the lower form column vectors from the
+    left, and its exponential and inverse are those over the ring.
+
+    :param M0: The constant term.
+    :param M1: The linear term.
+    :param order: The highest power kept.
+    :param lower: Whether :math:`\mathbf{M}_1` sits below the diagonal.
+    :return: The block matrix.
+    """
+    n, k = M0.shape[0], order + 1
+    out = np.zeros((k * n, k * n), dtype=complex)
+    for i in range(k):
+        out[i * n:(i + 1) * n, i * n:(i + 1) * n] = M0
+        if i + 1 < k:
+            rows, cols = (slice((i + 1) * n, (i + 2) * n), slice(i * n, (i + 1) * n))
+            out[(rows, cols) if lower else (cols, rows)] = M1
+    return out
+
+
 def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: int = 12) -> complex:
     """Euler-summed Fourier-series inversion of ``transform`` at ``t``, the inner inversion of
     ``ConditionalRewardDistribution`` (``A`` is its damping, ``N0`` its truncation, ``m`` its Euler terms). The node
@@ -2054,6 +2359,10 @@ class _NestedConditional(ConditionalRewardDistribution):
 
         self._N0, self._G0 = self._calibrate()
 
+        #: The truncation of ``_calibrate``, from which ``ConditionalRewardDistribution._raw_moments`` starts next to a
+        #: subtracted jump.
+        self._N0_calibrated = self._N0
+
         #: ``G`` at the arguments of the locating pass of the cosine expansion, keyed by the argument, once ``_refine``
         #: has run.
         self._G_rough = None
@@ -2061,14 +2370,6 @@ class _NestedConditional(ConditionalRewardDistribution):
         #: Mean and variance of ``RewardDistribution._cumulants`` at the truncation of ``_calibrate``, held so that they
         #: do not depend on whether ``_refine`` has run.
         self._cumulants_calibrated = super()._cumulants()
-
-        jump = self._nearby_jump()
-        if jump is not None:
-            self._logger.warning(
-                "The density of R_%s jumps at %g, where an epoch begins, within %d%% of the conditioning value %g. The "
-                "inner inversion converges slowly across a jump, so the conditional may be imprecise.",
-                self._on, jump, round(100 * _JUMP_WARN), self._value
-            )
 
     def _calibrate(self, tol: float = 2e-2, n_max: int = _EULER_N0_MAX) -> tuple:
         """
@@ -2084,10 +2385,10 @@ class _NestedConditional(ConditionalRewardDistribution):
         :return: ``(N0, G(0))``.
         """
         n0 = _EULER_N0
-        prev = _euler_invert(self._phi, self._value, N0=n0).real
+        prev = self._density_at(n0)
         while n0 < n_max:
             n0 *= 2
-            cur = _euler_invert(self._phi, self._value, N0=n0).real
+            cur = self._density_at(n0)
             if abs(cur - prev) <= tol * abs(cur) and cur > 0:
                 return n0, cur
             prev = cur
@@ -2099,16 +2400,18 @@ class _NestedConditional(ConditionalRewardDistribution):
                 f"in the tail and below the float64 resolution of the inversion, not necessarily zero -- conditioning "
                 f"closer to the bulk, or sampling, will work."
             )
-        jump = self._nearby_jump()
-        cause = (f"The density of R_{self._on} jumps at {jump:g}, where an epoch begins, and the inner inversion "
-                 f"converges slowly across a jump. Condition further from it, or sample." if jump is not None else
-                 "Condition closer to the bulk, or sample.")
 
         raise ValueError(
             f"The marginal density at R_{self._on} = {self._value:g} did not converge under refinement of the inner "
             f"inversion (still moving by more than {tol:.0%} at N0 = {n_max}), so the conditional there would be "
-            f"unreliable. {cause}"
+            f"unreliable. Condition closer to the bulk, or sample."
         )
+
+    def _density_at(self, n0: int) -> float:
+        """``G(0)``, the marginal density of the conditioning reward at the value, by the Euler inversion at the
+        truncation ``n0`` with the jumps subtracted (``JointRewardDistribution._jump_correction``)."""
+        correction = self._joint._jump_correction(self._on, self._value, 0.0, (n0,))[0, 0]
+        return (_euler_invert(self._phi, self._value, N0=n0) - correction).real
 
     def _cumulants(self) -> tuple:
         """The mean and variance at the truncation of ``_calibrate``, held at construction."""
@@ -2186,82 +2489,6 @@ class _NestedConditional(ConditionalRewardDistribution):
         """
         return G / G[0]
 
-    def _nearby_jump(self) -> Optional[float]:
-        r"""
-        The value within ``_JUMP_WARN`` of the conditioning value at which the density of the conditioning reward
-        jumps, or ``None``. Let :math:`P` be the set of states where the reward is positive, :math:`Z` its complement
-        among the transient states, and :math:`C \subseteq P` the states of one reward rate :math:`c > 0`. The paths
-        that stay in :math:`C` from time zero up to time :math:`\ell` and then accrue no more reward have
-        :math:`R = c \ell` and contribute the density :math:`\mathbf{s}(\ell) \cdot \mathbf{q}(\ell) / c` at
-        :math:`c \ell`, which jumps at an epoch time :math:`t_0` by :math:`J / c`, with
-
-        .. math::
-
-            J = \mathbf{s}(t_0) \cdot \big(\mathbf{q}^{+} - \mathbf{q}^{-}\big), \qquad
-            \mathbf{q} = -\mathbf{T}_{CP}\mathbf{1} - \mathbf{T}_{CZ}\,\mathbf{h}(t_0).
-
-        Here :math:`\mathbf{s}(t_0)` is the initial vector on :math:`C` propagated by :math:`\mathbf{T}_{CC}` up to
-        :math:`t_0`, :math:`\mathbf{T}_{CP}` and :math:`\mathbf{T}_{CZ}` are the blocks of the transient sub-generator
-        from :math:`C` to :math:`P` and to :math:`Z`, :math:`\mathbf{q}^{-}` and :math:`\mathbf{q}^{+}` are
-        :math:`\mathbf{q}` under the generators of the epochs ending and beginning at :math:`t_0`, and :math:`h_z(t_0)`
-        is the probability of entering :math:`P` after :math:`t_0` from state :math:`z \in Z`. Every other path adds a
-        density continuous at :math:`c t_0`: a visit to :math:`Z` before the last reward shifts the epoch time by a
-        random amount, and time at another rate :math:`c' \neq c` spreads it along :math:`R`. The density of :math:`R`
-        therefore jumps at :math:`c t_0` exactly when :math:`J \neq 0`, which needs initial mass on :math:`C`.
-
-        :return: The value of the jump, or ``None``.
-        """
-        r = self._joint._setup['ra' if self._on == 'a' else 'rb']
-        T_epochs = self._host._reward_epoch_data['T_epochs']
-
-        for c in np.unique(r[r > 0]):
-            for e in range(1, len(T_epochs)):
-                jump = float(c) * T_epochs[e][1]
-                if abs(self._value - jump) <= _JUMP_WARN * self._value and self._jumps_at(r, c, e):
-                    return jump
-
-        return None
-
-    def _jumps_at(self, r: np.ndarray, c: float, e: int) -> bool:
-        r"""
-        Whether the density of the reward jumps at ``c`` times the start of epoch ``e``, the jump :math:`J` of
-        :meth:`_nearby_jump` exceeding ``_JUMP_REL_TOL`` relative to the contributions :math:`\mathbf{s} \cdot
-        \mathbf{q}` on either side.
-
-        :param r: The reward on the transient states of the epoch data.
-        :param c: The reward rate of the states :math:`C`.
-        :param e: Index of the epoch whose start time is checked, at least 1.
-        :return: Whether the density jumps there.
-        """
-        data = self._host._reward_epoch_data
-        Ts = [(T.toarray() if sp.issparse(T) else np.asarray(T), t0, t1) for T, t0, t1 in data['T_epochs']]
-        pos, cls = r > 0, r == c
-        zero = ~pos
-
-        # the initial vector propagated on the paths that stay in C up to the epoch time
-        s = data['alpha'][cls]
-        for T, t0, t1 in Ts[:e]:
-            s = s @ sla.expm(T[np.ix_(cls, cls)] * (t1 - t0))
-
-        # the probability h of entering P after the epoch time, from the final epoch backwards
-        h = np.zeros(0)
-        if zero.any():
-            T_last = Ts[-1][0]
-            h = np.linalg.solve(-T_last[np.ix_(zero, zero)], T_last[np.ix_(zero, pos)].sum(axis=1))
-        for T, t0, t1 in reversed(Ts[e:-1]):
-            # the exponential of [[T_ZZ, T_ZP 1], [0, 0]] over the epoch maps (h at its end, 1) to (h at its start, 1)
-            M = np.zeros((zero.sum() + 1,) * 2)
-            M[:-1, :-1] = T[np.ix_(zero, zero)]
-            M[:-1, -1] = T[np.ix_(zero, pos)].sum(axis=1)
-            h = (sla.expm(M * (t1 - t0)) @ np.append(h, 1.0))[:-1]
-
-        # the rate of leaving C with no more reward to come, under the generators of the epochs ending and beginning
-        # at the epoch time
-        before, after = (s @ (-T[np.ix_(cls, pos)].sum(axis=1) - T[np.ix_(cls, zero)] @ h)
-                         for T in (Ts[e - 1][0], Ts[e][0]))
-
-        return abs(after - before) > _JUMP_REL_TOL * (abs(before) + abs(after))
-
     def _phi(self, u: np.ndarray) -> np.ndarray:
         """``Phi`` along the conditioning axis with the other argument at 0, the transform behind ``G(0)``."""
         z = np.zeros(len(u))
@@ -2270,7 +2497,8 @@ class _NestedConditional(ConditionalRewardDistribution):
     def _inner(self, s: complex, truncations: Sequence[int]) -> np.ndarray:
         """
         The Euler inversions of ``Phi`` along the conditioning axis at the value, with the other argument at ``s``, at
-        each truncation from the nodes of the largest (``_euler_series``).
+        each truncation from the nodes of the largest (``_euler_series``), with the jumps along that axis subtracted
+        (``JointRewardDistribution._jump_correction``).
 
         :param s: The argument of the other reward.
         :param truncations: The truncations ``N0``.
@@ -2279,7 +2507,8 @@ class _NestedConditional(ConditionalRewardDistribution):
         u, weights = _euler_series(self._value, truncations)
         other = np.full(len(u), s)
         vals = self._joint.lst_batch(other, u) if self._on == 'b' else self._joint.lst_batch(u, other)
-        return np.sum(weights * np.asarray(vals), axis=1)
+        correction = self._joint._jump_correction(self._on, self._value, s, truncations)[:, 0]
+        return np.sum(weights * np.asarray(vals), axis=1) - correction
 
     def _G(self, s: complex) -> complex:
         """``G(s)``, the Euler inversion of ``Phi`` along the conditioning axis at the value. The inner method must be
@@ -2325,15 +2554,13 @@ class _LineContinuous(ConditionalRewardDistribution):
 
     def _densities(self, truncations: Sequence[int]) -> np.ndarray:
         """
-        The densities :math:`f_c(v)` of the atoms, the Euler inversions of ``JointRewardDistribution._line_lst_batch``
-        at the value, at each truncation from the nodes of the largest (``_euler_series``).
+        The densities :math:`f_c(v)` of the atoms at the value (``JointRewardDistribution._line_density``), at each
+        truncation from the nodes of the largest (``_euler_series``).
 
         :param truncations: The truncations ``N0``.
         :return: The densities, of shape ``(len(truncations), len(atoms))``.
         """
-        u, weights = _euler_series(self._value, truncations)
-        vals = np.array([self._joint._line_lst_batch(c, self._on, u) for c in self._c])  # (len(atoms), len(u))
-        return (weights @ vals.T).real
+        return np.array([self._joint._line_density(c, self._on, self._value, truncations) for c in self._c]).T
 
     @property
     def _f(self) -> np.ndarray:
