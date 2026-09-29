@@ -74,11 +74,19 @@ def test_empirical_deme_covariance_matches_the_deme_distributions():
     """
     ``demes.cov`` must be the covariance of the per-deme samples that ``demes`` holds, and its standard error must be
     computed from them. For the tree height the matrix was built from the maximum over loci while the deme
-    distributions sum over loci, so its diagonal was about half their variance.
+    distributions sum over loci, so its diagonal was about half their variance. The per-deme tree height of several
+    loci is undefined, so it raises and has no standard error, and the check runs on the additive total branch length.
     """
     dem = pg.Demography(pop_sizes={'a': {0: 1}, 'b': {0: 1}}, migration_rates={('a', 'b'): {0: 0.5}, ('b', 'a'): {0: 0.5}})
-    th = pg.Coalescent(n={'a': 2, 'b': 1}, demography=dem, loci=2, recombination_rate=1.0).tree_height
-    e = th.to_empirical(2000, seed=SEED)
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=dem, loci=2, recombination_rate=1.0)
+
+    th = coal.tree_height.to_empirical(2000, seed=SEED)
+    th._cache_standard_errors()
+    assert 'demes.cov' not in th._standard_errors
+    with pytest.raises(NotImplementedError):
+        _ = th.demes
+
+    e = coal.total_branch_length.to_empirical(2000, seed=SEED)
 
     per_deme = np.array([e.demes[p].samples for p in e.pops])
 
@@ -290,8 +298,8 @@ def _assert_same_law(sampled, ms, rel: float = 0.03, atol: float = 0.02):
 
     The CDF is what makes this bite. Means are insensitive to *where* the mass sits, so a sampler that mishandled an
     epoch boundary -- putting coalescences on the wrong side of it -- could still land the mean. Both CDFs are
-    empirical, so the scale is the two-sample Kolmogorov-Smirnov noise, ``~1.4 sqrt(2 / n)``; ``atol`` sits an order of
-    magnitude above it, making this a structural check rather than a precision bound.
+    empirical, so the scale is the two-sample Kolmogorov-Smirnov noise, ``~1.4 sqrt(2 / n)``. At the callers' 100,000
+    replicates that is 0.0063, and ``atol`` sits about three times above it.
     """
     assert sampled.tree_height.mean == pytest.approx(ms.tree_height.mean, rel=rel)
     assert sampled.total_branch_length.mean == pytest.approx(ms.total_branch_length.mean, rel=rel)
@@ -514,7 +522,11 @@ def test_empirical_tree_height_total_is_the_maximum_of_the_per_locus_heights():
     assert tree_height.mean == 4.0
     assert total.mean == 8.0
     assert [tree_height.loci[locus].mean for locus in (0, 1)] == [4.0, 4.0]
-    assert [tree_height.demes[pop].mean for pop in ('a', 'b')] == [3.0, 5.0]
+    assert [total.demes[pop].mean for pop in ('a', 'b')] == [3.0, 5.0]
+
+    # the maximum over loci does not decompose into the per-deme sums over loci
+    with pytest.raises(NotImplementedError):
+        _ = tree_height.demes
 
 
 def test_msprime_statistics_come_from_one_simulation_without_caching():
@@ -540,3 +552,56 @@ def test_msprime_statistics_come_from_one_simulation_without_caching():
         assert ms.heights is None
     finally:
         pg.Settings.cache = True
+
+
+def test_sampled_statistics_of_neighbouring_seeds_are_independent():
+    """
+    Each statistic was seeded with the seed plus a small offset, so the total branch length of seed s reused the
+    trajectories of the tree height of seed s + 1. With two lineages the total branch length is twice the tree height.
+    """
+    coal = pg.Coalescent(n=2)
+
+    length = SampledCoalescent(coalescent=coal, n_samples=100, seed=1).total_branch_length.samples
+    height = SampledCoalescent(coalescent=coal, n_samples=100, seed=2).tree_height.samples
+
+    assert not np.allclose(length, 2 * height)
+
+
+def test_sampled_coalescent_rejects_a_negative_seed():
+    """A negative seed raised on access to some statistics only."""
+    with pytest.raises(ValueError, match="non-negative"):
+        SampledCoalescent(coalescent=pg.Coalescent(n=3), seed=-2)
+
+
+def test_msprime_rejects_a_beta_alpha_above_its_range():
+    """msprime accepts alpha up to 1.991 and raised only when a statistic was first simulated."""
+    with pytest.raises(ValueError, match="1.991"):
+        MsprimeCoalescent(n=3, model=pg.BetaCoalescent(alpha=1.995))
+
+
+def test_folded_per_locus_and_per_deme_spectra_use_the_folded_bins():
+    """The per-locus folded spectra used the bins 1, ..., n - 1, whose upper half is zero."""
+    fsfs = pg.Coalescent(n=5).fsfs.to_empirical(100, seed=0)
+
+    assert list(fsfs.loci[0]._polymorphic_bins()) == [1, 2]
+    assert list(fsfs.demes['pop_0']._polymorphic_bins()) == [1, 2]
+    assert list(pg.Coalescent(n=5).sfs.to_empirical(100, seed=0).loci[0]._polymorphic_bins()) == [1, 2, 3, 4]
+
+
+def test_mutation_binning_matches_a_walk_over_the_mutations():
+    """The array-based binning of the mutations by locus and number of subtended leaves."""
+    import msprime as ms
+    from phasegen.distributions.empirical import _MutationStatistics
+
+    ts = ms.sim_ancestry(6, sequence_length=2, recombination_rate=1, ploidy=1, population_size=1, random_seed=1)
+    stats = _MutationStatistics(n_loci=2, n_pops=1, num_replicates=1, sample_size=6, mutation_rate=5)
+    stats.process_replicate(0, ts, {}, seed=2)
+
+    mts = ms.sim_mutations(ts, rate=5, random_seed=2)
+    expected = np.zeros_like(stats.mutations)
+    for tree in mts.trees():
+        for mutation in tree.mutations():
+            expected[int(mts.site(mutation.site).position), 0, 0, tree.get_num_leaves(mutation.node)] += 1
+
+    assert mts.num_trees > 1 and expected.sum() > 10
+    np.testing.assert_array_equal(stats.mutations, expected)

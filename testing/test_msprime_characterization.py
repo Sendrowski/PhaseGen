@@ -88,3 +88,25 @@ def test_simulate_matches_baseline(name):
         assert arr.shape == expected.shape, f"{name}.{field}: shape {arr.shape} != {expected.shape}"
         np.testing.assert_allclose(arr, expected, rtol=RTOL, atol=0,
                                    err_msg=f"{name}.{field} drifted from the baseline")
+
+
+def test_simulating_mutations_requires_a_mutation_rate():
+    """Regression: ``simulate_mutations=True`` without a mutation rate silently simulated no mutations."""
+    with pytest.raises(ValueError, match='mutation rate'):
+        MsprimeCoalescent(n=3, simulate_mutations=True)
+
+
+def test_per_deme_tree_height_is_undefined_for_several_loci():
+    """The tree height of several loci is their maximum, which the per-deme heights summed over loci do not
+    decompose, so the per-deme tree height raises as for the exact coalescent. The additive total branch length keeps
+    its per-deme breakdown. Regression: the per-deme heights were the sums of the per-locus heights."""
+    ms = MsprimeCoalescent(n=4, loci=2, recombination_rate=1.0, num_replicates=200, n_threads=2, parallelize=False,
+                           seed=1)
+
+    with pytest.raises(NotImplementedError):
+        _ = ms.tree_height.demes
+
+    assert ms.total_branch_length.demes['pop_0'].mean == pytest.approx(ms.total_branch_length.mean)
+
+    ms.tree_height._touch(np.linspace(0, 1, 3))
+    ms.tree_height._drop()

@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: The largest Beta-coalescent alpha msprime accepts.
+_MSPRIME_BETA_ALPHA_MAX = 1.991
+
 
 class EmpiricalJointSFSDistribution:  # pragma: no cover
     r"""
@@ -170,8 +173,7 @@ class _EmpiricalFunction:  # pragma: no cover
         else:
             values = np.asarray(self(x))
 
-        # the per-bin quantiles come as (probabilities, bins), the other functions as (bins, points)
-        y = (values.T if self.kind == 'quantile' else values)[columns] if per_bin else values[None]
+        y = values.T[columns] if per_bin else values[None]
         name = dict(pdf='PDF', cdf='CDF', quantile='quantile function')[self.kind]
 
         return _CurveData(
@@ -210,7 +212,7 @@ class _EmpiricalFunction:  # pragma: no cover
         :param n_points: Number of points of the default grid of a CDF.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -223,7 +225,8 @@ class _EmpiricalFunction:  # pragma: no cover
 
 
 class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDistributionFunction):  # pragma: no cover
-    """The empirical CDF of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples."""
+    """The empirical CDF of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples, of shape
+    ``(len(t), n + 1)`` for a spectrum."""
 
     def __call__(self, t) -> 'np.ndarray':
         # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
@@ -236,7 +239,7 @@ class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDis
             return np.interp(t, x, y, left=0.0)
 
         if x.ndim == 2:
-            return np.array([np.interp(t, x_, y, left=0.0) for x_ in x.T])
+            return np.stack([np.interp(t, x_, y, left=0.0) for x_ in x.T], axis=-1)
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
@@ -296,7 +299,7 @@ class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragm
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -309,11 +312,11 @@ class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragm
 
 
 class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma: no cover
-    """The cell-average density of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples.
-    ``Comparison._cell_average`` integrates the exact density over the same cells, so both sides estimate the same
-    functional."""
+    """The cell-average density of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples,
+    of shape ``(len(t), n + 1)`` for a spectrum. ``Comparison._cell_average`` integrates the exact density over the
+    same cells, so both sides estimate the same functional."""
 
-    def __call__(self, t, **kwargs) -> 'np.ndarray':
+    def __call__(self, t) -> 'np.ndarray':
         samples = self._distribution.samples
         t = np.atleast_1d(np.asarray(t, dtype=float))
 
@@ -327,7 +330,7 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
             return self._cell_density(samples, edges, widths)
 
         if samples.ndim == 2:
-            return np.array([self._cell_density(s, edges, widths) for s in samples.T])
+            return np.stack([self._cell_density(s, edges, widths) for s in samples.T], axis=-1)
 
         raise ValueError("Samples must be 1 or 2 dimensional.")
 
@@ -551,13 +554,29 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     :class:`~phasegen.distributions.EmpiricalDistribution` applied per frequency class.
     """
 
-    def __init__(self, samples: np.ndarray | list) -> None:
+    #: Whether the spectrum is folded. Static for backward compatibility.
+    folded: bool = False
+
+    def __init__(self, samples: np.ndarray | list, folded: bool = False) -> None:
         """
         Create object.
 
         :param samples: The sampled spectra, of shape ``(N, n + 1)``.
+        :param folded: Whether the spectrum is folded.
         """
         super().__init__(samples)
+
+        self.folded = folded
+
+    def _polymorphic_bins(self) -> range:
+        """
+        The polymorphic frequency classes, ``1, ..., n // 2`` for a folded spectrum and ``1, ..., n - 1`` otherwise.
+
+        :return: The frequency classes.
+        """
+        n = self.samples.shape[1] - 1
+
+        return range(1, n // 2 + 1) if self.folded else range(1, n)
 
     @cached_property
     def mean(self) -> SFS:
@@ -612,12 +631,23 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     :class:`~phasegen.distributions.MsprimeCoalescent`. Its estimators are those of
     :class:`~phasegen.distributions.EmpiricalDistribution`.
     """
+    #: Whether the samples resolve the demes, so that :attr:`demes` is available.
+    resolves_demes: bool = True
+
+    #: Whether the total is the sum over loci, so that the per-deme samples summed over loci decompose it. Static for
+    #: backward compatibility.
+    _locus_additive: bool = True
+
+    #: Cached windowed-conditional ground truth of the locus pairs, see ``_cache_windowed_conditional``. Declared at
+    #: class level for payloads serialized without it.
+    _loci_windowed_conditional: list = []
 
     def __init__(
             self,
             samples: np.ndarray | list,
             pops: List[str],
-            locus_agg: Callable = lambda x: x.sum(axis=0)
+            locus_agg: Callable = lambda x: x.sum(axis=0),
+            resolves_demes: bool = True
     ) -> None:
         """
         Create object.
@@ -626,11 +656,14 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         :param pops: List of population names.
         :param locus_agg: Aggregation over the locus axis of the per-locus totals, which sum over demes, forming the
             total. The sum by default, the maximum for the tree height.
+        :param resolves_demes: Whether the samples resolve the demes. Otherwise :attr:`demes` raises.
         """
         over_loci = samples.sum(axis=0).astype(float)
         over_demes = samples.sum(axis=1).astype(float)
 
-        super().__init__(locus_agg(over_demes).astype(float))
+        total = locus_agg(over_demes).astype(float)
+
+        super().__init__(total)
 
         #: Population names
         self.pops = pops
@@ -638,20 +671,27 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         #: Samples by deme and locus
         self._samples = samples
 
+        self.resolves_demes = resolves_demes
+
+        #: Whether the total is the sum over loci, so that the per-deme samples summed over loci decompose it.
+        self._locus_additive: bool = over_demes.shape[0] == 1 or np.array_equal(total, over_demes.sum(axis=0))
+
         #: Cross-locus full-grid joint surface ground truth: ``[(l1, l2, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._loci_joint_surface: list = []
 
         #: Cached windowed-conditional ground truth of the locus pairs, see ``_cache_windowed_conditional``.
-        self._windowed_conditional: list = []
+        self._loci_windowed_conditional: list = []
 
         # zero-variance demes/loci make corrcoef divide by zero; the resulting NaNs are expected here, so
         # silence the benign warning
         with np.errstate(divide='ignore', invalid='ignore'):
-            #: Covariance matrix for the demes, of the per-deme samples summed over loci
-            self.pops_cov: np.ndarray = np.cov(over_loci, bias=True)
+            #: Covariance matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
+            #: resolve the demes
+            self.pops_cov: np.ndarray | None = np.cov(over_loci, bias=True) if resolves_demes else None
 
-            #: Correlation matrix for the demes, of the per-deme samples summed over loci
-            self.pops_corr: np.ndarray = np.corrcoef(over_loci)
+            #: Correlation matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
+            #: resolve the demes
+            self.pops_corr: np.ndarray | None = np.corrcoef(over_loci) if resolves_demes else None
 
             #: Correlation matrix for the loci
             self.loci_corr: np.ndarray = np.corrcoef(over_demes)
@@ -667,7 +707,8 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         super()._touch(t)
 
-        [d._touch(t) for d in self.demes.values()]
+        if self._defines_demes:
+            [d._touch(t) for d in self.demes.values()]
         [l._touch(t) for l in self.loci.values()]
 
     def _drop(self) -> None:
@@ -678,7 +719,8 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         self._samples = None
 
-        [d._drop() for d in self.demes.values()]
+        if self._defines_demes:
+            [d._drop() for d in self.demes.values()]
         [l._drop() for l in self.loci.values()]
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
@@ -695,9 +737,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         def cov(x: np.ndarray) -> np.ndarray:
             return np.cov(x, bias=True)
 
-        for key, data, fn in (
-            ('demes.cov', self._samples.sum(axis=0), cov),  # (n_demes, n_rep), summed over loci
-            ('demes.corr', self._samples.sum(axis=0), np.corrcoef),
+        demes = (('demes.cov', self._samples.sum(axis=0), cov),  # (n_demes, n_rep), summed over loci
+                 ('demes.corr', self._samples.sum(axis=0), np.corrcoef)) if self._defines_demes else ()
+        for key, data, fn in demes + (
             ('loci.cov', self._samples.sum(axis=1), cov),  # (n_loci, n_rep), summed over demes
             ('loci.corr', self._samples.sum(axis=1), np.corrcoef),
         ):
@@ -732,7 +774,17 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         ``cov`` and ``corr``.
 
         :return: Dictionary of distributions.
+        :raises ValueError: If the samples do not resolve the demes.
+        :raises NotImplementedError: If there are several loci and the total is not their sum, as for the tree height.
         """
+        self._check_resolves_demes()
+
+        if not self._locus_additive:
+            raise NotImplementedError(
+                "Per-deme statistics are not defined for multiple loci when the total is not the sum over loci, as "
+                "for the tree height, the maximum over loci. Use total_branch_length.demes, or a single locus."
+            )
+
         demes = DictContainer(
             {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
         )
@@ -741,6 +793,30 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         demes.corr = self.pops_corr
 
         return demes
+
+    @property
+    def _untouched(self) -> Tuple[str, ...]:
+        """
+        The per-deme statistics when :attr:`demes` is not available.
+        """
+        return () if self._defines_demes else ('demes',)
+
+    @property
+    def _defines_demes(self) -> bool:
+        """
+        Whether :attr:`demes` is available: the samples resolve the demes and the total is the sum over loci.
+        """
+        return self.resolves_demes and self._locus_additive
+
+    def _check_resolves_demes(self) -> None:
+        """
+        :raises ValueError: If the samples do not resolve the demes.
+        """
+        if not self.resolves_demes:
+            raise ValueError(
+                "Per-deme statistics of MsprimeCoalescent require the migration history. "
+                "Simulate with record_migration=True."
+            )
 
     @cached_property
     def loci(self) -> Dict[int, EmpiricalDistribution]:
@@ -775,26 +851,25 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
 
-    def _pair_samples(self, i: int, j: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Per-replicate accumulated rewards at loci ``i`` and ``j``."""
-        return self._locus_samples(i), self._locus_samples(j)
-
-    def _cache_windowed_conditional(self, specs: List[tuple], n_grid: int = 500, q_max: float = 0.999) -> None:
+    def _cache_windowed_conditional(self, specs: List[tuple], loci: bool = False, n_grid: int = 500,
+                                    q_max: float = 0.999) -> None:
         """
-        Cache, per conditioning window of a pair of :meth:`_pair_samples`, the plain window mean of the other reward
-        (not the local-linear mean), its standard error and its step CDF over a grid, as
-        ``self._windowed_conditional = [(i, j, on, v, h, n_win, mean, mean_se, ys, cdf), ...]``. The comparison
-        averages the exact conditional over the same window, so both sides estimate the same functional.
+        Cache, per conditioning window of a pair, the plain window mean of the other reward (not the local-linear
+        mean), its standard error and its step CDF over a grid, as ``[(i, j, on, v, h, n_win, mean, mean_se, ys,
+        cdf), ...]``. The comparison averages the exact conditional over the same window, so both sides estimate the
+        same functional.
 
         :param specs: ``(i, j, on, value, half_width)`` windows to cache, the values fixed by the exact marginal.
+        :param loci: Whether ``(i, j)`` is a pair of loci, cached as ``_loci_windowed_conditional``, or a pair of
+            ``_pair_samples``, cached as ``_windowed_conditional``.
         :param n_grid: Points of the CDF grid.
         :param q_max: Quantile of the windowed samples the grid runs to.
         :raises ValueError: If a window holds no replicates at all.
         """
-        self._windowed_conditional = []
+        cached = []
 
         for i, j, on, v, h in specs:
-            a, b = self._pair_samples(i, j)
+            a, b = (self._locus_samples(i), self._locus_samples(j)) if loci else self._pair_samples(i, j)
             cond, other = (a, b) if on == 'a' else (b, a)
             sel = other[np.abs(cond - v) <= h]
 
@@ -810,10 +885,12 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             # hundreds of millions of entries
             cdf = np.searchsorted(np.sort(sel), ys, side='right') / sel.size
 
-            self._windowed_conditional.append(
+            cached.append(
                 (int(i), int(j), on, float(v), float(h), int(sel.size), float(sel.mean()),
                  float(sel.std() / np.sqrt(sel.size)), ys, cdf)
             )
+
+        setattr(self, '_loci_windowed_conditional' if loci else '_windowed_conditional', cached)
 
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
@@ -867,18 +944,14 @@ class EmpiricalJointDistribution:  # pragma: no cover
         values and is therefore only an approximate check on the exact conditional distribution.
     """
 
-    def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray, label: str = None) -> None:
+    def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray) -> None:
         """
         :param samples_a: Per-replicate realisations of the first reward.
         :param samples_b: Per-replicate realisations of the second reward.
-        :param label: Optional human-readable label used in plot titles.
         """
         #: Per-replicate realisations of the two rewards.
         self._a = np.asarray(samples_a, dtype=float)
         self._b = np.asarray(samples_b, dtype=float)
-
-        #: Optional human-readable label (e.g. ``"SFS bins (1, 2)"``).
-        self.label = label
 
     def marginal(self, which: str = 'a') -> EmpiricalDistribution:
         """
@@ -1001,7 +1074,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """
         n = self.samples.shape[1] - 1
 
-        return range(1, n // 2 + 1) if issubclass(self._sfs_dist, FoldedSFSDistribution) else range(1, n)
+        return range(1, n // 2 + 1) if self._folded else range(1, n)
 
     def _tajima_mean(self) -> np.ndarray:
         n = self._tajima_n()
@@ -1018,6 +1091,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             pops: List[str],
             sfs_dist: Type[SFSDistribution],
             locus_agg: Callable = lambda x: x.sum(axis=0),
+            resolves_demes: bool = True
     ) -> None:
         """
         Create object.
@@ -1029,6 +1103,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         :param pops: List of population names.
         :param sfs_dist: SFS distribution class.
         :param locus_agg: Aggregation function for loci.
+        :param resolves_demes: Whether the branch lengths resolve the demes. Otherwise :attr:`demes` raises.
         """
         over_loci = locus_agg(branch_lengths).astype(float)
 
@@ -1048,6 +1123,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         #: Mutation counts by deme and locus, ``None`` for a spectrum without mutations
         self._mutations = mutations
+
+        self.resolves_demes = resolves_demes
 
         #: Deme-deme covariance/correlation are unused for the SFS (``demes`` is overridden to a plain per-deme
         #: dict), so they are not computed here.
@@ -1174,7 +1251,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             # empirical joint CDF on the grid: P(L_i <= x_a, L_j <= y_b) = (1/N) sum_r 1{li_r<=x_a} 1{lj_r<=y_b}
             a = (li[:, None] <= xs[None, :]).astype(float)  # (N, X)
             b = (lj[:, None] <= ys[None, :]).astype(float)  # (N, Y)
-            cdf = (a.T @ b) / n                             # (X, Y)
+            cdf = (a.T @ b) / n  # (X, Y)
             # density via the mixed second difference of the CDF surface (no separate bandwidth needed)
             pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
             self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
@@ -1226,7 +1303,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         if self.samples is None:
             raise ValueError("The per-replicate samples have been dropped; joint_distribution needs them.")
         s = np.asarray(self.samples)
-        return EmpiricalJointDistribution(s[:, i], s[:, j], label=f"SFS bins ({i}, {j})")
+        return EmpiricalJointDistribution(s[:, i], s[:, j])
 
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
@@ -1234,13 +1311,42 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         Get the distribution for each deme.
 
         :return: Dictionary of distributions.
+        :raises ValueError: If the branch lengths do not resolve the demes.
         """
-        return {pop: EmpiricalSFSDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
+        self._check_resolves_demes()
+
+        return {
+            pop: EmpiricalSFSDistribution(self._samples.sum(axis=0)[i], folded=self._folded)
+            for i, pop in enumerate(self.pops)
+        }
+
+    @cached_property
+    def loci(self) -> Dict[int, EmpiricalSFSDistribution]:
+        """
+        Empirical spectrum of each locus, summed over demes.
+
+        :return: Dictionary of distributions.
+        """
+        loci = DictContainer({
+            i: EmpiricalSFSDistribution(self._samples[i].sum(axis=0), folded=self._folded)
+            for i in range(self._samples.shape[0])
+        })
+
+        loci.cov = self.loci_cov
+        loci.corr = self.loci_corr
+
+        return loci
+
+    @property
+    def _folded(self) -> bool:
+        """Whether the spectrum is folded."""
+        return issubclass(self._sfs_dist, FoldedSFSDistribution)
 
     @property
     def mutation_configs(self) -> Dict[Tuple[float, ...], float]:
         """
-        Relative frequency of each mutational configuration among the simulated replicates.
+        Relative frequency of each mutational configuration among the simulated replicates, of the mutation counts
+        summed over loci.
 
         :return: Dictionary from configuration to relative frequency.
         :raises ValueError: If the spectrum carries no mutation counts, as a spectrum built by
@@ -1259,7 +1365,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         configs = defaultdict(lambda: 0)
 
-        for config in self._mutations[0, 0]:
+        # the mutations of a replicate summed over loci and demes, as the branch lengths of the moments
+        for config in self._mutations.sum(axis=(0, 1)):
             configs[tuple(config)] += 1 / self._mutations.shape[2]
 
         if Settings.cache:
@@ -1549,11 +1656,18 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
         import msprime as ms
 
         mts = ms.sim_mutations(ts, rate=self._rate, random_seed=seed)
-        positions = mts.sites_position
 
+        # the mutations ordered by position, and the range of them on each tree
+        positions = mts.sites_position[mts.mutations_site]
+        nodes = mts.mutations_node
+        bounds = np.searchsorted(positions, mts.breakpoints(as_array=True))
+
+        leaves = np.empty(len(nodes), dtype=int)
         for tree in mts.trees():
-            for mutation in tree.mutations():
-                self.mutations[int(positions[mutation.site]), 0, i, tree.get_num_leaves(mutation.node)] += 1
+            for k in range(bounds[tree.index], bounds[tree.index + 1]):
+                leaves[k] = tree.get_num_leaves(nodes[k])
+
+        np.add.at(self.mutations, (positions.astype(int), 0, i, leaves), 1)
 
 
 def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
@@ -1639,9 +1753,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param num_replicates: Number of replicates.
         :param n_threads: Number of threads.
         :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
-        :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
+        :param record_migration: Whether to record migrations, which the per-deme statistics of more than one deme
+            require.
         :param simulate_mutations: Whether to simulate mutations.
         :param seed: Non-negative integer random seed. ``None`` draws fresh entropy.
+        :raises ValueError: If ``model`` is a Beta coalescent whose alpha exceeds 1.991, the largest that msprime
+            accepts, or if ``simulate_mutations`` is set without a ``mutation_rate``.
         """
         super().__init__(
             n=n,
@@ -1651,6 +1768,14 @@ class MsprimeCoalescent(AbstractCoalescent):
             demography=demography,
             end_time=end_time
         )
+
+        if isinstance(self.model, BetaCoalescent) and self.model.alpha > _MSPRIME_BETA_ALPHA_MAX:
+            raise ValueError(
+                f"msprime accepts Beta coalescents with alpha up to {_MSPRIME_BETA_ALPHA_MAX}, got {self.model.alpha}."
+            )
+
+        if simulate_mutations and mutation_rate is None:
+            raise ValueError("Simulating mutations requires a mutation rate.")
 
         if mutation_rate is not None and not simulate_mutations:
             self._logger.warning("Mutation rate is set but mutations are not simulated.")
@@ -1976,6 +2101,13 @@ class MsprimeCoalescent(AbstractCoalescent):
         # caused problems when serializing
         self.demography = None
 
+    @property
+    def _resolves_demes(self) -> bool:
+        """
+        Whether the simulated statistics resolve the demes, which needs the migration history for more than one deme.
+        """
+        return self.record_migration or self.lineage_config.n_pops == 1
+
     @cached_property
     def tree_height(self) -> EmpiricalPhaseTypeDistribution:
         """
@@ -1986,7 +2118,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         return EmpiricalPhaseTypeDistribution(
             self.heights,
             pops=self.lineage_config.pop_names,
-            locus_agg=lambda x: x.max(axis=0)
+            locus_agg=lambda x: x.max(axis=0),
+            resolves_demes=self._resolves_demes
         )
 
     @cached_property
@@ -1996,7 +2129,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.lineage_config.pop_names)
+        return EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.lineage_config.pop_names,
+                                              resolves_demes=self._resolves_demes)
 
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
@@ -2009,7 +2143,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             branch_lengths=self.sfs_lengths,
             mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
-            sfs_dist=UnfoldedSFSDistribution
+            sfs_dist=UnfoldedSFSDistribution,
+            resolves_demes=self._resolves_demes
         )
 
     @cached_property
@@ -2035,7 +2170,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             branch_lengths=lengths.T,
             mutations=mutations.T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
-            sfs_dist=FoldedSFSDistribution
+            sfs_dist=FoldedSFSDistribution,
+            resolves_demes=self._resolves_demes
         )
 
     #: Highest moment order computed for the empirical joint SFS ground truth.
@@ -2079,8 +2215,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         model = self.get_coalescent_model()
 
         out = np.zeros((n + 1, n + 1))
-        lefts = np.zeros((self.num_replicates, n + 1))   # per-replicate locus-0 / locus-1 SFS branch lengths,
-        rights = np.zeros((self.num_replicates, n + 1))  # retained for the joint distribution / cross-moments
+        # per-replicate locus-0 / locus-1 SFS branch lengths, retained for the joint distribution / cross-moments
+        lefts = np.zeros((self.num_replicates, n + 1))
+        rights = np.zeros((self.num_replicates, n + 1))
         # lineages that start unlinked between the loci live in the initial state, not in the samples
         initial_state = None
         if self.locus_config.n_unlinked > 0:
@@ -2241,15 +2378,16 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` on the
     wrapped :class:`~phasegen.distributions.Coalescent` at first access and cached.
 
-    Each statistic is simulated separately from :attr:`seed` plus a fixed offset, so its draws do not depend on the
-    order of access. The entries of one statistic, such as the bins of a spectrum, share their trajectories and can
-    be paired. Different statistics come from independent trajectories and cannot.
+    Each statistic is simulated separately from its own child of :class:`numpy.random.SeedSequence` spawned from
+    :attr:`seed`, so its draws do not depend on the order of access. The entries of one statistic, such as the bins
+    of a spectrum, share their trajectories and can be paired. Different statistics come from independent
+    trajectories and cannot.
 
     .. versionadded:: 2.0
     """
 
-    #: Per-statistic seed offsets so each distribution is sampled reproducibly and independently of access order.
-    _seed_offsets = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
+    #: Per-statistic spawn keys so each distribution is sampled reproducibly and independently of access order.
+    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
 
     def __init__(
             self,
@@ -2260,9 +2398,13 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         """
         :param coalescent: The exact coalescent to sample from.
         :param n_samples: Number of trajectories to simulate per statistic.
-        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one integer seed is drawn at
+        :param seed: Non-negative integer seed, or a :class:`numpy.random.Generator` from which one is drawn at
             construction. ``None`` draws fresh entropy per statistic.
+        :raises ValueError: If ``seed`` is a negative integer.
         """
+        if seed is not None and not isinstance(seed, np.random.Generator) and seed < 0:
+            raise ValueError(f"The seed must be non-negative, got {seed}.")
+
         # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
         # the config after the analytic coalescent is dropped (Comparison / serialization need it)
         super().__init__(
@@ -2283,7 +2425,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
-        seed = None if self.seed is None else self.seed + self._seed_offsets[name]
+        seed = None if self.seed is None else np.random.default_rng(
+            np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],)))
         return getattr(self._coalescent, name).to_empirical(self.n_samples, seed=seed)
 
     @cached_property
@@ -2316,23 +2459,18 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         """Sampled two-locus site-frequency spectrum distribution."""
         return self._to_empirical('sfs2')
 
-    @staticmethod
-    def _get_cached_times(dist: 'EmpiricalPhaseTypeDistribution') -> np.ndarray:
-        """The grid a distribution's curves are cached on: its own support, from 0 up to the largest value it sampled.
-        See :meth:`MsprimeCoalescent._get_cached_times` for why each distribution needs its own grid rather than
-        sharing the tree height's."""
-        return np.linspace(0, float(np.max(dist.samples)), 100)
-
     def _touch(self, **kwargs: dict) -> None:
         """Build and cache the empirical distributions (so the cached stats/surfaces survive ``_drop`` and are
         serialized with the comparison)."""
-        self.tree_height._touch(self._get_cached_times(self.tree_height))
-        self.total_branch_length._touch(self._get_cached_times(self.total_branch_length))
+        times = MsprimeCoalescent._get_cached_times
+
+        self.tree_height._touch(times(self.tree_height))
+        self.total_branch_length._touch(times(self.total_branch_length))
 
         # the single-locus site-frequency spectra (undefined for multiple loci, where ``sfs2`` is used instead)
         if self.locus_config.n == 1:
-            self.sfs._touch(self._get_cached_times(self.sfs))
-            self.fsfs._touch(self._get_cached_times(self.fsfs))
+            self.sfs._touch(times(self.sfs))
+            self.fsfs._touch(times(self.fsfs))
 
             # multi-population: the joint SFS
             if len(self.lineage_config.pop_names) > 1:

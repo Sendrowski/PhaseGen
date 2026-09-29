@@ -6,10 +6,9 @@ analogue, but it does have a *binned* one: simulate the joint SFS branch lengths
 ``L_i`` lands in a narrow window around ``x``, and read off the empirical distribution of their ``L_j``. This
 is the only external check on the conditional's *shape* (the self-consistency tests in
 ``test_reward_distribution`` pin only the first moment via the law of total expectation), and it exercises the
-double de Hoog inversion of :class:`~phasegen.distributions.reward.JointRewardDistribution.conditional`.
-
-The comparison uses the atom-correct ``cdf.curve`` (the monotone de Hoog spline backing the plots), not the
-per-point ``cdf`` scalar, which returns the left limit ``0`` at exactly ``t = 0`` and so omits ``P(R = 0)``.
+nested inversion of :meth:`~phasegen.distributions.reward.JointRewardDistribution.conditional`: an Euler-series
+inversion along the conditioning axis under an outer de Hoog inversion. The conditional ``cdf`` carries the atom
+``P(R = 0)`` at ``t = 0``.
 """
 import numpy as np
 import pytest
@@ -71,7 +70,7 @@ class ConditionalMsprimeTestCase(TestCase):
                 assert abs(mean_emp - mean_ana) < 0.08 * mean_emp + 0.01, \
                     f"pair {(i, j)} L_{i}={x:.3f}: E_emp={mean_emp:.4f} vs E_ana={mean_ana:.4f}"
 
-                # CDF shape: the atom-correct de Hoog curve vs the empirical CDF over the bulk
+                # CDF shape: the analytic conditional CDF vs the empirical CDF over the bulk
                 grid = np.linspace(0.0, float(np.quantile(lj, 0.99)) + 1e-9, 40)
                 emp = np.searchsorted(lj, grid, side='right') / lj.size
                 ana = np.asarray(cond.cdf(grid), dtype=float)

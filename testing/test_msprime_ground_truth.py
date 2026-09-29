@@ -2,9 +2,9 @@
 Fast msprime ground-truth tests.
 
 These exercise the msprime-backed :class:`~phasegen.distributions.MsprimeCoalescent` paths (used as simulation
-ground truth in the scenario comparisons) with tiny samples and few replicates, so the code is covered without the
-cost of the slow comparison suite. They assert only that the statistics are produced and finite, not their accuracy
-(the slow scenario tests validate accuracy against the analytical results).
+ground truth in the scenario comparisons) with small samples, so the code is covered without the cost of the slow
+comparison suite. Most assert only that the statistics are produced and finite. The deme-axis and two-locus mutation
+tests also assert agreement with exact analytical values within four standard errors.
 """
 import math
 
@@ -134,6 +134,48 @@ class MsprimeGroundTruthTestCase(TestCase):
 
             se = counts.std(axis=0) / np.sqrt(n_reps)
             np.testing.assert_array_less(np.abs(counts.mean(axis=0) - exact)[1:n], 4 * se[1:n])
+
+    def test_per_deme_statistics_require_the_migration_history(self):
+        """
+        Without ``record_migration`` every branch was charged to the first deme, so the per-deme statistics of more
+        than one deme silently put the whole value there and zero elsewhere. They must raise, while the deme totals,
+        a single deme and a run with the migration history stay available.
+        """
+        dem = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+        coal = pg.Coalescent(n={'a': 2, 'b': 2}, demography=dem)
+
+        ms = self._ms(coal)
+        for dist in (ms.tree_height, ms.total_branch_length, ms.sfs, ms.fsfs):
+            with self.assertRaisesRegex(ValueError, 'record_migration=True'):
+                _ = dist.demes
+            self.assertTrue(np.all(np.isfinite(np.asarray(dist.mean))))
+        self.assertIsNone(ms.total_branch_length.pops_cov)
+        ms._touch()
+        self.assertNotIn('demes.cov', ms.total_branch_length._standard_errors)
+
+        recorded = self._ms(coal, record_migration=True).total_branch_length.demes
+        self.assertTrue(all(recorded[pop].mean > 0 for pop in ('a', 'b')))
+
+        single = self._ms(pg.Coalescent(n=4)).total_branch_length
+        self.assertEqual(single.demes['pop_0'].mean, single.mean)
+
+    def test_two_locus_mutation_configs_sum_over_loci(self):
+        """
+        On two loci the moments sum the branch lengths over both loci, while the configuration frequencies read the
+        mutations of locus 0 alone, so the mean mutation count they imply was half the mutation rate times the mean
+        branch length. The two must agree within four standard errors of the Poisson mutation noise.
+        """
+        rate, n_reps = 1.0, 4000
+        ms = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).to_msprime(
+            num_replicates=n_reps, n_threads=1, parallelize=False, seed=3, simulate_mutations=True,
+            mutation_rate=rate
+        )
+
+        for sfs in (ms.sfs, ms.fsfs):
+            length = rate * np.asarray(sfs.mean)[1:-1].sum()
+            implied = sum(sum(config) * p for config, p in sfs.mutation_configs.items())
+            self.assertAlmostEqual(sum(sfs.mutation_configs.values()), 1.0, delta=1e-9)
+            self.assertAlmostEqual(implied, length, delta=4 * np.sqrt(length / n_reps))
 
     def test_two_locus_statistics(self):
         """Two-locus SFS ground truth under recombination."""
