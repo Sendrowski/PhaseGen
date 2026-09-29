@@ -8,6 +8,7 @@ from typing import List, Dict, Iterable, Sequence, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
+from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward
@@ -41,12 +42,18 @@ class AbstractCoalescent(ABC):
     tree height, total branch length and site frequency spectrum.
     """
 
+    #: Initial distribution over lineage configurations, ``None`` for the single configuration :attr:`lineage_config`
+    lineage_distribution: InitialDistribution | None = None
+
+    #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
+    locus_distribution: InitialDistribution | None = None
+
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | LineageConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig | InitialDistribution,
             model: CoalescentModel = None,
             demography: Demography = None,
-            loci: int | LocusConfig = 1,
+            loci: int | LocusConfig | InitialDistribution = 1,
             recombination_rate: float = None,
             end_time: float = None
     ) -> None:
@@ -55,17 +62,29 @@ class AbstractCoalescent(ABC):
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
-            :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            :class:`~phasegen.lineage.LineageConfig` object, or an :class:`~phasegen.initial.InitialDistribution`
+            over lineage configurations, can be passed.
         :param model: Coalescent model. By default, the standard coalescent is used.
-        :param loci: Number of loci or locus configuration.
+        :param loci: Number of loci, locus configuration, or :class:`~phasegen.initial.InitialDistribution` over
+            locus configurations.
         :param recombination_rate: Recombination rate. If given, it overrides the rate of ``loci``.
         :param demography: Demography.
         :param end_time: Time when to end the computation. If ``None`` or infinite, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
         :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
-        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel` or
-            ``demography`` is not a :class:`~phasegen.demography.Demography`.
+        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel`,
+            ``demography`` is not a :class:`~phasegen.demography.Demography`, or an initial distribution passed as
+            ``n`` or ``loci`` holds the other kind of configuration.
         """
+        n, lineage_distribution = InitialDistribution._split(n)
+        loci, locus_distribution = InitialDistribution._split(loci)
+
+        if lineage_distribution is not None and not isinstance(n, LineageConfig):
+            raise TypeError("An initial distribution passed as n must hold lineage configurations.")
+
+        if locus_distribution is not None and not isinstance(loci, LocusConfig):
+            raise TypeError("An initial distribution passed as loci must hold locus configurations.")
+
         self._logger = logger.getChild(self.__class__.__name__)
 
         # set up default coalescent model
@@ -79,10 +98,10 @@ class AbstractCoalescent(ABC):
             raise TypeError(f"demography must be a {Demography.__name__}, but got {type(demography).__name__}.")
 
         if not isinstance(n, LineageConfig):
-            #: Population configuration
+            #: Population configuration, the first component of :attr:`lineage_distribution` if given
             self.lineage_config: LineageConfig = LineageConfig(n)
         else:
-            #: Population configuration
+            #: Population configuration, the first component of :attr:`lineage_distribution` if given
             self.lineage_config: LineageConfig = n
 
         # set up demography
@@ -96,13 +115,24 @@ class AbstractCoalescent(ABC):
         if not isinstance(loci, LocusConfig):
             loci = LocusConfig(n=loci)
 
-        # a new, validated locus configuration, so the caller-supplied one is never mutated
-        #: Locus configuration
-        self.locus_config: LocusConfig = LocusConfig(
-            n=loci.n,
-            n_unlinked=loci.n_unlinked,
-            recombination_rate=loci.recombination_rate if recombination_rate is None else recombination_rate
-        )
+        def validate_locus_config(c: LocusConfig) -> LocusConfig:
+            """
+            A new, validated locus configuration, so the caller-supplied one is never mutated.
+
+            :param c: The locus configuration.
+            :return: The new locus configuration, with the overriding recombination rate.
+            """
+            return LocusConfig(
+                n=c.n,
+                n_unlinked=c.n_unlinked,
+                recombination_rate=c.recombination_rate if recombination_rate is None else recombination_rate
+            )
+
+        #: Locus configuration, the first component of :attr:`locus_distribution` if given
+        self.locus_config: LocusConfig = validate_locus_config(loci)
+
+        if locus_distribution is not None:
+            self.locus_distribution = locus_distribution._map(validate_locus_config)
 
         # population names present in the population configuration but not in the demography
         initial_sizes = {p: {0: 1} for p in self.lineage_config.pop_names if p not in demography.pop_names}
@@ -133,9 +163,17 @@ class AbstractCoalescent(ABC):
 
         self.lineage_config = LineageConfig(self.lineage_config.lineage_dict | {p: 0 for p in unspecified_lineages})
 
-        if self.locus_config.n_unlinked > self.lineage_config.n:
+        if lineage_distribution is not None:
+            self.lineage_distribution = lineage_distribution._map(
+                lambda c: LineageConfig(c.lineage_dict | {p: 0 for p in unspecified_lineages})
+            )
+
+        n_unlinked = max(c.n_unlinked for c in ([self.locus_config] if self.locus_distribution is None
+                                                else self.locus_distribution.configs))
+
+        if n_unlinked > self.lineage_config.n:
             raise ValueError(
-                f"The number of unlinked lineages ({self.locus_config.n_unlinked}) must not exceed the number of "
+                f"The number of unlinked lineages ({n_unlinked}) must not exceed the number of "
                 f"lineages ({self.lineage_config.n})."
             )
 
@@ -155,6 +193,29 @@ class AbstractCoalescent(ABC):
     def n(self) -> int:
         """Total number of sampled lineages across all populations."""
         return self.lineage_config.n
+
+    @property
+    def _lineages(self) -> LineageConfig | InitialDistribution:
+        """The lineage configuration, or the initial distribution over lineage configurations if given."""
+        return self.lineage_config if self.lineage_distribution is None else self.lineage_distribution
+
+    @property
+    def _loci(self) -> LocusConfig | InitialDistribution:
+        """The locus configuration, or the initial distribution over locus configurations if given."""
+        return self.locus_config if self.locus_distribution is None else self.locus_distribution
+
+    def _assert_single_lineage_config(self, name: str) -> None:
+        """
+        Raise if the components of the initial distribution over lineage configurations differ, for a statistic
+        that depends on the sample configuration beyond the initial vector.
+
+        :param name: Name of the statistic, used in the error message.
+        :raises ValueError: If the lineage configurations differ.
+        """
+        if self.lineage_distribution is not None and any(
+                c != self.lineage_config for c in self.lineage_distribution.configs
+        ):
+            raise ValueError(f"{name} requires a single lineage configuration, not an initial distribution over them.")
 
     @property
     @abstractmethod
@@ -236,8 +297,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         The lineage-counting state space.
         """
         return LineageCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -248,8 +309,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         The block-counting state space.
         """
         return BlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -260,8 +321,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         The joint block-counting state space (tracks the deme-of-origin composition of each lineage).
         """
         return JointBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -373,8 +434,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         recombination/linkage history). Requires exactly two loci and a single population.
         """
         return TwoLocusBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -437,8 +498,11 @@ class Coalescent(AbstractCoalescent, Serializable):
         and which at least two sampled lineages, but not on larger counts, nor on the number of loci.
 
         :return: Hudson's :math:`F_{ST}`.
-        :raises ValueError: if fewer than two populations are sampled, or none carries two sampled lineages.
+        :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
+            lineage configurations of an initial distribution differ.
         """
+        self._assert_single_lineage_config("F_ST")
+
         counts = self.lineage_config.lineage_dict
         sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
 
@@ -864,10 +928,10 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         from .empirical import MsprimeCoalescent
         return MsprimeCoalescent(
-            n=self.lineage_config,
+            n=self._lineages,
             demography=self.demography,
             model=self.model,
-            loci=self.locus_config,
+            loci=self._loci,
             recombination_rate=self.locus_config.recombination_rate,
             mutation_rate=mutation_rate,
             end_time=self.end_time,

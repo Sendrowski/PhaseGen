@@ -11,6 +11,7 @@ from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, S
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from ..demography import Demography
+from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..settings import Settings
@@ -1785,10 +1786,10 @@ class MsprimeCoalescent(AbstractCoalescent):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | LineageConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig | InitialDistribution,
             demography: Demography = None,
             model: CoalescentModel = StandardCoalescent(),
-            loci: int | LocusConfig = 1,
+            loci: int | LocusConfig | InitialDistribution = 1,
             recombination_rate: float = None,
             mutation_rate: float = None,
             end_time: float = None,
@@ -1802,10 +1803,12 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         Simulate data using msprime.
 
-        :param n: Number of Lineages.
+        :param n: Number of lineages, lineage configuration, or initial distribution over lineage configurations,
+            from which each replicate draws its starting configuration.
         :param demography: Demography.
         :param model: Coalescent model.
-        :param loci: Number of loci or locus configuration.
+        :param loci: Number of loci, locus configuration, or initial distribution over locus configurations, from
+            which each replicate draws its starting configuration.
         :param recombination_rate: Recombination rate.
         :param mutation_rate: Mutation rate.
         :param end_time: Time when to end the simulation.
@@ -1947,6 +1950,66 @@ class MsprimeCoalescent(AbstractCoalescent):
         names = self.demography._msprime_names
         return {names[pop]: n for pop, n in self.lineage_config.lineage_dict.items()}
 
+    def _placements(self, demography: 'msprime.Demography') -> List[Tuple[float, dict]]:
+        """
+        The starting configurations of the replicates, one per component of the initial distribution. Lineages that
+        start unlinked between the loci have no expression as samples, a sample being ancestral over the whole
+        sequence, so they are set up as an initial state instead (see ``_unlinked_initial_state``).
+
+        :param demography: The msprime demography.
+        :return: Pairs of the weight and the keyword arguments of :func:`msprime.sim_ancestry` placing the samples.
+        """
+        names = self.demography._msprime_names
+        lineages = [(1.0, self.lineage_config)] if self.lineage_distribution is None else self.lineage_distribution
+        loci = [(1.0, self.locus_config)] if self.locus_distribution is None else self.locus_distribution
+
+        placements = []
+        for w_a, a in lineages:
+            samples = {names[pop]: n for pop, n in a.lineage_dict.items()}
+
+            for w_b, b in loci:
+                if b.n == 2 and b.n_unlinked > 0:
+                    placement = dict(initial_state=_unlinked_initial_state(samples, b.n_unlinked, demography))
+                else:
+                    placement = dict(samples=samples, sequence_length=b.n)
+
+                placements.append((w_a * w_b, placement))
+
+        return placements
+
+    @staticmethod
+    def _sim_ancestry(
+            placements: List[Tuple[float, dict]],
+            num_replicates: int,
+            random_seed: Optional[int],
+            **kwargs
+    ) -> Iterator['tskit.TreeSequence']:
+        """
+        Simulate replicates whose starting configurations are drawn from the weights of ``placements``. The
+        replicates are grouped by starting configuration.
+
+        :param placements: Pairs of the weight and the keyword arguments placing the samples, see ``_placements``.
+        :param num_replicates: Number of replicates.
+        :param random_seed: msprime seed, which also draws the starting configurations. ``None`` draws fresh entropy.
+        :param kwargs: Further keyword arguments of :func:`msprime.sim_ancestry`.
+        :return: The tree sequences.
+        """
+        import msprime as ms
+
+        if len(placements) == 1:
+            yield from ms.sim_ancestry(
+                num_replicates=num_replicates, random_seed=random_seed, **placements[0][1], **kwargs
+            )
+            return
+
+        rng = np.random.default_rng(random_seed)
+        counts = rng.multinomial(num_replicates, [w for w, _ in placements])
+        seeds = rng.integers(1, 2 ** 32 - 1, size=len(placements))
+
+        for (_, placement), count, seed in zip(placements, counts, seeds):
+            if count > 0:
+                yield from ms.sim_ancestry(num_replicates=int(count), random_seed=int(seed), **placement, **kwargs)
+
     def simulate(self) -> None:
         """
         Simulate data using msprime, once per instance, so that every statistic describes the same tree sequences.
@@ -1957,24 +2020,19 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
-        samples = self._msprime_samples
-
-        # lineages that start unlinked between the loci have no expression as samples, a sample being ancestral over
-        # the whole sequence; they are set up as an initial state instead (see ``_unlinked_initial_state``)
-        initial_state = None
-        if self.locus_config.n == 2 and self.locus_config.n_unlinked > 0:
-            initial_state = _unlinked_initial_state(
-                samples, self.locus_config.n_unlinked, self.demography.to_msprime()
-            )
         demography = self.demography.to_msprime()
+        placements = self._placements(demography)
         model = self.get_coalescent_model()
         end_time = self.end_time
         n_pops = self.demography.n_pops
         sample_size = self.lineage_config.n
 
         # joint SFS is accumulated from the same trees, but only for multi-population, single-locus scenarios where
-        # it is meaningful (the descendant configuration is by deme of origin)
-        compute_jsfs = self.lineage_config.n_pops > 1 and self.locus_config.n == 1
+        # it is meaningful (the descendant configuration is by deme of origin), with one sample configuration
+        compute_jsfs = self.lineage_config.n_pops > 1 and self.locus_config.n == 1 and (
+                self.lineage_distribution is None
+                or all(c == self.lineage_config for c in self.lineage_distribution.configs)
+        )
         jsfs_max_order = self._jsfs_max_order
         jsfs_shape = tuple(int(s) + 1 for s in self.lineage_config.lineages)
 
@@ -1996,29 +2054,22 @@ class MsprimeCoalescent(AbstractCoalescent):
                 are drawn.
             :return: Statistics.
             """
-            import msprime as ms
             import tskit
 
             ancestry_seed, *replicate_seeds = self._msprime_seeds(seed, num_replicates + 1)
 
             # simulate trees
-            shared = dict(
+            g: Iterator[tskit.TreeSequence] = self._sim_ancestry(
+                placements,
+                num_replicates,
+                ancestry_seed,
                 recombination_rate=self.locus_config.recombination_rate,
-                num_replicates=num_replicates,
                 record_migrations=self.record_migration,
                 demography=demography,
                 model=model,
                 ploidy=1,
-                end_time=end_time,
-                random_seed=ancestry_seed
+                end_time=end_time
             )
-            if initial_state is None:
-                g: Generator = ms.sim_ancestry(
-                    sequence_length=self.locus_config.n, samples=samples, **shared
-                )
-            else:
-                # the initial state carries the sequence length and the samples
-                g: Generator = ms.sim_ancestry(initial_state=initial_state, **shared)
 
             # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
             # is recorded either directly from each tree or, with migration recording, from the migration history
@@ -2283,8 +2334,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         the per-bin branch-length cross product averaged over replicates, returned as an
         :class:`EmpiricalTwoLocusSFSDistribution`. Only available for two-locus, single-locus-sample scenarios.
         """
-        import msprime as ms
-
         if self.locus_config.n != 2:
             raise NotImplementedError("The two-locus SFS is only available for two-locus scenarios.")
 
@@ -2296,23 +2345,15 @@ class MsprimeCoalescent(AbstractCoalescent):
         # per-replicate locus-0 / locus-1 SFS branch lengths, retained for the joint distribution / cross-moments
         lefts = np.zeros((self.num_replicates, n + 1))
         rights = np.zeros((self.num_replicates, n + 1))
-        # lineages that start unlinked between the loci live in the initial state, not in the samples
-        initial_state = None
-        if self.locus_config.n_unlinked > 0:
-            initial_state = _unlinked_initial_state(self._msprime_samples, self.locus_config.n_unlinked, demography)
-
-        placement = (dict(initial_state=initial_state) if initial_state is not None
-                     else dict(samples=self._msprime_samples, sequence_length=2))
-
-        for rep, ts in enumerate(ms.sim_ancestry(
+        for rep, ts in enumerate(self._sim_ancestry(
+                self._placements(demography),
+                self.num_replicates,
+                self._msprime_seed(),
                 recombination_rate=self.locus_config.recombination_rate,
                 demography=demography,
                 model=model,
                 ploidy=1,
-                num_replicates=self.num_replicates,
-                end_time=self.end_time,
-                random_seed=self._msprime_seed(),
-                **placement
+                end_time=self.end_time
         )):
             t0, t1 = ts.at(0.5), ts.at(1.5)
             left = np.zeros(n + 1)
@@ -2337,11 +2378,14 @@ class MsprimeCoalescent(AbstractCoalescent):
         populations with at least two sampled lineages and the divergence over the pairs of sampled populations, as
         :meth:`Coalescent.fst` does.
 
-        :raises ValueError: if fewer than two populations are sampled, or none carries two sampled lineages.
+        :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
+            lineage configurations of an initial distribution differ.
         """
         import msprime as ms
 
         pops = self.demography.pop_names
+        self._assert_single_lineage_config("F_ST")
+
         counts = self.lineage_config.lineage_dict
         sampled = [q for q in pops if counts.get(q, 0) >= 1]
 
@@ -2440,10 +2484,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         :return: phasegen coalescent.
         """
         return Coalescent(
-            n=self.lineage_config,
+            n=self._lineages,
             model=self.model,
             demography=self.demography,
-            loci=self.locus_config,
+            loci=self._loci,
             recombination_rate=self.locus_config.recombination_rate,
             end_time=self.end_time
         )
@@ -2486,10 +2530,10 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
         # the config after the analytic coalescent is dropped (Comparison / serialization need it)
         super().__init__(
-            n=coalescent.lineage_config,
+            n=coalescent._lineages,
             model=coalescent.model,
             demography=coalescent.demography,
-            loci=coalescent.locus_config,
+            loci=coalescent._loci,
             end_time=coalescent.end_time
         )
 

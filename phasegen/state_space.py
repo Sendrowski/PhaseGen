@@ -29,6 +29,7 @@ from tqdm import tqdm
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .settings import Settings
 from .demography import Epoch
+from .initial import InitialDistribution
 from .lineage import LineageConfig
 from .locus import LocusConfig
 from .state_space_numba import build_rate_matrix
@@ -82,21 +83,33 @@ class StateSpace(ABC):
     #: Whether the states and rate matrices are built by the numba kernel, fixed by the first call of :meth:`_use_numba`
     _numba: bool | None = None
 
+    #: Initial distribution over lineage configurations, ``None`` for the single configuration :attr:`lineage_config`
+    lineage_distribution: InitialDistribution | None = None
+
+    #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
+    locus_distribution: InitialDistribution | None = None
+
     def __init__(
             self,
-            lineage_config: LineageConfig,
-            locus_config: LocusConfig = None,
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
     ) -> None:
         """
         Create a rate matrix.
 
-        :param lineage_config: Population configuration.
-        :param locus_config: Locus configuration. One locus is used by default.
+        :param lineage_config: Population configuration, or an initial distribution over population configurations,
+            whose first component is used to construct the states.
+        :param locus_config: Locus configuration, or an initial distribution over locus configurations, whose first
+            component is used to construct the states. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
         """
+        lineage_config, self.lineage_distribution = InitialDistribution._split(lineage_config)
+        locus_config, self.locus_distribution = InitialDistribution._split(locus_config)
+
         if locus_config is None:
             locus_config = LocusConfig()
 
@@ -121,9 +134,11 @@ class StateSpace(ABC):
         # neither config can check this alone: the locus configuration does not know the sample size, and a state
         # space built directly with more unlinked lineages than there are lineages has no initial state, which
         # surfaces only once the lazy ``alpha`` is touched, as all-NaN or as a silently oversized space
-        if locus_config.n_unlinked > lineage_config.n:
+        n_unlinked = max(c.n_unlinked for _, _, c in self._initial_components())
+
+        if n_unlinked > lineage_config.n:
             raise ValueError(
-                f"The number of unlinked lineages ({locus_config.n_unlinked}) must not exceed the number of "
+                f"The number of unlinked lineages ({n_unlinked}) must not exceed the number of "
                 f"lineages ({lineage_config.n})."
             )
 
@@ -301,22 +316,51 @@ class StateSpace(ABC):
         self._assert_positive_sizes(self.epoch)
         return self._get_rate_matrix()
 
+    def _initial_components(self) -> List[Tuple[float, LineageConfig, LocusConfig]]:
+        """
+        The components of the initial distribution, each pairing a lineage with a locus configuration, weighted by
+        the product of their weights in :attr:`lineage_distribution` and :attr:`locus_distribution`.
+
+        :return: Triples ``(weight, lineage_config, locus_config)`` with weights summing to one.
+        """
+        lineages = [(1.0, self.lineage_config)] if self.lineage_distribution is None else self.lineage_distribution
+        loci = [(1.0, self.locus_config)] if self.locus_distribution is None else self.locus_distribution
+
+        return [(w_a * w_b, a, b) for w_a, a in lineages for w_b, b in loci]
+
+    @staticmethod
+    def _assert_initial_mass(alpha: np.ndarray, lineage_config: LineageConfig, locus_config: LocusConfig) -> None:
+        """
+        Raise if no state matches a component of the initial distribution.
+
+        :param alpha: The unnormalized initial vector of the component.
+        :param lineage_config: Lineage configuration of the component.
+        :param locus_config: Locus configuration of the component.
+        :raises ValueError: If ``alpha`` has no positive entry.
+        """
+        if not alpha.any():
+            raise ValueError(
+                f"No state of the state space matches the initial configuration with lineages "
+                f"{lineage_config.lineage_dict} and {locus_config.n_unlinked} unlinked lineages."
+            )
+
     @cached_property
     def alpha(self) -> np.ndarray:
         r"""
-        Initial distribution :math:`\boldsymbol{\alpha}` over the states, normalized to sum to one (there may be
-        several admissible initial states, over which the mass is spread uniformly).
+        Initial distribution :math:`\boldsymbol{\alpha}` over the states, normalized to sum to one. A component of
+        the initial distribution spreads its weight uniformly over the states it admits, and the components are
+        summed.
+
+        :raises ValueError: If no state matches a component of the initial distribution.
         """
-        pops = self.lineage_config._get_initial_states(self)
-        loci = self.locus_config._get_initial_states(self)
+        alpha = np.zeros(self.k)
 
-        # combine initial states
-        alpha = pops * loci
+        for weight, lineage_config, locus_config in self._initial_components():
+            states = lineage_config._get_initial_states(self) * locus_config._get_initial_states(self, lineage_config)
+            self._assert_initial_mass(states, lineage_config, locus_config)
+            alpha += weight * (states / states.sum())
 
-        # return normalized vector
-        # normalization ensures that the initial state vector is a probability distribution
-        # as we may have multiple initial states
-        return alpha / alpha.sum()
+        return alpha
 
     @cached_property
     def k(self) -> int:
@@ -411,6 +455,8 @@ class StateSpace(ABC):
                 self.__class__ == other.__class__ and
                 self.lineage_config == other.lineage_config and
                 self.locus_config == other.locus_config and
+                self.lineage_distribution == other.lineage_distribution and
+                self.locus_distribution == other.locus_distribution and
                 self.model == other.model
         )
 
@@ -813,7 +859,7 @@ class BlockCountingStateSpace(StateSpace):
         :param epoch: The epoch
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
-        if locus_config is not None and locus_config.n > 1:
+        if locus_config is not None and InitialDistribution._split(locus_config)[0].n > 1:
             raise NotImplementedError('Block-counting state space only supports one locus.')
 
         super().__init__(
@@ -940,7 +986,7 @@ class JointBlockCountingStateSpace(StateSpace):
         :param epoch: The epoch.
         """
         # the joint state space tracks descendant vectors which do not extend to multiple loci
-        if locus_config is not None and locus_config.n > 1:
+        if locus_config is not None and InitialDistribution._split(locus_config)[0].n > 1:
             raise NotImplementedError('Joint block-counting state space only supports one locus.')
 
         super().__init__(
@@ -949,6 +995,13 @@ class JointBlockCountingStateSpace(StateSpace):
             model=model,
             epoch=epoch
         )
+
+        # the block types are the descendant vectors, bounded by the number of lineages per population
+        if any(not np.array_equal(c.lineages, self.lineage_config.lineages) for _, c, _ in self._initial_components()):
+            raise ValueError(
+                "The joint block-counting state space depends on the number of lineages per population, which must "
+                "agree between the components of an initial distribution."
+            )
 
     @cached_property
     def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
@@ -989,10 +1042,13 @@ class JointBlockCountingStateSpace(StateSpace):
         """
         return len(self.block_configs)
 
-    def _get_initial(self) -> 'State':
+    def _get_initial(self, locus_config: LocusConfig = None) -> 'State':
         """
         Get the initial state. Each of the ``n_p`` lineages sampled from population ``p`` starts in deme ``p`` with
         descendant vector ``e_p`` (the unit vector subtending a single sample from population ``p``).
+
+        :param locus_config: Locus configuration of the initial state, that of the state space by default. Only a
+            single locus is supported, so it does not change the initial state.
         """
         data = tuple(
             np.zeros((self.locus_config.n, self.lineage_config.n_pops, self.n_blocks), dtype=int)
@@ -1009,12 +1065,20 @@ class JointBlockCountingStateSpace(StateSpace):
     @cached_property
     def alpha(self) -> np.ndarray:
         """
-        Initial state vector. There is a single initial state, in which every sampled lineage resides in its
-        population of origin, so this is its indicator vector.
-        """
-        initial = self._get_initial()
+        Initial state vector. Each component of the initial distribution has a single initial state, in which every
+        sampled lineage resides in its population of origin, so this is the weighted sum of their indicator vectors.
 
-        return np.array([s == initial for s in self.states], dtype=float)
+        :raises ValueError: If the initial state of a component is not a state of the state space.
+        """
+        alpha = np.zeros(self.k)
+
+        for weight, lineage_config, locus_config in self._initial_components():
+            initial = self._get_initial(locus_config)
+            states = np.array([s == initial for s in self.states], dtype=float)
+            self._assert_initial_mass(states, lineage_config, locus_config)
+            alpha += weight * states
+
+        return alpha
 
 
 class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
@@ -1052,10 +1116,10 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
         """
-        if locus_config is None or locus_config.n != 2:
+        if locus_config is None or InitialDistribution._split(locus_config)[0].n != 2:
             raise ValueError('The two-locus block-counting state space requires exactly two loci.')
 
-        if lineage_config.n_pops != 1:
+        if InitialDistribution._split(lineage_config)[0].n_pops != 1:
             raise NotImplementedError('The two-locus block-counting state space currently supports a single '
                                       'population (no migration).')
 
@@ -1073,13 +1137,15 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
 
         return tuple(c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1)
 
-    def _get_initial(self) -> 'State':
+    def _get_initial(self, locus_config: LocusConfig = None) -> 'State':
         """
         Get the initial state: ``n - n_unlinked`` lineages of type ``(1, 1)`` (linked across both loci) plus, for
         each of the ``n_unlinked`` initially unlinked samples, a ``(1, 0)`` and a ``(0, 1)`` lineage.
+
+        :param locus_config: Locus configuration of the initial state, that of the state space by default.
         """
         n = int(self.lineage_config.n)
-        n_unlinked = int(self.locus_config.n_unlinked)
+        n_unlinked = int((self.locus_config if locus_config is None else locus_config).n_unlinked)
         n_linked = max(n - n_unlinked, 0)
 
         data = tuple(np.zeros((1, 1, self.n_blocks), dtype=int) for _ in range(2))

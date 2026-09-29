@@ -220,6 +220,8 @@ from .lineage import LineageConfig
 
 from .locus import LocusConfig
 
+from .initial import InitialDistribution
+
 from .norms import (
     LNorm,
     L1Norm,
@@ -306,6 +308,7 @@ __all__ = [
     'CoalescentModel',
     'LineageConfig',
     'LocusConfig',
+    'InitialDistribution',
     'Backend',
     'ExpmBackend',
     'SciPyExpmBackend',

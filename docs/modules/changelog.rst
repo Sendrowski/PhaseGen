@@ -5,6 +5,7 @@ Changelog
 
 [2.0.0] - 2026-07-10
 ^^^^^^^^^^^^^^^^^^^^
+- Start the coalescent from a weighted mixture of lineage or locus configurations with :class:`~phasegen.initial.InitialDistribution`, accepted as ``n`` and ``loci`` by :class:`~phasegen.distributions.Coalescent` and :class:`~phasegen.distributions.MsprimeCoalescent`.
 - Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` slices.
 - Add a vectorised trajectory sampler (:meth:`to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`SampledCoalescent <phasegen.distributions.SampledCoalescent>`) as a sampled counterpart of every phase-type distribution.
 - Support time-inhomogeneous (multi-epoch) demographies for :meth:`mutational block configurations <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
