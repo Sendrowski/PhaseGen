@@ -17,7 +17,7 @@
             "sfs": {
                 "conditional": {
                     "[(1, 2), (1, 3)]": {
-                        "moments": 0.06
+                        "moments": 0.0015
                     },
                     "[(1, 3)]": {
                         "atom": {
@@ -24071,732 +24071,6 @@
             }
         }
     },
-    "ph": {
-        "py/object": "phasegen.distributions.coalescent.Coalescent",
-        "py/state": {
-            "_logger": {
-                "py/reduce": [
-                    {
-                        "py/function": "logging.getLogger"
-                    },
-                    {
-                        "py/tuple": [
-                            "phasegen.Coalescent"
-                        ]
-                    }
-                ]
-            },
-            "lineage_config": {
-                "py/object": "phasegen.lineage.LineageConfig",
-                "_logger": {
-                    "py/id": 27
-                },
-                "lineages": {
-                    "py/object": "numpy.ndarray",
-                    "data": [
-                        4
-                    ],
-                    "dtype": "int64"
-                },
-                "n": 4,
-                "n_pops": 1,
-                "pop_names": [
-                    "pop_0"
-                ]
-            },
-            "locus_config": {
-                "py/object": "phasegen.locus.LocusConfig",
-                "_logger": {
-                    "py/id": 31
-                },
-                "n": 1,
-                "n_unlinked": 0,
-                "recombination_rate": 0,
-                "_allow_coalescence": true
-            },
-            "model": {
-                "py/object": "phasegen.coalescent_models.StandardCoalescent"
-            },
-            "demography": {
-                "py/object": "phasegen.demography.Demography",
-                "py/state": {
-                    "_logger": {
-                        "py/reduce": [
-                            {
-                                "py/function": "logging.getLogger"
-                            },
-                            {
-                                "py/tuple": [
-                                    "phasegen.Demography"
-                                ]
-                            }
-                        ]
-                    },
-                    "warn_n_epochs": 20,
-                    "_issued_warning": false,
-                    "events": [
-                        {
-                            "py/object": "phasegen.demography.DiscreteRateChanges",
-                            "pop_names": [
-                                "pop_0"
-                            ],
-                            "n_pops": 1,
-                            "times": {
-                                "py/object": "numpy.ndarray",
-                                "data": [
-                                    0.0,
-                                    0.3,
-                                    1.0,
-                                    1.4
-                                ],
-                                "dtype": "float64"
-                            },
-                            "pop_sizes": {
-                                "json://{\"py/object\": \"numpy.float64\", \"dtype\": \"float64\", \"value\": 0.0}": {
-                                    "pop_0": 1.2
-                                },
-                                "json://{\"py/object\": \"numpy.float64\", \"dtype\": \"float64\", \"value\": 0.3}": {
-                                    "pop_0": 10
-                                },
-                                "json://{\"py/object\": \"numpy.float64\", \"dtype\": \"float64\", \"value\": 1.0}": {
-                                    "pop_0": 0.8
-                                },
-                                "json://{\"py/object\": \"numpy.float64\", \"dtype\": \"float64\", \"value\": 1.4}": {
-                                    "pop_0": 10
-                                }
-                            },
-                            "migration_rates": {
-                                "json://{\"py/id\": 509}": {},
-                                "json://{\"py/id\": 511}": {},
-                                "json://{\"py/id\": 513}": {},
-                                "json://{\"py/id\": 515}": {}
-                            },
-                            "start_time": {
-                                "py/object": "numpy.float64",
-                                "dtype": "float64",
-                                "value": 0.0
-                            }
-                        }
-                    ],
-                    "pop_names": [
-                        "pop_0"
-                    ],
-                    "n_pops": 1,
-                    "_model": {
-                        "py/id": 500
-                    }
-                }
-            },
-            "end_time": null,
-            "start_time": 0,
-            "block_counting_state_space": {
-                "py/object": "phasegen.state_space.BlockCountingStateSpace",
-                "_logger": {
-                    "py/reduce": [
-                        {
-                            "py/function": "logging.getLogger"
-                        },
-                        {
-                            "py/tuple": [
-                                "phasegen.BlockCountingStateSpace"
-                            ]
-                        }
-                    ]
-                },
-                "model": {
-                    "py/id": 500
-                },
-                "lineage_config": {
-                    "py/id": 496
-                },
-                "locus_config": {
-                    "py/id": 499
-                },
-                "epoch": {
-                    "py/object": "phasegen.demography.Epoch",
-                    "start_time": {
-                        "py/object": "numpy.float64",
-                        "dtype": "float64",
-                        "value": 1.4
-                    },
-                    "end_time": Infinity,
-                    "pop_sizes": {
-                        "pop_0": 10
-                    },
-                    "pop_names": [
-                        "pop_0"
-                    ],
-                    "n_pops": 1,
-                    "migration_rates": {
-                        "json://{\"py/tuple\": [\"pop_0\", \"pop_0\"]}": 0
-                    }
-                },
-                "_cache": {},
-                "time": 3.3369662761688232,
-                "states": [
-                    {
-                        "py/object": "phasegen.state_space.State",
-                        "data": {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                4,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                },
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        "py/object": "phasegen.state_space.State",
-                        "data": {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                2,
-                                                1,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                },
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        "py/object": "phasegen.state_space.State",
-                        "data": {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                2,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                },
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        "py/object": "phasegen.state_space.State",
-                        "data": {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                1,
-                                                0,
-                                                1,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                },
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        "py/object": "phasegen.state_space.State",
-                        "data": {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                1
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                },
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            [
-                                                0,
-                                                0,
-                                                0,
-                                                0
-                                            ]
-                                        ]
-                                    ],
-                                    "dtype": "int64"
-                                }
-                            ]
-                        }
-                    }
-                ],
-                "absorbing": {
-                    "py/object": "numpy.ndarray",
-                    "data": [
-                        false,
-                        false,
-                        false,
-                        false,
-                        true
-                    ],
-                    "dtype": "bool"
-                },
-                "lineages": {
-                    "py/object": "numpy.ndarray",
-                    "data": [
-                        [
-                            [
-                                [
-                                    4,
-                                    0,
-                                    0,
-                                    0
-                                ]
-                            ]
-                        ],
-                        [
-                            [
-                                [
-                                    2,
-                                    1,
-                                    0,
-                                    0
-                                ]
-                            ]
-                        ],
-                        [
-                            [
-                                [
-                                    0,
-                                    2,
-                                    0,
-                                    0
-                                ]
-                            ]
-                        ],
-                        [
-                            [
-                                [
-                                    1,
-                                    0,
-                                    1,
-                                    0
-                                ]
-                            ]
-                        ],
-                        [
-                            [
-                                [
-                                    0,
-                                    0,
-                                    0,
-                                    1
-                                ]
-                            ]
-                        ]
-                    ],
-                    "dtype": "int64"
-                },
-                "k": 5,
-                "alpha": {
-                    "py/object": "numpy.ndarray",
-                    "data": [
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    "dtype": "float64"
-                }
-            },
-            "lineage_counting_state_space": {
-                "py/object": "phasegen.state_space.LineageCountingStateSpace",
-                "_logger": {
-                    "py/reduce": [
-                        {
-                            "py/function": "logging.getLogger"
-                        },
-                        {
-                            "py/tuple": [
-                                "phasegen.LineageCountingStateSpace"
-                            ]
-                        }
-                    ]
-                },
-                "model": {
-                    "py/id": 500
-                },
-                "lineage_config": {
-                    "py/id": 496
-                },
-                "locus_config": {
-                    "py/id": 499
-                },
-                "epoch": {
-                    "py/object": "phasegen.demography.Epoch",
-                    "start_time": 0,
-                    "end_time": {
-                        "py/object": "numpy.float64",
-                        "dtype": "float64",
-                        "value": 0.3
-                    },
-                    "pop_sizes": {
-                        "pop_0": 1.2
-                    },
-                    "pop_names": [
-                        "pop_0"
-                    ],
-                    "n_pops": 1,
-                    "migration_rates": {
-                        "json://{\"py/tuple\": [\"pop_0\", \"pop_0\"]}": 0
-                    }
-                },
-                "_cache": {},
-                "time": null
-            },
-            "tree_height": {
-                "py/object": "phasegen.distributions.phase_type.TreeHeightDistribution",
-                "_logger": {
-                    "py/reduce": [
-                        {
-                            "py/function": "logging.getLogger"
-                        },
-                        {
-                            "py/tuple": [
-                                "phasegen.TreeHeightDistribution"
-                            ]
-                        }
-                    ]
-                },
-                "lineage_config": {
-                    "py/id": 496
-                },
-                "locus_config": {
-                    "py/id": 499
-                },
-                "reward": {
-                    "py/object": "phasegen.rewards.TreeHeightReward"
-                },
-                "state_space": {
-                    "py/id": 551
-                },
-                "demography": {
-                    "py/id": 501
-                },
-                "tree_height": {
-                    "py/id": 559
-                },
-                "start_time": 0,
-                "end_time": null
-            },
-            "sfs": {
-                "py/object": "phasegen.distributions.spectra.UnfoldedSFSDistribution",
-                "_logger": {
-                    "py/reduce": [
-                        {
-                            "py/function": "logging.getLogger"
-                        },
-                        {
-                            "py/tuple": [
-                                "phasegen.UnfoldedSFSDistribution"
-                            ]
-                        }
-                    ]
-                },
-                "lineage_config": {
-                    "py/id": 496
-                },
-                "locus_config": {
-                    "py/id": 499
-                },
-                "reward": {
-                    "py/object": "phasegen.rewards.UnitReward"
-                },
-                "state_space": {
-                    "py/id": 524
-                },
-                "demography": {
-                    "py/id": 501
-                },
-                "tree_height": {
-                    "py/id": 559
-                },
-                "generated_mass": 0,
-                "_time_scale": 1.0,
-                "_reward_epoch_data": {
-                    "idx": {
-                        "py/object": "numpy.ndarray",
-                        "data": [
-                            0,
-                            1,
-                            2,
-                            3
-                        ],
-                        "dtype": "int64"
-                    },
-                    "alpha": {
-                        "py/object": "numpy.ndarray",
-                        "data": [
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "dtype": "float64"
-                    },
-                    "nt": 4,
-                    "sparse": false,
-                    "T_epochs": [
-                        {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            -5.0,
-                                            5.0,
-                                            0.0,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            -2.5,
-                                            0.8333333333333334,
-                                            1.6666666666666667
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            -0.8333333333333334,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            0.0,
-                                            -0.8333333333333334
-                                        ]
-                                    ],
-                                    "dtype": "float64"
-                                },
-                                0,
-                                {
-                                    "py/object": "numpy.float64",
-                                    "dtype": "float64",
-                                    "value": 0.3
-                                }
-                            ]
-                        },
-                        {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            -0.6,
-                                            0.6,
-                                            0.0,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            -0.3,
-                                            0.1,
-                                            0.2
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            -0.1,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            0.0,
-                                            -0.1
-                                        ]
-                                    ],
-                                    "dtype": "float64"
-                                },
-                                {
-                                    "py/id": 570
-                                },
-                                {
-                                    "py/object": "numpy.float64",
-                                    "dtype": "float64",
-                                    "value": 1.0
-                                }
-                            ]
-                        },
-                        {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            -7.5,
-                                            7.5,
-                                            0.0,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            -3.75,
-                                            1.25,
-                                            2.5
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            -1.25,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            0.0,
-                                            -1.25
-                                        ]
-                                    ],
-                                    "dtype": "float64"
-                                },
-                                {
-                                    "py/id": 572
-                                },
-                                {
-                                    "py/id": 527
-                                }
-                            ]
-                        },
-                        {
-                            "py/tuple": [
-                                {
-                                    "py/object": "numpy.ndarray",
-                                    "data": [
-                                        [
-                                            -0.6,
-                                            0.6,
-                                            0.0,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            -0.3,
-                                            0.1,
-                                            0.2
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            -0.1,
-                                            0.0
-                                        ],
-                                        [
-                                            0.0,
-                                            0.0,
-                                            0.0,
-                                            -0.1
-                                        ]
-                                    ],
-                                    "dtype": "float64"
-                                },
-                                {
-                                    "py/id": 527
-                                },
-                                Infinity
-                            ]
-                        }
-                    ],
-                    "lu_perm": null
-                },
-                "_reward_epoch_data_scaled": {
-                    "py/id": 565
-                }
-            }
-        }
-    },
     "empirical": {
         "py/object": "phasegen.distributions.empirical.SampledCoalescent",
         "_logger": {
@@ -25347,7 +24621,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 583
+                            "py/id": 501
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -25742,29 +25016,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 601
+                                "py/id": 519
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 601
+                                "py/id": 519
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 601
+                                "py/id": 519
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 596
+                        "py/id": 514
                     },
                     "corr": {
-                        "py/id": 597
+                        "py/id": 515
                     }
                 }
             },
@@ -25777,7 +25051,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 583
+                            "py/id": 501
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -26172,29 +25446,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 626
+                                "py/id": 544
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 626
+                                "py/id": 544
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 626
+                                "py/id": 544
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 599
+                        "py/id": 517
                     },
                     "corr": {
-                        "py/id": 598
+                        "py/id": 516
                     }
                 }
             },
@@ -26237,19 +25511,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 581
+                        "py/id": 499
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 581
+                        "py/id": 499
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 581
+                        "py/id": 499
                     }
                 }
             }
@@ -26721,7 +25995,7 @@
                 }
             },
             "pops": {
-                "py/id": 594
+                "py/id": 512
             },
             "_samples": null,
             "_loci_joint_surface": [],
@@ -26754,7 +26028,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 663
+                            "py/id": 581
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -27149,29 +26423,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 680
+                                "py/id": 598
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 680
+                                "py/id": 598
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 680
+                                "py/id": 598
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 675
+                        "py/id": 593
                     },
                     "corr": {
-                        "py/id": 676
+                        "py/id": 594
                     }
                 }
             },
@@ -27184,7 +26458,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 663
+                            "py/id": 581
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -27579,29 +26853,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 623
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 623
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 623
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 678
+                        "py/id": 596
                     },
                     "corr": {
-                        "py/id": 677
+                        "py/id": 595
                     }
                 }
             },
@@ -27644,19 +26918,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 661
+                        "py/id": 579
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 661
+                        "py/id": 579
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 661
+                        "py/id": 579
                     }
                 }
             }
@@ -29740,7 +29014,7 @@
                 }
             },
             "pops": {
-                "py/id": 594
+                "py/id": 512
             },
             "n": 4,
             "_sfs_dist": {
@@ -29763,7 +29037,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 742
+                            "py/id": 660
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -31891,19 +31165,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 758
+                                "py/id": 676
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 758
+                                "py/id": 676
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 758
+                                "py/id": 676
                             }
                         }
                     }
@@ -31926,7 +31200,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 742
+                            "py/id": 660
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -34035,19 +33309,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 794
+                                "py/id": 712
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 794
+                                "py/id": 712
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 794
+                                "py/id": 712
                             }
                         }
                     }
@@ -34223,19 +33497,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 740
+                        "py/id": 658
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 740
+                        "py/id": 658
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 740
+                        "py/id": 658
                     }
                 }
             }
@@ -36319,7 +35593,7 @@
                 }
             },
             "pops": {
-                "py/id": 594
+                "py/id": 512
             },
             "n": 4,
             "_sfs_dist": {
@@ -36342,7 +35616,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 835
+                            "py/id": 753
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -38470,19 +37744,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 851
+                                "py/id": 769
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 851
+                                "py/id": 769
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 851
+                                "py/id": 769
                             }
                         }
                     }
@@ -38505,7 +37779,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 835
+                            "py/id": 753
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -40614,19 +39888,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 887
+                                "py/id": 805
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 887
+                                "py/id": 805
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 887
+                                "py/id": 805
                             }
                         }
                     }
@@ -40802,19 +40076,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 833
+                        "py/id": 751
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 833
+                        "py/id": 751
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 833
+                        "py/id": 751
                     }
                 }
             }

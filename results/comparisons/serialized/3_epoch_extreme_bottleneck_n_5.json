@@ -65,6 +65,7 @@
                 },
                 "conditional": {
                     "[(1, 2), (1, 4), (2, 4)]": {
+                        "moments": 0.023,
                         "total_expectation": 0.016
                     },
                     "[(2, 4)]": {

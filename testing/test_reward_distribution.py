@@ -1213,14 +1213,14 @@ def test_windowed_conditional_mean_cancels_the_window_bias():
 
 
 def test_conditional_moments_live_on_the_conditional():
-    """The conditional's mean has two independent routes -- the second cumulant difference of its own (nested)
-    transform, and the derivative identity on the joint transform -- and they must agree. Both are reached from the
-    conditional itself."""
+    """The conditional's mean has two independent routes -- the central difference of its own (nested) transform, and
+    the derivative identity on the joint transform, which the mean reports -- and they must agree. Both are reached
+    from the conditional itself."""
     jd = pg.Coalescent(n=5).sfs.joint_distribution(4, 1)
     v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
     cond = jd.conditional('a', v)
 
-    assert float(cond.mean) == pytest.approx(cond._raw_moments(k=1)[0], rel=1e-3)
+    assert float(cond._cumulants()[0]) == pytest.approx(float(cond.mean), rel=1e-3)
 
     m1, m2 = cond._raw_moments(k=2)
     assert float(cond.moment(2)) == pytest.approx(m2, rel=1e-9)
@@ -2644,14 +2644,71 @@ def test_line_atom_density_rejects_unknown_keywords():
 
 
 def test_multi_epoch_conditional_mean_follows_the_derivative_identity():
-    """On three epochs the conditional mean is that of the derivative identity. Regression: it was the central
-    difference of the transform at the calibration truncation, 0.26% off at v = 0.5, many sampler standard errors."""
+    """On three epochs the conditional mean at v = 0.5 is within 0.1% of 0.80360104, the derivative identity inverted
+    by de Hoog in 135-digit arithmetic at degree 70 (a sampler of 1.6e9 replicates gives 0.80330 +- 0.00036).
+    Regression: it was the central difference of the transform at the calibration truncation, 0.26% off."""
     joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
         pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
 
     cond = joint.conditional('a', 0.5)
 
-    assert cond.mean == pytest.approx(0.8036042574203229, rel=1e-6)
+    assert cond.mean == pytest.approx(0.8036010412, rel=1e-3)
+
+
+@pytest.mark.parametrize('sizes, n, v, truth', [
+    ({0: 1.2, 0.3: 10, 1: 0.8, 1.4: 10}, 4, 4.38, 7.7075),
+    ({0: 1.0, 0.15: 2.0, 0.3: 0.5, 0.45: 2.0, 0.6: 0.5, 0.75: 2.0, 0.9: 0.5}, 3, 0.54, 0.2873024),
+])
+def test_multi_epoch_conditional_mean_is_stable_in_the_conditioning_value(sizes, n, v, truth):
+    """The conditional mean E[R_2 | R_1 = v] of the SFS on 4_epoch_up_down_n_4 and 7_epoch_oscillating_n_3 does not
+    move under shifts of v by a few ulp, and is within 0.1% of the derivative identity inverted by de Hoog in 135-digit
+    arithmetic at degree 70. Regression: the identity was inverted by de Hoog in float64, whose quotient-difference
+    recurrence amplified roundoff, so the mean swung between 7.735 and 7.990 over four ulp at v = 4.38, and was 0.9%
+    off at v = 0.54."""
+    joint = pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': sizes})).sfs.joint_distribution(1, 2)
+    eps = np.finfo(float).eps
+
+    means = [joint.conditional('a', v * (1 + k * eps)).mean for k in (-1, 0, 1, 4)]
+
+    assert means == pytest.approx([truth] * 4, rel=1e-3)
+    assert np.ptp(means) <= 1e-9 * truth
+
+
+def test_conditional_moments_warn_when_unresolved(caplog, monkeypatch):
+    """The conditional moments on three epochs at v = 0.5 converge in the truncation only at N0 = 960, where they move
+    by 6.6e-4 when it is halved. Capped at 60, they move by 8.6e-3 and a warning is logged."""
+    import logging
+    from phasegen.distributions import reward
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
+
+    try:
+        _ = joint.conditional('a', 0.5).mean
+        assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
+
+        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
+        _ = joint.conditional('a', 0.5).mean
+        assert any('moments are unresolved' in r.getMessage() for r in caplog.records)
+    finally:
+        log.removeHandler(caplog.handler)
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_batched_taylor_coefficients_match_single_points(sparse):
+    """The batched Taylor coefficients of the joint transform equal those of ``lst_taylor`` at each point, on several
+    epochs and on the dense and sparse last-epoch solve."""
+    if sparse:
+        Settings.closed_form_sparse_min_states = 1
+    joint = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.2, 0.3: 10, 1: 0.8}})).sfs \
+        .joint_distribution(1, 2)
+    s = np.array([0.3, 1.0 + 2.0j, 5.0 - 7.0j])
+
+    batch = joint._lst_taylor_batch(s, 'b', 2)
+
+    np.testing.assert_allclose(batch, [joint.lst_taylor(x, 'b', order=2) for x in s], rtol=1e-12)
+    assert joint._setup['sparse'] == sparse
 
 
 def test_cosine_window_short_of_a_recent_crash_warns(caplog):

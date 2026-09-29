@@ -49,6 +49,13 @@ _EULER_N0 = 30
 #: Largest Fourier truncation of the Euler inversion tried by ``_NestedConditional``.
 _EULER_N0_MAX = 480
 
+#: Relative change of the conditional moments under a halving of the Euler truncation up to which
+#: ``ConditionalRewardDistribution._raw_moments`` accepts them.
+_MOMENT_TOL = 1e-3
+
+#: Largest Fourier truncation of the Euler inversion tried by ``ConditionalRewardDistribution._raw_moments``.
+_MOMENT_N0_MAX = 1920
+
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
 _LST_BATCH_ENTRIES = 2 ** 21
 
@@ -438,43 +445,60 @@ def _shift_rows(s, r: np.ndarray, tau: float) -> np.ndarray:
     return out
 
 
-def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
-                           perm=_AUTO_PERM, order: int = 2) -> list:
+def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
+                           perm=_AUTO_PERM, order: int = 2) -> np.ndarray:
     """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift_batch`` at the shift
-    ``shift + eps * deriv``, described at ``JointRewardDistribution.lst_taylor``: bounded epochs exponentiate the
-    block-bidiagonal matrix over the truncated polynomial ring, the last epoch back-substitutes with one LU."""
+    ``shift + eps * deriv`` for each row ``shift`` of ``shifts``, described at ``JointRewardDistribution.lst_taylor``:
+    bounded epochs exponentiate the block-bidiagonal matrix over the truncated polynomial ring with ``_expm_batch``, in
+    chunks of at most ``_LST_BATCH_ENTRIES`` matrix entries, and the last epoch back-substitutes with one LU per row.
+    Returns an array of shape ``(len(shifts), order + 1)``."""
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
+    K = len(shifts)
 
-    # row vector over the ring: blocks [v_0, ..., v_order]
-    vec = np.zeros((k, n_aug), dtype=complex)
-    vec[0] = np.concatenate([alpha, [0.0]])
+    chunk = max(1, _LST_BATCH_ENTRIES // (k * n_aug) ** 2)
+    if K > chunk:
+        return np.concatenate([_lst_taylor_from_shift(shifts[i:i + chunk], deriv, alpha, T_epochs, sparse, perm, order)
+                               for i in range(0, K, chunk)])
+
+    diag = np.arange(nt)
+
+    # row vectors over the ring: blocks [v_0, ..., v_order]
+    vec = np.zeros((K, k * n_aug), dtype=complex)
+    vec[:, :nt] = alpha
 
     for T, t0, t1 in T_epochs[:-1]:
-        dt = t1 - t0
-        Q = np.zeros((n_aug, n_aug), dtype=complex)
-        Q[:nt, :nt] = (T.toarray() if sp.issparse(T) else np.asarray(T)) - np.diag(shift)
-        Q[:nt, nt] = _exit_rates(T)
-        D = np.zeros((n_aug, n_aug), dtype=complex)
-        D[:nt, :nt] = -np.diag(deriv)  # d/deps of the generator: the shift enters as -diag(.)
-
-        M = np.zeros((k * n_aug, k * n_aug), dtype=complex)
+        Td = T.toarray() if sp.issparse(T) else np.asarray(T)
+        M = np.zeros((K, k * n_aug, k * n_aug), dtype=complex)
         for i in range(k):
-            M[i * n_aug:(i + 1) * n_aug, i * n_aug:(i + 1) * n_aug] = Q * dt
+            o = i * n_aug
+            M[:, o:o + nt, o:o + nt] = Td
+            M[:, o + diag, o + diag] -= shifts
+            M[:, o:o + nt, o + nt] = _exit_rates(T)
             if i + 1 < k:
-                M[i * n_aug:(i + 1) * n_aug, (i + 1) * n_aug:(i + 2) * n_aug] = D * dt
-        vec = (vec.reshape(1, -1) @ sla.expm(M)).reshape(k, n_aug)
+                M[:, o + diag, o + n_aug + diag] = -deriv  # d/deps of the generator: the shift enters as -diag(.)
+        vec = np.einsum('ki,kij->kj', vec, _expm_batch(M * (t1 - t0)))
+    vec = vec.reshape(K, k, n_aug)
 
     Tm = T_epochs[-1][0]
-    A = (sp.diags(shift) if sparse else np.diag(shift)) - Tm
-    solve = MomentEvaluator._lu_solver(A, sparse, perm)
+    exit_m = _exit_rates(Tm)
+    xs = np.empty((K, k, nt), dtype=complex)
+    if sparse:
+        for r in range(K):
+            solve = MomentEvaluator._lu_solver(sp.diags(shifts[r]) - Tm, True, perm)
+            xs[r, 0] = solve(exit_m)
+            for j in range(1, k):
+                xs[r, j] = -solve(deriv * xs[r, j - 1])
+    else:
+        A = np.repeat(-np.asarray(Tm, dtype=complex)[None], K, axis=0)
+        A[:, diag, diag] += shifts
+        xs[:, 0] = np.linalg.solve(A, np.broadcast_to(exit_m[:, None], (K, nt, 1)))[..., 0]
+        for j in range(1, k):
+            xs[:, j] = -np.linalg.solve(A, (deriv * xs[:, j - 1])[..., None])[..., 0]
 
-    xs = [solve(_exit_rates(Tm))]
-    for _ in range(1, k):
-        xs.append(-solve(deriv * xs[-1]))
-
-    a, c = vec[:, :nt], vec[:, nt]
-    return [complex(c[i] + sum(a[j] @ xs[i - j] for j in range(i + 1))) for i in range(k)]
+    a, c = vec[:, :, :nt], vec[:, :, nt]
+    return np.stack([c[:, i] + sum(np.einsum('ki,ki->k', a[:, j], xs[:, i - j]) for j in range(i + 1))
+                     for i in range(k)], axis=1)
 
 
 class JointRewardDistribution(CallableDistributionFunctions):
@@ -606,10 +630,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
             \Phi_j(s) = (-1)^j\, \boldsymbol{\alpha}_T
             \big(\mathbf{A}^{-1} \operatorname{diag}(\mathbf{r}_b)\big)^j \mathbf{A}^{-1} \mathbf{q},
 
-        so no derivative is approximated by a difference, and one LU factorization of :math:`\mathbf{A}` serves all
-        orders. For several epochs, the coefficients of each epoch's matrix exponential are the blocks of a single
-        exponential of a block upper-bidiagonal matrix (Van Loan, 1978), with the shifted generator on the diagonal and
-        :math:`-\operatorname{diag}(\mathbf{r}_b)` above it.
+        so no derivative is approximated by a difference. For several epochs, the coefficients of each epoch's matrix
+        exponential are the blocks of a single exponential of a block upper-bidiagonal matrix (Van Loan, 1978), with
+        the shifted generator on the diagonal and :math:`-\operatorname{diag}(\mathbf{r}_b)` above it.
 
         .. rubric:: References
 
@@ -625,6 +648,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :raises ValueError: If a reward is negative, or if some state carrying mass can never reach a common ancestor
             in the final epoch.
         """
+        return [complex(c) for c in self._lst_taylor_batch(np.array([s], dtype=complex), on, order)[0]]
+
+    def _lst_taylor_batch(self, s: np.ndarray, on: str, order: int) -> np.ndarray:
+        """
+        The coefficients of ``lst_taylor`` at each held argument of ``s``, sharing the per-epoch assembly and
+        exponentiation across the batch.
+
+        :param s: The held arguments, a 1D array.
+        :param on: The held argument, ``'a'`` or ``'b'``.
+        :param order: Highest order.
+        :return: The coefficients, of shape ``(len(s), order + 1)``.
+        """
         st = self._setup
         self._host._assert_absorbs()
         tau = st['tau']
@@ -634,9 +669,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
         # constant factor per order). Differentiating in the unscaled one instead puts blocks of magnitude 1, tau and
         # tau^2 into the same augmented matrix -- 1, 1e7 and 1e14 on a large-N demography -- and ``expm``'s
         # scaling-and-squaring, driven by the largest of them, then costs the O(1) block its precision
-        coeffs = _lst_taylor_from_shift((s * tau) * r_on, r_other, st['alpha'], st['T_epochs'], st['sparse'],
-                                        st['lu_perm'], order)
-        return [c * tau ** j for j, c in enumerate(coeffs)]
+        coeffs = _lst_taylor_from_shift(np.outer(np.asarray(s, dtype=complex) * tau, r_on), r_other, st['alpha'],
+                                        st['T_epochs'], st['sparse'], st['lu_perm'], order)
+        return coeffs * tau ** np.arange(order + 1)
 
     def lst_batch(self, s_a, s_b) -> np.ndarray:
         r"""
@@ -1333,15 +1368,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
         nearly all of :math:`(0, 1)` or given by ``quantiles``. At each, the mean :math:`\hat{m}` of the conditional
         transform is compared with :math:`m = \mathbb{E}[R_o \mid R_c = v(\xi)]` from
         :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`,
-        which involves no nested inversion, with the scaled error
+        which inverts the Taylor coefficients of the joint transform, with the scaled error
 
         .. math::
 
             \frac{|\hat{m} - m|}{\max\big(|m|,\ \epsilon\,\mathbb{E}[R_o]\big)}.
 
         The small fraction :math:`\epsilon` of the unconditional mean keeps the error meaningful where the conditional
-        mean vanishes. The identity carries the de Hoog error, which grows with the number of epochs, so ``tol`` must
-        exceed it.
+        mean vanishes.
 
         :param n_points: Number of conditioning values per conditioning reward. Ignored when ``quantiles`` is given.
         :param tol: Scaled error above which a warning is logged.
@@ -1604,9 +1638,13 @@ class ConditionalRewardDistribution(RewardDistribution):
     def _raw_moments(self, k: int = 2) -> list:
         """
         The raw moments of orders ``1..k`` by the derivative identity of ``ConditionalRewardDistribution.moment``, with
-        ``k + 1`` de Hoog inversions of the Taylor coefficients of ``JointRewardDistribution.lst_taylor`` sharing one
-        node set. Differencing the transform instead would feed roundoff into the de Hoog recurrence. On several epochs
-        the de Hoog error is a pointwise noise band in the conditioning value, not a smooth bias.
+        the Taylor coefficients of ``JointRewardDistribution.lst_taylor`` inverted by the Euler-summed Fourier series of
+        the inner inversion (``_euler_series``). The truncation is doubled from ``_EULER_N0`` until no moment moves by
+        more than ``_MOMENT_TOL`` when it is halved, relative to the moment or to 1% of the same power of the root mean
+        square of the unconditional other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving
+        there is reported by a warning. Each node is evaluated once, since every truncation weights a subset of the
+        nodes of the next, and a node below the real axis takes the conjugate of the coefficients at its mirror image,
+        as they are real on the axis.
 
         :param k: Highest order.
         :return: ``[E[R_o | R_c = v], ..., E[R_o^k | R_c = v]]``.
@@ -1620,32 +1658,45 @@ class ConditionalRewardDistribution(RewardDistribution):
                 "atom mass at 0, so it cannot give the moments of the atom conditional."
             )
 
-        marg = self._joint.marginal(self._on)
+        orders = np.arange(1, k + 1)
+        signs = np.array([factorial(j) * (-1) ** j for j in orders], dtype=float)
+        floors = 1e-2 * self._rms ** orders
+        coeffs = {}
 
-        # the k+1 inversions share one de Hoog node set (same ``value``, same degree), and one Taylor evaluation yields
-        # every coefficient at a node, so cache on ``s`` rather than paying for the transform once per moment
-        cache = {}
-
-        def taylor(s) -> list:
-            if s not in cache:
-                cache[s] = self._joint.lst_taylor(s, self._on, order=k)
-            return cache[s]
-
-        f_on = marg._invert(lambda s: taylor(s)[0], self._value)
+        n0 = _EULER_N0
+        while True:
+            u, w = _euler_series(self._value, (n0, 2 * n0))
+            new = np.array([x for x in u if x not in coeffs and x.imag >= 0], dtype=complex)
+            if new.size:
+                vals = self._joint._lst_taylor_batch(new, self._on, k)
+                coeffs.update(zip(new, vals))
+                coeffs.update(zip(new.conj(), vals.conj()))
+            inv = (w @ np.array([coeffs[x] for x in u])).real  # the inversions per truncation and order 0..k
+            moments = signs * inv[:, 1:] / inv[:, :1]
+            move = float(np.max(np.abs(moments[1] - moments[0]) / np.maximum(np.abs(moments[1]), floors)))
+            if move <= _MOMENT_TOL or 2 * n0 >= _MOMENT_N0_MAX:
+                break
+            n0 *= 2
 
         # a density has units of 1 / reward, so the floor below which the inversion cannot resolve it scales like
         # 1 / E[R_on], NOT like E[R_on]: a large-N demography carries rewards of ~1e7 and so healthy densities of
         # ~1e-7, every one of which a floor proportional to the mean would reject as unresolvable
-        if not f_on > 1e-12 / max(abs(float(marg.mean)), 1e-300):
+        f_on = inv[1, 0]
+        if not f_on > 1e-12 / max(abs(float(self._joint.marginal(self._on).mean)), 1e-300):
             raise ValueError(
                 f"The marginal density at R_{self._on} = {self._value:g} inverts to {f_on:.3g}, so the conditional "
                 f"moments there cannot be normalised. The density is below the float64 resolution of the inversion, "
                 f"not necessarily zero -- condition closer to the bulk."
             )
 
-        # d^j Phi = j! Phi_j, and the identity carries (-1)^j; both signs cancel into factorial(j) * (-1)^j * Phi_j
-        return [factorial(j) * (-1) ** j * marg._invert(lambda s, j=j: taylor(s)[j], self._value) / f_on
-                for j in range(1, k + 1)]
+        if Settings.check_inversions and move > _MOMENT_TOL:
+            self._logger.warning(
+                "%s: the conditional moments are unresolved, moving by %.2e (bar %.0e) when the truncation of the "
+                "inner inversion is halved from N0 = %d. They may be off by about that much.", self.label, move,
+                _MOMENT_TOL, 2 * n0
+            )
+
+        return [float(m) for m in moments[1]]
 
     @cached_property
     def var(self) -> float:
@@ -1674,9 +1725,10 @@ class ConditionalRewardDistribution(RewardDistribution):
 
         where :math:`\Phi_j(s_c)` is the coefficient of :math:`s_o^j` in the expansion of :math:`\Phi(s_o, s_c)` about
         :math:`s_o = 0`, from :meth:`JointRewardDistribution.lst_taylor()
-        <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inversions
-        are single de Hoog inversions, so the identity is independent of the conditional transform, with the accuracy
-        of the de Hoog method. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
+        <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inverse
+        transforms are the Fourier series of the inner inversion, with the truncation :math:`N` doubled until no moment
+        up to order :math:`k` moves by more than 0.1% when :math:`N` is halved, and a warning logged where one still
+        moves at the largest truncation. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
         :math:`\varphi''(0)` are available, by central differences.
 
         :param k: Order :math:`k` of the moment.

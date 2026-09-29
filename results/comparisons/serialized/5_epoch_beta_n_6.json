@@ -17,7 +17,7 @@
             "sfs": {
                 "conditional": {
                     "[(1, 2)]": {
-                        "moments": 0.019,
+                        "moments": 0.0001,
                         "atom": {
                             "mass": 0.013,
                             "mean": 0.073,

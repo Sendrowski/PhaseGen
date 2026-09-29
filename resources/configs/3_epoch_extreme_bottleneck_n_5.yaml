@@ -57,18 +57,14 @@ comparisons:
         # the diff does not fall as the expansion is refined (0.00206 at 1536 terms, 0.00238 at 3072)
         cdf: 0.0031
         quantile: 0.004
-      # no ``moments`` here: the derivative identity is not a trustworthy reference on this demography. It disagrees
-      # with the conditional by 12-21%, and it is the identity that is wrong -- f_a(v) is minuscule in the tail of a
-      # bottleneck and the identity divides by it, which de Hoog cannot resolve. So the tower check is used instead:
-      # weaker (it integrates the conditional back out, so errors at different v can cancel) but honest.
+      # the largest error of the conditional mean, 1.2e-2, is at the level 0.99 of R_2 in the pair (2, 4)
       conditional:
         '[(1, 2), (1, 4), (2, 4)]':
+          moments: 0.023
           total_expectation: 0.016
         '[(2, 4)]':
-          # the atom conditional against the msprime sample (see 1_epoch_n_4). This is the hardest demography in the
-          # suite: the nested conditional cannot be pinned here at all (only the tower check survives, above). The
-          # atom transform is a closed-form ratio rather than a nested inversion, so it stays exact even here, which
-          # is exactly what makes it worth asserting on this scenario.
+          # the atom conditional against the msprime sample (see 1_epoch_n_4). The atom transform is a closed-form
+          # ratio, not a nested inversion, so it stays exact on this demography.
           atom:
             mass: 0.002
             mean: 0.0034
