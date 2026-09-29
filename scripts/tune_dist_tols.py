@@ -44,7 +44,7 @@ yaml.representer.add_representer(
     tuple, lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:python/tuple', list(data),
                                                           flow_style=True))
 
-KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm3', 'm4',
+KINDS = {'pdf', 'cdf', 'quantile', 'mean', 'var', 'std', 'cov', 'corr', 'm2', 'm3', 'm4',
          'theta_pi', 'theta_w', 'tajimas_d', 'mutation_configs', 'mass'}
 MODES = {'cosine', 'de_hoog'}
 
@@ -96,6 +96,9 @@ def noise_floor(comp, path: list) -> float:
 
     if 'atom' in path:
         return atom_noise_floor(ref, path)
+
+    if 'windowed' in path:
+        return windowed_noise_floor(comp, ref, path)
 
     n = getattr(ref, 'n_samples', None)
     if not n:
@@ -175,6 +178,35 @@ def atom_noise_floor(ref, path: list) -> float:
     return max(floors)
 
 
+def windowed_noise_floor(comp, ref, path: list) -> float:
+    """The noise floor of a windowed-conditional leaf. The ``mean`` is compared in standard errors of the window's
+    sample, so its floor is one on that scale. The ``cdf`` is compared absolutely against the step CDF of the
+    replicates in a window, whose binomial standard error peaks at ``0.5 / sqrt(n_win)``, the smallest window of the
+    leaf's pairs on its ``cdf_axes`` setting the floor.
+
+    :param comp: The comparison, carrying the tolerance block of the leaf.
+    :param ref: The reference distribution, carrying the cached windowed-conditional ground truth.
+    :param path: The tolerance leaf's key path (below any ``empirical`` head).
+    :return: The reference's standard error on the metric's own scale, or 0 if it cannot be determined.
+    """
+    if path[-1] == 'mean':
+        return 1.0
+
+    if 'loci' in path:
+        pairs, cached = [(0, 1)], getattr(ref, '_loci_windowed_conditional', [])
+    else:
+        pairs = next((_collection(p) for p in path if _collection(p) is not None), None) or []
+        cached = getattr(ref, '_windowed_conditional', [])
+
+    block = comp.comparisons.get('tolerance', {})
+    for key in path[:-1]:
+        block = block.get(key, {}) if isinstance(block, dict) else {}
+    axes = block.get('cdf_axes', ('a', 'b')) if isinstance(block, dict) else ('a', 'b')
+
+    counts = [c[5] for c in cached if (c[0], c[1]) in pairs and c[2] in axes]
+    return 0.5 / np.sqrt(min(counts)) if counts else 0.0
+
+
 def observed(name: str) -> dict:
     """Run the comparison and return {title-path-without-scenario-prefix: observed diff}."""
     obs = {}
@@ -218,10 +250,16 @@ def _collection(key: str):
     return None
 
 
-def title_for(path: list) -> list:
+def title_for(path: list, items: dict = None) -> list:
     """Map a YAML tolerance-leaf key path to the comparison title(s) it covers (sans scenario prefix). Returns a
     *list*: a collection key (an SFS bin list or an explicit pairwise pair list) expands to one title per element, all
-    sharing the single tolerance leaf (the tuner then takes the worst observed across them)."""
+    sharing the single tolerance leaf (the tuner then takes the worst observed across them).
+
+    :param path: The tolerance leaf's YAML key path.
+    :param items: The loci and deme names, keyed ``loci`` and ``demes``, over which a per-locus or per-deme scalar
+        leaf is logged once per item.
+    :return: The titles.
+    """
     path = [str(p) for p in path]
     kind = path[-1]
     mode = next((p for p in path if p in MODES), None)
@@ -231,6 +269,19 @@ def title_for(path: list) -> list:
         # ``<dist>: conditional: (i, j): atom: <kind>`` is logged once per conditioning axis, both sharing the leaf
         return [f"{path[0]}: conditional ({p[0]}, {p[1]}) atom on {axis}: {kind}"
                 for p in (coll or []) for axis in ('a', 'b')]
+
+    if 'windowed' in path:
+        # ``<dist>: conditional: (i, j): windowed: <kind>`` is logged as ``<dist>: conditional (i, j) windowed:
+        # <kind>``, and ``<dist>: loci: pairwise: conditional: windowed: <kind>`` as the locus pair (0, 1) under
+        # ``<dist>: loci``
+        if 'loci' in path:
+            return [f"{path[0]}: loci: conditional (0, 1) windowed: {kind}"]
+        return [f"{path[0]}: conditional ({p[0]}, {p[1]}) windowed: {kind}" for p in (coll or [])]
+
+    container = next((p for p in path if p in ('loci', 'demes')), None)
+    if container and 'pairwise' not in path and kind not in ('cov', 'corr'):
+        # a per-locus / per-deme scalar leaf is logged once per item, the item preceding the kind
+        return [': '.join(path[:-1] + [str(item), kind]) for item in (items or {}).get(container, [])]
 
     if 'pairwise' in path:
         i = path.index('pairwise')
@@ -276,6 +327,7 @@ def retune(name: str, tighten_only: bool = True, only: set = None) -> int:
     if tol is None:
         return 0
     changed = [0]
+    items = {'loci': list(range(comp.n_loci)), 'demes': list(comp.get_demography().pop_names)}
 
     def walk(node, path):
         for k, v in list(node.items()):
@@ -283,7 +335,7 @@ def retune(name: str, tighten_only: bool = True, only: set = None) -> int:
             if hasattr(v, 'items'):
                 walk(v, kp)
             elif str(k) in KINDS and (only is None or str(k) in only):
-                matched = [obs[t] for t in title_for(kp) if t in obs]
+                matched = [obs[t] for t in title_for(kp, items) if t in obs]
                 if matched:
                     new = nudge(max(matched))  # one leaf can cover several titles (bin/pair list) -> worst observed
                     if tighten_only and isinstance(v, (int, float)):

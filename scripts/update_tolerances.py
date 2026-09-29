@@ -4,8 +4,9 @@ the cached msprime ground truth -- so tuning a tolerance (or adding/removing a s
 data) does not require re-running the 1e6-replicate simulation.
 
 It aborts (pointing to ``create_comparison``) when a full regeneration is genuinely needed: a changed
-ground-truth-defining parameter (``n``, ``pop_sizes``, model, ``end_time``, ...), or a newly requested pairwise *surface* pair
-whose empirical grid was never cached.
+ground-truth-defining parameter (``n``, ``pop_sizes``, model, ``end_time``, ...), a newly requested pairwise
+*surface* pair (msprime or sampler), atom-conditional pair or coalescent-level statistic whose ground truth was never
+cached, or windowed-conditional windows other than the cached ones.
 """
 
 __author__ = "Janek Sendrowski"
@@ -49,14 +50,43 @@ if changed:
     raise ValueError(f"Ground-truth-defining parameters changed {changed} for {fixture}; the cached ground truth is "
                      f"stale -- run the create_comparison rule to regenerate from scratch.")
 
-# every requested pairwise *surface* pair must already have a cached empirical grid (_touch caches the per-statistic
-# and pointwise-pairwise data for all bins, so only the explicit surface pairs can be genuinely missing)
-for dist, pairs in new._pairwise_surface_pairs().items():
-    cached = {(e[0], e[1]) for e in getattr(getattr(old.ms, dist), '_joint_surface', [])}
-    missing = [p for p in pairs if tuple(p) not in cached]
+tolerance = new.comparisons.get('tolerance', {})
+msprime_spec = {k: v for k, v in tolerance.items() if k != 'empirical'}
+empirical_spec = tolerance.get('empirical', {})
+
+
+def require_cached(what: str, missing: list) -> None:
+    """Abort when configured checks need ground truth the fixture does not cache."""
     if missing:
-        raise ValueError(f"Pairwise surface pair(s) {missing} for '{dist}' are not cached in {fixture}; "
-                         f"run the create_comparison rule to cache them.")
+        raise ValueError(f"{what} {missing} are not cached in {fixture}. Run the create_comparison rule to cache them.")
+
+
+# every requested pairwise *surface* pair must already have a cached empirical grid (_touch caches the per-statistic
+# and pointwise-pairwise data for all bins, so only the explicit surface pairs can be genuinely missing), on the
+# msprime operand and, for the nested 'empirical' block, on the sampler operand
+for operand, spec in (('ms', msprime_spec), ('empirical', empirical_spec)):
+    for dist, pairs in new._pairwise_surface_pairs(spec).items():
+        cached = {(e[0], e[1]) for e in getattr(getattr(old.__dict__.get(operand), dist, None), '_joint_surface', [])}
+        require_cached(f"Pairwise surface pairs of '{dist}' ({operand})", [p for p in pairs if tuple(p) not in cached])
+
+# the atom-conditional ground truth is cached per bin pair
+for dist, pairs in new._atom_conditional_pairs(msprime_spec).items():
+    cached = {(e[0], e[1]) for e in getattr(getattr(old.ms, dist), '_atom_conditional', [])}
+    require_cached(f"Atom-conditional pairs of '{dist}'", [p for p in pairs if tuple(p) not in cached])
+
+# the coalescent-level statistics are cached per name and arguments
+statistics = [(stat, tuple(spec.get('args', []) if isinstance(spec, dict) else []))
+              for stat, spec in new.comparisons.get('statistics', {}).items()]
+require_cached("Statistics", [s for s in statistics if s not in getattr(old, '_ms_statistics', {})])
+
+# the windowed-conditional ground truth is cached at the windows the configured quantiles and window define, for the
+# bin pairs and the locus pair separately
+for loci in (False, True):
+    attr = '_loci_windowed_conditional' if loci else '_windowed_conditional'
+    for dist, specs in new._windowed_conditional_specs(msprime_spec, loci=loci).items():
+        if Comparison._stale_windows(getattr(getattr(old.ms, dist), attr, []), specs):
+            raise ValueError(f"The windowed-conditional windows of '{dist}' differ from those cached in {fixture}. "
+                             f"Run the create_comparison rule to cache them.")
 
 # swap in the new tolerances / statistic selection and re-serialize (no simulation)
 old.comparisons = new.comparisons

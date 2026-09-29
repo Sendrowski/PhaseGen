@@ -6,7 +6,6 @@ dependencies:
   - msprime
   - graphviz
   - python-graphviz
-  - tensorflow
   - pip
   - pip:
       - pytest

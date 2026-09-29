@@ -39,11 +39,14 @@ jobs:
         with:
           path: ${{ env.NUMBA_CACHE_DIR }}
           key: numba-${{ runner.os }}-${{ hashFiles('phasegen/state_space_numba.py') }}
+      - name: Install graphviz
+        # the ``dot`` binary rendering StateSpace.plot_rates
+        run: sudo apt-get update && sudo apt-get install -y graphviz
       - name: Install phasegen + test deps
         # msprime brings tskit; both ship manylinux wheels, so no conda is
         # needed. The suite runs single-process (numba recompiles per xdist
         # worker), so pytest-xdist is intentionally omitted.
-        run: uv pip install --system -e . pytest pytest-cov msprime
+        run: uv pip install --system -e . pytest pytest-cov msprime graphviz
       - name: Run tests
         run: pytest --cov phasegen --cov-report=xml testing/ -m "not slow" -x
       - uses: codecov/codecov-action@v4

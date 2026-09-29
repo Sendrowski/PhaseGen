@@ -1,6 +1,7 @@
-"""Tighten-only re-tune of many configs in parallel (never loosens a tolerance; clamps each matched leaf to
-``min(current, 1.5x observed)``). Writes each config YAML in place; sync to the fixtures afterwards with the
-``update_tolerances`` snakemake rule. Usage: ``python scripts/tighten_all.py <config> [<config> ...]``."""
+"""Tighten-only re-tune of many configs in parallel. Each matched leaf is clamped to ``min(current, 1.5x observed)``,
+then raised to the noise floor of its reference where it lies below it (see ``tune_dist_tols.retune``). Writes each
+config YAML in place. Sync to the fixtures afterwards with the ``update_tolerances`` snakemake rule. Usage:
+``python scripts/tighten_all.py <config> [<config> ...]``."""
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor

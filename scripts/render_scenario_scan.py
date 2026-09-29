@@ -3,7 +3,7 @@ each comparison (config, stat, metric, diff, tol, ...) to its PNG.
 
 The non-slow set is the single source of truth in ``testing.test_scenarios`` (all ``configs`` minus
 ``slow_configs``). Parallel; Agg backend; low DPI to keep the on-disk footprint small. Driven by the
-``render_scenario_scan`` Snakemake rule, which passes the output directory as the sole argument.
+``render_scenario_scan`` Snakemake rule, whose output manifest fixes the output directory.
 """
 import os
 
@@ -12,13 +12,15 @@ import matplotlib
 
 matplotlib.use("Agg")
 import re
-import sys
 import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from testing.test_scenarios import configs, slow_configs
 
-OUTDIR = sys.argv[1]  # plots + manifest go here
+try:
+    OUTDIR = os.path.dirname(snakemake.output[0])  # plots + manifest go here
+except NameError:
+    OUTDIR = "results/comparisons/scan"
 CONFIGS = [c for c in configs if c not in slow_configs]
 _PAT = re.compile(r'^#\d+\s+(.*?):\s+\S+\s+(?:<=|>)\s+\S+\s+\((.*?),\s+([\d.]+)s\)\s*$')
 

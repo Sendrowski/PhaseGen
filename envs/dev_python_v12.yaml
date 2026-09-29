@@ -6,7 +6,6 @@ dependencies:
   - msprime
   - dadi
   - graphviz
-  - tensorflow
   - python-graphviz
   - r-base
   - r-reticulate

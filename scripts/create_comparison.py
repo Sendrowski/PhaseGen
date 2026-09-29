@@ -38,4 +38,7 @@ if __name__ == '__main__':
     if 'empirical' in c.__dict__:
         c.empirical._drop()
 
+    # the analytic coalescent, built while caching the windowed-conditional windows, is rebuilt at test time
+    c.__dict__.pop('ph', None)
+
     c.to_file(out)

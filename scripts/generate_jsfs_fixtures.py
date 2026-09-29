@@ -53,7 +53,7 @@ msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 # cache the msprime joint-SFS ground truth (accumulated within simulate()) -- the moments are retained by the cached
 # jsfs distribution -- then null the raw per-replicate samples and the demography to keep the fixture small. Cache the
 # full-grid joint *surface* ground truth for any configured pairwise surface pairs (config-pair keys like
-# ``((0, 1), (1, 0))`` under ``jsfs: pairwise: cosine``) before dropping the per-replicate samples (``_drop`` only nulls
+# ``((0, 1), (1, 0))`` under ``jsfs: pairwise``) before dropping the per-replicate samples (``_drop`` only nulls
 # the samples, leaving ``_joint_surface`` intact)
 if msprime_spec:
     for dist, pairs in c._pairwise_surface_pairs(msprime_spec).items():

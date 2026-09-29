@@ -22,7 +22,6 @@ rule all:
     input:
         (
             #expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=20,n_bootstraps=100,n_bins=30),
-            #"docs/_build"
             expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
             #    'coalescent_4_lineages_lineage_counting',
@@ -86,10 +85,11 @@ rule create_comparison:
         "scripts/create_comparison.py"
 
 # Cheaply re-embed a config's comparison tolerances / statistic selection into its EXISTING serialized fixture,
-# reusing the cached msprime ground truth (no re-simulation). The fixture is an input and is updated in place; the
-# touch-marker output makes snakemake re-run this whenever the config YAML changes (the rerun trigger), so a tolerance
-# edit is synced with `snakemake results/comparisons/serialized/.<config>.tolerances_synced`. Use create_comparison
-# instead when a simulation parameter changed or a new pairwise surface pair must be cached (the script aborts then).
+# reusing the cached msprime ground truth (no re-simulation). The fixture is read and rewritten outside the DAG, so it
+# must already exist. The touch-marker output makes snakemake re-run this whenever the config YAML changes (the rerun
+# trigger), so a tolerance edit is synced with `snakemake results/comparisons/serialized/.<config>.tolerances_synced`.
+# Use create_comparison instead when a simulation parameter changed or a check needs ground truth the fixture does not
+# cache (the script aborts then).
 rule update_tolerances:
     input:
         "resources/configs/{config}.yaml"
@@ -150,8 +150,8 @@ rule render_scenario_scan:
         "results/comparisons/scan/manifest.json"
     conda:
         "envs/dev.yaml"
-    shell:
-        "MPLBACKEND=Agg python scripts/render_scenario_scan.py results/comparisons/scan"
+    script:
+        "scripts/render_scenario_scan.py"
 
 # build the self-contained, click-to-inspect HTML comparison-scan report from the manifest + rendered PNGs
 rule scenario_scan_report:
@@ -201,9 +201,7 @@ rule merge_benchmarks:
 rule update_dependencies:
     output:
         base="envs/requirements.txt",
-        base_snakemake=".snakemake/conda/requirements.txt",
         testing="envs/requirements_testing.txt",
-        testing_snakemake=".snakemake/conda/requirements_testing.txt",
         docs="docs/requirements.txt"
     conda:
         "envs/build.yaml"
@@ -212,11 +210,12 @@ rule update_dependencies:
             poetry self add poetry-plugin-export
             poetry update
             poetry export -f requirements.txt --without-hashes -o {output.base}
-            poetry export -f requirements.txt --without-hashes -o {output.base_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.testing}
-            poetry export --with dev -f requirements.txt --without-hashes -o {output.testing_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.docs}
-            mamba env update -f envs/dev.yaml
+            # envs/dev.yaml resolves its pip paths from .snakemake/conda, where snakemake creates its envs
+            mkdir -p .snakemake/conda
+            cp envs/dev.yaml .snakemake/conda/dev-phasegen.yaml
+            mamba env update -f .snakemake/conda/dev-phasegen.yaml
             mamba env update -f envs/testing.yaml
             mamba env update -f envs/base.yaml
         """
@@ -312,6 +311,9 @@ doc_pages = [p.stem for p in Path("docs/source").glob("*.md")]
 # resolution of the User Guide figures in dots per inch
 DOCS_FIGURE_DPI = 300
 
+# sources of the Python package, which envs/docs.yaml installs in editable mode, so that a change re-executes the pages
+phasegen_sources = ["pyproject.toml"] + [str(p) for p in Path("phasegen").rglob("*.py")]
+
 # split a User Guide source into its Python and R notebooks
 rule split_page:
     input:
@@ -325,18 +327,6 @@ rule split_page:
         "envs/docs.yaml"
     script:
         "docs/split_page.py"
-
-# install the repository's Python package into the User Guide env in editable mode
-rule install_python_package:
-    input:
-        "pyproject.toml",
-        [str(p) for p in Path("phasegen").rglob("*.py")]
-    output:
-        touch("results/docs/Python/phasegen.installed")
-    conda:
-        "envs/docs.yaml"
-    shell:
-        "python -m pip install --no-deps -e . > /dev/null"
 
 # install the repository's R package into the User Guide env and register its R kernel inside that env
 rule install_r_package:
@@ -359,7 +349,7 @@ rule install_r_package:
 rule execute_python_page:
     input:
         notebook="results/docs/Python/{page}.ipynb",
-        python_installed="results/docs/Python/phasegen.installed"
+        python_sources=phasegen_sources
     output:
         "results/docs/Python/{page}.executed.ipynb"
     conda:
@@ -375,7 +365,7 @@ rule execute_python_page:
 rule execute_r_page:
     input:
         notebook="results/docs/R/{page}.ipynb",
-        python_installed="results/docs/Python/phasegen.installed",
+        python_sources=phasegen_sources,
         r_installed="results/docs/R/phasegen.installed"
     output:
         "results/docs/R/{page}.executed.ipynb"
@@ -419,15 +409,6 @@ rule doc_pages:
     input:
         expand("docs/reference/{page}.ipynb", page=doc_pages),
         expand("results/docs/{language}/{page}.outputs.written", language=["Python", "R"], page=doc_pages)
-
-# update the documentation
-rule update_docs:
-    output:
-        directory("docs/_build")
-    conda:
-        "envs/dev.yaml"
-    shell:
-        "make html -C docs"
 
 # setup inference
 rule setup_inference:
