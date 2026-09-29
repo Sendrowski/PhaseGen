@@ -17,7 +17,7 @@ from testing import TestCase
 
 configs = [
     # empirical (self-consistency) scenarios validated against PhaseGen's own sampler via a nested
-    # ``tolerance.empirical`` block. The five with a demographic sibling carry that block on the sibling config
+    # ``tolerance.empirical`` block. The ten with a demographic sibling carry that block on the sibling config
     # itself (e.g. 1_epoch_n_4, 2_epoch_2_pops_n_4); these three have no sibling, and only the last two also carry
     # msprime conditional checks
     '1_epoch_2_pops_n_3_jsfs',
@@ -230,12 +230,10 @@ slow_configs = [
     '2_epoch_n_10_decline',
     '3_epoch_extreme_bottleneck_n_5',
     # the joint-SFS comparison builds the joint state space and runs the COS / de Hoog joint distribution per bin
-    # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the full
-    # msprime joint validation runs in the slow suite, while the fast suite keeps the analytic joint covered by
-    # ``test_jsfs_joint_distribution_*`` (and the within-tree / two-locus joint by the cheap single-locus configs)
-    # NB: the n=2+2 jSFS dist configs (standard/Beta/Dirac, ~20 states, ~9s each) are kept in the *fast* suite so
-    # the msprime jSFS joint distribution is covered across coalescent models; only the larger/multi-epoch/3-pop
-    # jSFS scenarios below stay slow.
+    # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the jSFS
+    # scenarios below run in the slow suite. The n=2+2 jSFS configs (standard/Beta/Dirac, the three-epoch Beta and
+    # Dirac ones restricted to one representative bin pair) and 1_epoch_2_pops_n_8_jsfs stay in the fast suite, so
+    # the msprime jSFS joint distribution is covered there across coalescent models and epochs.
     '3_epoch_2_pops_n_4_jsfs',
     '1_epoch_3_pops_n_3_jsfs',
     '1_epoch_2_pops_n_6_asym_jsfs',
@@ -264,9 +262,9 @@ def configs_asserting(*keys: str) -> List[str]:
 
 
 #: Scenarios asserting a curve obtained by the Fourier-cosine inversion, which is what ``Settings.cos_terms``
-#: governs: the ``cosine`` groups, the conditional ``grid_moments`` and the atom-conditional cdf / pdf / quantile.
-#: Select them with ``pytest -m cosine``.
-cosine_configs = configs_asserting('cosine', 'grid_moments', 'atom')
+#: governs: the ``cosine`` groups, the conditional ``grid_moments`` and ``dehoog`` checks and the atom-conditional
+#: cdf / pdf / quantile. Select them with ``pytest -m cosine``.
+cosine_configs = configs_asserting('cosine', 'grid_moments', 'dehoog', 'atom')
 
 for config in configs:
     test = generate_tests(config)

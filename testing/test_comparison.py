@@ -180,10 +180,24 @@ class WindowedConditionalConfigTestCase(TestCase):
         c = self._loci_comparison({'windowed': {'mean': 4}})
         c.cache_ground_truth()
 
-        self.assertEqual({(i, j) for i, j, *_ in c.ms.tree_height._windowed_conditional}, {(0, 1)})
+        self.assertEqual({(i, j) for i, j, *_ in c.ms.tree_height._loci_windowed_conditional}, {(0, 1)})
+        self.assertEqual(getattr(c.ms.tree_height, '_windowed_conditional', []), [])
 
         c.compare()
         self.assertEqual(c.n_assertions, 1)
+
+    def test_loci_windowed_conditional_raises_on_edited_windows(self):
+        """Editing a ``windowed`` block's ``quantiles`` or ``window`` after caching raises at comparison time.
+        Regression: the check asserted at the cached windows and passed silently."""
+        for edit in ({'quantiles': [0.3]}, {'window': 0.3}):
+            with self.subTest(edit=edit):
+                c = self._loci_comparison({'windowed': {'mean': 4}})
+                c.cache_ground_truth()
+                c.comparisons['tolerance']['tree_height']['loci']['pairwise']['conditional']['windowed'].update(edit)
+
+                with self.assertRaises(ValueError) as ctx:
+                    c.compare()
+                self.assertIn('other windows', str(ctx.exception))
 
     def test_loci_atom_conditional_raises_at_config_load(self):
         """A per-locus reward has no atom at 0, so an ``atom`` block under ``loci: pairwise: conditional`` is
@@ -191,6 +205,93 @@ class WindowedConditionalConfigTestCase(TestCase):
         with self.assertRaises(ValueError) as ctx:
             self._loci_comparison({'atom': {'mass': 0.01}})
         self.assertIn("'atom'", str(ctx.exception))
+
+
+class DehoogConditionalTestCase(TestCase):
+    """The ``dehoog`` conditional check, which needs no msprime operand."""
+
+    def test_dehoog_conditional_asserts_against_its_tolerance(self):
+        """A ``dehoog`` block compares the conditional CDF with the de Hoog inversion of its transform and asserts the
+        largest difference against ``cdf``, and rejects a key that is neither ``cdf`` nor one of its options."""
+        c = Comparison(n=4, pop_sizes={'pop_0': {0: 1}}, comparisons={'tolerance': {}})
+        jd = c.ph.sfs.joint_distribution(1, 2)
+        opts = {'quantiles': [0.5], 'axes': ['b']}
+
+        with self.assertLogs('phasegen', level='INFO') as logs:
+            c._compare_dehoog_conditional(jd, (1, 2), {'cdf': 1e-3, **opts}, 't')
+        self.assertEqual(c.n_assertions, 1)
+        self.assertRegex(logs.output[0],
+                         r'#1 t: conditional \(1, 2\) dehoog: cdf: [\d.]+ <= 0\.001 \(max abs, [\d.]+s\)')
+
+        with self.assertRaises(AssertionError):
+            c._compare_dehoog_conditional(jd, (1, 2), {'cdf': 1e-12, **opts}, 't')
+
+        for tols in ({'cdf': 1e-3, 'nodes': 2}, {'cdf': 1e-3, 'axes': [0]}, opts):
+            with self.subTest(tols=tols), self.assertRaises(ValueError):
+                c._compare_dehoog_conditional(jd, (1, 2), tols, 't')
+
+    def test_dehoog_conditional_detects_an_unresolved_expansion(self):
+        """The check fails on a conditional expansion with too few cosine terms for its window, which the per-point
+        de Hoog reference does not depend on."""
+        c = Comparison(n=4, pop_sizes={'pop_0': {0: 1}}, comparisons={'tolerance': {}})
+        tols = {'cdf': 2.5e-3, 'quantiles': [0.5], 'axes': ['a']}
+
+        c._compare_dehoog_conditional(c.ph.sfs.joint_distribution(1, 2), (1, 2), tols, 't')
+
+        pg.Settings.cos_terms = 16
+        with self.assertRaises(AssertionError):
+            c._compare_dehoog_conditional(c.ph.sfs.joint_distribution(1, 2), (1, 2), tols, 't')
+
+
+class _NaNJD:
+    """A joint distribution whose conditional checks and window averages return NaN, with an identity marginal
+    quantile and no atoms, so its windows are ``v = q`` and ``h = window * q``."""
+
+    _atoms = {'a0': 0.0, 'b0': 0.0}
+
+    def __init__(self, check: dict = None):
+        self.check = check
+
+    def marginal(self, on):
+        return type('Marginal', (), {'quantile': staticmethod(lambda p: p)})()
+
+    def window_average(self, f, on, v, h, n_nodes=None):
+        return f(type('Conditional', (), {'mean': np.nan, 'cdf': staticmethod(lambda y: np.full_like(y, np.nan))})())
+
+    def check_total_expectation(self, tol, **kwargs):
+        return self.check
+
+
+class ConditionalNaNTestCase(TestCase):
+    """A NaN returned by phasegen fails a conditional check. Regression: the worst case was taken with Python's
+    ``max``, which drops a NaN that is not its first argument, so the check passed."""
+
+    @staticmethod
+    def _comparison() -> Comparison:
+        c = Comparison(n=2, pop_sizes={'pop_0': {0: 1}}, num_replicates=10, comparisons={'tolerance': {}})
+        c.visualize = False
+        return c
+
+    def test_nan_on_either_axis_fails(self):
+        """A NaN on the first or second conditioning axis fails the check."""
+        for res in ({'a': 0.0, 'b': np.nan}, {'a': np.nan, 'b': 0.0}):
+            with self.subTest(res=res):
+                with self.assertRaises(AssertionError):
+                    self._comparison()._compare_conditional(_NaNJD(res), (1, 2), {'total_expectation': 0.1}, 't')
+
+    def test_nan_windowed_mean_and_cdf_fail(self):
+        """A NaN window average fails the windowed mean and cdf checks."""
+        pair = (1, 2)
+        ys = np.linspace(0, 1, 3)
+        ms = type('Ms', (), {'_windowed_conditional': [
+            (1, 2, on, 0.5, 0.1, 100, 1.0, 0.01, ys, np.zeros(3)) for on in ('a', 'b')
+        ]})()
+
+        for stat in ('mean', 'cdf'):
+            with self.subTest(stat=stat):
+                tols = {'quantiles': [0.5], 'window': 0.2, stat: 1.0}
+                with self.assertRaises(AssertionError):
+                    self._comparison()._compare_windowed_conditional(_NaNJD(), ms, pair, tols, 't')
 
 
 class _ExplodingJD:
@@ -205,9 +306,9 @@ class _ExplodingJD:
 
 
 class PairwiseSurfaceGuardTestCase(TestCase):
-    """The degenerate-surface guard in ``_compare_pairwise_surface`` skips (rather than asserts on / crashes on) a pair
-    whose cached empirical grid has zero-width support or non-finite values -- e.g. a high-frequency bin under an
-    extreme multiple-merger (star-like genealogy)."""
+    """The degenerate-surface guard in ``_compare_pairwise_surface`` skips a pair with a warning, rather than asserting
+    on it or crashing, when its cached empirical grid has zero-width support or non-finite values -- e.g. a
+    high-frequency bin under an extreme multiple-merger (star-like genealogy)."""
 
     @staticmethod
     def _bare_comparison() -> Comparison:
@@ -217,7 +318,6 @@ class PairwiseSurfaceGuardTestCase(TestCase):
         c.n_assertions = 0
         c.visualize = False
         c._comp_index = 0
-        c.runtimes = {}
         return c
 
     @staticmethod
@@ -232,10 +332,12 @@ class PairwiseSurfaceGuardTestCase(TestCase):
         grid = np.zeros((25, 25))
         ms = self._ms_with_surface((1, 2, xs, ys, grid, grid))
 
-        c._compare_pairwise_surface(ph=None, ms=ms, pair=(1, 2), tols={'cdf': 0.0, 'pdf': 0.0},
-                                    title='t', name='n', joint_fn=lambda i, j: _ExplodingJD())
+        with self.assertLogs('phasegen', level='WARNING') as logs:
+            c._compare_pairwise_surface(ph=None, ms=ms, pair=(1, 2), tols={'cdf': 0.0, 'pdf': 0.0},
+                                        title='t', name='n', joint_fn=lambda i, j: _ExplodingJD())
 
-        self.assertEqual(c.n_assertions, 0)  # nothing asserted -> pair skipped
+        self.assertEqual(c.n_assertions, 0)
+        self.assertIn('not asserted', logs.output[0])
 
     def test_non_finite_grid_is_skipped(self):
         """A non-finite cached CDF (degenerate bin with no off-zero mass) is skipped rather than crashing."""
@@ -292,3 +394,112 @@ class PairwiseSurfaceGuardTestCase(TestCase):
         for path in configs:
             with self.subTest(config=path.name):
                 pyyaml.load(path.read_text(), Loader=NoDuplicates)
+
+
+class CompareOnlyTestCase(TestCase):
+    """``--compare-only`` (``Comparison.only``) restricts every block, the coalescent-level statistics included, and a
+    restricted block keeps the options it runs at."""
+
+    def test_restrict_keeps_block_options(self):
+        """Restricting to a leaf inside a conditional or windowed block keeps that block's option keys. Regression:
+        they were dropped, so the restricted run evaluated the check at its default settings."""
+        spec = {'sfs': {'conditional': {'(1, 2)': {
+            'moments': 0.01, 'quantiles': [0.3], 'curves': 2,
+            'windowed': {'mean': 4, 'cdf': 0.01, 'quantiles': [0.5], 'window': 0.1, 'nodes': 3, 'cdf_axes': ['a']},
+        }}}, 'tree_height': {'mean': 0.01}}
+
+        out = Comparison._restrict(spec, 'mean')
+
+        self.assertEqual(out, {'sfs': {'conditional': {'(1, 2)': {
+            'windowed': {'mean': 4, 'quantiles': [0.5], 'window': 0.1, 'nodes': 3, 'cdf_axes': ['a']},
+            'quantiles': [0.3], 'curves': 2,
+        }}}, 'tree_height': {'mean': 0.01}})
+        self.assertEqual(Comparison._restrict(spec, 'pdf'), {})
+
+    @staticmethod
+    def _statistics_comparison(only: str = None) -> Comparison:
+        """A bare comparison asserting one cached F_ST, and nothing else."""
+        c = Comparison.__new__(Comparison)
+        c.logger = logging.getLogger('phasegen')
+        c.do_assertion = True
+        c.n_assertions = 0
+        c.visualize = False
+        c.only = only
+        c.comparisons = {'tolerance': {}, 'statistics': {'fst': 0.1}}
+        c._ms_statistics = {('fst', ()): 0.5}
+        c.__dict__['ph'] = type('Ph', (), {'fst': 0.51})()
+        return c
+
+    def test_statistics_follow_compare_only(self):
+        """A restriction to another key skips the statistics, one to the block or the statistic keeps them.
+        Regression: the statistics were asserted under any restriction."""
+        for only, n in ((None, 1), ('cosine', 0), ('statistics', 1), ('fst', 1)):
+            with self.subTest(only=only):
+                c = self._statistics_comparison(only)
+                c.compare()
+                self.assertEqual(c.n_assertions, n)
+
+    def test_statistic_result_carries_index_and_runtime(self):
+        """A statistic is logged like every other comparison, with its index, metric and runtime."""
+        c = self._statistics_comparison()
+
+        with self.assertLogs('phasegen', level='INFO') as logs:
+            c.compare(title='t')
+
+        self.assertRegex(logs.output[0], r'#1 t: fst: 0\.01980 <= 0\.1 \(max rel, [\d.]+s\)')
+
+
+class QuantileMetricTestCase(TestCase):
+    """The relative Wasserstein metric of ``Comparison._quantile_diff`` on a bin whose reference quantile is 0."""
+
+    def test_zero_reference_fails_on_a_wrong_curve(self):
+        """A bin whose reference quantile is 0 on the whole grid passes only where the other curve is 0 as well.
+        Regression: any phasegen curve, NaN or large, gave 0 there."""
+        q = np.linspace(0.05, 0.95, 5)
+        zero = np.zeros((2, len(q)))
+        ref = np.vstack([np.zeros(len(q)), np.linspace(1.0, 2.0, len(q))])
+
+        self.assertEqual(Comparison._quantile_diff(zero, zero, q), 0.0)
+        self.assertEqual(Comparison._quantile_diff(ref, ref, q), 0.0)
+
+        for bad in (np.nan, 5.0):
+            with self.subTest(bad=bad):
+                y_ph = ref.copy()
+                y_ph[0, 2] = bad
+                self.assertFalse(Comparison._quantile_diff(ref, y_ph, q) <= 1.0)
+
+
+class UncachedCurveTestCase(TestCase):
+    """A curve comparison on an empirical operand whose ground truth was never cached."""
+
+    def test_uncached_operand_uses_its_own_grid(self):
+        """The cdf and quantile of an operand without a cache are evaluated on the fallback grids. Regression: the
+        cache lookup raised ``TypeError`` on the operand's unset cache."""
+        c = Comparison.__new__(Comparison)
+        c.visualize = False
+        ph = pg.Coalescent(n=3).tree_height
+        ms = EmpiricalDistribution(np.random.default_rng(0).exponential(4 / 3, 20000))
+
+        for stat in ('cdf', 'quantile'):
+            with self.subTest(stat=stat):
+                diff, _ = c._diff_and_plot_curve(ph, ms, getattr(ph, stat), getattr(ms, stat), stat, None, 'n')
+                self.assertTrue(np.isfinite(diff))
+
+
+class PairwiseKeysTestCase(TestCase):
+    """Unknown keys under a pairwise block or a ``loci: pairwise`` block are rejected."""
+
+    def test_unknown_keys_raise(self):
+        """Regression: an unknown leaf was dropped and the scenario passed with no assertion, and a ``cdf`` key in
+        place of a pair raised an unrelated ``ValueError`` from parsing it."""
+        c = PairwiseSurfaceGuardTestCase._bare_comparison()
+
+        for data in ({'pairwise': {'(1, 2)': {'cdf': 0.1, 'pfd': 0.1}}}, {'pairwise': {'cdf': 0.1}}):
+            with self.subTest(data=data):
+                with self.assertRaises(ValueError) as ctx:
+                    c._compare_stat_recursively(ph=None, ms=None, data=data)
+                self.assertIn('takes', str(ctx.exception))
+
+        with self.assertRaises(ValueError) as ctx:
+            c._compare_loci_pairwise(ph=None, ms=None, sub={'cdf': 0.1, 'pfd': 0.1}, title='t', name='n')
+        self.assertIn('pfd', str(ctx.exception))

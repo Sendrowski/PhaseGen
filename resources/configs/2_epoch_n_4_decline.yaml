@@ -40,6 +40,9 @@ comparisons:
         '[(1, 2)]':
           moments: 0.003
           grid_moments: 0.005
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4)
+          dehoog:
+            cdf: 0.0016
         '[(2, 3)]':
           moments: 0.003
       pairwise:

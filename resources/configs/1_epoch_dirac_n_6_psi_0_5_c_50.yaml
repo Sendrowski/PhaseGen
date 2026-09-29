@@ -37,6 +37,9 @@ comparisons:
         '[(1, 2)]':
           moments: 0.0001
           grid_moments: 0.04
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4)
+          dehoog:
+            cdf: 0.00021
         # conditioning on the 5-ton of a psi = 0.5, c = 50 Dirac: the generator is stiff enough that the identity's
         # error here is set by roundoff in the augmented ``expm``, not by the algorithm, so it moves with the BLAS
         # summation order (5e-4 single-threaded, under 1e-4 multi-threaded). Pinned to the roundoff floor, not to

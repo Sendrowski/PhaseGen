@@ -39,6 +39,10 @@ comparisons:
       conditional:
         '[(1, 2)]':
           moments: 0.0001
+          # the conditional CDF, whose body is a cosine expansion, against the de Hoog inversion of the same transform at
+          # its 5% to 95% quantiles, conditioning on both axes at the quartiles and the median. No msprime operand.
+          dehoog:
+            cdf: 0.0024
           # ``grid_moments`` is the same identity taken against the conditional's cosine cdf/pdf GRID rather than its
           # transform, so it is the only check that reaches that layer -- but it builds a grid per conditioning point,
           # so it is several times dearer and is wired on one pair per config, not on every pair.

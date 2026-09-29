@@ -42,6 +42,10 @@ comparisons:
             cdf: 0.0084
             pdf: 0.017
             quantile: 0.031
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4), at the median alone
+          dehoog:
+            cdf: 0.0008
+            quantiles: [0.5]
         '[(1, 2)]':
           # the nested conditional against msprime: the only place a *sample* decides it away from the atom (every
           # other conditional check is an identity the analytic joint must satisfy, so an error shared by the

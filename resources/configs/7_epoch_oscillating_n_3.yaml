@@ -39,6 +39,10 @@ comparisons:
       conditional:
         '[(1, 2)]':
           moments: 0.012
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4), at the median alone
+          dehoog:
+            cdf: 0.0064
+            quantiles: [0.5]
       pairwise:
         '[(1, 2)]':
           cdf: 0.002

@@ -55,6 +55,9 @@ comparisons:
             quantiles: [0.25, 0.5, 0.75]
             window: 0.2
             mean: 5
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4)
+          dehoog:
+            cdf: 0.00024
       pairwise:
         '[(1, 2), (1, 5), (2, 5)]':
           cdf: 0.002

@@ -60,6 +60,10 @@ comparisons:
       conditional:
         '[(1, 2), (2, 4)]':
           moments: 0.001
+        '[(1, 2)]':
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4)
+          dehoog:
+            cdf: 0.018
       pairwise:
         '[(1, 2), (1, 4), (2, 4)]':
           cdf: 0.0036

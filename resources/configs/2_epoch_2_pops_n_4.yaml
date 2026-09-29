@@ -45,6 +45,11 @@ comparisons:
       conditional:
         '[(1, 2), (1, 3)]':
           moments: 0.0001
+        '[(1, 2)]':
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4), at the median alone
+          dehoog:
+            cdf: 0.0012
+            quantiles: [0.5]
         '[(1, 3)]':
           # the atom conditional against the msprime sample (see 1_epoch_n_4): two populations and two epochs together.
           atom:

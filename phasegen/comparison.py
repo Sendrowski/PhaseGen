@@ -51,8 +51,8 @@ class Comparison(Serializable):
     # Whether to show the title of the plot
     show_title: bool = True
 
-    # Number of sampler trajectories for the ``ms`` operand; None falls back to msprime. Declared at class level
-    # so fixtures serialized before the trajectory sampler was added deserialize without this attribute set.
+    # Number of sampler trajectories of the ``empirical`` operand. Declared at class level so fixtures serialized
+    # before the trajectory sampler was added deserialize without this attribute set.
     n_samples: int = None
 
     def __init__(
@@ -74,7 +74,7 @@ class Comparison(Serializable):
             parallelize: bool = True,
             seed: int = None,
             comparisons: dict = None,
-            model: Literal['standard', 'beta'] = 'standard',
+            model: Literal['standard', 'beta', 'dirac'] = 'standard',
             alpha: float = 1.5,
             psi: float = 0.5,
             c: float = 1
@@ -99,9 +99,9 @@ class Comparison(Serializable):
         :param n_unlinked: Number of lineages initially unlinked between the loci (see
             :class:`~phasegen.locus.LocusConfig`).
         :param num_replicates: Number of replicates to use.
-        :param n_samples: If set, the ``ms`` operand is PhaseGen's own trajectory sampler
-            (:class:`~phasegen.distributions.SampledCoalescent`) drawing ``n_samples`` trajectories, not msprime. The
-            comparison then validates PhaseGen's sampler against its exact analytic distributions.
+        :param n_samples: Number of trajectories drawn by the :attr:`empirical` operand, PhaseGen's own trajectory
+            sampler (:class:`~phasegen.distributions.SampledCoalescent`), against which a ``tolerance.empirical``
+            block validates the exact analytic distributions. Required by that block only.
         :param mutation_rate: Mutation rate. Only used if simulate_mutations is True.
         :param record_migration: Whether to record migrations.
         :param simulate_mutations: Whether to simulate mutations, for comparing mutational configurations in place of
@@ -112,7 +112,6 @@ class Comparison(Serializable):
         :param parallelize: Whether to parallelize the msprime simulations. ``Settings.parallelize = False``
             overrides it.
         :param seed: Seed for the random number generator.
-        :param alpha: Initial distribution of the phase-type coalescent.
         :param comparisons: Dictionary specifying which comparisons to make.
         :param model: Coalescent model to use.
         :param alpha: Alpha parameter of the beta coalescent.
@@ -154,9 +153,6 @@ class Comparison(Serializable):
 
         #: Number of assertions made
         self.n_assertions: int = 0
-
-        #: Wall-clock runtime (seconds) of the phasegen side of each compared statistic, keyed by its title.
-        self.runtimes: dict = {}
 
         #: Ground truth of the configured coalescent-level scalar statistics, keyed by ``(name, args)``
         #: (:meth:`cache_ground_truth`), so that it survives the drop of the simulated data it is computed from.
@@ -377,8 +373,6 @@ class Comparison(Serializable):
             raise ValueError(f"Unknown type {type(ph_stat)}.")
 
         runtime = time.perf_counter() - t0
-        self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
-        self.runtimes[title] = runtime
 
         msg = self._result_message(title, diff, tol, self._diff_label(stat), runtime)
         if self.visualize and plot is not None:
@@ -513,7 +507,7 @@ class Comparison(Serializable):
         grid_key = 'q' if stat == 'quantile' else 't'
 
         # use cached values if available
-        if hasattr(ms, '_cache') and stat in ms._cache:
+        if getattr(ms, '_cache', None) is not None and stat in ms._cache:
             t = ms._cache[grid_key]
             y_ms = np.asarray(ms._cache[stat])
         elif stat == 'quantile':
@@ -529,16 +523,16 @@ class Comparison(Serializable):
         curve = 'cdf' if stat == 'cdf' else 'pdf'
 
         # the cdf is read pointwise; the pdf is averaged over each cell of the grid, because that is the functional
-        # the empirical density estimates (see :meth:`_cell_average`)
+        # the empirical density estimates (see :meth:`_cell_average`). Both come with the grid on the last axis.
         evaluate = ((lambda f: self._cell_average(f, t)) if stat == 'pdf'
-                    else (lambda f: np.asarray(f(t), dtype=float)))
+                    else (lambda f: np.moveaxis(np.asarray(f(t), dtype=float), 0, -1)))
 
         if stat == 'quantile':
             y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, mode=mode)
         elif mode is not None and hasattr(ph, 'bin'):
             # a moded spectrum pdf/cdf compares each bin's *inverted* curve; the monomorphic edge bins are zero
             # placeholders, dropped below
-            nb = y_ms.shape[0] if (y_ms.ndim == 2 and y_ms.shape[1] == len(t)) else y_ms.shape[1]
+            nb = y_ms.shape[1]
             y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1) else evaluate(getattr(ph.bin(b), curve))
                              for b in range(nb)])
         elif mode is not None and hasattr(ph, '_reward_distribution'):
@@ -547,14 +541,14 @@ class Comparison(Serializable):
         else:
             y_ph = evaluate(ph_stat)  # exact (mode is None, e.g. the expm tree height)
 
-        # per-bin distributions (the SFS) are 2-D; orient both as (n_bins, len(grid)) and keep only the
-        # polymorphic bins (the monomorphic edges are a degenerate atom at 0)
-        per_bin = y_ph.ndim == 2 or y_ms.ndim == 2
+        # per-bin distributions (the SFS) are 2-D, the empirical ones and the quantiles of both with the grid on the
+        # first axis. Orient both as (n_bins, len(grid)) and keep only the polymorphic bins (the monomorphic edges
+        # are a degenerate atom at 0)
+        per_bin = y_ms.ndim == 2
         if per_bin:
-            if y_ph.ndim == 2 and y_ph.shape[-1] != len(t):
+            y_ms = y_ms.T
+            if stat == 'quantile':
                 y_ph = y_ph.T
-            if y_ms.ndim == 2 and y_ms.shape[-1] != len(t):
-                y_ms = y_ms.T
             y_ph, y_ms = y_ph[1:-1], y_ms[1:-1]
 
         # Metric: the CDF (bounded in [0,1]) uses the worst *absolute* difference over the *whole* grid, including
@@ -607,7 +601,7 @@ class Comparison(Serializable):
     def _quadrature(cls, f, lo: np.ndarray, hi: np.ndarray, n_nodes: int) -> np.ndarray:
         """Gauss-Legendre average of ``f`` over each cell ``[lo, hi)``, all cells in one vectorised call.
 
-        :param f: The density, a vectorised callable (1-D, or per-bin returning ``(n_bins, len(x))``).
+        :param f: The density, a vectorised callable (1-D, or per-bin returning ``(len(x), n_bins)``).
         :param lo: Lower cell edges.
         :param hi: Upper cell edges.
         :param n_nodes: Nodes per cell.
@@ -616,12 +610,8 @@ class Comparison(Serializable):
         x, w = np.polynomial.legendre.leggauss(n_nodes)
         nodes = 0.5 * (hi - lo)[:, None] * (x[None, :] + 1.0) + lo[:, None]
 
-        y = np.asarray(f(nodes.ravel()), dtype=float)
-        # a per-bin density may return the grid on the leading axis (e.g. SFSDensity: ``(len(grid), n_bins)``),
-        # whereas the reshape below and the (n_bins, len(x)) cell-average contract expect it trailing -- move it there
-        n_pts = nodes.size
-        if y.ndim >= 2 and y.shape[-1] != n_pts and y.shape[0] == n_pts:
-            y = np.moveaxis(y, 0, -1)
+        # a per-bin density returns the grid on the leading axis, which the reshape below expects trailing
+        y = np.moveaxis(np.asarray(f(nodes.ravel()), dtype=float), 0, -1)
         y = y.reshape(*y.shape[:-1], len(lo), n_nodes)
 
         # the 0.5 * (hi - lo) Jacobian of the quadrature cancels the 1 / (hi - lo) of the average
@@ -641,9 +631,9 @@ class Comparison(Serializable):
         Cells whose integral is still moving are refined until it settles, and only those: a spike much narrower than
         its cell defeats a fixed-order rule, and the resulting error lands in the comparison as if it were phasegen's.
 
-        :param f: The exact density, a vectorised callable (1-D, or per-bin returning ``(n_bins, len(x))``).
+        :param f: The exact density, a vectorised callable (1-D, or per-bin returning ``(len(x), n_bins)``).
         :param t: The grid whose cells to average over; the last cell is extended by the final spacing.
-        :return: The cell averages, shaped like ``f``'s output.
+        :return: The cell averages, of shape ``(len(t),)``, or ``(n_bins, len(t))`` per bin.
         """
         edges = np.append(t, 2 * t[-1] - t[-2])
         lo, hi = edges[:-1], edges[1:]
@@ -797,8 +787,8 @@ class Comparison(Serializable):
         It is naturally **atom-robust**: for an SFS bin with an atom ``P(L_i = 0) = p0`` the inverse CDF is exactly 0
         for every probability below ``p0``, so on that flat region both quantiles are 0 and the integrand contributes
         nothing -- there is no per-point relative blow-up of the tiny near-atom values that the old worst-relative
-        metric suffered from. For a per-bin spectrum the worst bin's value is returned; a fully degenerate (``Q ~ 0``)
-        bin is 0."""
+        metric suffered from. For a per-bin spectrum the worst bin's value is returned. A bin whose curves agree is 0,
+        also where the reference is identically 0, and a non-finite value on either curve fails."""
         y_ms, y_ph, q = np.asarray(y_ms, dtype=float), np.asarray(y_ph, dtype=float), np.asarray(q, dtype=float)
 
         def integ(d: np.ndarray) -> np.ndarray:
@@ -807,7 +797,7 @@ class Comparison(Serializable):
 
         num, den = integ(np.abs(y_ph - y_ms)), integ(np.abs(y_ms))
         with np.errstate(divide='ignore', invalid='ignore'):
-            rel = np.where(den > 1e-300, num / den, 0.0)  # a fully degenerate (Q ~ 0) bin contributes nothing
+            rel = np.where(num > 0, num / np.maximum(den, 1e-300), num)
         return float(np.max(rel))
 
     def _result_message(self, title: str, diff: float, tol: float, label: str, runtime: float) -> str:
@@ -993,7 +983,12 @@ class Comparison(Serializable):
                 # nested pairwise group. A pair key like '(1, 2)' carries {cdf, pdf} tolerances for the full-grid
                 # surface comparison of that single bin pair.
                 for key, subtol in sub.items():
-                    pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                    try:
+                        pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                    except (ValueError, SyntaxError, TypeError):
+                        pair = None
+                    if not isinstance(pair, tuple) or len(pair) != 2:
+                        raise ValueError(f"A pairwise block takes bin pairs '(i, j)' as keys, got '{key}'.")
                     self._compare_pairwise_surface(ph=ph, ms=ms, pair=pair, tols=subtol, title=title, name=name)
 
             elif isinstance(stat, int) or (isinstance(stat, str) and stat.lstrip('-').isdigit()):
@@ -1021,15 +1016,21 @@ class Comparison(Serializable):
         pair ``(0, 1)`` -- the same machinery as the SFS/jSFS/two-locus surfaces (:meth:`_compare_pairwise_surface`),
         routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. The ``cdf`` / ``pdf``
         tolerances are asserted over the grid. A ``conditional`` sub-block runs the conditional self-consistency checks
-        of :meth:`_compare_conditional` on the same pair.
+        of :meth:`_compare_conditional` on the same pair. A key other than ``cdf``, ``pdf`` and ``conditional`` raises a
+        ``ValueError``.
         """
+        if unknown := set(sub) - {'cdf', 'pdf', 'conditional'}:
+            raise ValueError(f"A loci pairwise block takes 'cdf', 'pdf' and 'conditional', got "
+                             f"{sorted(map(str, unknown))}.")
+
         tols = {k: v for k, v in sub.items() if k in ('cdf', 'pdf')}
         if tols:
             self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name,
                                            joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
                                            surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
         if 'conditional' in sub:
-            self._compare_conditional(ph.loci.joint_distribution(0, 1), (0, 1), sub['conditional'], title, name, ms=ms)
+            self._compare_conditional(ph.loci.joint_distribution(0, 1), (0, 1), sub['conditional'], title, name,
+                                      ms=ms, loci=True)
 
     def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str) -> None:
         """
@@ -1055,13 +1056,10 @@ class Comparison(Serializable):
                 diff = float(self.rel_diff(np.array([ms_val]), np.array([ph_val])).max())
 
             elif stat in ('pdf', 'cdf', 'quantile'):
-                # the empirical per-bin curves were cached over a grid by ``_touch``; orient to (n_bins, len(grid))
+                # the empirical per-bin curves were cached over a grid by ``_touch``, of shape (len(grid), n_bins)
                 grid_key = 'q' if stat == 'quantile' else 't'
                 t = np.asarray(ms._cache[grid_key], dtype=float)
-                y_ms_all = np.asarray(ms._cache[stat], dtype=float)
-                if y_ms_all.ndim == 2 and y_ms_all.shape[-1] != len(t):
-                    y_ms_all = y_ms_all.T
-                y_ms = y_ms_all[i]
+                y_ms = np.asarray(ms._cache[stat], dtype=float)[:, i]
                 d = ph.bin(i)  # only this bin's distribution (the spectrum-wide quantile would compute every bin)
                 if stat == 'quantile':
                     y_ph = np.asarray(d.quantile(t), dtype=float)
@@ -1079,8 +1077,6 @@ class Comparison(Serializable):
                                  f"(use mean / var / pdf / cdf / quantile).")
 
             runtime = time.perf_counter() - t0
-            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
-            self.runtimes[sub_title] = runtime
             msg = self._result_message(sub_title, diff, tol, self._diff_label(stat), runtime)
 
             if self.visualize and stat in ('pdf', 'cdf', 'quantile'):
@@ -1099,21 +1095,6 @@ class Comparison(Serializable):
         value = getattr(coal, stat)
 
         return value(*args) if callable(value) else value
-
-    def _compare_scalar(self, ph: float, ms: float, tol: float, title: str) -> None:
-        """Compare two scalar statistics within a relative tolerance, mirroring :meth:`compare_stat`."""
-        diff = self.rel_diff(ms, ph)
-
-        if not diff <= tol:
-            self.logger.critical(f"{title}: {diff:.5f} > {tol}")
-
-            if self.do_assertion:
-                raise AssertionError(f"Relative difference {diff:.5f} exceeds threshold {tol} for {title}.")
-        else:
-            self.logger.info(f"{title}: {diff:.5f} <= {tol}")
-
-        if self.do_assertion:
-            self.n_assertions += 1
 
     @staticmethod
     def _quantile_values(ph, q, n_bins: int = None, mode: str = None) -> np.ndarray:
@@ -1210,8 +1191,6 @@ class Comparison(Serializable):
                 t0 = time.perf_counter()
                 diff = abs(float(jd._atoms['a0' if on == 'a' else 'b0']) - mass)
                 runtime = time.perf_counter() - t0
-                self.runtimes = getattr(self, 'runtimes', {})
-                self.runtimes[f"{sub_title}: mass"] = runtime
                 self._log_result(self._result_message(f"{sub_title}: mass", diff, tols['mass'], 'max abs', runtime),
                                  diff, tols['mass'])
 
@@ -1223,7 +1202,8 @@ class Comparison(Serializable):
                 if stat != 'mass':
                     self.compare_stat(ph=cond, ms=emp, stat=stat, tol=tol, title=sub_title, name=sub_name)
 
-    def _compare_windowed_conditional(self, jd, ms, pair: tuple, tols: dict, title: str) -> None:
+    def _compare_windowed_conditional(self, jd, ms, pair: tuple, tols: dict, title: str,
+                                      loci: bool = False) -> None:
         """
         Compare the **nested conditional** ``R_other | R_on = v`` against the msprime ground truth, over the
         conditioning windows cached for this pair.
@@ -1258,10 +1238,13 @@ class Comparison(Serializable):
         :param tols: ``{'mean': sigmas}`` and/or ``{'cdf': max_abs}``, plus the ``quantiles`` / ``window`` / ``nodes``
             / ``cdf_axes`` options.
         :param title: Title prefix for the log line.
-        :raises ValueError: If the ground truth was not cached for this pair (the fixture predates it), or a requested
-            stat is not one of ``mean`` / ``cdf``.
+        :param loci: Whether ``pair`` is a pair of loci, whose ground truth is cached apart from the bin pairs.
+        :raises ValueError: If the ground truth was not cached for this pair (the fixture predates it) or was cached at
+            other windows than the configured ``quantiles`` / ``window``, or a requested stat is not one of ``mean`` /
+            ``cdf``.
         """
-        cached = [c for c in getattr(ms, '_windowed_conditional', []) if (c[0], c[1]) == tuple(pair)]
+        attr = '_loci_windowed_conditional' if loci else '_windowed_conditional'
+        cached = [c for c in getattr(ms, attr, []) if (c[0], c[1]) == tuple(pair)]
 
         if not cached:
             raise ValueError(
@@ -1279,36 +1262,96 @@ class Comparison(Serializable):
         bad = set(cdf_axes) - {'a', 'b'}
         if bad:
             raise ValueError(f"Unknown windowed-conditional cdf_axes {sorted(bad)}; expected a subset of ('a', 'b').")
+
+        if self._stale_windows(cached, self._windows_of(jd, pair, tols)):
+            raise ValueError(
+                f"The windowed-conditional ground truth of pair {pair} is cached at other windows than the configured "
+                f"quantiles and window. Regenerate the fixture (create_comparison)."
+            )
+
         worst = {s: 0.0 for s in stats}
         t0 = time.perf_counter()
 
         for _, _, on, v, h, n_win, mean, mean_se, ys, cdf in cached:
             if 'mean' in worst:
                 got = jd.window_average(lambda c: c.mean, on, v, h, n_nodes=nodes)
-                worst['mean'] = max(worst['mean'], abs(got - mean) / max(mean_se, 1e-300))
+                worst['mean'] = float(np.maximum(worst['mean'], abs(got - mean) / max(mean_se, 1e-300)))
             if 'cdf' in worst and on in cdf_axes:
                 got = np.asarray(jd.window_average(lambda c: c.cdf(ys), on, v, h, n_nodes=nodes), dtype=float)
-                worst['cdf'] = max(worst['cdf'], float(np.abs(got - cdf).max()))
+                worst['cdf'] = float(np.maximum(worst['cdf'], np.abs(got - cdf).max()))
 
         runtime = time.perf_counter() - t0
         for stat in stats:
             sub_title = f"{title}: conditional {pair} windowed: {stat}"
-            self.runtimes = getattr(self, 'runtimes', {})
-            self.runtimes[sub_title] = runtime
             label = 'sigma' if stat == 'mean' else 'max abs'
             self._log_result(self._result_message(sub_title, worst[stat], tols[stat], label, runtime),
                              worst[stat], tols[stat])
 
-    def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '', ms=None) -> None:
+    def _compare_dehoog_conditional(self, jd, pair: tuple, tols: dict, title: str) -> None:
+        """
+        Compare the CDF of the nested conditional ``R_other | R_on = v``, whose body is the cosine expansion, against
+        the per-point de Hoog inversion of the same conditional transform (``_cdf_point`` of its CDF), on the
+        conditioning axes ``axes`` (default both) and at the conditioning values placed by ``quantiles`` as in
+        :meth:`_windows_of`. Each conditional is evaluated at its own quantiles ``levels``, which span the body. On a
+        pair with mass on a line ``R_a = c R_b`` the continuous part is compared. Both sides invert one transform, so
+        the check needs no msprime operand and bounds the error of the expansion alone. A conditioning value the
+        conditional refuses is skipped with a warning, and a check that constructed no conditional reports ``inf``.
+
+        :param jd: The analytic joint distribution of the pair.
+        :param pair: The bin pair ``(i, j)``.
+        :param tols: ``{'cdf': max_abs}``, plus the ``quantiles`` / ``levels`` / ``axes`` options.
+        :param title: Title prefix for the log line.
+        :raises ValueError: If the block holds a key other than ``cdf`` and the options, or ``axes`` names an axis other
+            than ``'a'`` and ``'b'``.
+        """
+        unknown = set(tols) - {'cdf', *self._DEHOOG_DEFAULTS}
+        if unknown or 'cdf' not in tols:
+            raise ValueError(f"A de Hoog conditional block takes 'cdf' and the options {list(self._DEHOOG_DEFAULTS)}, "
+                             f"got {sorted(map(str, tols))} for pair {pair}.")
+
+        opts = {**self._DEHOOG_DEFAULTS, **{k: v for k, v in tols.items() if k != 'cdf'}}
+        if set(opts['axes']) - {'a', 'b'}:
+            raise ValueError(f"Unknown de Hoog conditional axes {sorted(opts['axes'])}; expected a subset of "
+                             f"('a', 'b').")
+
+        levels = np.asarray(opts['levels'], dtype=float)
+        worst, n_built = 0.0, 0
+        t0 = time.perf_counter()
+
+        for _, _, on, v, _ in self._windows_of(jd, pair, {'quantiles': opts['quantiles']}):
+            if on not in opts['axes']:
+                continue
+            try:
+                cond = jd.conditional(on, v)
+            except ValueError as e:
+                self.logger.warning("%s: conditional %s on R_%s = %.4g skipped: %s", title, pair, on, v, e)
+                continue
+            cond = getattr(cond, '_continuous', cond)
+
+            xs = np.atleast_1d(cond.quantile(levels))
+            served = np.atleast_1d(cond.cdf(xs))  # built first, so the reference sees the refined inner inversion
+            exact = np.array([cond.cdf._cdf_point(float(x)) for x in xs])
+            worst = max(worst, float(np.abs(served - exact).max()))
+            n_built += 1
+
+        diff = worst if n_built else float('inf')
+        runtime = time.perf_counter() - t0
+        msg = self._result_message(f"{title}: conditional {pair} dehoog: cdf", diff, tols['cdf'], 'max abs', runtime)
+        self._log_result(msg, diff, tols['cdf'])
+
+    def _compare_conditional(self, jd, pair: tuple, tols: dict, title: str, name: str = '', ms=None,
+                             loci: bool = False) -> None:
         """
         Run the requested conditional self-consistency checks for one bin pair and assert each against its tolerance.
 
         :param jd: The analytic joint distribution of the pair.
         :param pair: The bin pair ``(i, j)``.
-        :param tols: ``{check_name: tolerance}``, keyed by :attr:`_CONDITIONAL_CHECKS`.
+        :param tols: ``{check_name: tolerance}``, keyed by :attr:`_CONDITIONAL_CHECKS`, or the ``atom``, ``windowed``
+            and ``dehoog`` sub-blocks.
         :param title: Title prefix for the log line.
         :param name: Name prefix for the plot file.
         :param ms: The msprime operand, needed only by the ``atom`` sub-block.
+        :param loci: Whether ``pair`` is a pair of loci, for the ``windowed`` sub-block.
         :raises ValueError: If a requested check is not one of :attr:`_CONDITIONAL_CHECKS`.
         """
         for key, tol in tols.items():
@@ -1320,7 +1363,11 @@ class Comparison(Serializable):
                 continue
             if key == 'windowed':
                 # the nested conditional against msprime, both sides averaged over the same conditioning window
-                self._compare_windowed_conditional(jd, ms, pair, tol, title)
+                self._compare_windowed_conditional(jd, ms, pair, tol, title, loci=loci)
+                continue
+            if key == 'dehoog':
+                # the cosine body of the nested conditional against the de Hoog inversion of its transform
+                self._compare_dehoog_conditional(jd, pair, tol, title)
                 continue
             if key not in self._CONDITIONAL_CHECKS:
                 raise ValueError(f"Unknown conditional check '{key}' for pair {pair}; expected one of "
@@ -1328,12 +1375,10 @@ class Comparison(Serializable):
             opts = {o: tols[o] for o, checks in self._CONDITIONAL_OPTS.items() if o in tols and key in checks}
             t0 = time.perf_counter()
             res = getattr(jd, self._CONDITIONAL_CHECKS[key])(tol=tol, **opts)
-            diff = max(res.values()) if res else 0.0  # worst over the two conditioning axes
+            diff = float(np.max(list(res.values()))) if res else 0.0  # worst over the two conditioning axes, or NaN
             runtime = time.perf_counter() - t0
 
             sub_title = f"{title}: conditional {pair} {key}"
-            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
-            self.runtimes[sub_title] = runtime
             msg = self._result_message(sub_title, diff, tol, self._diff_label(f"conditional_{key}"), runtime)
 
             # plot the conditional mean against the conditioning quantile, phasegen (nested inversion) vs the exact
@@ -1356,8 +1401,13 @@ class Comparison(Serializable):
         visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference.
 
         The CDF is read pointwise on both sides, the density as the average over the grid cell centred on each node,
-        through :meth:`_cell_average_2d` on the analytic side.
+        through :meth:`_cell_average_2d` on the analytic side. A key other than ``cdf`` and ``pdf`` raises a
+        ``ValueError``.
         """
+        if unknown := set(tols) - {'cdf', 'pdf'}:
+            raise ValueError(f"A pairwise surface block takes 'cdf' and 'pdf', got {sorted(map(str, unknown))} for "
+                             f"pair {pair}.")
+
         i, j = pair
         jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
 
@@ -1371,7 +1421,8 @@ class Comparison(Serializable):
         # multiple-merger (a star-like genealogy) -- has a zero-width empirical support, so its CDF/density grid is
         # constant/non-finite and there is no continuous surface to compare; skip the pair (nothing to assert)
         if xs[-1] <= xs[0] or ys[-1] <= ys[0] or not np.isfinite(np.asarray(cdf_ms, dtype=float)).all():
-            self.logger.info(f"{title}: pairwise {pair}: skipped (degenerate empirical surface)")
+            self.logger.warning("%s: pairwise %s: degenerate empirical surface, tolerances %s not asserted",
+                                title, pair, sorted(k for k in tols if k in ('cdf', 'pdf')))
             return
 
         # skip the first two grid points on each axis: there the joint law has its atom edge (P=0 head for the cdf,
@@ -1404,8 +1455,6 @@ class Comparison(Serializable):
             label_key = f"{stat_label}_{kind}" if stat_label else f"pairwise_{kind}"
             sub_title = f"{title}: {label_key}" if stat_label else f"{title}: pairwise {pair} {kind}"
             runtime = time.perf_counter() - t0
-            self.runtimes = getattr(self, 'runtimes', {})  # robust to deserialized objects that bypass __init__
-            self.runtimes[sub_title] = runtime
             msg = self._result_message(sub_title, diff, tols[kind], self._diff_label(label_key), runtime)
 
             if self.visualize:
@@ -1673,26 +1722,34 @@ class Comparison(Serializable):
     #: to some conditioning axes while the cheap ``mean`` still runs on all of them.
     _WINDOWED_OPTS = ('quantiles', 'window', 'nodes', 'cdf_axes')
 
-    def _windowed_conditional_specs(self, spec: dict) -> dict:
-        """The ``(i, j, on, value, half_width)`` conditioning windows requested by any ``conditional: {pair}:
-        windowed:`` block, and by a ``loci: pairwise: conditional: windowed:`` block over the locus pair ``(0, 1)``,
-        per distribution. The centres come from the **exact** marginal's quantiles, so they are deterministic and the
-        msprime side can be cached against them."""
+    #: Defaults of a ``conditional: {pair}: dehoog:`` block, whose tolerance is ``cdf``. ``quantiles`` places the
+    #: conditioning values as for a ``windowed:`` block, ``levels`` are the quantiles of each conditional at which its
+    #: CDF is compared, and ``axes`` are the conditioning axes.
+    _DEHOOG_DEFAULTS = {'quantiles': (0.25, 0.5, 0.75), 'levels': (0.05, 0.2, 0.35, 0.5, 0.65, 0.8, 0.95),
+                        'axes': ('a', 'b')}
+
+    def _windowed_conditional_specs(self, spec: dict, loci: bool = False) -> dict:
+        """The ``(i, j, on, value, half_width)`` conditioning windows requested per distribution, by any
+        ``conditional: {pair}: windowed:`` block, or with ``loci`` by a ``loci: pairwise: conditional: windowed:``
+        block over the locus pair ``(0, 1)``. The centres come from the **exact** marginal's quantiles, so they are
+        deterministic and the msprime side can be cached against them."""
         out = {}
         for dist, data in self._expand_keys(spec).items():
-            conditional = data.get('conditional') if isinstance(data, dict) else None
-
             specs = []
-            for key, sub in (conditional.items() if isinstance(conditional, dict) else ()):
-                if not isinstance(sub, dict) or 'windowed' not in sub:
-                    continue
-                pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
-                specs += self._windows_of(getattr(self.ph, dist).joint_distribution(*pair), pair, sub['windowed'])
 
-            loci = self._loci_conditional(data)
-            if 'windowed' in loci:
-                specs += self._windows_of(getattr(self.ph, dist).loci.joint_distribution(0, 1), (0, 1),
-                                          loci['windowed'])
+            if loci:
+                block = self._loci_conditional(data)
+                if 'windowed' in block:
+                    specs = self._windows_of(getattr(self.ph, dist).loci.joint_distribution(0, 1), (0, 1),
+                                             block['windowed'])
+            else:
+                conditional = data.get('conditional') if isinstance(data, dict) else None
+                for key, sub in (conditional.items() if isinstance(conditional, dict) else ()):
+                    if not isinstance(sub, dict) or 'windowed' not in sub:
+                        continue
+                    pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
+                    specs += self._windows_of(getattr(self.ph, dist).joint_distribution(*pair), pair,
+                                              sub['windowed'])
 
             if specs:
                 out[dist] = specs
@@ -1719,6 +1776,22 @@ class Comparison(Serializable):
                 v = float(marg.quantile(p0 + (1.0 - p0) * float(q)))
                 specs.append((pair[0], pair[1], on, v, rel * v))
         return specs
+
+    @staticmethod
+    def _stale_windows(cached: list, windows: list) -> bool:
+        """
+        Whether cached windowed-conditional ground truth was taken at other windows than the given ones.
+
+        :param cached: Cached entries ``(i, j, on, value, half_width, ...)``, in the order they were cached.
+        :param windows: The ``(i, j, on, value, half_width)`` windows the configuration defines, in the same order.
+        :return: ``True`` if the two differ in number, in pair or axis, or in a centre or half-width beyond a relative
+            ``1e-6``.
+        """
+        return len(cached) != len(windows) or any(
+            (int(c[0]), int(c[1]), c[2]) != (int(w[0]), int(w[1]), w[2])
+            or not np.allclose(c[3:5], w[3:5], rtol=1e-6, atol=0.0)
+            for c, w in zip(cached, windows)
+        )
 
     def _atom_conditional_pairs(self, spec: dict) -> dict:
         """The per-distribution bin pairs whose ``conditional:`` block requests an ``atom`` check, so their
@@ -1761,8 +1834,9 @@ class Comparison(Serializable):
                 getattr(self.ms, dist)._cache_joint_surface(pairs)
             for dist, pairs in self._atom_conditional_pairs(msprime_spec).items():
                 getattr(self.ms, dist)._cache_atom_conditional(pairs)
-            for dist, specs in self._windowed_conditional_specs(msprime_spec).items():
-                getattr(self.ms, dist)._cache_windowed_conditional(specs)
+            for loci in (False, True):
+                for dist, specs in self._windowed_conditional_specs(msprime_spec, loci=loci).items():
+                    getattr(self.ms, dist)._cache_windowed_conditional(specs, loci=loci)
 
         if empirical_spec:
             if self.n_samples is None:
@@ -1775,7 +1849,9 @@ class Comparison(Serializable):
     def _restrict(cls, spec: dict, key: str) -> dict:
         """
         The tolerance sub-spec holding only the branches at or below ``key``, so that a comparison can exercise one
-        numerical path across every scenario asserting it. A branch containing no such leaf is dropped entirely.
+        numerical path across every scenario asserting it. A branch containing no such leaf is dropped entirely. A
+        kept block keeps its option keys (:attr:`_CONDITIONAL_OPTS`, :attr:`_WINDOWED_OPTS`, :attr:`_DEHOOG_DEFAULTS`),
+        so its checks run at the configured settings.
 
         :param spec: The tolerance spec, possibly nested.
         :param key: The key whose branches to keep.
@@ -1788,6 +1864,10 @@ class Comparison(Serializable):
                 out[name] = value
             elif isinstance(value, dict) and (sub := cls._restrict(value, key)):
                 out[name] = sub
+
+        if out:
+            opts = set(cls._CONDITIONAL_OPTS) | set(cls._WINDOWED_OPTS) | set(cls._DEHOOG_DEFAULTS)
+            out |= {name: value for name, value in spec.items() if name in opts and name not in out}
 
         return out
 
@@ -1835,8 +1915,12 @@ class Comparison(Serializable):
 
         # coalescent-level scalar statistics (optionally parameterized with population arguments), e.g. F_ST and
         # the Patterson f-statistics f2/f3/f4. Each entry is either ``<stat>: <tol>`` or
-        # ``<stat>: {args: [...], tol: <tol>}``.
+        # ``<stat>: {args: [...], tol: <tol>}``. ``only`` keeps the whole block when it is ``statistics`` and the
+        # statistic of that name otherwise.
         for stat, spec in self.comparisons.get('statistics', {}).items():
+            if self.only not in (None, 'statistics', stat):
+                continue
+
             args = spec.get('args', []) if isinstance(spec, dict) else []
             tol = spec['tol'] if isinstance(spec, dict) else spec
             label = f"{title}: {stat}" + (f"({', '.join(map(str, args))})" if args else "")
@@ -1846,11 +1930,10 @@ class Comparison(Serializable):
                                f"the simulated data, which the serialized comparison drops, so a newly configured "
                                f"statistic needs its fixture regenerated (see the 'regenerate_fixtures' rule).")
 
-            self._compare_scalar(
-                ph=self._eval_statistic(self.ph, stat, args),
-                ms=self._ms_statistics[(stat, tuple(args))],
-                tol=tol,
-                title=label
-            )
+            t0 = time.perf_counter()
+            diff = float(self.rel_diff(self._ms_statistics[(stat, tuple(args))],
+                                       self._eval_statistic(self.ph, stat, args)))
+            runtime = time.perf_counter() - t0
+            self._log_result(self._result_message(label, diff, tol, self._diff_label(stat), runtime), diff, tol)
 
         self.logger.info(f"Number of assertions: {self.n_assertions}")

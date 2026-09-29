@@ -29,6 +29,6 @@ comparisons:
         cdf: 0.002
         quantile: 0.0058
       pairwise:
-        '[(1, 2), (1, 4), (2, 4)]':
+        '(1, 2)':
           cdf: 0.002
           pdf: 0.004

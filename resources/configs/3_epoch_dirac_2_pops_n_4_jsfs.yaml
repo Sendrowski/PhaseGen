@@ -26,7 +26,7 @@ migration_rates:
     0.8: 1.5
 comparisons:
   # the multi-epoch MMC jSFS 2D-cosine joint inversion is the dominant cost; one representative bin-pair still
-  # validates the joint distribution under this scenario, keeping the fast suite cheap (see _cap_to_representative)
+  # validates the joint distribution under this scenario, keeping the fast suite cheap
   tolerance:
     jsfs:
       pairwise:

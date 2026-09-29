@@ -55,6 +55,9 @@ comparisons:
       conditional:
         '[(1, 2)]':
           moments: 0.0001
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4)
+          dehoog:
+            cdf: 0.0024
           grid_moments: 0.014
         '[(1, 3)]':
           moments: 0.0001
