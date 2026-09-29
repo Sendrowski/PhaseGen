@@ -33,6 +33,9 @@ logger = logging.getLogger('phasegen')
 #: Finite penalty substituted for a non-finite loss, large enough that any genuine loss wins the minimisation.
 _LOSS_PENALTY = 1e100
 
+#: The methods of `scipy.optimize.minimize` that honour bounds and need no analytic Jacobian.
+_BOUNDED_METHODS = ('nelder-mead', 'powell', 'l-bfgs-b', 'tnc', 'slsqp', 'cobyla', 'cobyqa', 'trust-constr')
+
 
 class Inference(Serializable):
     r"""
@@ -118,9 +121,10 @@ class Inference(Serializable):
             This speeds up optimizations over demographic parameters such as population sizes or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
-        :param method_mle: Method to use for optimization. See `scipy.optimize.minimize` for available methods.
-        :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds, or
-            ``method_mle`` is not a method of `scipy.optimize.minimize`.
+        :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
+            without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
+        :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
+            exactly the parameters in ``bounds``, or ``method_mle`` is not one of the supported methods.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
@@ -133,6 +137,12 @@ class Inference(Serializable):
             opt.show_options(solver='minimize', method=method_mle, disp=False)
         except ValueError:
             raise ValueError(f'Unknown optimization method {method_mle!r}, see scipy.optimize.minimize.') from None
+
+        if method_mle.lower() not in _BOUNDED_METHODS:
+            raise ValueError(
+                f'Optimization method {method_mle!r} does not honour bounds without an analytic Jacobian. Use one '
+                f'of {list(_BOUNDED_METHODS)}.'
+            )
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -240,6 +250,10 @@ class Inference(Serializable):
         if missing:
             raise ValueError(f"x0 must specify every parameter in bounds; missing: {missing}.")
 
+        unknown = [key for key in self._x0 if key not in self.bounds]
+        if unknown:
+            raise ValueError(f"x0 must specify only parameters in bounds, got unknown parameters {unknown}.")
+
         # canonicalize to `bounds` key order so that every run's `result.x` (ordered by the passed x0's keys) lines
         # up with `self.x0.keys()` and the DataFrame columns; `_sample()`-generated runs are already in bounds order
         return {key: self._x0[key] for key in self.bounds.keys()}
@@ -281,8 +295,9 @@ class Inference(Serializable):
         """
         self.__dict__.update(state)
 
+        # jsonpickle restores the instance dictionary of an encoded OptimizeResult as an item named '__dict__'
         if self.result is not None:
-            self.result = OptimizeResult(self.result)
+            self.result = OptimizeResult({k: v for k, v in dict(self.result).items() if k != '__dict__'})
 
         for key in ['coal', 'loss', 'resample']:
             setattr(self, key, dill.loads(state[f'{key}_pickled']))
@@ -301,7 +316,16 @@ class Inference(Serializable):
         # first epoch of this coalescent as a freshly built state space is
         if self.cache:
 
-            for name, cached in self._state_spaces.items():
+            try:
+                spaces = self._state_spaces
+            except ModelError:
+                # the model is invalid at x0, so the state spaces of this coalescent are the ones reused
+                spaces = coal.state_spaces
+
+                if Settings.cache:
+                    self.__dict__['_state_spaces'] = spaces
+
+            for name, cached in spaces.items():
                 if getattr(coal, name) == cached:
                     cached.update_epoch(coal.demography.get_epoch(0))
                     coal.__dict__[name] = cached
@@ -312,7 +336,8 @@ class Inference(Serializable):
     def _state_spaces(self) -> Dict[str, StateSpace]:
         """
         The state spaces of the coalescent at ``x0``, reused across loss evaluations when caching is enabled. Only the
-        rate matrices are recomputed per evaluation.
+        rate matrices are recomputed per evaluation. If the model is invalid at ``x0``, :meth:`get_coal` sets them to
+        those of the first coalescent it builds.
         """
         return self.coal(**self.x0).state_spaces
 
@@ -353,7 +378,7 @@ class Inference(Serializable):
                 loss = get_loss(get_dist(**params_dict), observation)
             except (ModelError, np.linalg.LinAlgError) as e:
                 logger.warning('The model raised "%s" for %s; substituting a large finite penalty', e, params_dict)
-                loss = np.nan
+                loss = _LOSS_PENALTY
 
             # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
             # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
@@ -535,7 +560,16 @@ class Inference(Serializable):
         Sample initial parameters by using the provided bounds.
 
         :return: Sampled parameters.
+        :raises ValueError: If a bound is not finite.
         """
+        unbounded = [key for key, bounds in self.bounds.items() if not np.all(np.isfinite(bounds))]
+
+        if unbounded:
+            raise ValueError(
+                f'Start points cannot be sampled for parameters with a non-finite bound: {unbounded}. Pass x0 and '
+                f'use a single run, or give finite bounds.'
+            )
+
         return {key: self._rng.uniform(*bounds) for key, bounds in self.bounds.items()}
 
     def run(self) -> None:
@@ -574,20 +608,23 @@ class Inference(Serializable):
             Run a single bootstrap sample.
 
             :param observation: Observation.
-            :return: Bootstrap sample.
+            :return: Bootstrap sample, with NaN parameters and an infinite loss if the optimization raised.
             """
-            # run the optimization
-            return Inference._optimize(
-                observation=observation,
-                x0=x0,
-                bounds=bounds,
-                show_pbar=False,
-                get_dist=get_dist,
-                get_loss=get_loss,
-                opts=opts,
-                method_mle=method_mle,
-                logger=logger
-            )
+            try:
+                return Inference._optimize(
+                    observation=observation,
+                    x0=x0,
+                    bounds=bounds,
+                    show_pbar=False,
+                    get_dist=get_dist,
+                    get_loss=get_loss,
+                    opts=opts,
+                    method_mle=method_mle,
+                    logger=logger
+                )
+            except Exception as e:
+                logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', e)
+                return OptimizeResult(x=np.full(len(x0), np.nan), fun=np.inf, success=False, message=str(e))
 
         results = parallelize(
             func=run_sample,
@@ -601,10 +638,8 @@ class Inference(Serializable):
         # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate
         n_penalty = 0
         for result in results:
-            if result.fun >= _LOSS_PENALTY:
-                result.success = False
-                result.message = 'The loss was invalid at every evaluated point.'
-                result.x = np.full(len(result.x), np.nan)
+            if _LOSS_PENALTY <= result.fun < np.inf:
+                self._invalidate(result)
                 n_penalty += 1
 
         if n_penalty > 0:
@@ -638,6 +673,20 @@ class Inference(Serializable):
             )
         )
 
+    @staticmethod
+    def _invalidate(result: OptimizeResult) -> OptimizeResult:
+        """
+        Mark a result whose loss was invalid at every evaluated point as not converged, with NaN parameters.
+
+        :param result: Result of the optimization procedure, modified in place.
+        :return: The same result.
+        """
+        result.success = False
+        result.message = 'The loss was invalid at every evaluated point.'
+        result.x = np.full(len(result.x), np.nan)
+
+        return result
+
     @property
     def _bootstrap_values(self) -> np.ndarray:
         """
@@ -649,11 +698,14 @@ class Inference(Serializable):
     @property
     def _bootstrap_demographies(self) -> List[Demography]:
         """
-        The demography of each bootstrap replicate.
+        The demography of each bootstrap replicate with an estimate.
 
-        :return: One demography per row of :attr:`_bootstrap_values`.
+        :return: One demography per row of :attr:`_bootstrap_values` without NaN.
         """
-        return [self.get_coal(**dict(zip(self.param_names, row))).demography for row in self._bootstrap_values]
+        return [
+            self.get_coal(**dict(zip(self.param_names, row))).demography
+            for row in self._bootstrap_values if not np.isnan(row).any()
+        ]
 
     def _plot_demography_data(
             self,
@@ -712,6 +764,8 @@ class Inference(Serializable):
         :param ax: Axes or list of axes.
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
         :return: Axes or list of axes.
+        :raises RuntimeError: If no bootstraps are available, or if ``kind`` is ``'kde'`` and a parameter has fewer
+            than two finite replicates.
         """
         from .visualization import Visualization
 
@@ -720,6 +774,13 @@ class Inference(Serializable):
 
         if self.bootstraps.empty:
             raise RuntimeError('No bootstraps available.')
+
+        if kind == 'kde':
+            n_finite = np.isfinite(self.bootstraps[self.param_names].to_numpy(dtype=float)).sum(axis=0)
+            few = [name for name, k in zip(self.param_names, n_finite) if k < 2]
+            if few:
+                raise RuntimeError(f"A kernel density estimate needs at least two finite replicates per parameter, "
+                                   f"which {', '.join(few)} lack.")
 
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
@@ -744,8 +805,8 @@ class Inference(Serializable):
             show: bool = True,
             file: str = None,
             kwargs: dict = None,
-            ax: List['plt.Axes'] | None = None
-    ) -> List['plt.Axes']:
+            ax: Optional['plt.Axes'] = None
+    ) -> 'plt.Axes':
         """
         Plot inferred demography.
 
@@ -861,8 +922,7 @@ class Inference(Serializable):
         inferred, bootstraps = self._plot_demography_data(t, kind, include_bootstraps)
 
         if ax is None:
-            plt.close()
-            ax = plt.gca()
+            ax = plt.subplots()[1]
 
         Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs=kwargs)
 
@@ -903,7 +963,9 @@ class Inference(Serializable):
         if index is None:
             sequence = np.random.SeedSequence()
         else:
-            sequence = np.random.SeedSequence(self._entropy, spawn_key=(int(index),))
+            # the entropy of a seeded generator is its seed
+            entropy = self.seed if self._entropy is None else self._entropy
+            sequence = np.random.SeedSequence(entropy, spawn_key=(int(index),))
 
         other.seed = int(sequence.generate_state(1)[0])
         other._entropy = other.seed
@@ -992,7 +1054,8 @@ class Inference(Serializable):
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
         :param bootstrap: Either an Inference object or a dictionary of inferred parameters. A dictionary is added
-            with a missing loss and result.
+            with a missing loss and result. An Inference object whose loss was invalid at every evaluated point is
+            added with NaN parameters, as in :meth:`bootstrap`.
         :raises RuntimeError: If the provided Inference object has not been run yet.
         :raises ValueError: If the dictionary keys differ from the parameter names.
         """
@@ -1000,7 +1063,18 @@ class Inference(Serializable):
             if bootstrap.loss_inferred is None:
                 raise RuntimeError('The provided Inference object must be run first (call run()).')
 
-            row = bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
+            params, result = bootstrap.params_inferred, bootstrap.result
+
+            # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate, as in bootstrap()
+            if bootstrap.loss_inferred >= _LOSS_PENALTY:
+                self._logger.warning(
+                    'The loss of the bootstrap replicate was invalid at every evaluated point, so its parameters '
+                    'are NaN.'
+                )
+                params = dict.fromkeys(params, np.nan)
+                result = self._invalidate(OptimizeResult(result))
+
+            row = params | dict(loss=bootstrap.loss_inferred, result=str(result))
         else:
             if set(bootstrap.keys()) != set(self.param_names):
                 raise ValueError(f'Bootstrap parameters {list(bootstrap.keys())} must match {self.param_names}.')

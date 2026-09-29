@@ -6,6 +6,7 @@ from unittest import mock
 from testing import TestCase
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.optimize import OptimizeResult
 
@@ -422,7 +423,6 @@ class InferenceTestCase(TestCase):
         self.assertEqual(3, len(inf.runs))
         self.assertEqual(0, len(inf.bootstraps))
 
-    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     @pytest.mark.slow
     def test_basic_inference_3_runs_parallel(self):
         """
@@ -472,7 +472,6 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
         self.assertDictEqual(inf.bootstraps[params].var().to_dict(), inf2.bootstraps[params].var().to_dict())
 
-    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     @pytest.mark.slow
     def test_seeded_inference_parallel(self):
         """
@@ -489,7 +488,8 @@ class InferenceTestCase(TestCase):
         self.assertAlmostEqual(inf.params_inferred['t'], inf2.params_inferred['t'])
         self.assertAlmostEqual(inf.params_inferred['Ne'], inf2.params_inferred['Ne'])
         self.assertAlmostEqual(inf.loss_inferred, inf2.loss_inferred)
-        self.assertDictEqual(inf.bootstraps.var().to_dict(), inf2.bootstraps.var().to_dict())
+        params = inf.param_names
+        self.assertDictEqual(inf.bootstraps[params].var().to_dict(), inf2.bootstraps[params].var().to_dict())
 
     @pytest.mark.slow
     def test_unseeded_inference_yields_different_results(self):
@@ -539,7 +539,6 @@ class InferenceTestCase(TestCase):
         # make sure the bootstraps are different
         self.assertGreater(inf.bootstraps.t.var(), 0)
 
-    @pytest.mark.skipif(not bool(os.getenv("PARALLEL", False)), reason="Not running parallel tests.")
     @pytest.mark.slow
     def test_bootstrap_parallel(self):
         """
@@ -572,7 +571,6 @@ class InferenceTestCase(TestCase):
 
         inf.plot_bootstraps()
 
-    @pytest.mark.skip("Not working yet.")
     @pytest.mark.slow
     def test_manual_bootstrap_serialize_twice(self):
         """
@@ -1034,6 +1032,21 @@ if __name__ == '__main__':
         with self.assertRaisesRegex(RuntimeError, 'No bootstraps available'):
             inf.plot_bootstraps(show=False)
 
+    def test_plot_bootstraps_kde_needs_two_finite_replicates_per_parameter(self):
+        """A kernel density estimate of a parameter with fewer than two finite replicates raised scipy's opaque
+        ValueError. It names the parameter, and two finite replicates suffice."""
+        import matplotlib.pyplot as plt
+
+        inf = self.get_fast_inference()
+        inf.bootstraps = pd.DataFrame(dict(t=[0.4, 0.6, np.nan], Ne=[0.5, np.nan, np.nan]))
+
+        with self.assertRaisesRegex(RuntimeError, 'at least two finite replicates.*Ne'):
+            inf.plot_bootstraps(show=False, kind='kde')
+
+        inf.bootstraps['Ne'] = [0.5, 0.7, np.nan]
+        inf.plot_bootstraps(show=False, kind='kde')
+        plt.close('all')
+
     def test_unrun_spawned_objects_are_rejected_when_merged(self):
         """A spawned run or bootstrap starts unfitted. Regression: the copy carried the parent's fitted state, so an
         un-run bootstrap was merged as the parent's point estimate and the documented RuntimeError never fired,
@@ -1141,3 +1154,227 @@ def test_an_error_in_the_loss_propagates_rather_than_being_penalised():
 
     with pytest.raises((ValueError, RuntimeError)):
         inf.run()
+
+
+def _single_ne_inference(**kwargs) -> pg.Inference:
+    """
+    Single-parameter inference of the population size of one deme from its mean tree height.
+
+    :param kwargs: Keyword arguments overriding the defaults.
+    :return: Inference object.
+    """
+    return pg.Inference(**dict(
+        bounds={'Ne': (0.5, 2.0)},
+        x0={'Ne': 1.2},
+        coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}})),
+        loss=lambda coal, obs: (coal.tree_height.mean - obs) ** 2 if obs < 1.5 else float('nan'),
+        observation=1.0,
+        resample=lambda obs, rng: obs * rng.uniform(0.9, 1.1),
+        n_runs=1,
+        n_bootstraps=2,
+        parallelize=False,
+        pbar=False
+    ) | kwargs)
+
+
+def test_a_zero_population_size_reached_by_the_line_search_does_not_discard_the_run():
+    """A population size of zero reached by the line search is penalised like any invalid model. Regression: it
+    raised a plain ValueError, which the loss wrapper let through, and the run failed with RuntimeError."""
+    inf = _single_ne_inference(
+        bounds={'Ne': (0, 2)},
+        x0={'Ne': 1.0},
+        loss=lambda coal, obs: float(coal.tree_height.mean)
+    )
+
+    inf.run()
+
+    assert 0 < inf.params_inferred['Ne'] < 1
+    assert inf.loss_inferred < 1
+
+
+def test_an_overflowing_population_size_trajectory_is_a_model_error():
+    """A trajectory whose population size overflows to infinity raises ModelError, which inference penalises."""
+    demography = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=-1e3, start_time=0, end_time=10
+    )])
+
+    with pytest.raises(pg.ModelError, match='negative or not finite'):
+        list(demography.epochs)
+
+
+def test_demography_plots_skip_bootstrap_replicates_without_estimate():
+    """Bootstrap replicates with NaN parameters are left out of the demography plots. Regression: they were passed to
+    the coalescent, whose validation raised ValueError."""
+    inf = _single_ne_inference(resample=lambda obs, rng: 2.0)
+    inf._run()
+    inf.bootstrap()
+    inf.add_bootstrap({'Ne': 1.1})
+
+    inferred, bootstraps = inf._plot_demography_data(kind='pop_sizes')
+
+    assert len(bootstraps) == 1
+
+    for plot in (inf.plot_demography, inf.plot_pop_sizes, inf.plot_migration):
+        plot(show=False)
+
+
+def test_add_bootstrap_stores_no_estimate_for_an_everywhere_invalid_loss():
+    """A replicate from create_bootstrap whose loss is invalid at every point has NaN parameters, as in bootstrap().
+    Regression: its start point, the main estimate, was stored as a finite replicate."""
+    inf = _single_ne_inference(resample=lambda obs, rng: 2.0)
+    inf._run()
+
+    replicate = inf.create_bootstrap(index=0)
+    replicate.run()
+    inf.add_bootstrap(replicate)
+
+    assert inf.bootstraps[inf.param_names].isna().all().all()
+    assert 'success: False' in inf.bootstraps['result'][0]
+    assert replicate.params_inferred['Ne'] == pytest.approx(inf.params_inferred['Ne'])
+
+
+def test_a_raising_bootstrap_replicate_does_not_discard_the_others():
+    """A replicate whose optimization raises gets NaN parameters, and the other replicates are kept. Regression: the
+    exception aborted bootstrap() and no replicate was stored."""
+    observations = iter([1.1, 3.0])
+
+    def loss(coal, obs):
+        if obs > 2:
+            raise RuntimeError('boom')
+
+        return float((coal.tree_height.mean - obs) ** 2)
+
+    inf = _single_ne_inference(loss=loss, resample=lambda obs, rng: next(observations))
+    inf._run()
+    inf.bootstrap()
+
+    assert inf.bootstraps['Ne'][0] == pytest.approx(1.1, rel=1e-3)
+    assert np.isnan(inf.bootstraps['Ne'][1])
+    assert 'boom' in inf.bootstraps['result'][1]
+
+
+def test_payload_with_encoded_optimize_result_restores():
+    """A payload whose result was encoded as an OptimizeResult, as v1.2.0 wrote it, restores to a usable result.
+    Regression: the instance dictionary came back as an item '__dict__', and str(result) and add_bootstrap raised
+    ValueError."""
+    inf = _single_ne_inference(loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2))
+    inf._run()
+
+    getstate = pg.Inference.__getstate__
+
+    with mock.patch.object(pg.Inference, '__getstate__', lambda self: getstate(self) | {'result': self.result}):
+        restored = pg.Inference.from_json(inf.to_json())
+
+    assert '__dict__' not in restored.result
+    assert str(restored.result)
+
+    inf.add_bootstrap(restored)
+
+    assert inf.bootstraps['Ne'][0] == pytest.approx(inf.params_inferred['Ne'])
+
+
+@pytest.mark.parametrize("method", ['BFGS', 'CG', 'Newton-CG', 'dogleg', 'trust-exact', 'trust-ncg', 'trust-krylov'])
+def test_methods_that_ignore_bounds_or_need_a_jacobian_are_rejected(method):
+    """These methods failed every run with 'Jacobian is required' or stepped out of the bounds, and run() blamed the
+    loss function."""
+    with pytest.raises(ValueError, match="does not honour bounds"):
+        _single_ne_inference(method_mle=method)
+
+
+@pytest.mark.parametrize("method", ['Nelder-Mead', 'Powell', 'TNC', 'SLSQP', 'COBYLA', 'trust-constr'])
+def test_bounded_methods_are_accepted(method):
+    """The methods that honour bounds without an analytic Jacobian run."""
+    inf = _single_ne_inference(method_mle=method, loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2))
+    inf.run()
+
+    assert 0.5 <= inf.params_inferred['Ne'] <= 2.0
+
+
+def test_infinite_bound_raises_when_a_start_point_is_sampled():
+    """An infinite bound raised numpy's OverflowError wherever a start point was sampled."""
+    with pytest.raises(ValueError, match="non-finite bound"):
+        _single_ne_inference(bounds={'Ne': (0.5, np.inf)}, x0=None)
+
+    with pytest.raises(ValueError, match="non-finite bound"):
+        _single_ne_inference(bounds={'Ne': (0.5, np.inf)}, n_runs=2).run()
+
+    inf = _single_ne_inference(bounds={'Ne': (0.5, np.inf)},
+                               loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2))
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == pytest.approx(1.0, rel=1e-3)
+
+
+def test_model_error_in_a_loss_evaluation_logs_one_warning(caplog):
+    """A ModelError logged a second warning saying that the loss function returned NaN."""
+    import logging
+
+    def get_dist(Ne):
+        raise pg.ModelError('invalid')
+
+    loss = pg.Inference._get_loss_function(observation=None, x0={'Ne': 1.0}, pbar=None, get_dist=get_dist,
+                                           get_loss=lambda coal, obs: 0.0, logger=logging.getLogger('test_penalty'))
+
+    with caplog.at_level(logging.WARNING, logger='test_penalty'):
+        assert loss([1.0]) == 1e100
+
+    assert [r.getMessage() for r in caplog.records] == ['The model raised "invalid" for {\'Ne\': 1.0}; substituting a '
+                                                        'large finite penalty']
+
+
+def test_cached_start_point_on_a_zero_population_size_bound():
+    """With caching, the state spaces were built at x0 on every evaluation. A population size of zero there made the
+    coalescent raise each time, so every evaluation was penalised and run() raised ModelError."""
+    inf = _single_ne_inference(
+        bounds={'Ne': (0.0, 2.0)},
+        x0={'Ne': 0.0},
+        loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2),
+        cache=True
+    )
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_single_epoch_mutation_configs_use_the_rates_of_their_own_coalescent():
+    """Coalescents from ``Inference(cache=True).get_coal`` share their state spaces, which hold the rates of the
+    coalescent built last. Regression: the single-epoch mutation-configuration probabilities of an earlier coalescent,
+    first evaluated after a later ``get_coal`` call, used the rates of the later one."""
+    def coal(Ne):
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne}}))
+
+    inf = pg.Inference(coal=coal, loss=lambda c, o: 0.0, bounds=dict(Ne=(0.1, 10)), x0=dict(Ne=1.0), cache=True)
+
+    first = inf.get_coal(Ne=1.0)
+    _ = first.sfs.mean
+    second = inf.get_coal(Ne=3.0)
+    _ = second.sfs.mean
+
+    for c, Ne in [(first, 1.0), (second, 3.0)]:
+        expected = coal(Ne).sfs.get_mutation_config([1, 1, 0], theta=0.7)
+        assert c.sfs.get_mutation_config([1, 1, 0], theta=0.7) == pytest.approx(expected, rel=1e-10)
+
+
+def test_x0_with_a_parameter_outside_bounds_is_rejected():
+    """Regression: a key of ``x0`` absent from ``bounds`` was silently dropped, so the callback received its default
+    value for that parameter."""
+    kwargs = dict(coal=lambda a, b=1.0: pg.Coalescent(n=2), loss=lambda c, o: 0.0, bounds=dict(a=(0.1, 10)))
+
+    with pytest.raises(ValueError, match='unknown'):
+        pg.Inference(x0=dict(a=1.0, b=3.0), **kwargs)
+
+    with pytest.raises(ValueError, match='unknown'):
+        pg.Inference(x0=dict(a=1.0), **kwargs).create_run(x0=dict(a=1.0, b=3.0))
+
+
+def test_indexed_runs_are_reproducible_without_stored_entropy():
+    """A payload serialized before the entropy was stored restores ``_entropy`` as ``None``. Regression: indexed runs
+    and bootstraps of a seeded object were then drawn from fresh entropy on every call."""
+    def make():
+        return pg.Inference(coal=lambda a: pg.Coalescent(n=2), loss=lambda c, o: 0.0, bounds=dict(a=(0.1, 10)),
+                            seed=42)
+
+    old = make()
+    old.__dict__.pop('_entropy')
+
+    assert old.create_run(index=3).x0 == old.create_run(index=3).x0 == make().create_run(index=3).x0
