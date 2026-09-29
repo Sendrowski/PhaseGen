@@ -6,8 +6,10 @@
 \usage{
 \method{plot}{phasegen.distributions.base.CumulativeDistributionFunction}(
   x,
+  t = NULL,
   n_points = NULL,
   bins = NULL,
+  configs = NULL,
   title = NULL,
   label = NULL,
   add = NULL,
@@ -19,9 +21,13 @@
 \arguments{
 \item{x}{The \code{cdf} of a distribution.}
 
+\item{t}{Points to evaluate at, \code{NULL} for the default grid.}
+
 \item{n_points}{Number of grid points, \code{NULL} for the default.}
 
 \item{bins}{SFS bins to draw, \code{NULL} for all polymorphic bins.}
+
+\item{configs}{Joint SFS bins to draw, a list of integer vectors, \code{NULL} for all.}
 
 \item{title}{Plot title, \code{NULL} for the default.}
 

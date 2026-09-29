@@ -473,12 +473,16 @@ draw_surface <- function(x, y, z, defaults, user = list(), n_colours = 100) {
 # ---- univariate distribution functions ------------------------------------------------------------------------------
 
 
-# Curves of a univariate distribution function, labelled `label` and drawn into the plot `add` if given
-plot_function <- function(x, n_points, bins, title, label, add, linewidth, alpha) {
+# Curves of a univariate distribution function over the grid `grid` (named `t`, or `q` for a quantile function), labelled
+# `label` and drawn into the plot `add` if given
+plot_function <- function(x, grid, n_points, bins, configs, title, label, add, linewidth, alpha) {
 
   args <- list()
+  args[[if (inherits(x, "phasegen.distributions.base.QuantileFunction")) "q" else "t"]] <-
+    if (!is.null(grid)) reticulate::np_array(as.numeric(grid))
   args$n_points <- if (!is.null(n_points)) as.integer(n_points)
   args$bins <- if (!is.null(bins)) as.integer(bins)
+  args$configs <- if (!is.null(configs)) lapply(configs, as.integer)
 
   curves <- do.call(x$`_plot_data`, args)
   data <- curve_frame(curves)
@@ -525,8 +529,10 @@ plot_function <- function(x, n_points, bins, title, label, add, linewidth, alpha
 #' distribution, or `coal$sfs$pdf` for all SFS bins at once.
 #'
 #' @param x The `pdf` of a distribution.
+#' @param t Points to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
+#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -546,19 +552,21 @@ plot_function <- function(x, n_points, bins, title, label, add, linewidth, alpha
 #'
 #' @method plot phasegen.distributions.base.DensityFunction
 #' @export
-plot.phasegen.distributions.base.DensityFunction <- function(x, n_points = NULL, bins = NULL, title = NULL,
-                                                             label = NULL, add = NULL, linewidth = 0.5, alpha = 1,
-                                                             ...) {
+plot.phasegen.distributions.base.DensityFunction <- function(x, t = NULL, n_points = NULL, bins = NULL, configs = NULL,
+                                                             title = NULL, label = NULL, add = NULL, linewidth = 0.5,
+                                                             alpha = 1, ...) {
   check_unused(...)
-  plot_function(x, n_points, bins, title, label, add, linewidth, alpha)
+  plot_function(x, t, n_points, bins, configs, title, label, add, linewidth, alpha)
 }
 
 
 #' Plot a cumulative distribution function
 #'
 #' @param x The `cdf` of a distribution.
+#' @param t Points to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
+#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -576,20 +584,22 @@ plot.phasegen.distributions.base.DensityFunction <- function(x, n_points = NULL,
 #'
 #' @method plot phasegen.distributions.base.CumulativeDistributionFunction
 #' @export
-plot.phasegen.distributions.base.CumulativeDistributionFunction <- function(x, n_points = NULL, bins = NULL,
-                                                                             title = NULL, label = NULL,
+plot.phasegen.distributions.base.CumulativeDistributionFunction <- function(x, t = NULL, n_points = NULL, bins = NULL,
+                                                                             configs = NULL, title = NULL, label = NULL,
                                                                              add = NULL, linewidth = 0.5,
                                                                              alpha = 1, ...) {
   check_unused(...)
-  plot_function(x, n_points, bins, title, label, add, linewidth, alpha)
+  plot_function(x, t, n_points, bins, configs, title, label, add, linewidth, alpha)
 }
 
 
 #' Plot a quantile function
 #'
 #' @param x The `quantile` function of a distribution.
+#' @param q Probabilities to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
+#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -607,11 +617,11 @@ plot.phasegen.distributions.base.CumulativeDistributionFunction <- function(x, n
 #'
 #' @method plot phasegen.distributions.base.QuantileFunction
 #' @export
-plot.phasegen.distributions.base.QuantileFunction <- function(x, n_points = NULL, bins = NULL, title = NULL,
-                                                              label = NULL, add = NULL, linewidth = 0.5, alpha = 1,
-                                                              ...) {
+plot.phasegen.distributions.base.QuantileFunction <- function(x, q = NULL, n_points = NULL, bins = NULL, configs = NULL,
+                                                              title = NULL, label = NULL, add = NULL, linewidth = 0.5,
+                                                              alpha = 1, ...) {
   check_unused(...)
-  plot_function(x, n_points, bins, title, label, add, linewidth, alpha)
+  plot_function(x, q, n_points, bins, configs, title, label, add, linewidth, alpha)
 }
 
 
