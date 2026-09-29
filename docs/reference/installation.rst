@@ -20,6 +20,12 @@ Installation
 
       ``phasegen`` is compatible with Python 3.10 through 3.13.
 
+      The ``msprime``-backed distributions (:meth:`Coalescent.to_msprime() <phasegen.distributions.Coalescent.to_msprime>`, :class:`~phasegen.distributions.MsprimeCoalescent`) require ``msprime``, which is installed separately:
+
+      .. code-block:: bash
+
+         pip install msprime
+
       .. rubric:: Conda
 
       To avoid potential conflicts with other packages, it is recommended to install ``phasegen`` in an isolated environment. The easiest way to do this is with ``conda`` or ``mamba``:

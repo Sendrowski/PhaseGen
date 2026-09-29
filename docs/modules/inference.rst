@@ -20,6 +20,7 @@ Gradient-based parameter inference. An :class:`~phasegen.inference.Inference` ob
    ~phasegen.norms.Likelihood
    ~phasegen.norms.PoissonLikelihood
    ~phasegen.norms.MultinomialLikelihood
+   ~phasegen.errors.ModelError
 
 .. autoclass:: phasegen.inference.Inference
 
@@ -40,3 +41,5 @@ Gradient-based parameter inference. An :class:`~phasegen.inference.Inference` ob
 .. autoclass:: phasegen.norms.PoissonLikelihood
 
 .. autoclass:: phasegen.norms.MultinomialLikelihood
+
+.. autoclass:: phasegen.errors.ModelError

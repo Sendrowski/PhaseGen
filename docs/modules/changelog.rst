@@ -12,6 +12,21 @@ Changelog
 - Make the tree-height density exact (the exit-rate reading of the propagated vector, rather than a finite difference of the CDF) and the quantile a vectorised inverse interpolation of the shared hazard grid, rather than a per-level bisection of the CDF.
 - Propagate the tree-height cdf / pdf / quantile through the same dense / sparse / matrix-exponential-action machinery as the moments (:attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`), so a large state space is no longer densified into a ``k x k`` propagator.
 - Return a public :class:`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>` from :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`, carrying its own :attr:`var <phasegen.distributions.ConditionalRewardDistribution.var>` and :meth:`moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
+- Raise :class:`ModelError <phasegen.errors.ModelError>`, a subclass of ``ValueError``, when the model cannot be evaluated at its parameters, such as a zero population size in an epoch the computation reaches. :class:`Inference <phasegen.inference.Inference>` treats it as an invalid region of the parameter space.
+- Return one for moments of order zero (:meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`).
+- Restrict :class:`~phasegen.rewards.LineageReward` to single-locus coalescents.
+- Require the ``value`` and ``half_width`` arguments of :meth:`JointRewardDistribution.window_average() <phasegen.distributions.JointRewardDistribution.window_average>`, with ``half_width`` positive.
+- Take the evaluation grid of distribution-function plots as ``t`` (``q`` for quantile functions), as in :meth:`DensityFunction.plot() <phasegen.distributions.DensityFunction.plot>`.
+- Draw plots called without ``ax`` on a new figure.
+- Treat ``end_time=inf`` as no end time in :class:`~phasegen.distributions.Coalescent` and :class:`~phasegen.distributions.TreeHeightDistribution`.
+- Reject non-finite population sizes, migration rates and model parameters, and migration from a population to itself (:class:`~phasegen.demography.Demography`).
+- Seed the simulation batches of :class:`~phasegen.distributions.MsprimeCoalescent` from children of a ``numpy.random.SeedSequence`` spawned from its seed, so a given seed yields different replicates than in 1.2.0.
+- Require ``record_migration=True`` for the per-deme statistics of a :class:`~phasegen.distributions.MsprimeCoalescent` with more than one deme.
+- Return empirical spectrum cdf and pdf values with shape ``(len(t), n + 1)`` (points, bins).
+- Put the time axis first in the arrays returned by :meth:`UnfoldedSFSDistribution.accumulate() <phasegen.distributions.UnfoldedSFSDistribution.accumulate>`, :meth:`FoldedSFSDistribution.accumulate() <phasegen.distributions.FoldedSFSDistribution.accumulate>` and :meth:`JointSFSDistribution.accumulate() <phasegen.distributions.JointSFSDistribution.accumulate>`.
+- Rename ``SFS2`` to :class:`~sfsutils.spectrum.TwoSFS` and replace the ``fastdfe`` dependency with ``sfsutils-popgen``, whose :mod:`sfsutils` module provides the spectrum classes.
+- Replace ``TotalBranchLengthLocusReward`` with :class:`~phasegen.rewards.RestrictedReward`.
+- Remove ``Settings.cache_epochs`` and ``Inference.loss_runs``, and raise ``AttributeError`` when assigning an undeclared name on :class:`~phasegen.settings.Settings`.
 
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
