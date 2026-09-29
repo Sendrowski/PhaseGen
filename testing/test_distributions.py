@@ -951,6 +951,39 @@ def test_sparse_closed_form_moments_survive_drop_cache():
     np.testing.assert_allclose(coal.tree_height.moment(3, center=False), reference, rtol=1e-12)
 
 
+@pytest.mark.parametrize('round_trip', [True, False])
+def test_dropped_cache_rebuilds_rate_matrix_as_fresh(round_trip):
+    """A coalescent whose state space was left at a later epoch must rebuild the rate matrix of the first epoch bit for
+    bit after its cache is dropped, directly or by serialization. Regression: the state space kept the later epoch, so
+    the matrix was built there and rescaled back, which moved the marginal moments of the SFS in the last digits and,
+    through the conditioning values, swung the derivative identity of the conditional moments on 4_epoch_up_down_n_4
+    from a scaled error of 0.010 to 0.039."""
+
+    def build() -> pg.Coalescent:
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.2, 0.3: 10, 1: 0.8, 1.4: 10}}))
+
+    fresh = build()
+    first = fresh.demography.get_epoch(0)
+    fresh.block_counting_state_space.update_epoch(first)
+    S_fresh = np.array(fresh.block_counting_state_space.S, copy=True)
+    std_fresh = fresh.sfs.joint_distribution(1, 2).marginal('a').std
+
+    coal = build()
+    _ = coal.sfs.mean
+    coal.sfs.state_space.update_epoch(coal.sfs._get_epochs_until_unbounded()[-1])
+
+    if round_trip:
+        coal = pg.Coalescent.from_json(coal.to_json())
+    else:
+        coal.drop_cache()
+
+    assert coal.block_counting_state_space.epoch == first
+
+    coal.block_counting_state_space.update_epoch(first)
+    np.testing.assert_array_equal(coal.block_counting_state_space.S, S_fresh)
+    assert coal.sfs.joint_distribution(1, 2).marginal('a').std == std_fresh
+
+
 def test_stability_warning_for_fast_migration_hiding_slow_coalescence(caplog):
     """Fast migration within a class of states hides the slow coalescence out of it from the exit rates, which are all
     about 2, while the tree height is resolved on the time scale 1e12. Regression: the warning compared the exit rates

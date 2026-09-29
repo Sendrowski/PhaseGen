@@ -778,11 +778,24 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def drop_cache(self) -> None:
         """
-        Drop the cache of every state space that has been built. Spaces that have not been built are left unbuilt.
+        Drop the cache of every state space that has been built and return it to the first epoch, where a freshly
+        built state space starts, so that the rate matrices are rebuilt bit for bit as on a fresh coalescent. Spaces
+        that have not been built are left unbuilt.
         """
+        self._drop_state_space_caches(self.__dict__)
+
+    def _drop_state_space_caches(self, spaces: dict) -> None:
+        """
+        Drop the cache of every built state space in ``spaces`` and set it to the first epoch of the demography.
+
+        :param spaces: The instance dictionary holding the state spaces, of this coalescent or of a copy of it.
+        """
+        epoch = self.demography.get_epoch(0)
+
         for name in _STATE_SPACE_NAMES:
-            if name in self.__dict__:
-                self.__dict__[name].drop_cache()
+            if name in spaces:
+                spaces[name].drop_cache()
+                spaces[name].epoch = epoch
 
     def __setstate__(self, state: dict) -> None:
         """
@@ -806,9 +819,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         # create deep copy of object without causing infinite recursion
         other = copy.deepcopy(self.__dict__)
 
-        for name in _STATE_SPACE_NAMES:
-            if name in other:
-                other[name].drop_cache()
+        self._drop_state_space_caches(other)
 
         return other
 
