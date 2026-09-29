@@ -822,16 +822,18 @@ class JointRewardDistribution(CallableDistributionFunctions):
         r"""The pair of marginal means :math:`(\mathbb{E}[R_a], \mathbb{E}[R_b])`."""
         return np.array([self.moment(1, 0), self.moment(0, 1)])
 
+    @cached_property
     def cov(self) -> float:
         r"""The covariance :math:`\operatorname{Cov}(R_a, R_b) = \mathbb{E}[R_a R_b] - \mathbb{E}[R_a]\,
         \mathbb{E}[R_b]`."""
         return float(self.moment(1, 1, center=False) - self.moment(1, 0) * self.moment(0, 1))
 
+    @cached_property
     def corr(self) -> float:
         r"""The Pearson correlation
         :math:`\operatorname{corr}(R_a, R_b) = \operatorname{Cov}(R_a, R_b)/\sqrt{\operatorname{Var}(R_a)\,
         \operatorname{Var}(R_b)}` between :math:`R_a` and :math:`R_b`."""
-        return float(self.cov() / np.sqrt(self.marginal('a').var * self.marginal('b').var))
+        return float(self.cov / np.sqrt(self.marginal('a').var * self.marginal('b').var))
 
     # ------------------------------------------------------------------------------------------------------------
     # joint CDF and density (2D Fourier-cosine), documented at JointCDF and JointDensity
@@ -844,9 +846,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @property
     def _cos_axis_coeffs(self) -> dict:
-        """Cosine coefficients of the axis sub-distributions ``g_b`` (key ``'b'``, transform ``Phi(., inf)``) and
-        ``g_a`` (key ``'a'``, transform ``Phi(inf, .)``) of ``JointCDF``, on the marginal's cumulant window with the
-        marginal's term count."""
+        """The cosine expansions of the axis sub-distributions ``g_b`` (key ``'b'``, transform ``Phi(., inf)``) and
+        ``g_a`` (key ``'a'``, transform ``Phi(inf, .)``) of ``JointCDF``, on the window ``marginal._range(12.0)`` with
+        the marginal's term count, fitted and checked as the marginal CDF's expansion, with the atom
+        ``P(R_a = 0, R_b = 0)`` and the axis mass ``P(R_b = 0)`` or ``P(R_a = 0)``."""
         return self._cos_memo('axis', self._build_cos_axis_coeffs, (Settings.cos_terms, Settings.cos_terms_2d))
 
     def _build_cos_axis_coeffs(self) -> dict:
@@ -855,27 +858,24 @@ class JointRewardDistribution(CallableDistributionFunctions):
         out = {}
         for key, total, marg in (('b', self._atoms['b0'], self.marginal('a')),
                                  ('a', self._atoms['a0'], self.marginal('b'))):
+            cdf = marg.cdf
             b = marg._range(12.0)
-            w = np.arange(marg.cdf._cos_terms) * np.pi / b
+            w = np.arange(cdf._cos_terms) * np.pi / b
             # chi(w) = phi(-i w) of the sub-transform: for 'b' it is lst(., inf) (sweep s_a), for 'a' lst(inf, .)
             # (sweep s_b), one batched sweep of _lst_grid at the fixed inf-coordinate
             chi = (self._lst_grid(-1j * w, np.array([np.inf]))[:, 0] if key == 'b'
                    else self._lst_grid(np.array([np.inf]), -1j * w)[0, :])
-            cont = total - both0
-            chi_c = (chi - both0) / cont if cont > 1e-12 else chi  # remove the R=0 atom, normalize the continuous part
-            fk = (2.0 / b) * np.real(chi_c)
-            fk[0] *= 0.5
-            out[key] = dict(b=b, w=w, fk=fk, atom=both0, cont=cont)
+            out[key] = cdf._cos_fit_from(b, w, chi, both0, mass=total)
+            cdf._check_cos_fit(out[key], self, f"{self.label} joint CDF axis g_{key}" if self.label
+                               else f"Joint CDF axis g_{key}")
         return out
 
     def _cos_axis(self, which: str, xs: np.ndarray) -> np.ndarray:
         """The axis sub-distribution ``g_b`` (``which='b'``) or ``g_a`` (``which='a'``) of ``JointCDF`` at ``xs``, equal
         to ``P(R_a = 0, R_b = 0)`` at 0."""
-        c = self._cos_axis_coeffs[which]
-        w, fk = c['w'], c['fk']
-        xa = np.clip(np.asarray(xs, dtype=float), 0.0, c['b'])
-        Fc = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
-        return c['atom'] + c['cont'] * np.clip(Fc, 0.0, 1.0)
+        fit = self._cos_axis_coeffs[which]
+        xa = np.clip(np.asarray(xs, dtype=float), 0.0, fit['b'])
+        return _LSTCumulativeDistributionFunction._eval_cos_cdf(fit, xa)
 
     def _cos_memo(self, name: str, build, terms: tuple) -> Any:
         """

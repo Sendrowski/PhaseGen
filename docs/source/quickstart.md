@@ -255,13 +255,13 @@ coal = pg.Coalescent(n=10)
 
 joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
 
-joint.corr()
+joint.corr
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
 assert np.allclose(joint.mean, [coal.tree_height.mean, coal.total_branch_length.mean])
-assert joint.corr() > 0.9
+assert joint.corr > 0.9
 ```
 
 ```{code-cell} r
@@ -269,13 +269,13 @@ coal <- pg$Coalescent(n = 10)
 
 joint <- coal$joint_distribution(pg$TreeHeightReward(), pg$TotalBranchLengthReward())
 
-joint$corr()
+joint$corr
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
 stopifnot(isTRUE(all.equal(as.numeric(joint$mean), c(coal$tree_height$mean, coal$total_branch_length$mean))))
-stopifnot(joint$corr() > 0.9)
+stopifnot(joint$corr > 0.9)
 ```
 
 +++

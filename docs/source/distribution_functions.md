@@ -122,14 +122,14 @@ joint = coal.sfs.joint_distribution(1, 2)  # singleton and doubleton branch leng
 
 print(f"P(R_a <= 1.5, R_b <= 0.5) = {joint.cdf(1.5, 0.5):.3f}")
 print(f"means (E[R_a], E[R_b])    = {joint.mean.round(3)}")
-print(f"correlation               = {joint.corr():.3f}")
+print(f"correlation               = {joint.corr:.3f}")
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
 import numpy as np
 
-assert joint.corr() < 0
+assert joint.corr < 0
 assert np.allclose(joint.mean, coal.sfs.mean.data[1:3])
 ```
 
@@ -138,12 +138,12 @@ joint <- coal$sfs$joint_distribution(1L, 2L)  # singleton and doubleton branch l
 
 cat(sprintf("P(R_a <= 1.5, R_b <= 0.5) = %.3f\n", joint$cdf(1.5, 0.5)))
 cat("means (E[R_a], E[R_b])    =", paste(round(joint$mean, 3), collapse = " "), "\n")
-cat(sprintf("correlation               = %.3f\n", joint$corr()))
+cat(sprintf("correlation               = %.3f\n", joint$corr))
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(joint$corr() < 0, isTRUE(all.equal(as.numeric(joint$mean), as.numeric(coal$sfs$mean$data[2:3]))))
+stopifnot(joint$corr < 0, isTRUE(all.equal(as.numeric(joint$mean), as.numeric(coal$sfs$mean$data[2:3]))))
 ```
 
 +++
@@ -272,7 +272,7 @@ Every one of these objects has an empirical counterpart from {meth}`PhaseTypeDis
 
 ```{code-cell} python
 emp = coal.sfs.to_empirical(1_000_000, seed=42).joint_distribution(1, 2)
-print(f"correlation:  exact {joint.corr():+.3f}   sampled {emp.corr():+.3f}")
+print(f"correlation:  exact {joint.corr:+.3f}   sampled {emp.corr:+.3f}")
 
 _, ax = plt.subplots()
 for v in [0.5, 1.3]:
@@ -283,12 +283,12 @@ for v in [0.5, 1.3]:
 
 ```{code-cell} python
 :tags: [remove-cell]
-assert abs(emp.corr() - joint.corr()) < 0.01
+assert abs(emp.corr - joint.corr) < 0.01
 ```
 
 ```{code-cell} r
 emp <- coal$sfs$to_empirical(1000000L, seed = 42L)$joint_distribution(1L, 2L)
-cat(sprintf("correlation:  exact %+.3f   sampled %+.3f\n", joint$corr(), emp$corr()))
+cat(sprintf("correlation:  exact %+.3f   sampled %+.3f\n", joint$corr, emp$corr))
 
 p <- NULL
 for (v in c(0.5, 1.3)) {
@@ -301,5 +301,5 @@ p
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(abs(emp$corr() - joint$corr()) < 0.01)
+stopifnot(abs(emp$corr - joint$corr) < 0.01)
 ```

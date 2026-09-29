@@ -466,7 +466,7 @@ def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescen
     jd = view.joint_distribution(a, b)
 
     np.testing.assert_allclose(jd.mean, [view.mean.data[a], view.mean.data[b]], rtol=1e-10)
-    np.testing.assert_allclose(jd.cov(), view.get_cov(a, b), rtol=1e-8)
+    np.testing.assert_allclose(jd.cov, view.get_cov(a, b), rtol=1e-8)
 
 
 @pytest.mark.parametrize('config', [(3, 0), (1,), (1, 0, 0), (0, 0), (2, 2), (0.5, 1), (True, 0)])

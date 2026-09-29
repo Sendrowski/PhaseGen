@@ -312,7 +312,7 @@ matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1,
 import matplotlib.pyplot as plt
 
 joint = king.joint_distribution(pg.TreeHeightReward(), pg.UnfoldedSFSReward(1))
-print(f"correlation = {joint.corr():.3f}")
+print(f"correlation = {joint.corr:.3f}")
 
 _, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
 joint.pdf.plot_surface(ax=axs[0], show=False, title='Joint density')
@@ -326,7 +326,7 @@ matplotlib.rcParams.update(subplot_defaults)
 
 ```{code-cell} python
 :tags: [remove-cell]
-assert joint.corr() > 0
+assert joint.corr > 0
 ```
 
 ```{code-cell} r
@@ -337,7 +337,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 ```{code-cell} r
 :tags: [full-width]
 joint <- king$joint_distribution(pg$TreeHeightReward(), pg$UnfoldedSFSReward(1L))
-cat(sprintf("correlation = %.3f\n", joint$corr()))
+cat(sprintf("correlation = %.3f\n", joint$corr))
 
 par(mfrow = c(1, 2))
 persp(joint$pdf, title = "Joint density")
@@ -346,5 +346,5 @@ persp(joint$cdf, title = "Joint CDF")
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(joint$corr() > 0)
+stopifnot(joint$corr > 0)
 ```

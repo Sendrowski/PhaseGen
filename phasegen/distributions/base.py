@@ -424,69 +424,85 @@ class _LSTFunction(_HazardGrid):
 
     def _fit_cos(self, b: float, n_terms: int, warn: bool = True) -> dict:
         """
-        One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``. The atom is
-        split off above ``1e-9``, ``_warn_if_nonmonotone`` checks the raw continuous CDF for ringing and
-        ``_warn_if_unresolved`` checks that the terms have converged.
+        One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``, fitted by
+        ``_cos_fit_from`` and checked by ``_check_cos_fit``.
 
         :param b: The window end.
         :param n_terms: The number of cosine terms.
         :param warn: Whether to report ringing or an unresolved expansion. The locating pass describes a fit that is
             discarded, at a term count the caller never chose, so only the returned expansion reports.
-        :return: The window end, frequencies, coefficients and atom.
+        :return: The window end, frequencies, coefficients, atom and mass.
         """
         d = self._distribution
-        p0 = d.lst(np.inf).real
         w = np.arange(n_terms) * np.pi / b
-        fit = self._cos_fit_from(b, w, np.array([d.lst(-1j * wk) for wk in w]), p0)
-        if p0 > 1e-9 and 1.0 - p0 <= 1e-12:
-            return fit
-        fk = fit['fk']
+        fit = self._cos_fit_from(b, w, np.array([d.lst(-1j * wk) for wk in w]), d.lst(np.inf).real)
+        if warn:
+            self._check_cos_fit(fit, d, d._titled('COS CDF'))
+
+        return fit
+
+    def _check_cos_fit(self, fit: dict, d: 'CallableDistributionFunctions', label: str) -> None:
+        """
+        Report ringing and an unresolved expansion of ``fit``: ``_warn_if_nonmonotone`` checks the raw continuous CDF
+        for ringing and ``_warn_if_unresolved`` checks that the terms have converged. A fit without a continuous part
+        is not checked.
+
+        :param fit: The expansion, as returned by ``_cos_fit_from``.
+        :param d: The distribution whose logger reports.
+        :param label: The name of the expansion in the reports.
+        """
+        b, w, fk, p0, mass = fit['b'], fit['w'], fit['fk'], fit['p0'], fit['mass']
+        if mass - p0 <= 1e-12:
+            return
+        n_terms = len(w)
 
         # the sag of the (continuous) CDF below its running maximum is the sensitive ringing detector (a visibly
         # rippling CDF can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a
         # substantial one (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp
         # feature)
-        if warn:
-            xd = np.linspace(0.0, b, max(512, 2 * n_terms))
-            Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
-            d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
+        xd = np.linspace(0.0, b, max(512, 2 * n_terms))
+        sines = np.sin(np.outer(w[1:], xd))
+        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ sines
+        d._warn_if_nonmonotone(Fd, f'{label} (residual ripple)', rtol=1e-2)
 
-            half = max(n_terms // 2, 1)
-            Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
+        half = max(n_terms // 2, 1)
+        Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ sines[:half - 1]
 
-            # convergence order of the partial sums, from the decay of the CDF-term amplitudes |f_k| / w_k ~ k^-q
-            k = np.arange(1, n_terms)
-            amp = np.maximum.accumulate((np.abs(fk[1:]) / w[1:])[::-1])[::-1]
-            sel = (k >= n_terms // 4) & (amp > 0)
-            q = -np.polyfit(np.log(k[sel]), np.log(amp[sel]), 1)[0] if sel.sum() > 4 else 2.0
-            order = float(np.clip(q - 1.0, 1.0, 2.0))
-            move = float(np.abs(Fd - Fh).max()) * (1 - p0 if p0 > 1e-9 else 1.0)
-            self._warn_if_unresolved(move / (2.0 ** order - 1.0), move, order, n_terms)
-
-        return fit
+        # convergence order of the partial sums, from the decay of the CDF-term amplitudes |f_k| / w_k ~ k^-q
+        k = np.arange(1, n_terms)
+        amp = np.maximum.accumulate((np.abs(fk[1:]) / w[1:])[::-1])[::-1]
+        sel = (k >= n_terms // 4) & (amp > 0)
+        q = -np.polyfit(np.log(k[sel]), np.log(amp[sel]), 1)[0] if sel.sum() > 4 else 2.0
+        order = float(np.clip(q - 1.0, 1.0, 2.0))
+        move = float(np.abs(Fd - Fh).max()) * (mass - p0 if p0 > 1e-9 else 1.0)
+        self._warn_if_unresolved(d, f'{label} (truncation)', move / (2.0 ** order - 1.0), move, order, n_terms)
 
     @staticmethod
-    def _cos_fit_from(b: float, w: np.ndarray, chi: np.ndarray, p0: float) -> dict:
+    def _cos_fit_from(b: float, w: np.ndarray, chi: np.ndarray, p0: float, mass: float = 1.0) -> dict:
         """
         The cosine expansion on ``[0, b]`` from the transform at the frequencies ``w``, described at
-        ``RewardDistribution``. An atom ``p0`` above ``1e-9`` is split off, and one within ``1e-12`` of 1 leaves no
-        continuous part, whose coefficients are then zero.
+        ``RewardDistribution``, of a distribution of total mass ``mass``, below 1 for a sub-distribution. An atom
+        ``p0`` above ``1e-9`` is split off and the continuous part normalized to mass 1. A continuous mass
+        ``mass - p0`` within ``1e-12`` of zero leaves no continuous part, whose coefficients are then zero.
 
         :param b: The window end.
         :param w: The frequencies ``j pi / b``.
         :param chi: The transform at ``-i w``.
         :param p0: The atom at 0.
-        :return: The window end, frequencies, coefficients and atom.
+        :param mass: The total mass.
+        :return: The window end, frequencies, coefficients, atom and mass.
         """
         if p0 > 1e-9:
-            if 1.0 - p0 <= 1e-12:  # full atom at 0 (R = 0 almost surely): degenerate point mass, no continuous part
-                return dict(b=b, w=w, fk=np.zeros(len(w)), p0=p0)
-            chi = (chi - p0) / (1 - p0)  # continuous part only
+            cont = mass - p0
+            if cont <= 1e-12:  # all the mass on the atom at 0: degenerate point mass, no continuous part
+                return dict(b=b, w=w, fk=np.zeros(len(w)), p0=p0, mass=mass)
+            chi = (chi - p0) / cont  # continuous part only
         fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
         fk[0] *= 0.5
-        return dict(b=b, w=w, fk=fk, p0=p0)
+        return dict(b=b, w=w, fk=fk, p0=p0, mass=mass)
 
-    def _warn_if_unresolved(self, truncation: float, move: float, order: float, n_terms: int) -> None:
+    def _warn_if_unresolved(self, d: 'CallableDistributionFunctions', label: str, truncation: float, move: float,
+                            order: float, n_terms: int) -> None:
         r"""
         Warn when the estimated truncation error exceeds ``_cos_truncation_tol``. The coefficients do not depend on
         how many of them are summed, so for an error :math:`C K^{-p}` after :math:`K` terms the largest difference
@@ -494,26 +510,28 @@ class _LSTFunction(_HazardGrid):
         and the error is ``move`` divided by :math:`2^p - 1`. The order :math:`p` is one less than the decay exponent
         of the CDF-term amplitudes, clamped to :math:`[1, 2]`.
 
+        :param d: The distribution whose logger reports.
+        :param label: The name of the expansion in the report.
         :param truncation: The estimated truncation error, in probability.
         :param move: The largest absolute difference between the two truncations, in probability.
         :param order: The convergence order :math:`p`.
         :param n_terms: The number of cosine terms summed.
         """
         if Settings.check_inversions and truncation > self._cos_truncation_tol:
-            self._distribution._logger.warning(
+            d._logger.warning(
                 "%s: the cosine expansion is unresolved, its estimated truncation error is %.2e (bar %.0e), the last "
                 "%d of %d terms moving the CDF by %.2e at convergence order %.1f. The distribution spans scales the "
                 "window cannot resolve at this many terms. Raise Settings.cos_terms, whose cost is linear in it.",
-                self._distribution._titled('COS CDF (truncation)'), truncation, self._cos_truncation_tol,
-                n_terms - n_terms // 2, n_terms, move, order
+                label, truncation, self._cos_truncation_tol, n_terms - n_terms // 2, n_terms, move, order
             )
 
     @staticmethod
     def _eval_cos_cdf(fit: dict, xs: np.ndarray) -> np.ndarray:
-        """Evaluate the continuous COS CDF of ``fit`` (atom ``p0`` added back) at ``xs``, clipped to ``[0, 1]``."""
-        w, fk, p0 = fit['w'], fit['fk'], fit['p0']
+        """Evaluate the COS CDF of ``fit`` at ``xs``: a split atom ``p0`` plus the continuous part clipped to
+        ``[0, mass - p0]``, or else the series clipped to ``[0, mass]``."""
+        w, fk, p0, mass = fit['w'], fit['fk'], fit['p0'], fit['mass']
         cdf_c = fk[0] * xs + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xs))
-        return np.clip(p0 + (1 - p0) * cdf_c if p0 > 1e-9 else cdf_c, 0.0, 1.0)
+        return p0 + (mass - p0) * np.clip(cdf_c, 0.0, 1.0) if p0 > 1e-9 else np.clip(cdf_c, 0.0, mass)
 
     def _build_cos_cdf_grid(self) -> tuple:
         """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of ``_cdf_grid``,
@@ -1024,7 +1042,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     - For a single epoch on a dense state space, the transform values of one frequency :math:`u_j` form a shifted
       linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
     - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
-      on wider windows, as for the marginal CDF of a :class:`~phasegen.distributions.RewardDistribution`.
+      on the window ending at the marginal mean plus 12 standard deviations, fitted and checked as the marginal CDF of
+      a :class:`~phasegen.distributions.RewardDistribution`.
     - When :math:`\mathbf{r}_a = c\,\mathbf{r}_b` on every transient state for a constant :math:`c > 0`,
       :math:`R_a = c R_b` almost surely and :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, c y))`.
     - Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when

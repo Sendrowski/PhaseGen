@@ -1044,11 +1044,13 @@ class EmpiricalJointDistribution:  # pragma: no cover
         r"""The pair of sample means of :math:`R_a` and :math:`R_b`."""
         return np.array([self._a.mean(), self._b.mean()])
 
+    @property
     def cov(self) -> float:
         """The sample covariance of the two rewards, with the normalisation of
         :class:`~phasegen.distributions.EmpiricalDistribution`."""
         return float(np.cov(self._a, self._b, bias=True)[0, 1])
 
+    @property
     def corr(self) -> float:
         """The empirical Pearson correlation of the two rewards."""
         return float(np.corrcoef(self._a, self._b)[0, 1])

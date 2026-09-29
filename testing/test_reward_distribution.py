@@ -460,7 +460,7 @@ def test_joint_reward_distribution_within_tree():
         assert jd.moment(1, 1) == pytest.approx(cov[i, j] + mean[i] * mean[j], abs=1e-9)  # E[L_i L_j]
         assert jd.marginal('a')._cumulants()[0] == pytest.approx(mean[i], abs=1e-7)        # E[L_i]
         assert jd.lst(0.6, 0.0) == pytest.approx(jd.marginal('a').lst(0.6), abs=1e-12)     # combined-shift consistency
-        assert jd.cov() == pytest.approx(cov[i, j], abs=1e-8)
+        assert jd.cov == pytest.approx(cov[i, j], abs=1e-8)
 
 
 def test_joint_distribution_2d_density_and_cdf():
@@ -530,7 +530,7 @@ def test_joint_reward_distribution_two_locus():
     for i, j in [(1, 1), (1, 2), (2, 2)]:
         jd = sfs2.joint_distribution(i, j)
         assert jd.moment(1, 1) == pytest.approx(mean[i, j], abs=1e-8)
-        assert jd.corr() == pytest.approx(corr[i, j], rel=1e-4)
+        assert jd.corr == pytest.approx(corr[i, j], rel=1e-4)
 
 
 def test_self_pair_joint_distribution_reduces_to_marginal():
@@ -570,7 +570,7 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
     assert jd.marginal('a')._cumulants()[0] == pytest.approx(mean[ca], rel=1e-6)
     assert jd.marginal('b')._cumulants()[0] == pytest.approx(mean[cb], rel=1e-6)
     assert jd.moment(1, 1) > 0
-    assert -1.0 <= jd.corr() <= 1.0
+    assert -1.0 <= jd.corr <= 1.0
     assert jsfs.joint_distribution(ca, ca)._ratio == 1.0
 
 
@@ -1104,7 +1104,7 @@ def test_coalescent_distribution_accessors():
     assert isinstance(j._host.state_space, BlockCountingStateSpace)
     assert np.shape(j.mean) == (2,)
     assert j.mean[0] == pytest.approx(c.moment(1, rewards=[UnfoldedSFSReward(1)], center=False))
-    assert float(j.cov()) == pytest.approx(j.moment(1, 1) - j.moment(1, 0) * j.moment(0, 1))
+    assert float(j.cov) == pytest.approx(j.moment(1, 1) - j.moment(1, 0) * j.moment(0, 1))
     assert 0.0 <= float(j.cdf(1.0, 1.0)) <= 1.0
 
 
@@ -1674,9 +1674,9 @@ def test_window_and_corr_use_exact_moments_with_a_slow_ancient_epoch(ne_ancestra
     assert c2 == pytest.approx(rd.var, rel=1e-3)
 
     j = coal.sfs.joint_distribution(1, 2)
-    exact = j.cov() / np.sqrt(j.marginal('a').var * j.marginal('b').var)
-    assert j.corr() == pytest.approx(exact, rel=1e-12)
-    assert 0.8 < j.corr() < 0.9
+    exact = j.cov / np.sqrt(j.marginal('a').var * j.marginal('b').var)
+    assert j.corr == pytest.approx(exact, rel=1e-12)
+    assert 0.8 < j.corr < 0.9
 
 
 def test_transform_drops_states_the_initial_vector_cannot_reach():
@@ -2396,6 +2396,32 @@ def test_joint_2d_expansion_survives_a_change_of_the_1d_terms():
 
     Settings.cos_terms_2d = 2 * Settings.cos_terms_2d
     assert joint._cos2d is not cos2d
+
+
+def test_joint_axis_expansion_reports_truncation(caplog):
+    """The axis terms of the joint CDF run the truncation check of the marginal CDF, and span the atom
+    ``P(R_a = 0, R_b = 0)`` at 0 to the axis mass at the window end. Regression: an unresolved axis term was not
+    reported."""
+    import logging
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    try:
+        joint = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs.joint_distribution(2, 3)
+        joint.cdf(0.5, 0.5)
+        assert not any('axis g_' in r.getMessage() for r in caplog.records)
+
+        atoms = joint._atoms
+        assert atoms['both0'] > 1e-2
+        for which, total in (('a', atoms['a0']), ('b', atoms['b0'])):
+            b = joint._cos_axis_coeffs[which]['b']
+            assert joint._cos_axis(which, np.array([-1.0, 0.0]))[1] == atoms['both0']
+            assert joint._cos_axis(which, np.array([2 * b]))[0] == pytest.approx(total, abs=1e-3)
+
+        Settings.cos_terms = 8
+        pg.Coalescent(n=5).sfs.joint_distribution(1, 3).cdf(0.5, 0.5)
+        assert any('axis g_b (truncation)' in r.getMessage() for r in caplog.records)
+    finally:
+        log.removeHandler(caplog.handler)
 
 
 @pytest.mark.parametrize('orders', [(-1, 1), (1, -1), (2, -2), (0.5, 1), ('1', 1)])

@@ -686,7 +686,7 @@ class DistributionTestCase(TestCase):
         jd = deme.joint_distribution(1, 2)
 
         np.testing.assert_allclose(jd.mean, np.asarray(deme.mean.data)[[1, 2]], rtol=1e-10)
-        self.assertAlmostEqual(jd.cov(), deme.cov.data[1, 2], places=10)
+        self.assertAlmostEqual(jd.cov, deme.cov.data[1, 2], places=10)
 
     def test_sfs_accumulate_infinite_end_time(self):
         """

@@ -116,7 +116,7 @@ def test_empirical_joint_marginal_conditional_match_analytic():
     ana = coal.sfs.joint_distribution(1, 2)
     emp = coal.sfs.to_empirical(200000, seed=SEED).joint_distribution(1, 2)
 
-    assert emp.corr() == pytest.approx(ana.corr(), abs=0.03)
+    assert emp.corr == pytest.approx(ana.corr, abs=0.03)
     np.testing.assert_allclose(emp.mean, ana.mean, rtol=0.03)
     assert emp.cdf(1.5, 0.5) == pytest.approx(ana.cdf(1.5, 0.5), abs=0.02)
 
@@ -406,7 +406,7 @@ def test_empirical_var_is_diagonal_of_cov():
     np.testing.assert_allclose(np.diag(np.asarray(spectrum.cov.data)), np.asarray(spectrum.var.data), rtol=1e-12)
 
     joint = pg.distributions.EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
-    assert joint.cov() == pytest.approx(e.cov[0, 1], rel=1e-12)
+    assert joint.cov == pytest.approx(e.cov[0, 1], rel=1e-12)
 
     per_deme = pg.distributions.EmpiricalPhaseTypeDistribution(samples.T.reshape(1, 4, 50), pops=list('abcd'))
     np.testing.assert_allclose(np.diag(per_deme.demes.cov), [per_deme.demes[p].var for p in 'abcd'], rtol=1e-12)
