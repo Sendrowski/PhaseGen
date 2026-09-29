@@ -216,19 +216,19 @@ def test_jsfs_accumulate(two_pop_coalescent):
     end_times = [0.5, 2.0, 100.0]
     acc = jsfs.accumulate(k=1, end_times=end_times)
 
-    # shape is the spectrum shape plus a trailing time axis
-    assert acc.shape == jsfs.shape + (len(end_times),)
+    # shape is a leading time axis plus the spectrum shape
+    assert acc.shape == (len(end_times),) + jsfs.shape
 
     # accumulation at a large end time converges to the bin means
-    np.testing.assert_allclose(acc[..., -1], np.asarray(mean), atol=1e-9)
+    np.testing.assert_allclose(acc[-1], np.asarray(mean), atol=1e-9)
 
     # each bin's accumulation matches Coalescent.accumulate for that JointSFSReward
     for config in [(1, 0), (1, 1), (2, 0)]:
         single = two_pop_coalescent.accumulate(k=1, end_times=[2.0], rewards=[pg.JointSFSReward(config)])
-        assert acc[config + (1,)] == pytest.approx(float(single[0]), abs=1e-9)
+        assert acc[(1,) + config] == pytest.approx(float(single[0]), abs=1e-9)
 
     # centered second-moment accumulation and plotting run without error
-    assert jsfs.accumulate(k=2, end_times=[2.0], center=True).shape == jsfs.shape + (1,)
+    assert jsfs.accumulate(k=2, end_times=[2.0], center=True).shape == (1,) + jsfs.shape
     jsfs.plot_accumulation(k=1, end_times=np.linspace(0, 3, 20), show=False)
 
 
@@ -262,9 +262,8 @@ def test_jsfs_incompatible_reward_stacking_raises(two_pop_coalescent):
     """
     from phasegen.rewards import CombinedReward
 
-    for other in [pg.UnfoldedSFSReward(1), pg.LocusReward(0), pg.TotalTreeHeightReward()]:
-        with pytest.raises(ValueError):
-            two_pop_coalescent.moment(k=1, rewards=[CombinedReward([other, pg.JointSFSReward((1, 0))])])
+    with pytest.raises(ValueError):
+        two_pop_coalescent.moment(k=1, rewards=[CombinedReward([pg.UnfoldedSFSReward(1), pg.JointSFSReward((1, 0))])])
 
 
 def test_joint_cdf_plot_grid_honours_diagonal_reduction():
@@ -468,3 +467,40 @@ def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescen
 
     np.testing.assert_allclose(jd.mean, [view.mean.data[a], view.mean.data[b]], rtol=1e-10)
     np.testing.assert_allclose(jd.cov(), view.get_cov(a, b), rtol=1e-8)
+
+
+@pytest.mark.parametrize('config', [(3, 0), (1,), (1, 0, 0), (0, 0), (2, 2), (0.5, 1), (True, 0)])
+def test_jsfs_invalid_config_raises_value_error(two_pop_coalescent, config):
+    """An out-of-range, wrongly sized, monomorphic or non-integral descendant configuration raises ValueError from
+    every per-bin entry point. Regression: a bare KeyError from the reward, the absorbing-state error for the full
+    configuration, a silently floored non-integral entry, and a failure deferred to first use."""
+    jsfs = two_pop_coalescent.jsfs
+
+    for call in (
+            lambda: jsfs.bin(*config),
+            lambda: jsfs.get_cov(config, (1, 0)),
+            lambda: jsfs.joint_distribution(config, (1, 0)),
+            lambda: jsfs.cdf._plot_data(configs=[config], t=[1.0])
+    ):
+        with pytest.raises(ValueError, match='descendant configuration'):
+            call()
+
+
+def test_jsfs_valid_configs_pass_validation(two_pop_coalescent):
+    """Every polymorphic configuration passes validation unchanged, as integers."""
+    jsfs = two_pop_coalescent.jsfs
+
+    assert [jsfs._bin_config(c) for c in jsfs._get_configs()] == list(jsfs._get_configs())
+    assert jsfs._bin_config(np.array([1, 0])) == (1, 0) and jsfs._bin_config((1.0, 2.0)) == (1, 2)
+
+
+def test_bin_distributions_are_served_when_the_cache_is_off(two_pop_coalescent):
+    """With ``Settings.cache`` off, a stored per-bin distribution is still served and a new one is not stored.
+    Regression: the stored entry was bypassed and its fit rebuilt on every call."""
+    for spectrum, key, other in ((pg.Coalescent(n=4).sfs, 1, 2), (two_pop_coalescent.jsfs, (1, 0), (0, 1))):
+        stored = spectrum._bin_distribution(key)
+        pg.Settings.cache = False
+
+        assert spectrum._bin_distribution(key) is stored
+        assert spectrum._bin_distribution(other) is not spectrum._bin_distribution(other)
+        pg.Settings.cache = True

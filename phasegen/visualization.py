@@ -101,11 +101,8 @@ class Visualization:
             clear = kwargs.get('clear', True)
 
             if kwargs.get('ax') is None:
-                # a fresh figure, or the current axes to draw onto
-                if clear:
-                    plt.close()
-
-                kwargs['ax'] = plt.gca()
+                # a new figure, or the current axes to draw onto
+                kwargs['ax'] = plt.subplots()[1] if clear else plt.gca()
 
             # execute function
             func(*args, **kwargs)
@@ -162,7 +159,7 @@ class Visualization:
         :param data: The curves.
         :param file: File to save the plot to.
         :param show: Whether to show the plot.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label replacing the labels of the curves, ``None`` to keep them.
         :param title: Title replacing the title of the curves, ``None`` to keep it.
         :param kwargs: Additional line styling forwarded to the underlying plot (e.g. ``alpha``, ``lw``, ``ls``).
@@ -209,8 +206,7 @@ class Visualization:
         z = np.asarray(data.z).T
 
         if ax is None:
-            plt.close()
-            ax = plt.gca()
+            ax = plt.subplots()[1]
 
         if surface:
             if ax.name != '3d':
@@ -249,7 +245,7 @@ class Visualization:
         :param data: The trajectories.
         :param file: File to save the plot to.
         :param show: Whether to show the plot.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param title: Title replacing the title of the data, ``None`` to keep it.
         :param ylabel: Label replacing the y-axis label of the data, ``None`` to keep it.
         :param kwargs: Keyword arguments passed to the plot function.

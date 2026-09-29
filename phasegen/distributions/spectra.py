@@ -44,16 +44,19 @@ class _SFSAggregateFunction:
         :class:`~phasegen.distributions.RewardDistribution` under the spectrum's reward.
 
         :param t: A point or an array of points, or probability levels for a quantile function.
-        :return: For a scalar ``t``, a spectrum with one value per bin and zeros at the monomorphic bins. For an
-            array, an array of shape ``(len(t), n + 1)``.
+        :return: For a scalar ``t``, a spectrum with one value per bin. The bins that are zero almost surely, the
+            monomorphic and folded-away ones, hold the function of a point mass at zero. For an array, an array of
+            shape ``t.shape + (n + 1,)``, which is ``(len(t), n + 1)`` for a 1-D ``t``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         d = self._distribution
-        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        t_arr = np.asarray(t, dtype=float).ravel()
         out = np.zeros((t_arr.size, d.lineage_config.n + 1))
+        if self.kind == 'cdf':
+            out[:] = np.where(np.isnan(t_arr), np.nan, t_arr >= 0)[:, None]
         for i in d._get_indices():
             out[:, i] = getattr(d._bin_distribution(i), self.kind)(t_arr)
-        return SFS(out[0]) if np.ndim(t) == 0 else out
+        return SFS(out[0]) if np.ndim(t) == 0 else out.reshape(np.shape(t) + out.shape[1:])
 
     def plot(
             self,
@@ -78,7 +81,7 @@ class _SFSAggregateFunction:
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -127,7 +130,7 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -267,13 +270,14 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         curves, rather than rebuilt on every ``sfs.cdf(t)``. Honors :attr:`Settings.cache`."""
         i = self._polymorphic_bin(i)
 
-        if not Settings.cache:
-            return self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
-
         cache = self.__dict__.setdefault('_bin_distributions', {})
-        if i not in cache:
-            cache[i] = self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
-        return cache[i]
+        if i in cache:
+            return cache[i]
+
+        d = self.distribution(reward=CombinedReward([self.reward, self._get_sfs_reward(i)]))
+        if Settings.cache:
+            cache[i] = d
+        return d
 
     @_make_hashable
     @cache
@@ -313,27 +317,28 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # batched mean: every bin's mean is ``occupation . r_bin`` with the same occupation-time vector, so the whole
         # spectrum is one contraction instead of a per-bin solve. This is the closed form's spectrum path (it shares
         # the transient solve across bins); only for the plain mean (k=1, default reward, accumulation until
-        # absorption) and when flattening does not apply (flattening reduces the state space and wins). A non-zero
-        # start time is handled by subtracting the occupation up to it (occupation is additive in time). Other cases
-        # fall through to the per-bin path.
+        # absorption). Where flattening applies, the occupation is that of the lineage-counting state space and the
+        # bin rewards are flattened onto it, from a zero start time only. Otherwise a non-zero start time is handled by
+        # subtracting the occupation up to it (occupation is additive in time). Other cases fall through to the
+        # per-bin path.
+        flatten = self._flattening_applies(k)
         if (
                 Settings.closed_form_last_epoch and
-                not self._flattening_applies(k) and
                 k == 1 and
                 np.isinf(effective_end) and
-                rewards == (self.reward,)
+                rewards == (self.reward,) and
+                not (flatten and effective_start > 0)
         ):
-            occupation = self._occupation_times()
+            occupation = (self.tree_height if flatten else self)._occupation_times()
             if occupation is not None:
                 m, idx_t = occupation
                 if effective_start > 0:
                     m = m - self._occupation_times(cap=effective_start)[0]
+                bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
                 R = np.column_stack([
-                    np.asarray(
-                        CombinedReward([self.reward, self._get_sfs_reward(i)])._get(self.state_space), dtype=float
-                    )[idx_t]
-                    for i in self._get_indices()
-                ])
+                    (self._flattened_weights(r) if flatten else np.asarray(r._get(self.state_space), dtype=float))
+                    for r in bin_rewards
+                ])[idx_t]
                 moments = m @ R
                 return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
@@ -465,7 +470,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
-        :return: Array of moments accumulated at the specified times, one for each site-frequency count.
+        :return: Array of shape ``(len(end_times), n + 1)`` of the moments accumulated at the specified times, one
+            column per site-frequency count.
         """
         k = _validate_order(k)
         indices = self._get_indices()
@@ -482,12 +488,12 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             np.zeros((1, len(end_times))),
             accumulation,
             np.zeros((self.lineage_config.n - len(indices), len(end_times)))
-        ])
+        ]).T
 
     def _accumulate_batched(self, k, indices, end_times, rewards, start_time) -> 'np.ndarray | None':
         """Batched mean accumulation (``k == 1``, default reward) contracting ``_mean_occupation_grid`` with the
         stacked bin rewards. Returns ``None`` when not applicable, and the caller evaluates per bin."""
-        if k != 1 or rewards is not None or self._flattening_applies(1):
+        if k != 1 or (rewards is not None and tuple(rewards) != (self.reward,)) or self._flattening_applies(1):
             return None
 
         m_grid = self._mean_occupation_grid(end_times, start_time=start_time)  # (len(t), n_states)
@@ -528,7 +534,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return _CurveData(
             x=end_times,
-            y=self.accumulate(k, end_times, rewards, center, permute)[1:1 + len(indices)],
+            y=self.accumulate(k, end_times, rewards, center, permute).T[1:1 + len(indices)],
             labels=[str(i) for i in indices],
             xlabel='t',
             ylabel='moment',
@@ -616,7 +622,8 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         The quantile curve of each SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param q: Probabilities to evaluate at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param q: Probabilities to evaluate at. By default, an evenly spaced grid from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
         :param bins: The bins (frequency classes) to include. By default, all polymorphic bins.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by bin.
@@ -688,7 +695,7 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             for i in indices
         ])
 
-        sfs_matrix = (m[:, None] * R).T @ solve(R)     # R^T diag(m) (-T)^{-1} R (one ordering)
+        sfs_matrix = (m[:, None] * R).T @ solve(R)  # R^T diag(m) (-T)^{-1} R (one ordering)
         self._logger.debug("sfs.cov: centering with the outer product of bin means")
         mean = np.asarray(self.mean.data)[indices]
         cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
@@ -697,6 +704,18 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         for a, ia in enumerate(indices):
             out[ia, indices] = cov[a]
         return TwoSFS(out)
+
+    def _cov_stacked(self) -> bool:
+        """
+        Whether :attr:`cov` evaluates the cross-moments of the bin pairs in closed form, stacked over the first bin.
+
+        :return: Whether the stacked closed form applies.
+        """
+        _, end_time = self._resolve_window()
+
+        return bool(
+            np.isinf(end_time) and Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch(2)
+        )
 
     @cached_property
     def cov(self) -> TwoSFS:
@@ -709,24 +728,39 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             self._logger.debug("sfs.cov: batched (shared two-point occupation)")
             return batched
 
-        # create list of arguments for each combination of i, j
-        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
+        indices = self._get_indices()
+        bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices]
+        start_time, _ = self._resolve_window()
 
-        self._logger.debug("sfs.cov: per-pair matrix exponential over %d bin pairs", len(indices))
+        if self._cov_stacked():
+            self._logger.debug("sfs.cov: closed form over %d bin pairs, stacked over the first bin", len(indices) ** 2)
+            Reward._check_accumulable(self.state_space, bin_rewards)
 
-        # cross-moment of each bin pair (serial)
-        sfs_results = [
-            PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(
-                CombinedReward([self.reward, self._get_sfs_reward(i)]),
-                CombinedReward([self.reward, self._get_sfs_reward(j)])
-            ))
-            for i, j in indices
-        ]
+            # the cross-moment of each bin pair, one evaluation per second bin
+            cross = np.column_stack([
+                self._accumulate_closed_form(2, (r, r), start_time, heads=bin_rewards) for r in bin_rewards
+            ])
+
+            if np.isnan(cross).any():
+                raise ModelError(
+                    "NaN value encountered when computing moment. "
+                    "This is likely due to an ill-conditioned rate matrix."
+                )
+        else:
+            self._logger.debug("sfs.cov: per-pair matrix exponential over %d bin pairs", len(indices) ** 2)
+
+            # cross-moment of each bin pair (serial)
+            cross = np.array([
+                [
+                    PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(r_i, r_j))
+                    for r_j in bin_rewards
+                ]
+                for r_i in bin_rewards
+            ])
 
         # re-structure the results to a matrix form
         sfs = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
-        for ((i, j), result) in zip(indices, sfs_results):
-            sfs[i, j] = result
+        sfs[np.ix_(indices, indices)] = cross
 
         # get matrix of marginal moments
         m2 = np.outer(self.mean.data, self.mean.data)
@@ -740,12 +774,15 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
     def var(self) -> SFS:
         """
         Variance across site-frequency counts, the diagonal of :attr:`cov` where the spectrum-wide evaluation of
-        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` applies, and the
-        second central moment of each bin otherwise.
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` applies or a
+        cached :attr:`cov` holds the closed form, and the second central moment of each bin otherwise.
         """
         batched = self._cov_batched
         if batched is not None:
             return SFS(np.diag(np.asarray(batched.data)))
+
+        if 'cov' in self.__dict__ and self._cov_stacked():
+            return SFS(np.diag(np.asarray(self.cov.data)))
 
         return self.moment(k=2, center=True)
 
@@ -806,17 +843,26 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
-    @cache
-    def _get_P(self, n: int, theta: float) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_resolvent(self, n: int, theta: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         r"""
-        Single-epoch matrices :math:`\mathbf{G}_j` and :math:`\mathbf{g}` of
+        Single-epoch resolvent :math:`\mathbf{U} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}`,
+        scaled class rewards :math:`\theta \mathbf{r}_j` and vector :math:`\mathbf{g}` of
         :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`,
-        by one dense inverse.
+        so that :math:`\mathbf{G}_j = \mathbf{U} \operatorname{diag}(\theta \mathbf{r}_j)`. The most recent
+        :math:`(J, \theta)` is cached.
 
         :param n: The number of frequency classes :math:`J`.
         :param theta: The mutation rate :math:`\theta`.
-        :return: The stacked matrices :math:`\mathbf{G}_j` and the vector :math:`\mathbf{g}`.
+        :return: The resolvent :math:`\mathbf{U}`, the scaled rewards :math:`\theta \mathbf{r}_j` as rows and the
+            vector :math:`\mathbf{g}`.
         """
+        cached = self.__dict__.get('_resolvent')
+        if cached is not None and cached[0] == (n, theta):
+            return cached[1]
+
+        # the state space may be shared with other coalescents, so set it to this one's rates
+        self.state_space.update_epoch(self.demography.get_epoch(0))
+
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
 
         R = np.array([
@@ -829,10 +875,13 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         # resolvent (theta diag(r_total) - T)^{-1}, with r_total the summed class rewards
         U = np.linalg.inv(theta * np.diag(R.sum(axis=0)) - S)
 
-        P = theta * U[None, :, :] * R[:, None, :]
         g = U @ (-S @ np.ones(S.shape[0]))
+        resolvent = (U, theta * R, g)
 
-        return P, g
+        if Settings.cache:
+            self.__dict__['_resolvent'] = ((n, theta), resolvent)
+
+        return resolvent
 
     def _assert_no_window(self) -> None:
         """Guard the mutational-configuration path against a bounded accumulation window. The configuration
@@ -906,8 +955,9 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         .. rubric:: Implementation
 
-        - In a single epoch, the matrices :math:`\mathbf{G}_j` are formed by one dense inverse and cached per
-          :math:`\theta`, and the sum over orderings has :math:`|\mathbf{m}|! / \prod_j m_j!` terms.
+        - In a single epoch, the resolvent behind the matrices :math:`\mathbf{G}_j` is formed by one dense inverse and
+          cached for the most recent :math:`\theta`, and the sum over orderings has
+          :math:`|\mathbf{m}|! / \prod_j m_j!` terms, each a product of row vectors with :math:`\mathbf{G}_j`.
         - Over several epochs, the finite epochs are propagated by matrix exponentials and the last epoch is closed by
           a linear solve. The solves use a sparse LU factorization once :math:`L n_T` reaches
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`,
@@ -977,10 +1027,11 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         return self._get_mutation_config_homogeneous(config, n, theta)
 
     def _get_mutation_config_homogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
-        """
+        r"""
         Single-epoch configuration probability of
         :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`,
-        summing the products of ``_get_P`` matrices over the multiset permutations of the mutation classes.
+        summing :math:`\boldsymbol{\alpha}_T \mathbf{G}_{\sigma_1} \cdots \mathbf{G}_{\sigma_{|\mathbf{m}|}} \mathbf{g}`
+        over the multiset permutations :math:`\sigma` of the mutation classes.
 
         :param config: The configuration, one non-negative count per frequency class.
         :param n: The number of frequency classes.
@@ -988,25 +1039,24 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         :return: The configuration probability.
         """
         non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
-        k = non_absorbing.sum()
 
         alpha = self.state_space.alpha[non_absorbing]
 
-        P, p_total = self._get_P(n, theta)
+        U, R, g = self._get_resolvent(n, theta)
 
         q = list(itertools.chain(*[[i + 1] * j for i, j in enumerate(config)]))
 
-        # iterate over permutations of q
-        Q = np.zeros((k, k))
+        # iterate over permutations of q, with G_j = U diag(theta r_j) applied to a row vector
+        total = 0.0
         for p in multiset_permutations(q):
-            U = np.eye(k)
+            v = alpha
 
             for i in p:
-                U @= P[i - 1]
+                v = (v @ U) * R[i - 1]
 
-            Q += U
+            total += v @ g
 
-        return alpha @ Q @ p_total
+        return total
 
     @cached_property
     def _mutation_epoch_data(self) -> Tuple:
@@ -1385,16 +1435,20 @@ class _JointSFSAggregateFunction:
 
         :param t: A point or an array of points, or probability levels for a quantile function.
         :return: For a scalar ``t``, a :class:`~sfsutils.spectrum.JointSFS` with one value per descendant
-            configuration. For an array, an array of shape ``(len(t),) + shape``, with ``shape`` the shape of the joint
-            SFS.
+            configuration, where the monomorphic configurations hold the function of a point mass at zero. For an
+            array, an array of shape ``t.shape + shape``, with ``shape`` the shape of the joint SFS.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         d = self._distribution
-        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        t_arr = np.asarray(t, dtype=float).ravel()
         out = np.zeros((t_arr.size,) + d.shape)
+        if self.kind == 'cdf':
+            out[:] = np.where(np.isnan(t_arr), np.nan, t_arr >= 0).reshape((-1,) + (1,) * len(d.shape))
         for config in d._get_configs():
             out[(slice(None),) + tuple(config)] = getattr(d._bin_distribution(config), self.kind)(t_arr)
-        return JointSFS(out[0], pop_names=d.lineage_config.pop_names) if np.ndim(t) == 0 else out
+        if np.ndim(t) == 0:
+            return JointSFS(out[0], pop_names=d.lineage_config.pop_names)
+        return out.reshape(np.shape(t) + d.shape)
 
     def plot(
             self,
@@ -1419,7 +1473,7 @@ class _JointSFSAggregateFunction:
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -1466,7 +1520,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunct
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curves, ``None`` for the default labels.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
@@ -1638,7 +1692,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
             # the mean is additive in time, so every bin is the difference of two batched accumulations
             acc = self.accumulate(1, [start, end], start_time=0.0)
-            out = acc[..., 1] - acc[..., 0]
+            out = acc[1] - acc[0]
         else:
             out = np.zeros(self.shape)
             for config in self._get_configs():
@@ -1670,7 +1724,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param configs: The descendant configurations, ``None`` for all polymorphic bins.
         :return: Each configuration and its distribution.
         """
-        configs = self._get_configs() if configs is None else [tuple(int(x) for x in c) for c in configs]
+        configs = self._get_configs() if configs is None else [self._bin_config(c) for c in configs]
 
         return [(c, self._bin_distribution(c)) for c in configs]
 
@@ -1682,16 +1736,43 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         :param config: The descendant configuration, one count per population.
         :return: The distribution of the bin's branch length.
+        :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        config = tuple(int(c) for c in config)
-
-        if not Settings.cache:
-            return self.distribution(reward=CombinedReward([self.reward, JointSFSReward(config)]))
+        config = self._bin_config(config)
 
         cache = self.__dict__.setdefault('_bin_distributions', {})
-        if config not in cache:
-            cache[config] = self.distribution(reward=CombinedReward([self.reward, JointSFSReward(config)]))
-        return cache[config]
+        if config in cache:
+            return cache[config]
+
+        d = self.distribution(reward=CombinedReward([self.reward, JointSFSReward(config)]))
+        if Settings.cache:
+            cache[config] = d
+        return d
+
+    def _bin_config(self, config: Sequence[int]) -> Tuple[int, ...]:
+        """
+        Validate the descendant configuration of a polymorphic joint SFS bin.
+
+        :param config: The descendant configuration, one count per population.
+        :return: The configuration as a tuple of integers.
+        :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
+        config = tuple(config)
+
+        if (
+                len(config) != len(full)
+                or any(isinstance(c, bool) or not float(c).is_integer() for c in config)
+                or not all(0 <= c <= n for c, n in zip(config, full))
+                or not any(config)
+                or tuple(int(c) for c in config) == full
+        ):
+            raise ValueError(
+                f"The descendant configuration must hold one integer count per population, each from 0 to its sample "
+                f"size {full}, and be neither all zero nor {full}, got {config}."
+            )
+
+        return tuple(int(c) for c in config)
 
     def bin(self, *config: int) -> 'RewardDistribution':
         """The distribution of the branch length of the joint SFS bin with the given descendant counts per population,
@@ -1701,8 +1782,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         :param config: The descendant configuration, one count per population.
         :return: The distribution of the bin's branch length.
+        :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        config = tuple(int(c) for c in config)
+        config = self._bin_config(config)
         d = self._bin_distribution(config)
         d.label = f"jSFS bin {config}"
         return d
@@ -1716,12 +1798,15 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param config_a: The first descendant configuration, one count per population.
         :param config_b: The second descendant configuration.
         :return: The joint distribution of the two branch lengths.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
         """
+        config_a, config_b = self._bin_config(config_a), self._bin_config(config_b)
+
         jd = super().joint_distribution(
-            CombinedReward([self.reward, JointSFSReward(tuple(config_a))]),
-            CombinedReward([self.reward, JointSFSReward(tuple(config_b))])
+            CombinedReward([self.reward, JointSFSReward(config_a)]),
+            CombinedReward([self.reward, JointSFSReward(config_b)])
         )
-        jd.label = f"jSFS bins {tuple(config_a)} x {tuple(config_b)}"
+        jd.label = f"jSFS bins {config_a} x {config_b}"
         return jd
 
     def _plot_data_cdf(
@@ -1767,7 +1852,8 @@ class JointSFSDistribution(PhaseTypeDistribution):
         """
         The quantile curve of each joint SFS bin (see :meth:`PhaseTypeDistribution._reward_curves`).
 
-        :param q: Probabilities to evaluate at. By default, an evenly spaced grid in ``(0, 1)``.
+        :param q: Probabilities to evaluate at. By default, an evenly spaced grid from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
         :param configs: The joint bins (descendant configurations) to include. By default, all of them.
         :param n_points: Number of points of the default grid.
         :return: The curves, labelled by configuration.
@@ -1793,7 +1879,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
-        :return: Array of shape :attr:`shape` ``+ (len(end_times),)`` with the moment of each bin over time.
+        :return: Array of shape ``(len(end_times),) +`` :attr:`shape` with the moment of each bin over time.
         """
         k = _validate_order(k)
         configs = self._get_configs()
@@ -1824,9 +1910,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
                 for config in configs
             ])
 
-        out = np.zeros(self.shape + (len(end_times),))
+        out = np.zeros((len(end_times),) + self.shape)
         for config, acc in zip(configs, accumulation):
-            out[config] = acc
+            out[(slice(None),) + config] = acc
 
         return out
 
@@ -1857,7 +1943,9 @@ class JointSFSDistribution(PhaseTypeDistribution):
 
         return _CurveData(
             x=end_times,
-            y=np.array([accumulation[config] for config in configs]).reshape(len(configs), len(end_times)),
+            y=np.array([accumulation[(slice(None),) + config] for config in configs]).reshape(
+                len(configs), len(end_times)
+            ),
             labels=[str(config) for config in configs],
             xlabel='t',
             ylabel='moment',
@@ -1888,7 +1976,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param ax: The axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param title: Plot title, ``None`` for the default title.
         :return: Axes.
         """
@@ -1930,12 +2018,15 @@ class JointSFSDistribution(PhaseTypeDistribution):
         :param config_a: First descendant configuration.
         :param config_b: Second descendant configuration.
         :return: The covariance.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
         """
         return PhaseTypeDistribution.moment(
             self,
             k=2,
             center=True,
-            rewards=tuple(CombinedReward([self.reward, JointSFSReward(c)]) for c in (config_a, config_b))
+            rewards=tuple(
+                CombinedReward([self.reward, JointSFSReward(self._bin_config(c))]) for c in (config_a, config_b)
+            )
         )
 
     @cached_property
@@ -1962,7 +2053,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
             for config in configs
         ])
 
-        sfs_matrix = (m[:, None] * R).T @ solve(R)     # R^T diag(m) (-T)^{-1} R (one ordering)
+        sfs_matrix = (m[:, None] * R).T @ solve(R)  # R^T diag(m) (-T)^{-1} R (one ordering)
         self._logger.debug("jsfs.cov: centering with the outer product of bin means")
         mean = np.array([self.mean.data[config] for config in configs])
         cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
@@ -2060,7 +2151,8 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
             "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf and their .plot()."
         )
 
-    cdf = pdf = quantile = plot_cdf = plot_pdf = bin = _no_univariate_distribution
+    plot_cdf = plot_pdf = bin = _no_univariate_distribution
+    cdf = pdf = quantile = property(_no_univariate_distribution)
 
     def _unsupported(self, *args, **kwargs) -> None:
         """

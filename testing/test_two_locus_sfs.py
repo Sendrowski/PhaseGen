@@ -555,7 +555,8 @@ def test_tree_height_combines_with_two_locus_sfs_reward(name, model):
 
 
 def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
-    """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product."""
+    """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product,
+    returned with its standard error."""
     import msprime as ms
 
     sim_kwargs = dict(samples=n, sequence_length=2, recombination_rate=r, ploidy=1, model=ms_model,
@@ -565,7 +566,8 @@ def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
     else:
         sim_kwargs['demography'] = ms_demography
 
-    out = np.zeros((n + 1, n + 1))
+    total = np.zeros((n + 1, n + 1))
+    total_sq = np.zeros((n + 1, n + 1))
     for ts in ms.sim_ancestry(**sim_kwargs):
         t0, t1 = ts.at(0.5), ts.at(1.5)
         left = np.zeros(n + 1)
@@ -576,9 +578,13 @@ def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
         for nd in t1.nodes():
             if t1.parent(nd) != -1:
                 right[t1.num_samples(nd)] += t1.branch_length(nd)
-        out += np.outer(left, right)
+        outer = np.outer(left, right)
+        total += outer
+        total_sq += outer ** 2
 
-    return out / reps
+    mean = total / reps
+
+    return mean, np.sqrt((total_sq / reps - mean ** 2) / reps)
 
 
 def _ms_model(name):
@@ -602,10 +608,11 @@ def test_msprime_two_locus_sfs(name, model, ms_model, n, r):
     """The analytical two-locus SFS matches msprime two-locus simulations across models and sample sizes, with
     recombination mapping directly between the two."""
     ana = _two_sfs(n, r, model)
-    sim = _msprime_two_locus_sfs(n, r, _ms_model(ms_model), reps=200000, seed=42)
+    sim, se = _msprime_two_locus_sfs(n, r, _ms_model(ms_model), reps=200000, seed=42)
 
+    # within four standard errors of the simulated entries
     s = slice(1, n)
-    np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05, err_msg=name)
+    assert np.all(np.abs(ana[s, s] - sim[s, s]) <= 4 * se[s, s]), name
 
 
 @pytest.mark.slow
@@ -620,10 +627,10 @@ def test_msprime_two_locus_sfs_two_epoch():
     dem = ms.Demography()
     dem.add_population(initial_size=1.0)
     dem.add_population_parameters_change(time=1.0, initial_size=0.5)
-    sim = _msprime_two_locus_sfs(n, r, ms.StandardCoalescent(), reps=200000, seed=43, ms_demography=dem)
+    sim, se = _msprime_two_locus_sfs(n, r, ms.StandardCoalescent(), reps=200000, seed=43, ms_demography=dem)
 
     s = slice(1, n)
-    np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05)
+    assert np.all(np.abs(ana[s, s] - sim[s, s]) <= 4 * se[s, s])
 
 
 def _two_sfs_demography(n, r):
@@ -685,8 +692,9 @@ def test_msprime_honours_n_unlinked(n_unlinked, exact):
     # the marginal at one locus cannot see the initial linkage
     assert sim.tree_height.loci[0].mean == pytest.approx(1.0, abs=0.02)
 
-    # the covariance between the loci does, and it is what n_unlinked sets
-    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.03)
+    # the covariance between the loci does, and it is what n_unlinked sets, within four standard errors of the
+    # simulated covariance, sqrt(8 / 100000) = 0.0089 when the loci are fully linked
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.036)
     assert pg.Coalescent(n=pg.LineageConfig(2), loci=loci).tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=1e-9)
 
 

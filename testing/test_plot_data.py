@@ -159,7 +159,7 @@ def test_accumulation_plot_data():
 
     sfs = coal.sfs._plot_accumulation_data(1, t)
     assert sfs.labels == ['1', '2', '3', '4'] and sfs.title == 'SFS Moment accumulation (Unit)'
-    np.testing.assert_allclose(sfs.y, coal.sfs.accumulate(1, t)[1:5], rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(sfs.y, coal.sfs.accumulate(1, t).T[1:5], rtol=1e-10, atol=1e-12)
     assert sfs.y[:, -1].sum() > sfs.y[:, 1].sum() > 0
 
     Settings.plot_n_grid = 11
@@ -342,9 +342,10 @@ def test_joint_plots_draw_on_one_fresh_axes():
         ax = jd.cdf.plot(show=False)
     assert len(ax.collections) == 1 and len(ax.figure.axes) == 2  # the heatmap and its colorbar
 
-    for _ in range(2):
-        ax = jd.cdf.plot_surface(show=False)
-    assert ax.name == '3d' and len(plt.get_fignums()) == 1
+    plt.close('all')
+    axes = [jd.cdf.plot_surface(show=False) for _ in range(2)]
+    assert all(ax.name == '3d' and len(ax.figure.axes) == 1 for ax in axes)
+    assert len(plt.get_fignums()) == 2 and axes[0].figure is not axes[1].figure
 
     fig, (left, right) = plt.subplots(1, 2)
     ax = jd.cdf.plot_surface(ax=right, show=False)
@@ -363,9 +364,116 @@ def test_proportional_joint_plot_skips_the_2d_expansion():
     with pytest.raises(NotImplementedError):
         jd.pdf.plot(show=False)
 
-    assert 'cos2d' not in jd.__dict__.get('_cos2d_cache', {})
+    assert Settings.cache and 'cos2d' not in jd.__dict__.get('_cos_cache', {})
     assert data.x[-1] <= jd._cos2d_window('a')
 
     other = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
     assert (other._cos2d_window('a'), other._cos2d_window('b')) == (other._cos2d['ba'], other._cos2d['bb'])
+    assert 'cos2d' in other.__dict__['_cos_cache']
     plt.close('all')
+
+
+def test_plots_without_ax_leave_other_figures_alone():
+    """Without ``ax`` a plot draws on a new figure and leaves the open figures as they are. Regression: the current
+    figure was closed and the plot went onto the current axes of another open figure, so a joint heatmap was drawn
+    onto a 3D axes and a curve plot raised TypeError from ``Axes3D.fill_between``."""
+    coal = pg.Coalescent(n=4)
+    Settings.plot_joint_cdf_n_grid = 5
+    jd = coal.sfs.joint_distribution(1, 2)
+    inf = pg.Inference(
+        x0=dict(m=0.5),
+        bounds=dict(m=(0.1, 1)),
+        coal=lambda m: pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={0: 1, 1: m})),
+        loss=lambda coal, observation: 0.0,
+        parallelize=False
+    )
+    inf.dist_inferred = inf.get_coal(m=0.5)
+    plt.close('all')
+
+    other = plt.figure().add_subplot(projection='3d').figure
+    current = plt.subplots()[0]
+
+    plots = (
+        lambda: jd.cdf.plot(show=False),
+        lambda: coal.tree_height.pdf.plot(show=False),
+        lambda: coal.sfs.plot_accumulation(k=1, show=False),
+        lambda: coal.demography.plot(show=False),
+        lambda: inf.plot_pop_sizes(show=False, include_bootstraps=False),
+        lambda: inf.plot_demography(show=False, include_bootstraps=False)
+    )
+    for plot in plots:
+        plt.figure(current.number)
+        ax = plot()
+        assert ax.name != '3d' and ax.figure not in (other, current)
+        assert plt.fignum_exists(other.number) and plt.fignum_exists(current.number)
+        assert len(other.axes) == 1 and not current.axes[0].has_data()
+
+    plt.close('all')
+
+
+def test_plots_with_clear_false_draw_onto_the_current_axes():
+    """Without ``ax`` and with ``clear=False`` a plot draws onto the current axes and opens no figure."""
+    coal = pg.Coalescent(n=4)
+    plt.close('all')
+
+    ax = coal.tree_height.pdf.plot(show=False, n_points=9)
+    for plot in (
+            lambda: coal.tree_height.cdf.plot(show=False, clear=False, n_points=9),
+            lambda: coal.sfs.bin(1).cdf.plot(show=False, clear=False, n_points=9)
+    ):
+        assert plot() is ax
+
+    assert len(ax.lines) == 3 and plt.get_fignums() == [ax.figure.number]
+    plt.close('all')
+
+
+def test_spectrum_functions_put_the_grid_on_the_first_axis():
+    """The exact and empirical per-bin cdf, pdf and quantile and the moment accumulation of a spectrum return
+    ``(len(t), n + 1)``. Regression: the empirical cdf and pdf and the accumulation returned the transpose."""
+    coal = pg.Coalescent(n=4)
+    t = np.linspace(0.1, 2, 7)
+    q = np.linspace(0.2, 0.8, 3)
+    sampled = coal.sfs.to_empirical(2000, seed=0)
+
+    for sfs in (coal.sfs, sampled):
+        assert np.asarray(sfs.cdf(t)).shape == (7, 5)
+        assert np.asarray(sfs.pdf(t)).shape == (7, 5)
+        assert np.asarray(sfs.quantile(q)).shape == (3, 5)
+
+    acc = coal.sfs.accumulate(1, t)
+    assert acc.shape == (7, 5)
+    np.testing.assert_allclose(acc[-1], coal.sfs.moment(1, end_time=t[-1]).data, rtol=1e-10)
+
+    # the empirical cdf of each bin is that of its own column of samples
+    np.testing.assert_array_equal(np.asarray(sampled.cdf(t))[:, 2],
+                                  EmpiricalDistribution(sampled.samples[:, 2]).cdf(t))
+
+
+def test_accumulation_plot_takes_the_batched_mean_path():
+    """The mean accumulation that ``plot_accumulation`` draws takes the batched path for the spectrum's own reward,
+    also where the flattening does not apply. Regression: the plot passed that reward explicitly and was evaluated
+    per bin, 6 to 19 times slower."""
+    sfs = pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5)).sfs
+    assert not sfs._flattening_applies(1)
+
+    t = np.linspace(0, 2, 5)
+    batched = sfs._accumulate_batched(1, sfs._get_indices(), t, (sfs.reward,), None)
+    assert batched is not None
+    np.testing.assert_allclose(sfs._plot_accumulation_data(1, t).y, batched, rtol=1e-12)
+    np.testing.assert_allclose(batched, [sfs.get_accumulation(1, i, t) for i in sfs._get_indices()], rtol=1e-10,
+                               atol=1e-14)
+
+
+def test_spectrum_functions_keep_the_shape_of_the_points():
+    """The per-bin functions of a spectrum return ``t.shape`` followed by the spectrum's shape for any array ``t``.
+    Regression: a 2-D ``t`` raised a broadcast ValueError."""
+    coal = pg.Coalescent(n={'a': 1, 'b': 1}, demography=pg.Demography(pop_sizes={'a': 1, 'b': 1},
+                                                                        migration_rates={('a', 'b'): 1}))
+    t = np.array([[0.3, 0.8, 1.5], [2.0, 2.5, 3.0]])
+    q = np.array([[0.2], [0.7]])
+
+    for spectrum, shape in ((pg.Coalescent(n=4).sfs, (5,)), (coal.jsfs, (2, 2))):
+        for f, x in ((spectrum.cdf, t), (spectrum.pdf, t), (spectrum.quantile, q)):
+            out = f(x)
+            assert out.shape == x.shape + shape
+            np.testing.assert_array_equal(out.reshape((-1,) + shape), f(x.ravel()))
