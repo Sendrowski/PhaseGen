@@ -22,6 +22,9 @@ logger = logging.getLogger('phasegen')
 #: Smallest step of the exact-node march, relative to the node's position.
 _EXACT_STEP_FLOOR = 1e-6
 
+#: Probability level above which a reward quantile is approximate, the inversion resolving the CDF to about 1e-11.
+_QUANTILE_TAIL_LEVEL = 1.0 - 1e-9
+
 
 class DistributionFunction:
     """
@@ -80,7 +83,7 @@ class DistributionFunction:
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curve, ``None`` for none.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
@@ -216,7 +219,7 @@ class QuantileFunction(DistributionFunction):
         :param n_points: Number of points of the default grid.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the current figure.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Legend label of the curve, ``None`` for none.
         :param title: Plot title, ``None`` for the default title.
         :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
@@ -295,12 +298,15 @@ class _HazardGrid:
         :param hazard: The cumulative hazard on them.
         :return: The quantiles at ``q``.
         """
-        return np.interp(self._hazard(q), hazard, nodes)
+        hq = self._hazard(q)
+
+        return np.where(hq <= hazard[0], nodes[0], np.interp(hq, hazard, nodes))
 
     def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
         r"""The derivative of :meth:`_interp_cdf`'s map: on the segment :math:`[x_i, x_{i+1})` holding ``t``,
         :math:`f = e^{-H(x)}\,(H_{i+1} - H_i)/(x_{i+1} - x_i)`, so integrating the density over any segment gives
-        exactly the CDF increment there. Non-negative since the hazard is non-decreasing, and zero outside the nodes.
+        exactly the CDF increment there. Non-negative since the hazard is non-decreasing, zero outside the nodes and NaN
+        at NaN.
 
         :param t: Points to evaluate at.
         :param nodes: The grid's nodes.
@@ -311,14 +317,14 @@ class _HazardGrid:
 
         if len(nodes) < 2:
             # a grid of a single node (a near-total atom at 0) has no segment, so the continuous density is zero
-            return np.zeros_like(t)
+            return np.where(np.isnan(t), np.nan, 0.0)
 
         widths = np.diff(nodes)
         slopes = np.divide(np.diff(hazard), widths, out=np.zeros_like(widths), where=widths > 0)
 
         # segment holding t, with the last node closing the last segment
         i = np.clip(np.searchsorted(nodes, t, side='right') - 1, 0, len(widths) - 1)
-        inside = (t >= nodes[0]) & (t <= nodes[-1])
+        inside = ((t >= nodes[0]) & (t <= nodes[-1])) | np.isnan(t)
 
         return np.where(inside, np.exp(-np.interp(t, nodes, hazard, left=0.0)) * slopes[i], 0.0)
 
@@ -329,7 +335,7 @@ class _LSTFunction(_HazardGrid):
     """
     The inversion of an accumulated-reward transform, described at ``RewardDistribution``, for the function objects
     of a ``RewardDistribution`` and its conditional subclasses. The transform and its scales come from
-    ``self._distribution`` (``lst``, ``_invert``, ``_range``, ``_s_inf``). ``_cdf_point`` is the per-point de Hoog CDF
+    ``self._distribution`` (``lst``, ``_invert``, ``_range``). ``_cdf_point`` is the per-point de Hoog CDF
     behind the tail nodes and the conditional support bracket.
     """
     #: Equispaced nodes :math:`N` on which the expansion is evaluated.
@@ -343,6 +349,10 @@ class _LSTFunction(_HazardGrid):
 
     #: Largest estimated truncation error of the expansion, in probability, before it is reported unresolved.
     _cos_truncation_tol: float = 1e-3
+
+    #: Largest difference between the expansion and the de Hoog CDF where the grid joins them before it is reported.
+    #: ``None`` skips the check.
+    _cos_join_tol: float | None = 1e-3
 
     @property
     def _cos_terms(self) -> int:
@@ -381,7 +391,7 @@ class _LSTFunction(_HazardGrid):
             # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
             # de Hoog / cosine curves (which split the atom off and add it back). The inversion below is skipped
             # both to avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
-            return max(d.lst(d._s_inf).real, 0.0)
+            return max(d.lst(np.inf).real, 0.0)
 
         cache = self._shared('cdf_points', dict)
         if t not in cache:
@@ -420,12 +430,12 @@ class _LSTFunction(_HazardGrid):
 
         :param b: The window end.
         :param n_terms: The number of cosine terms.
-        :param warn: Whether to report an unresolved expansion. The truncation of the locating pass describes a fit
-            that is discarded, at a term count the caller never chose, so only the returned expansion reports.
+        :param warn: Whether to report ringing or an unresolved expansion. The locating pass describes a fit that is
+            discarded, at a term count the caller never chose, so only the returned expansion reports.
         :return: The window end, frequencies, coefficients and atom.
         """
         d = self._distribution
-        p0 = d.lst(d._s_inf).real
+        p0 = d.lst(np.inf).real
         w = np.arange(n_terms) * np.pi / b
         fit = self._cos_fit_from(b, w, np.array([d.lst(-1j * wk) for wk in w]), p0)
         if p0 > 1e-9 and 1.0 - p0 <= 1e-12:
@@ -436,13 +446,14 @@ class _LSTFunction(_HazardGrid):
         # rippling CDF can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a
         # substantial one (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp
         # feature)
-        xd = np.linspace(0.0, b, max(512, 2 * n_terms))
-        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
-        d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
-
-        half = max(n_terms // 2, 1)
-        Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
         if warn:
+            xd = np.linspace(0.0, b, max(512, 2 * n_terms))
+            Fd = fk[0] * xd + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xd))
+            d._warn_if_nonmonotone(Fd, d._titled('COS CDF (residual ripple)'), rtol=1e-2)
+
+            half = max(n_terms // 2, 1)
+            Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ np.sin(np.outer(w[1:half], xd))
+
             # convergence order of the partial sums, from the decay of the CDF-term amplitudes |f_k| / w_k ~ k^-q
             k = np.arange(1, n_terms)
             amp = np.maximum.accumulate((np.abs(fk[1:]) / w[1:])[::-1])[::-1]
@@ -509,28 +520,36 @@ class _LSTFunction(_HazardGrid):
         computed once per distribution."""
         fit = self._cos_coeffs
         xs = np.linspace(0.0, fit['b'], self._cos_n_grid)
-        return xs, np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
+        cdf = np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
+        self._warn_if_join_off(xs, cdf)
 
-    def _cos(self, x: np.ndarray, kind: str, n_terms: int = None, scale: float = 12.0) -> np.ndarray:
+        return xs, cdf
+
+    def _warn_if_join_off(self, xs: np.ndarray, cdf: np.ndarray) -> None:
         """
-        Evaluate the raw COS fit as a whole CDF/PDF curve over the grid ``x``. No caller reads its density: the
-        published pdf differentiates the CDF grid instead, precisely because the raw cosine sum rings (and goes
-        negative) at an atom. This is the handle the tests judging the fit itself need. The default window uses the
-        cached two-pass fit; an explicit ``scale`` refits over ``[0, mean + scale*std]``. The CDF is clipped to
-        ``[0, 1]`` and made monotone.
+        Warn when the expansion departs by more than ``_cos_join_tol`` from the de Hoog CDF where ``_cdf_grid`` joins
+        them, at a :attr:`Settings.dehoog_tail_quantile <phasegen.settings.Settings.dehoog_tail_quantile>` strictly
+        between 0 and 1. A locating pass too coarse for a narrow body with a long tail ends the window early, and the
+        expansion folds the mass beyond it into the body. The check costs one de Hoog point.
+
+        :param xs: The nodes of the expansion.
+        :param cdf: The expansion's CDF on them.
         """
-        fit = self._cos_coeffs if scale == 12.0 else self._fit_cos(self._range(scale), n_terms or self._cos_terms)
-        b, w, fk, p0 = fit['b'], fit['w'], fit['fk'], fit['p0']
+        cut = Settings.dehoog_tail_quantile
+        if self._cos_join_tol is None or not Settings.check_inversions or cut is None or not 0.0 < cut < 1.0:
+            return
 
-        xa = np.clip(np.atleast_1d(np.asarray(x, dtype=float)), 0.0, b)
-        if kind == 'pdf':
-            curve = fk @ np.cos(np.outer(w, xa))
-            return (1 - p0) * curve if p0 > 1e-9 else curve
+        x_cut = float(np.interp(cut, cdf, xs))
+        error = abs(self._cdf_point(x_cut) - float(np.interp(x_cut, xs, cdf)))
 
-        cdf = self._eval_cos_cdf(fit, xa)
-        order = np.argsort(xa)
-        cdf[order] = np.maximum.accumulate(cdf[order])
-        return cdf
+        if error > self._cos_join_tol:
+            d = self._distribution
+            d._logger.warning(
+                "%s: the expansion departs from the de Hoog CDF by %.2e at %.4g (bar %.0e). Its window ends at %.4g "
+                "and leaves out a mass of %.2e, which it folds back into the body. Settings.dehoog_tail_quantile = 0 "
+                "evaluates the CDF by the de Hoog inversion throughout.", d._titled('COS CDF (window)'), error, x_cut,
+                self._cos_join_tol, xs[-1], 1.0 - self._cdf_point(float(xs[-1]))
+            )
 
     def _exact_step(self, nodes: list) -> float:
         """
@@ -639,6 +658,10 @@ class _LSTFunction(_HazardGrid):
             nodes = np.concatenate([nodes, [x for x, _ in exact]])
             values = np.concatenate([values, [c for _, c in exact]])
 
+        if not len(nodes):
+            # every node of the fit is saturated, a reward that is 0 almost surely: its atom at the origin
+            nodes, values = xs[:1], cdf[:1]
+
         order = np.argsort(nodes, kind='stable')
 
         return nodes[order], np.maximum.accumulate(self._hazard(values[order]))
@@ -656,7 +679,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
         ta = np.atleast_1d(np.asarray(t, dtype=float))
-        out = self._interp_cdf(ta, *self._cdf_grid(x_max=float(ta.max(initial=0.0))))
+        out = self._interp_cdf(ta, *self._cdf_grid(x_max=float(np.max(ta, initial=0.0, where=~np.isnan(ta)))))
 
         return out if np.ndim(t) > 0 else float(out[0])
 
@@ -675,7 +698,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
     """The density of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
 
-    def __call__(self, t, **kwargs) -> 'np.ndarray | float':
+    def __call__(self, t) -> 'np.ndarray | float':
         r"""
         The density :math:`f(x)` of the continuous part of :math:`R`, see
         :class:`~phasegen.distributions.RewardDistribution`.
@@ -684,10 +707,8 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
         :return: The density at ``t``, of the same shape.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
-        d = self._distribution
         ta = np.atleast_1d(np.asarray(t, dtype=float))
-        out = self._interp_pdf(ta, *self._cdf_grid(x_max=float(ta.max(initial=0.0))))
-        out = d._warn_if_negative(out, d._titled('density'))
+        out = self._interp_pdf(ta, *self._cdf_grid(x_max=float(np.max(ta, initial=0.0, where=~np.isnan(ta)))))
         return out if np.ndim(t) > 0 else float(out[0])
 
     def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
@@ -709,7 +730,8 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         r"""
         The quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}` of the accumulated reward :math:`R` with CDF
         :math:`F`, evaluated as described at :class:`~phasegen.distributions.RewardDistribution`. Levels at or below
-        the atom :math:`p_0` return 0.
+        the atom :math:`p_0` return 0. Levels above ``1 - 1e-9`` approach the absolute accuracy of the inversion, about
+        ``1e-11``, so their quantiles are approximate and a warning is logged.
 
         :param q: Probability level or array of levels :math:`q \in [0, 1]`.
         :return: The quantiles, of the same shape as ``q``.
@@ -719,6 +741,12 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         qa = np.atleast_1d(np.asarray(q, dtype=float))
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Quantile must be between 0 and 1.")
+
+        if Settings.check_inversions and np.any(qa > _QUANTILE_TAIL_LEVEL):
+            self._distribution._logger.warning(
+                "%s: levels above %.10g approach the absolute accuracy of the inversion, so their quantiles are "
+                "approximate.", self._distribution._titled('quantile'), _QUANTILE_TAIL_LEVEL
+            )
 
         # NaN levels are passed through, the grid taking the others
         valid = ~np.isnan(qa)
@@ -916,7 +944,7 @@ class JointDensity(_JointFunction, DensityFunction):
 
     .. rubric:: Implementation
 
-    - The grid spans the cosine window :math:`[0, b_a] \times [0, b_b]` of
+    - The grid spans the cosine window :math:`[0, L_a] \times [0, L_b]` of
       :class:`~phasegen.distributions.JointCDF`, so the steps are properties of the distribution and a value depends
       only on its own point. A bicubic spline interpolates between the nodes. The expansion holds no mass beyond its
       window, where the density is therefore zero.
@@ -1041,6 +1069,9 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 class _ConditionalCosTerms:
     """Halves the cosine terms of a conditional expansion, every coefficient of which costs an inner inversion, and
     refines that inversion before the first expansion."""
+
+    #: The join is not checked, as each de Hoog point costs an inner inversion.
+    _cos_join_tol = None
 
     @property
     def _cos_terms(self) -> int:
@@ -1184,15 +1215,18 @@ class ProbabilityDistribution(ABC):
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
+    #: Cached properties that :meth:`_touch` leaves unevaluated, as they are unavailable on this instance.
+    _untouched: Sequence[str] = ()
+
     def _touch(self, **kwargs: dict) -> None:
         """
-        Touch all cached properties.
+        Touch all cached properties except those in :attr:`_untouched`.
 
         :param kwargs: Additional keyword arguments.
         """
         for cls in self.__class__.__mro__:
             for attr, value in cls.__dict__.items():
-                if isinstance(value, cached_property):
+                if isinstance(value, cached_property) and attr not in self._untouched:
                     # force-persist the value: _touch/_drop is the serialization contract and must hold even under
                     # Settings.cache = False, where the getter would otherwise recompute without storing
                     self.__dict__[attr] = getattr(self, attr)

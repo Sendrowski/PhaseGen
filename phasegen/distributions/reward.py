@@ -20,6 +20,7 @@ from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
     ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
     _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
+from ._common import _validate_order
 from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
@@ -30,15 +31,15 @@ logger = logging.getLogger('phasegen')
 #: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
 _COS2D_TAIL_WARN = 1e-2
 
-#: Relative distance from an epoch time within which a conditioning value is warned about, where the density of a
-#: reward accrued at one rate can jump.
+#: Relative distance from a rate times an epoch time within which a conditioning value is warned about, where the
+#: density of the reward can jump.
 _JUMP_WARN = 0.05
 
-#: Relative size below which a jump of the density of a reward accrued at one rate counts as zero, on the scale of the
-#: contributions on either side of the jump in ``_NestedConditional._nearby_jump``. Only rounding is below it.
+#: Relative size below which a jump of the density of a reward counts as zero, on the scale of the contributions on
+#: either side of the jump in ``_NestedConditional._nearby_jump``. Only rounding is below it.
 _JUMP_REL_TOL = 1e-8
 
-#: Smallest atom treated as a positive probability. The probe at ``_s_inf`` exceeds a zero atom by up to about 1e-8.
+#: Smallest atom treated as a positive probability.
 _ATOM_FLOOR = 1e-6
 
 #: Starting Fourier truncation of the Euler inversion, refined by ``_NestedConditional._calibrate`` and
@@ -50,6 +51,11 @@ _EULER_N0_MAX = 480
 
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
 _LST_BATCH_ENTRIES = 2 ** 21
+
+#: Coefficients of the Pade-13 approximant of ``_expm_batch``.
+_PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1187353796428800.,
+                    129060195264000., 10559470521600., 670442572800., 33522128640.,
+                    1323241920., 40840800., 960960., 16380., 182., 1.])
 
 
 class RewardDistribution(CallableDistributionFunctions):
@@ -113,7 +119,8 @@ class RewardDistribution(CallableDistributionFunctions):
     - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
       :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
       above it. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
-    - The atom is evaluated at a large real :math:`s` scaled with the time unit of the transform.
+    - The atom :math:`p_0 = \varphi(\infty)` is evaluated exactly, as described at :meth:`RewardDistribution.lst()
+      <phasegen.distributions.RewardDistribution.lst>`.
     - With :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
       the expansion is not monotone, and when its truncation error, estimated from how much the last :math:`K/2`
       terms move the CDF and from the decay of the coefficients, exceeds :math:`10^{-3}`, which a distribution whose
@@ -170,35 +177,20 @@ class RewardDistribution(CallableDistributionFunctions):
         if np.any(r < 0):
             raise ValueError("RewardDistribution requires a non-negative reward.")
 
-        return dict(r=r, tau=self._host._time_scale, **data)
+        return dict(r=r, tau=self._host._time_scale, exits=[_exit_rates(T) for T, _, _ in data['T_epochs']], **data)
 
     @property
     def _time_scale(self) -> float:
         """The inversion time scale of :func:`time_scale`, read straight from the host. Decoupled from :attr:`_setup` so
         the conditional flavours -- whose ``lst`` is a nested transform with no state-space reward to bind -- can scale
-        their atom probe and inversion contour without invoking ``_setup``.
+        their inversion contour without invoking ``_setup``.
 
         Deliberately *not* defaulted. Every flavour binds ``_host`` in its constructor, so a missing one means the
         attribute is being read too early -- and a default of 1.0 would answer that with a plausible number rather
-        than an error, silently unscaling every rate-scaled quantity downstream (the ``s -> inf`` atom probe, the
-        cumulant step, the inversion contour). ``_AtomConditional`` did exactly this and was wrong by 0.75% on a
-        small-N demography for as long as it existed.
+        than an error, silently unscaling every rate-scaled quantity downstream (the cumulant step, the inversion
+        contour).
         """
         return self._host._time_scale
-
-    @property
-    def _s_inf(self) -> float:
-        r"""
-        The :math:`s \to \infty` probe used for the atom :math:`\Pr(R = 0) = \varphi(\infty)` (and the axis atoms
-        of a joint).
-
-        The argument :math:`s` is conjugate to :math:`R`, so the probe is
-        :math:`10^8/\min(\tau, \sqrt{\mathbb{E}[R^2]})`, with :math:`\tau` the inversion time scale of
-        ``_time_scale`` and :math:`\sqrt{\mathbb{E}[R^2]}` the root mean square of ``_rms``. This keeps :math:`sR` at
-        the same large multiple in every regime. A reward that is zero almost surely takes the time scale in place of
-        the root mean square.
-        """
-        return 1e8 / min(self._time_scale, self._rms or self._time_scale)
 
     @cached_property
     def mean(self) -> float:
@@ -254,6 +246,14 @@ class RewardDistribution(CallableDistributionFunctions):
             \varphi(s) = (\boldsymbol{\alpha}_T, 0) \prod_{i=1}^{M-1} e^{\mathbf{G}_i(s) \Delta_i}
             \begin{pmatrix} (s \operatorname{diag}(\mathbf{r}) - \mathbf{T}_M)^{-1} \mathbf{q}_M \\ 1 \end{pmatrix}.
 
+        .. rubric:: Atom
+
+        As :math:`s \to \infty`, the weight of every path that enters a state of positive reward vanishes, so the atom
+        :math:`\varphi(\infty) = \mathbb{P}(R = 0)` is the formula above at :math:`s = 0` on the set :math:`Z` of
+        transient states with zero reward: :math:`\boldsymbol{\alpha}_T`, :math:`\mathbf{T}_i` and :math:`\mathbf{q}_i`
+        are replaced by their restrictions to :math:`Z`, with :math:`\mathbf{q}_i` the exit vectors of the full
+        process. The transform at ``s = inf`` evaluates it so.
+
         .. rubric:: Implementation
 
         - The exponentials are formed densely. The last-epoch system is solved by a sparse LU factorization from
@@ -270,7 +270,7 @@ class RewardDistribution(CallableDistributionFunctions):
 
         :param s: The argument, with non-negative real part, or purely imaginary for the characteristic function
             :math:`\varphi(-\mathrm{i}\omega) = \mathbb{E}[e^{\mathrm{i}\omega R}]` at the frequency
-            :math:`\omega \in \mathbb{R}`.
+            :math:`\omega \in \mathbb{R}`, or ``inf`` for the atom.
         :return: The transform at ``s``.
         :raises NotImplementedError: If the reward does not assign one value per state, or if the coalescent has a
             bounded accumulation window.
@@ -279,11 +279,12 @@ class RewardDistribution(CallableDistributionFunctions):
         """
         self._host._assert_not_windowed()
         st = self._setup
-        _assert_lst_absorbs(self._host)
+        self._host._assert_absorbs()
         # evaluate against the tau-scaled generators at s*tau (R -> R/tau); the result equals the unscaled phi(s)
         # exactly but stays well-conditioned for large N (see ``time_scale``)
-        shift = ((s * st['tau']) * st['r']).astype(complex)[None]
-        return complex(_lst_from_shift_batch(shift, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])[0])
+        shift = _shift_rows(s, st['r'], st['tau'])
+        return complex(_lst_from_shift_batch(shift, st['alpha'], st['T_epochs'], st['exits'], st['sparse'],
+                                             st['lu_perm'])[0])
 
     def _invert(self, transform, t: float) -> float:
         r"""
@@ -362,21 +363,13 @@ def _build_epoch_data(host) -> dict:
     # system singular at s = 0.
     reach = np.asarray(ss.alpha)[transient] > 0
     for T, _, _ in blocks:
-        adj = (T != 0).T.tocsr()
-        while True:
-            nxt = reach | (adj @ reach > 0)
-            if np.array_equal(nxt, reach):
-                break
-            reach = nxt
+        reach = MomentEvaluator._close_forward(reach, T)
 
     idx = transient[reach]
     alpha = np.asarray(ss.alpha)[idx].astype(float)
     nt = len(idx)
     # ``sparse`` gates the sparse matrix build and the sparse block-triangular LU of the final-epoch solve (which is
-    # the large-space win and handles the s->inf atom shift directly). The finite-epoch matrix-exponential is always
-    # dense (densifying a sparse block): the only alternative, the expm_multiply *action*, is norm-driven and cannot
-    # evaluate the ``s = inf`` (1e8) atom shifts that every inversion needs -- so it has no usable role here (unlike
-    # the moment path, which never inverts an atom).
+    # the large-space win). The finite-epoch matrix-exponential is always dense (densifying a sparse block).
     sparse = MomentEvaluator._solve_sparse(nt)
 
     T_epochs = []
@@ -390,27 +383,6 @@ def _build_epoch_data(host) -> dict:
     lu_perm = MomentEvaluator._block_triangular_order(T_epochs[-1][0]) if sparse else None
 
     return dict(idx=idx, alpha=alpha, nt=nt, sparse=sparse, T_epochs=T_epochs, lu_perm=lu_perm)
-
-
-def _assert_lst_absorbs(host) -> None:
-    """
-    Raise unless every state carrying mass can still reach absorption in the final epoch
-    (``MomentEvaluator._absorption_certain_in_last_epoch``), which is what makes the shifted final-epoch system
-    invertible at ``s = 0``. Without it the final-epoch solve is singular and the transform is ``nan``, surfacing much
-    later as an opaque failure of the inversion.
-
-    :param host: The phase-type distribution whose state space and demography are checked.
-    :raises ModelError: if some state carrying mass can never reach a common ancestor.
-    """
-    if host._absorption_certain_in_last_epoch():
-        return
-
-    raise ModelError(
-        "The demography does not absorb: some states carrying probability mass can never reach a common "
-        "ancestor in the final (unbounded) epoch, so the accumulated reward has no proper distribution. This "
-        "typically means a deme is isolated or migration is one-way/blocked in the last epoch, leaving lineages "
-        "that can never coalesce. Check the migration structure of the last epoch."
-    )
 
 
 def time_scale(host) -> float:
@@ -443,6 +415,27 @@ def _exit_rates(T) -> np.ndarray:
     r"""Per-state rate of (direct) absorption = row deficit of the transient sub-generator,
     :math:`-\mathbf{T}\mathbf{e}`."""
     return -np.asarray(T @ np.ones(T.shape[0])).ravel()
+
+
+def _shift_rows(s, r: np.ndarray, tau: float) -> np.ndarray:
+    r"""
+    The diagonal shifts :math:`s \tau \mathbf{r}` of ``_lst_from_shift_batch``, one row per argument. An infinite
+    argument shifts the states of positive reward by ``inf`` and the others by 0.
+
+    :param s: The arguments, a scalar or a 1D array.
+    :param r: The reward on the transient states.
+    :param tau: The time scale.
+    :return: The shifts, of shape ``(len(s), len(r))``.
+    """
+    if np.ndim(s) == 0 and complex(s).real != np.inf:
+        return ((complex(s) * tau) * r)[None]
+    s = np.atleast_1d(np.asarray(s, dtype=complex))
+    inf = s.real == np.inf
+    if not inf.any():
+        return (s * tau)[:, None] * r
+    out = np.outer(np.where(inf, 0.0, s) * tau, r)
+    out[np.ix_(inf, r > 0)] = np.inf
+    return out
 
 
 def _lst_taylor_from_shift(shift: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
@@ -522,8 +515,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
     - The joint CDF and density are described at :class:`~phasegen.distributions.JointCDF` and
       :class:`~phasegen.distributions.JointDensity`, the conditionals at
       :class:`~phasegen.distributions.ConditionalRewardDistribution`.
-    - An infinite argument is represented by a large finite one, as for the atom of a
-      :class:`~phasegen.distributions.RewardDistribution`.
+    - An infinite argument is evaluated exactly, by restricting the process to the states where its reward is zero,
+      as for the atom of a :class:`~phasegen.distributions.RewardDistribution`.
     - A joint distribution has no quantile function. On a coalescent with a start or end time, the transform and the
       distribution functions raise :class:`NotImplementedError`.
 
@@ -534,24 +527,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """The inversion time scale of the host, not defaulted (see ``RewardDistribution._time_scale``)."""
         return self._host._time_scale
 
-    @property
-    def _s_inf(self) -> float:
-        r"""The atom probe :math:`10^8/\min(\tau, \sqrt{\mathbb{E}[R_a^2]}, \sqrt{\mathbb{E}[R_b^2]})`, scaled like
-        ``RewardDistribution._s_inf``. One probe serves both axes."""
-        scales = [v for v in (self._time_scale, self._rms['a'], self._rms['b']) if v > 0]
-        return 1e8 / min(scales)
-
     #: Bivariate function objects. A joint has no quantile function.
     _pdf_function = JointDensity
     _cdf_function = JointCDF
     _quantile_function = None
 
-    #: Window scale of the 2D expansion, ``mean + scale * std`` per axis (:math:`\kappa` in ``JointCDF``). A wider
-    #: window coarsens the resolution ``b / n_terms`` near the origin, a narrower one truncates tail mass.
+    #: Window scale of the 2D expansion, ``mean + scale * std`` per axis. A wider window coarsens the resolution
+    #: ``b / n_terms`` near the origin, a narrower one truncates tail mass.
     _cos2d_window_scale: float = 5.0
 
-    #: Per-axis node count of the finite-difference grid of the density (:math:`m` in ``JointDensity``), spread over
-    #: the window of the expansion. The step ``b / (m - 1)`` sets the width of the cell the density is averaged over.
+    #: Per-axis node count ``m`` of the finite-difference grid of the density, spread over the window of the expansion.
+    #: The step ``b / (m - 1)`` sets the width of the cell the density is averaged over.
     _cos2d_pdf_grid: int = 800
 
     def __init__(self, dist: 'PhaseTypeDistribution', reward_a: Reward, reward_b: Reward) -> None:
@@ -574,7 +560,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         self._host._assert_not_windowed()
         ss = self._host.state_space
         data = self._host._reward_epoch_data_scaled
-        out = dict(tau=self._host._time_scale, **data)
+        out = dict(tau=self._host._time_scale, exits=[_exit_rates(T) for T, _, _ in data['T_epochs']], **data)
         for name, reward in (('ra', self.reward_a), ('rb', self.reward_b)):
             r_full = np.asarray(reward._get(ss))
             if r_full.ndim != 1:
@@ -589,11 +575,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
         r"""
         The joint transform :math:`\Phi(s_a, s_b)` defined at :class:`~phasegen.distributions.JointRewardDistribution`.
 
-        :param s_a: Argument of :math:`R_a`.
-        :param s_b: Argument of :math:`R_b`.
+        :param s_a: Argument of :math:`R_a`, ``inf`` for the limit.
+        :param s_b: Argument of :math:`R_b`, ``inf`` for the limit.
         :return: The transform value.
-        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
+        :raises NotImplementedError: If a reward does not assign one value per state, or if the coalescent has a
+            bounded accumulation window.
+        :raises ValueError: If a reward is negative, or if some state carrying mass can never reach a common ancestor
+            in the final epoch.
         """
         return complex(self.lst_batch(s_a, s_b)[0])
 
@@ -632,10 +620,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param on: The held argument, ``'a'`` or ``'b'``. The coefficients are in the other argument.
         :param order: Highest order :math:`J`.
         :return: The coefficients :math:`[\Phi_0(s), \ldots, \Phi_J(s)]`.
-        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
+        :raises NotImplementedError: If a reward does not assign one value per state, or if the coalescent has a
+            bounded accumulation window.
+        :raises ValueError: If a reward is negative, or if some state carrying mass can never reach a common ancestor
+            in the final epoch.
         """
         st = self._setup
-        _assert_lst_absorbs(self._host)
+        self._host._assert_absorbs()
         tau = st['tau']
         r_on, r_other = (st['ra'], st['rb']) if on == 'a' else (st['rb'], st['ra'])
 
@@ -652,25 +643,39 @@ class JointRewardDistribution(CallableDistributionFunctions):
         The joint transform :math:`\Phi` of :class:`~phasegen.distributions.JointRewardDistribution` at a batch of
         argument pairs, sharing the per-epoch matrix assembly and exponentiation across the batch.
 
-        :param s_a: Arguments of :math:`R_a`, a scalar or a 1D array.
-        :param s_b: Arguments of :math:`R_b`, a scalar or a 1D array of the same length as ``s_a`` or of length one.
+        :param s_a: Arguments of :math:`R_a`, a scalar or a 1D array, ``inf`` for the limit.
+        :param s_b: Arguments of :math:`R_b`, a scalar or a 1D array of the same length as ``s_a`` or of length one,
+            ``inf`` for the limit.
         :return: The transform values, one per argument pair.
-        :raises ValueError: If some state carrying mass can never reach a common ancestor in the final epoch.
+        :raises NotImplementedError: If a reward does not assign one value per state, or if the coalescent has a
+            bounded accumulation window.
+        :raises ValueError: If a reward is negative, or if some state carrying mass can never reach a common ancestor
+            in the final epoch.
         """
         st = self._setup
-        _assert_lst_absorbs(self._host)
+        self._host._assert_absorbs()
         tau = st['tau']
-        s_a, s_b = np.atleast_1d(s_a), np.atleast_1d(s_b)
-        shifts = (np.outer(s_a * tau, st['ra']) + np.outer(s_b * tau, st['rb'])).astype(complex)
-        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
+        shifts = _shift_rows(s_a, st['ra'], tau) + _shift_rows(s_b, st['rb'], tau)
+        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['exits'], st['sparse'], st['lu_perm'])
 
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """``Phi`` on the outer grid ``s_a_vals x s_b_vals``. For one dense epoch, one QZ decomposition of the pencil
         ``(diag(s r_outer) - T, diag(r_inner))`` per node of the shorter axis solves every node of the other axis by
         triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate
-        ``lst_batch`` along the longer axis at each node of the shorter one."""
+        ``lst_batch`` along the longer axis at each node of the shorter one. The rows and columns of an infinite
+        argument are evaluated by ``lst_batch``."""
         st = self._setup
         s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
+
+        a_inf, b_inf = s_a_vals.real == np.inf, s_b_vals.real == np.inf
+        if a_inf.any() or b_inf.any():
+            out = np.empty((len(s_a_vals), len(s_b_vals)), dtype=complex)
+            out[np.ix_(~a_inf, ~b_inf)] = self._lst_grid(s_a_vals[~a_inf], s_b_vals[~b_inf])
+            for i in np.flatnonzero(a_inf):
+                out[i] = self.lst_batch(s_a_vals[i], s_b_vals)
+            for j in np.flatnonzero(b_inf):
+                out[:, j] = self.lst_batch(s_a_vals, s_b_vals[j])
+            return out
 
         if st['sparse'] or len(st['T_epochs']) != 1:
             if len(s_a_vals) >= len(s_b_vals):
@@ -736,24 +741,27 @@ class JointRewardDistribution(CallableDistributionFunctions):
         The transform :math:`\Phi_c(u) = \mathbb{E}\big[e^{-u R_{on}};\ R_a = c R_b\big]` of the reward ``on`` on the
         paths that absorb without leaving the states :math:`E_c` where :math:`r_a = c\,r_b`, at a batch of arguments.
         Only those paths give :math:`R_a = c R_b` with positive probability, since time spent where the rewards are not
-        in that ratio adds a term with a continuous law. A state outside :math:`E_c` is killed by a shift of
-        ``_s_inf`` times :math:`|r_a - c\,r_b|` there, as the atom probe kills a positive reward.
+        in that ratio adds a term with a continuous law. A state is in :math:`E_c` when both rewards vanish or when
+        :math:`r_a / r_b` equals :math:`c` to the 12 decimals of ``_lines``. The states outside :math:`E_c` are removed,
+        as an infinite argument removes the states of positive reward.
 
         :param c: The slope :math:`c > 0` of the line.
         :param on: The reward the transform variable acts on, ``'a'`` or ``'b'``.
-        :param u: The arguments, a scalar or a 1D array.
+        :param u: The arguments, a scalar or a 1D array, ``inf`` for the limit.
         :return: The transform values.
         """
         st = self._setup
-        tau = st['tau']
-        kill = (self._s_inf * tau) * np.abs(st['ra'] - c * st['rb'])
-        shifts = (np.outer(np.atleast_1d(u) * tau, st['ra' if on == 'a' else 'rb']) + kill).astype(complex)
-        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['sparse'], st['lu_perm'])
+        ra, rb = st['ra'], st['rb']
+        ratio = np.divide(ra, rb, out=np.full(len(ra), np.nan), where=rb > 0)
+        on_line = ((ra == 0) & (rb == 0)) | (np.round(ratio, 12) == np.round(c, 12))
+        shifts = _shift_rows(u, ra if on == 'a' else rb, st['tau'])
+        shifts[:, ~on_line] = np.inf
+        return _lst_from_shift_batch(shifts, st['alpha'], st['T_epochs'], st['exits'], st['sparse'], st['lu_perm'])
 
     def _line_cdf(self, c: float, on: str, ys: np.ndarray) -> np.ndarray:
         """``P(0 < R_on <= y, R_a = c R_b)`` at each ``y``, the Euler inversion of the line transform less its mass at
         zero, divided by the transform variable."""
-        at_zero = self._line_lst_batch(c, on, self._s_inf)[0]
+        at_zero = self._line_lst_batch(c, on, np.inf)[0]
         return np.array([_euler_invert(lambda u: (self._line_lst_batch(c, on, u) - at_zero) / u, float(y)).real
                          for y in ys])
 
@@ -773,7 +781,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
         lines = []
         for c in ratios[np.sort(first)]:
-            mass = (self._line_lst_batch(c, 'a', 0.0)[0] - self._line_lst_batch(c, 'a', self._s_inf)[0]).real
+            mass = (self._line_lst_batch(c, 'a', 0.0)[0] - self._line_lst_batch(c, 'a', np.inf)[0]).real
             if mass > _ATOM_FLOOR:
                 lines.append(float(c))
         return tuple(sorted(lines))
@@ -790,7 +798,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param order_b: The order :math:`j_b` of ``R_b``.
         :param center: Whether to center around the means.
         :return: The cross-moment.
+        :raises TypeError: If an order is not a number.
+        :raises ValueError: If an order is not a non-negative integer.
         """
+        order_a, order_b = _validate_order(order_a), _validate_order(order_b)
+
         if order_a + order_b == 0:
             return 1.0
 
@@ -826,21 +838,19 @@ class JointRewardDistribution(CallableDistributionFunctions):
     # ------------------------------------------------------------------------------------------------------------
     @cached_property
     def _atoms(self) -> dict:
-        """The atoms ``a0 = P(R_a = 0)``, ``b0 = P(R_b = 0)`` and ``both0 = P(R_a = 0, R_b = 0)``, probed at
-        ``_s_inf``."""
-        big = self._s_inf
-        return dict(a0=self.lst(big, 0.0).real, b0=self.lst(0.0, big).real, both0=self.lst(big, big).real)
+        """The atoms ``a0 = P(R_a = 0)``, ``b0 = P(R_b = 0)`` and ``both0 = P(R_a = 0, R_b = 0)``."""
+        inf = np.inf
+        return dict(a0=self.lst(inf, 0.0).real, b0=self.lst(0.0, inf).real, both0=self.lst(inf, inf).real)
 
     @property
     def _cos_axis_coeffs(self) -> dict:
         """Cosine coefficients of the axis sub-distributions ``g_b`` (key ``'b'``, transform ``Phi(., inf)``) and
         ``g_a`` (key ``'a'``, transform ``Phi(inf, .)``) of ``JointCDF``, on the marginal's cumulant window with the
         marginal's term count."""
-        return self._cos_memo('axis', self._build_cos_axis_coeffs)
+        return self._cos_memo('axis', self._build_cos_axis_coeffs, (Settings.cos_terms, Settings.cos_terms_2d))
 
     def _build_cos_axis_coeffs(self) -> dict:
         """Build ``_cos_axis_coeffs``."""
-        big = self._s_inf
         both0 = self._atoms['both0']
         out = {}
         for key, total, marg in (('b', self._atoms['b0'], self.marginal('a')),
@@ -849,8 +859,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
             w = np.arange(marg.cdf._cos_terms) * np.pi / b
             # chi(w) = phi(-i w) of the sub-transform: for 'b' it is lst(., inf) (sweep s_a), for 'a' lst(inf, .)
             # (sweep s_b), one batched sweep of _lst_grid at the fixed inf-coordinate
-            chi = (self._lst_grid(-1j * w, np.array([big]))[:, 0] if key == 'b'
-                   else self._lst_grid(np.array([big]), -1j * w)[0, :])
+            chi = (self._lst_grid(-1j * w, np.array([np.inf]))[:, 0] if key == 'b'
+                   else self._lst_grid(np.array([np.inf]), -1j * w)[0, :])
             cont = total - both0
             chi_c = (chi - both0) / cont if cont > 1e-12 else chi  # remove the R=0 atom, normalize the continuous part
             fk = (2.0 / b) * np.real(chi_c)
@@ -867,30 +877,25 @@ class JointRewardDistribution(CallableDistributionFunctions):
         Fc = fk[0] * xa + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xa))
         return c['atom'] + c['cont'] * np.clip(Fc, 0.0, 1.0)
 
-    def _cos_memo(self, name: str, build) -> Any:
+    def _cos_memo(self, name: str, build, terms: tuple) -> Any:
         """
-        A value derived from the cosine expansions of ``JointCDF``, built once per :attr:`Settings.cos_terms
-        <phasegen.settings.Settings.cos_terms>` and :attr:`Settings.cos_terms_2d
-        <phasegen.settings.Settings.cos_terms_2d>`: changing either term count on a live distribution discards every
-        such value. Honours :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
+        A value derived from the cosine expansions of ``JointCDF``, built once per value of the term counts it depends
+        on, :attr:`Settings.cos_terms <phasegen.settings.Settings.cos_terms>` or :attr:`Settings.cos_terms_2d
+        <phasegen.settings.Settings.cos_terms_2d>`. Honours :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
 
         :param name: Name of the value.
         :param build: Builds the value.
+        :param terms: The term counts the value depends on.
         :return: The value.
         """
         memo = self.__dict__.setdefault('_cos_cache', {})
-        terms = (Settings.cos_terms, Settings.cos_terms_2d)
 
-        if memo.get('_terms') != terms:
-            memo.clear()
-            memo['_terms'] = terms
-
-        if name in memo:
-            return memo[name]
+        if name in memo and memo[name][0] == terms:
+            return memo[name][1]
 
         value = build()
         if Settings.cache:
-            memo[name] = value
+            memo[name] = (terms, value)
 
         return value
 
@@ -898,7 +903,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _cos2d(self) -> dict:
         """The coefficient matrix ``A``, windows ``ba``, ``bb`` and frequencies ``ua``, ``ub`` of the 2D cosine
         expansion of ``JointCDF``, with the atoms removed by inclusion-exclusion and the Lanczos factors applied."""
-        return self._cos_memo('cos2d', self._build_cos2d)
+        return self._cos_memo('cos2d', self._build_cos2d, (Settings.cos_terms_2d,))
 
     def _cos2d_window(self, axis: str) -> float:
         """
@@ -912,7 +917,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     def _build_cos2d(self) -> dict:
         """Build ``_cos2d``."""
-        n_terms, big = Settings.cos_terms_2d, self._s_inf
+        n_terms = Settings.cos_terms_2d
         p00 = self._atoms['both0']
         ba, bb = self._cos2d_window('a'), self._cos2d_window('b')
 
@@ -934,7 +939,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         # ``s_b in {-i u_b} u {+i u_b} u {inf}``) via the shifted-system QZ solve (see :meth:`_lst_grid`) -- the
         # dominant cost of this expansion, an n_terms x n_terms coefficient matrix of LST values
         sa, sb = -1j * ua, np.concatenate([-1j * ub, 1j * ub])
-        G = self._lst_grid(np.concatenate([sa, [big]]), np.concatenate([sb, [big]]))
+        G = self._lst_grid(np.concatenate([sa, [np.inf]]), np.concatenate([sb, [np.inf]]))
         phi_a_inf = G[:n_terms, 2 * n_terms]      # Phi(-i w_a, inf), reused across w_b
         phi_inf_b_p = G[n_terms, :n_terms]        # Phi(inf, -i w_b)
         phi_inf_b_m = G[n_terms, n_terms:2 * n_terms]  # Phi(inf, +i w_b)
@@ -957,12 +962,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
         logged as a warning above 0.03. The cosine error concentrates near the axes, so this margin comparison detects
         an under-resolved near-origin rise. It reads the coefficients directly, so it does not recurse into
         ``_cc_box``."""
-        return self._cos_memo('wiggle', self._build_cos2d_wiggle_check)
+        return self._cos_memo('wiggle', self._build_cos2d_wiggle_check,
+                              (Settings.cos_terms, Settings.cos_terms_2d))
 
     def _build_cos2d_wiggle_check(self) -> float:
         """Build ``_cos2d_wiggle_check``."""
         st = self._cos2d
-        big = self._s_inf
         ma = self.marginal('a')
         # near-origin points of the continuous part, where the bias concentrates. They lie above the atom at 0, where
         # the inversion of the continuous part is defined
@@ -970,7 +975,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         xs = np.linspace(0.0, float(ma.quantile(a0 + 0.4 * (1.0 - a0))), 5)[1:]
         # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
         box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
-        g_b = np.array([ma._invert(lambda s: self.lst(s, big) / s, float(x)) for x in xs])
+        g_b = np.array([ma._invert(lambda s: self.lst(s, np.inf) / s, float(x)) for x in xs])
         cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
         true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
         err = float(np.abs(cos_cdf - true_cdf).max())
@@ -987,7 +992,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """The bicubic spline of ``JointDensity`` through the mixed central difference of ``_cc_box``, and the interior
         nodes it is built on. The grid is uniform over the cosine window ``ba`` x ``bb``, so a density value does not
         depend on the queried grid."""
-        return self._cos_memo('density_grid', self._build_density_grid)
+        return self._cos_memo('density_grid', self._build_density_grid, (Settings.cos_terms_2d,))
 
     def _build_density_grid(self) -> dict:
         """Build ``_density_grid``."""
@@ -1061,9 +1066,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param on: The conditioning reward, ``'a'`` or ``'b'``.
         :param value: The conditioning value, non-negative.
         :return: The conditional distribution of the other reward.
-        :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``value`` is negative, if ``value`` is zero and the
-            conditioning reward has a negligible atom, or if the density of the conditioning reward at ``value`` is
-            below the resolution of the inversion or too close to one of its jumps at an epoch time.
+        :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``value`` is negative or not finite, if ``value`` is
+            zero and the conditioning reward has a negligible atom, or if the density of the conditioning reward at
+            ``value`` is below the resolution of the inversion or too close to one of its jumps at an epoch time.
         :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
             that the conditional is a point mass, or on a windowed coalescent.
 
@@ -1071,8 +1076,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """
         if on not in ('a', 'b'):
             raise ValueError("`on` must be 'a' or 'b'.")
-        if value is None or value < 0:
-            raise ValueError("`value` must be non-negative.")
+        if value is None or not 0 <= value < np.inf:
+            raise ValueError("`value` must be finite and non-negative.")
         if self._ratio is not None:
             raise NotImplementedError("The conditional of a pair of proportional rewards is a point mass (R_a = c R_b "
                                       "almost surely).")
@@ -1264,9 +1269,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
             \bar{g} = \frac{\int_W f_c(v)\, g(v)\,\mathrm{d}v}{\int_W f_c(v)\,\mathrm{d}v},
 
         where :math:`g(v)` is ``statistic`` applied to the conditional given :math:`R_c = v`, and the integrals use
-        Gauss-Legendre quadrature. For the mean or the CDF this is the quantity that a sample restricted to the window
-        estimates, as in :meth:`EmpiricalJointDistribution.conditional()
-        <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
+        Gauss-Legendre quadrature. For the mean this is the quantity that the plain mean of a sample restricted to the
+        window estimates, and for the CDF the one that the CDF of :meth:`EmpiricalJointDistribution.conditional()
+        <phasegen.distributions.EmpiricalJointDistribution.conditional>` estimates. The CDF of a conditional with an
+        atom on a line :math:`R_a = c R_b` steps in :math:`v`, which the quadrature does not resolve.
 
         :param statistic: Callable taking a :class:`~phasegen.distributions.ConditionalRewardDistribution` and returning
             a scalar or a 1D array, for example ``lambda c: c.mean`` or ``lambda c: c.cdf(ys)``.
@@ -1275,12 +1281,15 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param half_width: Half-width of the window, in units of the conditioning reward, positive.
         :param n_nodes: Number of Gauss-Legendre nodes, ``None`` for the default.
         :return: The window average, a float for a scalar statistic and an array of the statistic's shape otherwise.
-        :raises ValueError: If ``half_width`` is not positive.
+        :raises ValueError: If ``half_width`` is not positive and finite, or ``value`` is not finite.
         :raises ValueError: If the window reaches zero, where the conditioning reward may have an atom.
         :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state.
         """
-        if half_width <= 0:
-            raise ValueError(f"The half-width of the conditioning window must be positive, got {half_width:g}.")
+        if not 0 < half_width < np.inf:
+            raise ValueError(f"The half-width of the conditioning window must be positive and finite, got "
+                             f"{half_width:g}.")
+        if not np.isfinite(value):
+            raise ValueError(f"The centre of the conditioning window must be finite, got {value:g}.")
 
         n_nodes = self._WINDOW_QUAD_NODES if n_nodes is None else n_nodes
         lo, hi = value - half_width, value + half_width
@@ -1367,7 +1376,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 try:
                     cond = self.conditional(on, v)
                     exact = cond._raw_moments(k=1)[0]
-                    got = float(cond.mean)
+                    got = float(cond._cumulants()[0])
                 except ValueError as e:
                     refused.append((float(u), str(e)))
                     continue
@@ -1438,16 +1447,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
             return {}
 
         out = {}
-        #: per-axis ``(quantiles, orders, errors)`` of the last run, for the comparison plots; ``errors[i, j]`` is the
-        #: scaled error of the order-``j+1`` moment at conditioning point ``i``.
-        self.conditional_grid_moment_errors = {}
-
         for on, other in (('a', 'b'), ('b', 'a')):
             marg_on = self.marginal(on)
             p0 = float(self._atoms['a0' if on == 'a' else 'b0'])
             floors = [self._COND_CHECK_FLOOR * abs(m) for m in self._uncond_raw_moments(other, k)]
 
-            errs, kept, refused = [], [], []
+            errs, refused = [], []
             for u in us:
                 v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
                 try:
@@ -1458,10 +1463,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                     refused.append((float(u), str(e)))
                     continue
                 errs.append([abs(g - e) / max(abs(e), f, 1e-12) for g, e, f in zip(got, exact, floors)])
-                kept.append(float(u))
 
-            self.conditional_grid_moment_errors[on] = (np.array(kept), np.arange(1, k + 1),
-                                                       np.array(errs).reshape(len(kept), k))
             flat = [e for row in errs for e in row]
             out[on] = self._verdict(on, flat, refused, len(us), tol, "the moments of the conditional's CDF",
                                     'the derivative identity')
@@ -1538,19 +1540,18 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     - :math:`N` is doubled until :math:`G(0)` is positive and stable. If it does not stabilize, construction raises
       :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v` is below the resolution of the
-      inversion, and near a jump of that density, across which the series converges slowly. A reward accrued at one
-      rate :math:`c` has such a jump at :math:`c t_0`, for an epoch time :math:`t_0`, when the paths that stay in its
-      positive states from time zero leave them for good at a rate that changes at :math:`t_0`. Within 5% of such a
-      jump a warning is logged, since a conditional that does stabilize may still be off by several percent there.
+      inversion, and near a jump of that density, across which the series converges slowly. The density has such a
+      jump at :math:`c t_0`, for an epoch time :math:`t_0` and a reward rate :math:`c`, when the paths that stay in
+      the states of rate :math:`c` from time zero stop accruing reward at a rate that changes at :math:`t_0`. Within
+      5% of such a jump a warning is logged, since a conditional that does stabilize may still be imprecise there.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
     - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
       expansion on that window moves by at most :math:`10^{-3}` when :math:`N` is halved, and held for all :math:`s`.
       Both truncations weight the same nodes, so the check needs no transform evaluations beyond the pass. A CDF still
-      moving at the largest truncation is reported by a warning. The mean is taken at the truncation on which
-      :math:`G(0)` stabilizes, which resolves :math:`G` near :math:`s = 0`.
-    - The mean is :math:`-\varphi'(0)` by a central difference, and higher moments are described at
-      :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
+      moving at the largest truncation is reported by a warning.
+    - The moments are described at :meth:`ConditionalRewardDistribution.moment()
+      <phasegen.distributions.ConditionalRewardDistribution.moment>`.
     - For :math:`v > 0` the transform is itself a numerical inversion, so results carry a few correct digits, fewest
       far in the tail of :math:`R_c` and on demographies with many epochs.
 
@@ -1590,10 +1591,15 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     @cached_property
     def mean(self) -> float:
-        r"""The mean :math:`\mathbb{E}[R_o \mid R_c = v] = -\varphi'(0)`, with the notation of
-        :class:`~phasegen.distributions.ConditionalRewardDistribution`, by a central difference of the conditional
-        transform."""
-        return float(self._cumulants()[0])
+        r"""The mean :math:`\mathbb{E}[R_o \mid R_c = v]`, with the notation of
+        :class:`~phasegen.distributions.ConditionalRewardDistribution`, by the derivative identity of
+        :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`
+        for :math:`v > 0`, and as :math:`-\varphi'(0)` by a central difference of the conditional transform for
+        :math:`v = 0`."""
+        if self._value == 0.0:
+            return float(self._cumulants()[0])
+
+        return float(self._raw_moments(1)[0])
 
     def _raw_moments(self, k: int = 2) -> list:
         """
@@ -1659,7 +1665,7 @@ class ConditionalRewardDistribution(RewardDistribution):
         The raw moment :math:`\mathbb{E}[R_o^k \mid R_c = v]` of order :math:`k \ge 1`, with the notation of
         :class:`~phasegen.distributions.ConditionalRewardDistribution`.
 
-        The first moment is the mean :math:`-\varphi'(0)`. For :math:`v > 0` and :math:`k \ge 2`,
+        For :math:`v > 0`,
 
         .. math::
 
@@ -1670,8 +1676,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         :math:`s_o = 0`, from :meth:`JointRewardDistribution.lst_taylor()
         <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inversions
         are single de Hoog inversions, so the identity is independent of the conditional transform, with the accuracy
-        of the de Hoog method. For :math:`v = 0` only the second moment :math:`\varphi''(0)` is available, by central
-        differences.
+        of the de Hoog method. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
+        :math:`\varphi''(0)` are available, by central differences.
 
         :param k: Order :math:`k` of the moment.
         :return: The raw moment of order ``k``.
@@ -1737,14 +1743,12 @@ class _AtomConditional(ConditionalRewardDistribution):
         atom = joint._atoms['a0' if on == 'a' else 'b0']
         if atom < _ATOM_FLOOR:
             raise ValueError(f"Cannot condition on R_{on} = 0: it has (near) zero probability.")
-        # the sub-transform is probed where the atom dividing it was measured, so that ``lst(0) = 1`` exactly
-        big = joint._s_inf
         self._joint = joint
         self._host = joint._host
         self.state_space = joint._host.state_space
         self._on = on
         self._atom = atom
-        self._sub = (lambda s: joint.lst(big, s)) if on == 'a' else (lambda s: joint.lst(s, big))
+        self._sub = (lambda s: joint.lst(np.inf, s)) if on == 'a' else (lambda s: joint.lst(s, np.inf))
         self._logger = logger.getChild(self.__class__.__name__)
         self.label = label
 
@@ -1753,20 +1757,10 @@ class _AtomConditional(ConditionalRewardDistribution):
         return self._sub(s) / self._atom
 
 
-
-
-_PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1187353796428800.,
-                    129060195264000., 10559470521600., 670442572800., 33522128640.,
-                    1323241920., 40840800., 960960., 16380., 182., 1.])
-
-
 def _expm_batch(A: np.ndarray) -> np.ndarray:
-    r"""
+    """
     Matrix exponential of a stack ``(k, n, n)`` by Pade-13 with scaling and squaring, vectorised over the leading
-    axis, the exponential of the transforms of this module. The squarings carry :math:`\mathbf{F} = e^{\mathbf{A}}
-    - \mathbf{I}` by :math:`\mathbf{F} \mapsto 2\mathbf{F} + \mathbf{F}^2`, which keeps the relative precision of
-    the entries that the scaling takes far below one, as it does beside the large diagonal shift of the atom probe
-    ``_s_inf``.
+    axis, each matrix squared back up to its own scaling.
 
     :param A: The stack of matrices.
     :return: The stack of their exponentials.
@@ -1783,17 +1777,18 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
               + _PADE13[7] * A6 + _PADE13[5] * A4 + _PADE13[3] * A2 + _PADE13[1] * I)
     V = (A6 @ (_PADE13[12] * A6 + _PADE13[10] * A4 + _PADE13[8] * A2)
          + _PADE13[6] * A6 + _PADE13[4] * A4 + _PADE13[2] * A2 + _PADE13[0] * I)
-    F = np.linalg.solve(V - U, 2.0 * U)
-    for i in range(int(sq.max(initial=0))):  # square each back up to its own scaling
+    R = np.linalg.solve(V - U, V + U)
+    for i in range(int(sq.max(initial=0))):
         m = sq > i
         if m.all():
-            F = 2.0 * F + F @ F
+            R = R @ R
         else:
-            F[m] = 2.0 * F[m] + F[m] @ F[m]
-    return I + F
+            R[m] = R[m] @ R[m]
+    return R
 
 
-def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, perm=_AUTO_PERM) -> np.ndarray:
+def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, sparse: bool,
+                          perm=_AUTO_PERM) -> np.ndarray:
     r"""
     The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
     arbitrary vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of
@@ -1801,37 +1796,55 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, sparse: bool, per
     ``_expm_batch``, in chunks of at most ``_LST_BATCH_ENTRIES`` matrix entries. A dense last epoch is solved as one
     stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver`` per
     shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
-    pattern.
+    pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
+    sharing the same removed states are evaluated on the remaining ones, with the exit vectors of the full process.
 
     :param shifts: The shift vectors.
     :param alpha: The initial vector on the transient states.
     :param T_epochs: The per-epoch transient sub-intensity matrices with their start and end times.
+    :param exits: The per-epoch exit vectors :math:`-\mathbf{T}\mathbf{e}`.
     :param sparse: Whether the last-epoch solve is sparse.
     :param perm: The block-triangular ordering of the last-epoch sub-intensity matrix.
     :return: The transform at each shift vector.
     """
     nt = len(alpha)
     k = len(shifts)
+
+    removed = np.isinf(shifts)
+    if removed.any():
+        out = np.zeros(k, dtype=complex)
+        masks, group = np.unique(removed, axis=0, return_inverse=True)
+        for j, mask in enumerate(masks):
+            rows, keep = group.ravel() == j, np.flatnonzero(~mask)
+            if not mask.any():
+                out[rows] = _lst_from_shift_batch(shifts[rows], alpha, T_epochs, exits, sparse, perm)
+            elif keep.size:
+                sub = [(T[keep][:, keep], t0, t1) for T, t0, t1 in T_epochs]
+                sub_perm = MomentEvaluator._block_triangular_order(sub[-1][0]) if sparse else None
+                out[rows] = _lst_from_shift_batch(shifts[rows][:, keep], alpha[keep], sub, [q[keep] for q in exits],
+                                                  sparse, sub_perm)
+        return out
+
     chunk = max(1, _LST_BATCH_ENTRIES // (nt + 1) ** 2)
     if k > chunk:
-        return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, sparse, perm)
+        return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, exits, sparse, perm)
                                for i in range(0, k, chunk)])
 
     diag = np.arange(nt)
     vec = np.zeros((k, nt + 1), dtype=complex)
     vec[:, :nt] = alpha
 
-    for T, t0, t1 in T_epochs[:-1]:
+    for (T, t0, t1), q in zip(T_epochs[:-1], exits):
         Td = T.toarray() if sp.issparse(T) else np.asarray(T)
         Q = np.zeros((k, nt + 1, nt + 1), dtype=complex)
         Q[:, :nt, :nt] = Td
         Q[:, diag, diag] -= shifts  # only the diagonal varies across the batch
-        Q[:, :nt, nt] = _exit_rates(T)
+        Q[:, :nt, nt] = q
         vec = np.einsum('ki,kij->kj', vec, _expm_batch(Q * (t1 - t0)))
 
     a, c = vec[:, :nt], vec[:, nt]
     Tm = T_epochs[-1][0]
-    exit_m = _exit_rates(Tm)
+    exit_m = exits[-1]
 
     if sparse:
         return c + np.array([a[i] @ MomentEvaluator._lu_solver(sp.diags(shifts[i]) - Tm, True, perm)(exit_m)
@@ -1961,16 +1974,15 @@ class _NestedConditional(ConditionalRewardDistribution):
         #: has run.
         self._G_rough = None
 
-        #: Mean and variance of ``RewardDistribution._cumulants``, from the transform at the small real arguments of its
-        #: differences, where the truncation of ``_calibrate`` resolves ``G``. They are held so that the moments do not
-        #: depend on whether ``_refine`` has run.
+        #: Mean and variance of ``RewardDistribution._cumulants`` at the truncation of ``_calibrate``, held so that they
+        #: do not depend on whether ``_refine`` has run.
         self._cumulants_calibrated = super()._cumulants()
 
         jump = self._nearby_jump()
         if jump is not None:
             self._logger.warning(
                 "The density of R_%s jumps at %g, where an epoch begins, within %d%% of the conditioning value %g. The "
-                "inner inversion converges slowly across a jump, so the conditional may be off by several percent.",
+                "inner inversion converges slowly across a jump, so the conditional may be imprecise.",
                 self._on, jump, round(100 * _JUMP_WARN), self._value
             )
 
@@ -2042,7 +2054,7 @@ class _NestedConditional(ConditionalRewardDistribution):
         cdf = target.cdf
         b = cdf._range(cdf._cos_rough_scale)
         w = np.arange(cdf._cos_terms_rough) * np.pi / b
-        args = [complex(-1j * wk) for wk in w] + [complex(self._s_inf)]
+        args = [complex(-1j * wk) for wk in w] + [complex(np.inf)]
         xs = np.linspace(0.0, b, max(512, 2 * len(w)))
 
         def locating_pass(n0: int) -> tuple:
@@ -2070,7 +2082,7 @@ class _NestedConditional(ConditionalRewardDistribution):
 
         self._G_rough = dict(zip(args, G))
 
-        if move > cdf._cos_truncation_tol:
+        if Settings.check_inversions and move > cdf._cos_truncation_tol:
             self._logger.warning(
                 "%s: the inner inversion is unresolved at the frequencies of the cosine expansion, its CDF moving by "
                 "%.2e (bar %.0e) when the truncation is halved from N0 = %d. The conditional CDF may be off by about "
@@ -2093,61 +2105,59 @@ class _NestedConditional(ConditionalRewardDistribution):
     def _nearby_jump(self) -> Optional[float]:
         r"""
         The value within ``_JUMP_WARN`` of the conditioning value at which the density of the conditioning reward
-        jumps, or ``None``. A reward accrued at one rate :math:`c` on the set :math:`P` of states where it is positive
-        is :math:`R = c L`, with :math:`L` the time spent in :math:`P`. Paths that have visited a state outside
-        :math:`P` before leaving :math:`P` for good reach :math:`L = \ell` at a random later time, so they contribute
-        a continuous density. The paths that stay in :math:`P` from time zero and leave it for good at time
-        :math:`\ell` contribute :math:`\mathbf{s}(\ell) \cdot \mathbf{q}(\ell)`, which jumps at an epoch time
-        :math:`t_0` by
+        jumps, or ``None``. Let :math:`P` be the set of states where the reward is positive, :math:`Z` its complement
+        among the transient states, and :math:`C \subseteq P` the states of one reward rate :math:`c > 0`. The paths
+        that stay in :math:`C` from time zero up to time :math:`\ell` and then accrue no more reward have
+        :math:`R = c \ell` and contribute the density :math:`\mathbf{s}(\ell) \cdot \mathbf{q}(\ell) / c` at
+        :math:`c \ell`, which jumps at an epoch time :math:`t_0` by :math:`J / c`, with
 
         .. math::
 
             J = \mathbf{s}(t_0) \cdot \big(\mathbf{q}^{+} - \mathbf{q}^{-}\big), \qquad
-            \mathbf{q} = -\mathbf{T}_{PP}\mathbf{1} - \mathbf{T}_{PZ}\,\mathbf{h}(t_0),
+            \mathbf{q} = -\mathbf{T}_{CP}\mathbf{1} - \mathbf{T}_{CZ}\,\mathbf{h}(t_0).
 
-        where :math:`\mathbf{s}(t_0)` is the initial vector on :math:`P` propagated by :math:`\mathbf{T}_{PP}` up to
-        :math:`t_0`, :math:`\mathbf{T}_{PP}` and :math:`\mathbf{T}_{PZ}` are the blocks of the transient sub-generator
-        from :math:`P` to :math:`P` and to the complement :math:`Z`, :math:`\mathbf{q}^{-}` and :math:`\mathbf{q}^{+}`
-        are :math:`\mathbf{q}` under the generators of the epochs ending and beginning at :math:`t_0`, and
-        :math:`h_z(t_0)` is the probability of entering :math:`P` after :math:`t_0` from state :math:`z \in Z`. The
-        density of :math:`R` jumps at :math:`c t_0` exactly when :math:`J \neq 0`, which needs initial mass on
-        :math:`P`.
+        Here :math:`\mathbf{s}(t_0)` is the initial vector on :math:`C` propagated by :math:`\mathbf{T}_{CC}` up to
+        :math:`t_0`, :math:`\mathbf{T}_{CP}` and :math:`\mathbf{T}_{CZ}` are the blocks of the transient sub-generator
+        from :math:`C` to :math:`P` and to :math:`Z`, :math:`\mathbf{q}^{-}` and :math:`\mathbf{q}^{+}` are
+        :math:`\mathbf{q}` under the generators of the epochs ending and beginning at :math:`t_0`, and :math:`h_z(t_0)`
+        is the probability of entering :math:`P` after :math:`t_0` from state :math:`z \in Z`. Every other path adds a
+        density continuous at :math:`c t_0`: a visit to :math:`Z` before the last reward shifts the epoch time by a
+        random amount, and time at another rate :math:`c' \neq c` spreads it along :math:`R`. The density of :math:`R`
+        therefore jumps at :math:`c t_0` exactly when :math:`J \neq 0`, which needs initial mass on :math:`C`.
 
         :return: The value of the jump, or ``None``.
         """
         r = self._joint._setup['ra' if self._on == 'a' else 'rb']
-        rates = np.unique(r[r > 0])
-
-        if len(rates) != 1:
-            return None
-
         T_epochs = self._host._reward_epoch_data['T_epochs']
 
-        for e in range(1, len(T_epochs)):
-            jump = float(rates[0]) * T_epochs[e][1]
-            if abs(self._value - jump) <= _JUMP_WARN * self._value and self._jumps_at(r > 0, e):
-                return jump
+        for c in np.unique(r[r > 0]):
+            for e in range(1, len(T_epochs)):
+                jump = float(c) * T_epochs[e][1]
+                if abs(self._value - jump) <= _JUMP_WARN * self._value and self._jumps_at(r, c, e):
+                    return jump
 
         return None
 
-    def _jumps_at(self, pos: np.ndarray, e: int) -> bool:
+    def _jumps_at(self, r: np.ndarray, c: float, e: int) -> bool:
         r"""
-        Whether the occupation time of the positive-reward states has a density jumping at the start of epoch ``e``,
-        the jump :math:`J` of :meth:`_nearby_jump` exceeding ``_JUMP_REL_TOL`` relative to the contributions
-        :math:`\mathbf{s} \cdot \mathbf{q}` on either side.
+        Whether the density of the reward jumps at ``c`` times the start of epoch ``e``, the jump :math:`J` of
+        :meth:`_nearby_jump` exceeding ``_JUMP_REL_TOL`` relative to the contributions :math:`\mathbf{s} \cdot
+        \mathbf{q}` on either side.
 
-        :param pos: Mask of the positive-reward states among the transient states of the epoch data.
+        :param r: The reward on the transient states of the epoch data.
+        :param c: The reward rate of the states :math:`C`.
         :param e: Index of the epoch whose start time is checked, at least 1.
         :return: Whether the density jumps there.
         """
         data = self._host._reward_epoch_data
         Ts = [(T.toarray() if sp.issparse(T) else np.asarray(T), t0, t1) for T, t0, t1 in data['T_epochs']]
+        pos, cls = r > 0, r == c
         zero = ~pos
 
-        # the initial vector propagated on the paths that stay in P up to the epoch time
-        s = data['alpha'][pos]
+        # the initial vector propagated on the paths that stay in C up to the epoch time
+        s = data['alpha'][cls]
         for T, t0, t1 in Ts[:e]:
-            s = s @ sla.expm(T[np.ix_(pos, pos)] * (t1 - t0))
+            s = s @ sla.expm(T[np.ix_(cls, cls)] * (t1 - t0))
 
         # the probability h of entering P after the epoch time, from the final epoch backwards
         h = np.zeros(0)
@@ -2161,8 +2171,9 @@ class _NestedConditional(ConditionalRewardDistribution):
             M[:-1, -1] = T[np.ix_(zero, pos)].sum(axis=1)
             h = (sla.expm(M * (t1 - t0)) @ np.append(h, 1.0))[:-1]
 
-        # the rate of leaving P for good, under the generators of the epochs ending and beginning at the epoch time
-        before, after = (s @ (-T[np.ix_(pos, pos)].sum(axis=1) - T[np.ix_(pos, zero)] @ h)
+        # the rate of leaving C with no more reward to come, under the generators of the epochs ending and beginning
+        # at the epoch time
+        before, after = (s @ (-T[np.ix_(cls, pos)].sum(axis=1) - T[np.ix_(cls, zero)] @ h)
                          for T in (Ts[e - 1][0], Ts[e][0]))
 
         return abs(after - before) > _JUMP_REL_TOL * (abs(before) + abs(after))
@@ -2252,6 +2263,19 @@ class _LineContinuous(ConditionalRewardDistribution):
         """Refine the inner inversion on the expansion of this continuous part, see ``_NestedConditional._refine``."""
         self._nested._refine(target=self)
 
+    def _decay(self, s) -> np.ndarray:
+        """
+        The factors :math:`e^{-s y_k}` of the atoms at each argument, 0 at an infinite one.
+
+        :param s: The arguments, a scalar or a 1D array.
+        :return: The factors, of shape ``(len(s), len(atoms))``.
+        """
+        s = np.atleast_1d(np.asarray(s, dtype=complex))
+        inf = s.real == np.inf
+        out = np.exp(-np.outer(np.where(inf, 0.0, s), self._y))
+        out[inf] = 0.0
+        return out
+
     def _lst_from_G(self, args: np.ndarray, G: np.ndarray, truncations: Sequence[int]) -> np.ndarray:
         """
         The transform of the continuous part from ``G``, per truncation, with the densities of the atoms at the same
@@ -2263,14 +2287,14 @@ class _LineContinuous(ConditionalRewardDistribution):
         :return: The transform, of the shape of ``G``.
         """
         f = self._densities(truncations)  # (len(truncations), len(atoms))
-        rest = G - np.exp(-np.outer(args, self._y)) @ f.T
+        rest = G - self._decay(args) @ f.T
         return rest / rest[0]
 
     def lst(self, s: complex) -> complex:
         """The transform of the continuous part."""
         s = complex(s)
         nested, f = self._nested, self._f
-        return (nested._G(s) - np.sum(f * np.exp(-s * self._y))) / (nested._G0 - np.sum(f))
+        return (nested._G(s) - np.sum(f * self._decay(s)[0])) / (nested._G0 - np.sum(f))
 
 
 class _LineCDF(ConditionalCDF):
@@ -2297,7 +2321,7 @@ class _LineCDF(ConditionalCDF):
 class _LineDensity(ConditionalDensity):
     """The density of ``_LineConditional``, that of its continuous part weighted by ``1 - P``."""
 
-    def __call__(self, t, **kwargs) -> 'np.ndarray | float':
+    def __call__(self, t) -> 'np.ndarray | float':
         """
         :param t: Point or array of points.
         :return: The density of the continuous part, of the same shape.

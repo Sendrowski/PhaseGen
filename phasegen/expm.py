@@ -94,20 +94,17 @@ class SciPyExpmBackend(ExpmBackend):
 
         :param precision: Floating-point precision of the matrix exponential and its action, as a NumPy floating type
             such as ``np.float32`` or ``np.float64``, or its name such as ``'float32'``. Defaults to double precision.
-            A lower precision may be faster but is much more prone to numerical issues. Half precision is not
-            supported.
-        :raises TypeError: If ``precision`` is not a NumPy floating-point type of at least single precision.
+            A lower precision may be faster but is much more prone to numerical issues. Only single and double
+            precision are supported.
+        :raises TypeError: If ``precision`` is neither single nor double precision.
         """
         try:
             dtype = np.dtype(precision)
         except TypeError:
             dtype = None
 
-        if dtype is None or dtype.kind != 'f' or dtype.itemsize < 4:
-            raise TypeError(
-                f"Precision must be a NumPy floating-point type of at least single precision such as np.float64, "
-                f"got {precision!r}."
-            )
+        if dtype is None or dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
+            raise TypeError(f"Precision must be np.float32 or np.float64, got {precision!r}.")
 
         #: Precision of the matrix exponential and its action
         self.precision: np.dtype = dtype

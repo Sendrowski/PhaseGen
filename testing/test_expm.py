@@ -21,7 +21,8 @@ class ExpmTestCase(TestCase):
         The SciPy backend accepts NumPy floating types and their names, and applies the precision to both the dense
         exponential and its action. The annotated literal ``'np.float32'`` made every dense exponential raise, and the
         action ignored the precision. Half precision is rejected at construction, since scipy.sparse has no float16
-        and every statistic routed through the sparse action raised.
+        and every statistic routed through the sparse action raised. Extended precision is rejected too, since
+        scipy.linalg.expm raises on it.
         """
         import scipy.sparse as sp
 
@@ -32,8 +33,8 @@ class ExpmTestCase(TestCase):
 
         np.testing.assert_allclose(pg.SciPyExpmBackend().compute_action(sp.csr_matrix(np.eye(2)), np.ones(2)), np.e)
 
-        for precision in ('np.float32', int, np.float16, 'float16'):
-            with self.assertRaisesRegex(TypeError, "floating-point type"):
+        for precision in ('np.float32', int, np.float16, 'float16', np.longdouble, 'longdouble'):
+            with self.assertRaisesRegex(TypeError, "np.float32 or np.float64"):
                 pg.SciPyExpmBackend(precision=precision)
 
     @pytest.mark.slow

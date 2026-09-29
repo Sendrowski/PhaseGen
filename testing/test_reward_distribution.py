@@ -4,8 +4,8 @@ of an accumulated reward, obtained from the Laplace-Stieltjes transform and its 
 
 The references are *exact*, not simulated: for a single epoch the accumulated reward is phase-type with the
 reward-transformed generator ``diag(1/r) T`` (with the zero-reward states censored), and the multi-epoch tree
-height equals PhaseGen's own (matrix-exponential) ``tree_height.cdf``. The sparse (complex ``expm_multiply`` +
-block-triangular LU) path is pinned against the dense path. msprime ground truth is exercised separately through
+height equals PhaseGen's own (matrix-exponential) ``tree_height.cdf``. The sparse path (block-triangular LU of the
+last-epoch solve) is pinned against the dense path. msprime ground truth is exercised separately through
 the comparison scenarios (``total_branch_length`` CDF/PDF in the configs).
 """
 import numpy as np
@@ -132,7 +132,7 @@ def test_multi_epoch_tree_height_matches_phasegen():
 # implementation paths and invariants
 # ----------------------------------------------------------------------------------------------------------------
 def test_sparse_path_matches_dense():
-    """Forcing the sparse path (complex ``expm_multiply`` + complex block-triangular LU) matches the dense path."""
+    """Forcing the sparse path (complex block-triangular LU of the last-epoch solve) matches the dense path."""
     def cdf_values():
         return np.array([pg.Coalescent(n=8).total_branch_length.distribution().cdf(x) for x in [1.0, 3.0, 6.0]])
 
@@ -145,7 +145,7 @@ def test_sparse_path_matches_dense():
 
 
 def test_multi_epoch_total_branch_length_sparse_matches_dense():
-    """Sparse vs dense also agree on a multi-epoch model (the finite-epoch complex action path)."""
+    """Sparse vs dense also agree on a multi-epoch model, whose finite epochs are exponentiated densely either way."""
     demo = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
 
     def cdf_values():
@@ -203,7 +203,7 @@ def test_cos_matches_dehoog():
 def test_cos_curve_recovers_atom():
     """For an SFS bin that may be empty, the COS CDF starts at the atom ``P(R=0) = phi(inf)``."""
     rd = pg.Coalescent(n=7).sfs.distribution(reward=UnfoldedSFSReward(3))
-    p0 = rd.lst(1e8).real
+    p0 = rd.lst(np.inf).real
     assert p0 > 0.01  # this bin is empty with non-negligible probability
     # the CDF just above 0 is essentially the atom
     assert abs(float(rd.cdf(1e-6)) - p0) < 5e-3
@@ -353,11 +353,16 @@ def test_jsfs_functions_cache_bin_distributions_and_vectorise():
 
 
 def test_two_locus_sfs_has_no_univariate_distribution():
-    """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly."""
+    """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly.
+    Regression: ``sfs2.cdf.plot()`` raised AttributeError."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
     for method in ('cdf', 'pdf', 'quantile', 'plot_cdf', 'plot_pdf'):
         with pytest.raises(NotImplementedError):
             getattr(sfs2, method)(1.0)
+
+    for kind in ('cdf', 'pdf', 'quantile'):
+        with pytest.raises(NotImplementedError):
+            getattr(sfs2, kind).plot(show=False)
 
 
 @pytest.mark.slow
@@ -435,13 +440,13 @@ def test_batched_accumulation_matches_serial():
     for cfg in jsfs._get_configs():
         serial = PhaseTypeDistribution.accumulate(
             jsfs, k=1, end_times=et, rewards=(CombinedReward([jsfs.reward, JointSFSReward(cfg)]),))
-        np.testing.assert_allclose(batched[cfg], serial, atol=1e-10)
+        np.testing.assert_allclose(batched[(slice(None),) + cfg], serial, atol=1e-10)
 
     # Beta-coalescent SFS (MMC does not flatten)
     sfs = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs
     batched_sfs = sfs.accumulate(1, et)
     for i in sfs._get_indices():
-        np.testing.assert_allclose(batched_sfs[i], sfs.get_accumulation(1, i, et), atol=1e-10)
+        np.testing.assert_allclose(batched_sfs[:, i], sfs.get_accumulation(1, i, et), atol=1e-10)
 
 
 def test_joint_reward_distribution_within_tree():
@@ -935,7 +940,9 @@ def test_pdf_via_cdf_differentiation_is_smooth():
     b = d._range()
     x = np.linspace(0, b, 300)
     pdf = d.pdf(x)  # derivative of the COS CDF
-    raw = d.cdf._cos(x, 'pdf')        # raw cosine density (rings)
+    fit = d.cdf._cos_coeffs
+    raw = fit['fk'] @ np.cos(np.outer(fit['w'], np.minimum(x, fit['b'])))  # raw cosine density (rings)
+    assert fit['p0'] <= 1e-9  # no atom to split off
     peak = pdf.max()
 
     # the differentiated PDF undershoots far less than the raw cosine density (ripples integrated out)
@@ -1103,12 +1110,10 @@ def test_coalescent_distribution_accessors():
 
 @pytest.mark.parametrize('scale', [1e-6, 1e7])
 def test_conditional_on_atom_is_scale_invariant(scale):
-    """Rescaling every population size and epoch boundary by a constant leaves every *dimensionless* quantity
-    unchanged -- it is the same coalescent in different units. Conditioning on the atom {R_i = 0} is where this is
-    easiest to break: the sub-transform is probed at ``s -> inf``, and a probe that does not scale with the rates
-    (which go like 1 / tau) is not in the limit at all on a small-N demography. ``_AtomConditional`` read ``_s_inf``
-    before binding ``_host``, so ``_time_scale`` fell through to 1.0 and the probe was hard-coded at 1e8: the two
-    demographies below then disagreed by 0.75% on a quantity that cannot depend on units.
+    """Rescaling every population size and epoch boundary by a constant leaves every dimensionless quantity
+    unchanged: it is the same coalescent in different units. Conditioning on the atom {R_i = 0} takes the limit
+    s -> inf of the sub-transform, which must not depend on the time scale. Regression: a probe at a fixed large s
+    was not in the limit on a small-N demography, and the two demographies below disagreed by 0.75%.
     """
     def dimensionless(s: float) -> float:
         demography = pg.Demography(pop_sizes={'pop_0': {0: 1.0 * s, 1.0 * s: 5.0 * s}})
@@ -1867,13 +1872,13 @@ def test_atom_probe_is_equivariant_under_scaling_the_reward():
     for c in (1e3, 1e-3, 1e-6, 1e-8, 1e-9):
         scaled = coal.tree_height.distribution(CustomReward(lambda ss, m=c: m * TreeHeightReward()._get(ss)))
 
-        assert scaled.lst(scaled._s_inf).real == pytest.approx(0.0, abs=1e-12)  # the tree height has no atom
+        assert scaled.lst(np.inf) == 0.0  # the tree height has no atom
         np.testing.assert_allclose([scaled.cdf(t * c) for t in ts], cdf_ref, atol=1e-9)
         np.testing.assert_allclose([scaled.pdf(t * c) * c for t in ts], pdf_ref, rtol=1e-6)
         np.testing.assert_allclose([scaled.quantile(p) / c for p in probs], quantile_ref, rtol=1e-6)
 
     # a genuinely atomic reward keeps its atom: bin 3 of n = 4 is empty unless the tree is a caterpillar
-    assert pg.Coalescent(n=4).sfs.bin(3).lst(pg.Coalescent(n=4).sfs.bin(3)._s_inf).real == pytest.approx(1 / 3, abs=1e-7)
+    assert pg.Coalescent(n=4).sfs.bin(3).lst(np.inf).real == pytest.approx(1 / 3, rel=1e-14)
 
 
 def test_blocked_final_epoch_raises_instead_of_returning_nan():
@@ -2174,7 +2179,32 @@ def test_epoch_jump_warning_requires_initial_mass_on_the_positive_states(caplog)
 
     locus = loci.marginal('a')
     assert float(locus.pdf(0.52)) > 5 * float(locus.pdf(0.48))
-    assert loci.conditional('a', 0.3)._nested._jumps_at(loci._setup['ra'] > 0, 1)
+    assert loci.conditional('a', 0.3)._nested._jumps_at(loci._setup['ra'], 1.0, 1)
+
+
+@pytest.mark.parametrize('label, joint, jump', [
+    ('Beta singletons', lambda d: pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5), demography=d)
+     .sfs.joint_distribution(1, 2), 1.5),
+    ('Dirac singletons', lambda d: pg.Coalescent(n=3, model=pg.DiracCoalescent(psi=0.7, c=5), demography=d)
+     .sfs.joint_distribution(1, 2), 1.5),
+    ('Kingman singletons', lambda d: pg.Coalescent(n=3, demography=d).sfs.joint_distribution(1, 2), None),
+    ('two-locus total tree height', lambda d: pg.Coalescent(
+        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1.0), demography=d).joint_distribution(
+        pg.rewards.TotalTreeHeightReward(), pg.rewards.TreeHeightReward()), 1.0),
+])
+def test_epoch_jump_of_a_reward_with_several_rates(label, joint, jump):
+    """A reward with several positive rates jumps at ``c t0`` when the paths that stay in the states of rate ``c``
+    from time zero stop accruing reward at a rate that changes at the epoch time ``t0 = 0.5``. The singletons at
+    ``n = 3`` accrue at rate 3 on the initial state, which a multiple merger leaves straight into absorption, and at
+    rate 1 afterwards. Under Kingman no path leaves the initial state for good, so the density is continuous. The
+    predicted jumps 0.0295 (Beta), 0.431 (Dirac) and 0.551 (two loci) agree with Monte Carlo samples of 2e7 paths.
+    Regression: rewards with more than one positive rate were never checked."""
+    joint = joint(pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}}))
+    nested = joint.conditional('a', 0.3)
+    nested = getattr(nested, '_nested', nested)
+    nested._value = 0.98 * (1.5 if jump is None else jump)
+
+    assert nested._nearby_jump() == jump
 
 
 def test_truncation_warning_reports_the_estimated_error(caplog):
@@ -2206,7 +2236,10 @@ def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
     longer resolves the atom, where the continuous part carries the atom's negative. The linked locus heights stay
     below the cutoff at the default terms and cross it with four times as many. The Beta tree height given the total
     branch length crossed it at the default terms at the truncation 60, serving a CDF 9 standard errors from the
-    sampler, and the refinement of the truncation on the CDF raises the cutoff above the expansion."""
+    sampler, and the refinement of the truncation on the CDF raises the cutoff above the expansion. The conditioning
+    values are fixed literals at which the refined truncation is stable under relative changes of 1e-6. At the Beta
+    median a change of three ulps stops the refinement at the truncation 120, at which the expansion ends just below
+    the cutoff."""
     def loci():
         return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
 
@@ -2218,13 +2251,12 @@ def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
 
     beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5)).joint_distribution(
         pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
-    assert not warned(beta, float(beta.marginal('a').quantile(0.5)))
+    assert not warned(beta, 1.0)
 
-    median = float(loci().marginal('a').quantile(0.5))
-    assert not warned(loci(), median)
+    assert not warned(loci(), 1.2)
 
     pg.Settings.cos_terms = 4 * pg.Settings.cos_terms
-    assert warned(loci(), median)
+    assert warned(loci(), 1.2)
 
 
 def _bottleneck_joint():
@@ -2282,6 +2314,19 @@ def test_unresolved_inner_truncation_warns(caplog):
     assert any('inner inversion is unresolved' in r.getMessage() for r in caplog.records)
 
 
+def test_unresolved_inner_truncation_warning_follows_check_inversions(caplog):
+    """``Settings.check_inversions = False`` silences the warning of an unresolved inner inversion, as it does every
+    other inversion check. Regression: it was logged regardless."""
+    Settings.check_inversions = False
+    cond = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).conditional('a', 0.5)
+    cond.cdf._cos_truncation_tol = 0.0
+
+    with caplog.at_level('WARNING'):
+        cond._refine(n_max=cond._N0)
+
+    assert not [r for r in caplog.records if 'inner inversion is unresolved' in r.getMessage()]
+
+
 @pytest.mark.slow
 def test_bottleneck_conditional_matches_a_high_truncation_reference():
     """The conditional of the first SFS bin given the second at its 0.9 quantile under an extreme bottleneck, against
@@ -2297,7 +2342,7 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
 
     b, w = fit['b'], fit['w']
     G = np.array([cond._inner(complex(-1j * wk), (1920,))[0] for wk in w])
-    atom = (cond._inner(complex(cond._s_inf), (1920,))[0] / G[0]).real
+    atom = (cond._inner(complex(np.inf), (1920,))[0] / G[0]).real
     xs = np.linspace(0.0, b, 4096)
     ref = np.maximum.accumulate(cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, G / G[0], atom), xs))
     body = ref < 0.98
@@ -2306,15 +2351,19 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
 
 
 def test_quantile_passes_nan_through():
-    """A NaN level gives a NaN quantile and leaves the other levels unchanged. Regression: the node ladder grew
-    without bound for over 1000 s and the upper quantiles moved by orders of magnitude afterwards."""
-    d = pg.Coalescent(n=4).total_branch_length
-    q1 = d.quantile(0.99)
+    """A NaN level gives a NaN quantile, leaves the other levels unchanged and builds no de Hoog nodes beyond those
+    the finite levels need. Regression: a NaN level marched the node ladder to its cap."""
+    d = pg.Coalescent(n=4).total_branch_length.distribution()
 
     out = d.quantile([0.5, np.nan])
 
     assert np.isnan(out[1]) and np.isnan(d.quantile(np.nan))
     assert out[0] == pytest.approx(d.quantile(0.5))
+    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) == 1
+
+    q1 = d.quantile(0.99)
+    d.quantile([0.99, np.nan])
+    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) < d.quantile._max_exact_nodes
     assert d.quantile(0.99) == pytest.approx(q1, rel=1e-8)
 
 
@@ -2332,9 +2381,56 @@ def test_joint_axis_terms_follow_live_cos_terms():
     assert float(joint.cdf(0.5, 0.5)) == pytest.approx(float(fresh.cdf(0.5, 0.5)), abs=1e-12)
 
 
+def test_joint_2d_expansion_survives_a_change_of_the_1d_terms():
+    """The 2D coefficients and the density grid depend on ``Settings.cos_terms_2d`` only, so a change of
+    ``Settings.cos_terms`` keeps them and rebuilds the axis terms. Regression: every cosine value was discarded."""
+    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    joint.pdf(0.5, 0.5)
+    cos2d, grid, axis = joint._cos2d, joint._density_grid, joint._cos_axis_coeffs
+
+    Settings.cos_terms = 2 * Settings.cos_terms
+    joint.cdf(0.5, 0.5)
+
+    assert joint._cos2d is cos2d and joint._density_grid is grid
+    assert joint._cos_axis_coeffs is not axis
+
+    Settings.cos_terms_2d = 2 * Settings.cos_terms_2d
+    assert joint._cos2d is not cos2d
+
+
+@pytest.mark.parametrize('orders', [(-1, 1), (1, -1), (2, -2), (0.5, 1), ('1', 1)])
+def test_joint_moment_rejects_invalid_orders(orders):
+    """The orders of a cross-moment are validated as those of every other moment. Regression: orders summing to zero
+    returned 1 and others raised internal errors."""
+    with pytest.raises((ValueError, TypeError), match='order k'):
+        pg.Coalescent(n=4).sfs.joint_distribution(1, 2).moment(*orders)
+
+
+def test_joint_moment_accepts_integral_float_orders():
+    """An integral float order is accepted, as by ``_validate_order``, and the orders 0 and 0 give 1."""
+    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+
+    assert joint.moment(2.0, 1.0) == joint.moment(2, 1)
+    assert joint.moment(0, 0) == 1.0
+
+
+@pytest.mark.parametrize('call', [
+    lambda j: j.conditional('a', np.nan),
+    lambda j: j.conditional('a', np.inf),
+    lambda j: j.window_average(lambda c: c.mean, 'a', 1.0, np.nan),
+    lambda j: j.window_average(lambda c: c.mean, 'a', 1.0, np.inf),
+    lambda j: j.window_average(lambda c: c.mean, 'a', np.nan, 0.1),
+    lambda j: j.window_average(lambda c: c.mean, 'a', np.inf, 0.1),
+])
+def test_conditional_rejects_non_finite_arguments(call):
+    """A NaN or infinite conditioning value or half-width raises ValueError. Regression: NaN values and an infinite
+    window centre failed with LinAlgError in the inversion."""
+    with pytest.raises(ValueError, match='finite'):
+        call(pg.Coalescent(n=4).sfs.joint_distribution(1, 2))
+
+
 def _dirac_five_epoch_joint():
-    """The SFS joint of bins 1 and 2 of a Dirac coalescent of 10 lineages over five epochs, whose atom probe shifts the
-    rewarded states by a rate about 1e11 times the others."""
+    """The SFS joint of bins 1 and 2 of a Dirac coalescent of 10 lineages over five epochs."""
     return pg.Coalescent(n=10, model=pg.DiracCoalescent(psi=0.7, c=5), demography=pg.Demography(
         pop_sizes={'pop_0': {0: 2, 1.1: 0.3, 3.5: 0.5, 4.2: 8, 7.5: 2.3}})).sfs.joint_distribution(1, 2)
 
@@ -2342,8 +2438,8 @@ def _dirac_five_epoch_joint():
 def test_joint_atom_matches_zero_reward_restriction():
     """The atom ``P(R_b = 0) = Phi(0, inf)`` of a five-epoch Dirac joint equals the absorption probability of the
     process restricted to the states without reward b, and the scalar and batched transforms agree. Regression: the
-    scaling and squaring of the exponential at the atom probe lost 1.5e-6 in the batched and 9e-8 in the scalar
-    transform, against a 40-digit reference."""
+    atom was the transform at a large finite argument, which lost 1.5e-6 in the batched and 9e-8 in the scalar
+    transform against a 40-digit reference."""
     joint = _dirac_five_epoch_joint()
     st = joint._setup
     zero = st['rb'] == 0
@@ -2360,20 +2456,198 @@ def test_joint_atom_matches_zero_reward_restriction():
     Tm = (Tm.toarray() if sp.issparse(Tm) else np.asarray(Tm))
     ref = vec[-1] + vec[:-1] @ np.linalg.solve(-Tm[np.ix_(zero, zero)], -Tm[zero].sum(1))
 
-    big = joint._s_inf
-    assert joint.lst(0.0, big).real == pytest.approx(ref, abs=1e-9)
-    assert joint.lst_batch([0.0], [big])[0] == joint.lst(0.0, big)
+    assert joint.lst(0.0, np.inf).real == pytest.approx(ref, rel=1e-13)
+    assert joint.lst_batch([0.0], [np.inf])[0] == joint.lst(0.0, np.inf)
 
 
-def test_multi_epoch_joint_grid_matches_pointwise_transform():
-    """The grid of the joint transform of several epochs, evaluated batched along its longer axis, equals the
-    pointwise transform, the atom probe included."""
-    joint = pg.Coalescent(n=5, demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint_distribution(1, 2)
-    big = joint._s_inf
-    sa = np.array([-0.5j, 0.3, -2j, big])
-    sb = np.array([-1j, 1j, 0.0, 0.7, -3j, big])
+@pytest.mark.parametrize('pop_sizes', [{0: 1, 0.5: 0.2, 1.5: 2}, {0: 1}])
+def test_joint_grid_matches_pointwise_transform(pop_sizes):
+    """The grid of the joint transform, evaluated batched along its longer axis over several epochs and by one QZ
+    decomposition per node over one, equals the pointwise transform, at infinite arguments included."""
+    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).sfs.joint_distribution(1, 2)
+    sa = np.array([-0.5j, 0.3, -2j, np.inf])
+    sb = np.array([-1j, 1j, 0.0, 0.7, -3j, np.inf])
 
     for x, y in ((sa, sb), (sb, sa)):
         ref = np.array([[joint.lst(a, b) for b in y] for a in x])
         np.testing.assert_allclose(joint._lst_grid(x, y), ref, rtol=1e-12, atol=1e-15)
+
+
+def test_multi_epoch_lst_keeps_the_relative_precision_of_small_values():
+    """The transform of two lineages kept apart by a migration barrier over a first epoch of length 100, where every
+    transient state decays, keeps its relative precision far below one. Regression: the squarings of the exponential
+    returned its diagonal as one plus a difference, which rounded the total branch length transform at 0.3 to 0 and
+    left 3-4 digits of the tree height transform. References from a 40-digit mpmath evaluation."""
+    coal = pg.Coalescent(
+        n=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1}},
+                                 migration_rates={('pop_0', 'pop_1'): {0: 0, 100: 1}, ('pop_1', 'pop_0'): {0: 0, 100: 1}})
+    )
+    height = coal.distribution(pg.TreeHeightReward())
+    length = coal.distribution(pg.TotalBranchLengthReward())
+
+    assert height.lst(0.3) == pytest.approx(5.213160428323223e-14, rel=1e-12, abs=0)
+    assert height.lst(2 + 5j) == pytest.approx(3.811875917193463e-89 + 4.6738734372751355e-89j, rel=1e-12, abs=0)
+    assert length.lst(0.3) == pytest.approx(3.267354762200201e-27, rel=1e-12, abs=0)
+
+
+@pytest.mark.parametrize('pop_sizes', [{0: 1}, {0: 1, 0.5: 0.2, 1.5: 2}])
+def test_atoms_are_exact(pop_sizes):
+    """For n = 4 every tree has a doubleton branch, so ``P(L_2 = 0) = 0``, and the third bin is empty unless the tree
+    is a caterpillar, with probability 1/3 whatever the demography. Regression: the atoms were transforms at a large
+    finite argument, which left ``P(L_2 = 0)`` of order 1e-8."""
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes}))
+    joint = coal.sfs.joint_distribution(2, 3)
+
+    assert coal.sfs.bin(2).lst(np.inf) == 0.0
+    assert joint._atoms['a0'] == 0.0 and joint._atoms['both0'] == 0.0
+    assert joint._atoms['b0'] == pytest.approx(1 / 3, rel=1e-14)
+    assert joint.conditional('b', 0.0).lst(np.inf) == 0.0
+
+
+def test_quantile_below_the_atom_is_the_first_node():
+    """Levels at or below the probability at the first node map to that node, also when the hazard starts with a run
+    of equal values. Regression: the end of that run was returned, a positive quantile at level 0."""
+    f = pg.Coalescent(n=4).total_branch_length.distribution().quantile
+    nodes, hazard = np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 1.0])
+
+    np.testing.assert_array_equal(f._interp_quantile(np.array([0.0]), nodes, hazard), [0.0])
+    assert f._interp_quantile(np.array([0.5]), nodes, hazard)[0] == pytest.approx(2.0 - np.log1p(-0.5))
+
+
+def test_reward_pdf_at_nan_is_nan_and_leaves_the_grid_alone():
+    """The reward density is NaN at NaN, like the CDF and quantile, and a NaN point does not extend the exact tail
+    nodes. Regression: the density returned 0 and NaN marched the nodes to the 1 - 1e-12 target."""
+    d = pg.Coalescent(n=4).total_branch_length.distribution()
+    ref = pg.Coalescent(n=4).total_branch_length.distribution()
+    ref.cdf(0.0)
+
+    assert np.isnan(d.pdf(np.nan)) and np.isnan(d.cdf(np.nan))
+    assert len(d.cdf._shared('cdf_exact', list)) == len(ref.cdf._shared('cdf_exact', list))
+
+    out = d.pdf(np.array([np.nan, 1.0]))
+    assert np.isnan(out[0]) and out[1] > 0
+
+
+@pytest.mark.parametrize('cut', [None, 1.0])
+def test_reward_zero_almost_surely_without_de_hoog_nodes(cut):
+    """A reward that is 0 almost surely has a CDF of 1 and a quantile of 0 when the grid takes no de Hoog nodes.
+    Regression: the grid was empty and np.interp raised ValueError."""
+    Settings.dehoog_tail_quantile = cut
+    coal = pg.Coalescent(n={'a': 2, 'b': 0}, demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}))
+    d = coal.total_branch_length.demes['b'].distribution()
+
+    assert d.cdf(1.0) == pytest.approx(1.0, abs=1e-9)
+    np.testing.assert_allclose(d.cdf(np.array([0.5, 2.0])), 1.0, atol=1e-9)
+    assert d.quantile(0.5) == 0.0
+    np.testing.assert_array_equal(d.pdf(np.array([0.5, 2.0])), 0.0)
+
+
+def test_locating_pass_does_not_report_ringing(monkeypatch):
+    """The discarded locating fit of the cosine expansion reports neither ringing nor truncation. Regression: its
+    residual ripple was logged under the distribution's label."""
+    d = pg.Coalescent(n=4).total_branch_length.distribution()
+    calls = []
+    monkeypatch.setattr(type(d), '_warn_if_nonmonotone', lambda self, *args, **kwargs: calls.append(args), raising=True)
+
+    d.cdf._fit_cos(d._range(20.0), 64, warn=False)
+    assert calls == []
+
+    d.cdf._fit_cos(d._range(20.0), 64)
+    assert len(calls) == 1
+
+
+def test_far_tail_quantile_warns(caplog):
+    """A reward quantile above 1 - 1e-9 logs that it is approximate, and a body quantile does not."""
+    import logging
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    try:
+        d = pg.Coalescent(n=4).total_branch_length.distribution()
+        d.quantile(0.5)
+        assert not any('approximate' in r.getMessage() for r in caplog.records)
+
+        d.quantile(1 - 1e-10)
+        assert any('approximate' in r.getMessage() for r in caplog.records)
+    finally:
+        log.removeHandler(caplog.handler)
+
+
+def test_density_evaluators_reject_unknown_keywords():
+    """A misspelt keyword to a density raises TypeError, as it does for the CDF. Regression: the densities accepted
+    and discarded any keyword."""
+    coal = pg.Coalescent(n=4)
+
+    for pdf in (coal.total_branch_length.pdf, coal.total_branch_length.distribution().pdf,
+                coal.total_branch_length.to_empirical(50, seed=0).pdf):
+        with pytest.raises(TypeError):
+            pdf([0.5, 1.0], foo=1)
+
+    with pytest.raises(TypeError):
+        coal.total_branch_length.cdf([0.5, 1.0], foo=1)
+
+
+def test_spectrum_cdf_is_one_at_bins_that_are_zero_almost_surely():
+    """The monomorphic and folded-away bins are zero almost surely, so their CDF is one from zero on, as for
+    MsprimeCoalescent. Regression: the analytic spectrum CDFs returned zero there."""
+    t = np.array([-1.0, 0.0, 1.5])
+    point_mass = np.array([0.0, 1.0, 1.0])
+
+    coal = pg.Coalescent(n=5)
+    for sfs, zero in [(coal.sfs, [0, 5]), (coal.fsfs, [0, 3, 4, 5])]:
+        F = np.asarray(sfs.cdf(t))
+        for i in zero:
+            np.testing.assert_array_equal(F[:, i], point_mass)
+        assert np.asarray(sfs.cdf(1.5).data)[zero[0]] == 1
+
+    mig = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1})
+    F = np.asarray(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=mig).jsfs.cdf(t))
+    for config in [(0, 0), (2, 2)]:
+        np.testing.assert_array_equal(F[(slice(None),) + config], point_mass)
+
+
+
+def test_line_atom_density_rejects_unknown_keywords():
+    """The density of a line-atom conditional raises TypeError on an unknown keyword. Regression: it was ignored."""
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1)).tree_height.loci.joint_distribution(
+        0, 1)
+
+    with pytest.raises(TypeError):
+        joint.conditional('a', 1.0).pdf(1.0, foo=1)
+
+
+def test_multi_epoch_conditional_mean_follows_the_derivative_identity():
+    """On three epochs the conditional mean is that of the derivative identity. Regression: it was the central
+    difference of the transform at the calibration truncation, 0.26% off at v = 0.5, many sampler standard errors."""
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
+
+    cond = joint.conditional('a', 0.5)
+
+    assert cond.mean == pytest.approx(0.8036042574203229, rel=1e-6)
+
+
+def test_cosine_window_short_of_a_recent_crash_warns(caplog):
+    """On a recent crash backward in time the window of the expansion ends before the long tail, and the CDF at the
+    join with the de Hoog nodes is off by more than the bar, which is logged. A standard coalescent logs nothing, nor
+    does the crash on a grid without a join. Regression: the CDF was off by 2.8e-2 with no warning."""
+    import logging
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+
+    def warned(demography, cut=0.98) -> bool:
+        caplog.clear()
+        Settings.dehoog_tail_quantile = cut
+        d = pg.Coalescent(n=10, demography=demography).total_branch_length.distribution()
+        d.cdf(1.0)
+        return any('COS CDF (window)' in r.getMessage() for r in caplog.records)
+
+    try:
+        crash = pg.Demography(pop_sizes={0: 0.01, 0.05: 1})
+        assert warned(crash)
+        assert not warned(pg.Demography())
+        assert not warned(crash, cut=None)
+        assert not warned(crash, cut=0.0)
+    finally:
+        log.removeHandler(caplog.handler)

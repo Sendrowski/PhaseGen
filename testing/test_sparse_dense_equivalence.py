@@ -156,9 +156,8 @@ def test_moment_paths_sparse_matches_dense(label, make, get):
 # joint-reward *inversion* cases (the LST and its cosine CDF/PDF) on small, multi-epoch state spaces. These exercise
 # the one sparse path in ``_lst_from_shift_batch`` that the size threshold would not trigger here: the sparse block-
 # triangular LU of the final-epoch solve (``closed_form_sparse_min_states``). The finite-epoch expm stays dense on
-# both paths (the expm_multiply action cannot evaluate the s->inf atom shifts the inversion needs). The two-locus
-# case has a *cyclic* (recombination) transient block, so its sparse LU goes through the strongly-connected-component
-# reordering rather than the acyclic single-deme path.
+# both paths. The two-locus case has a *cyclic* (recombination) transient block, so its sparse LU goes through the
+# strongly-connected-component reordering rather than the acyclic single-deme path.
 JOINT_INVERSION_CASES = [
     ("sfs within-tree joint (1,2) n=6 multi-epoch",
      lambda: pg.Coalescent(n=6, demography=_two_epoch_single()).sfs.joint_distribution(1, 2)),
@@ -170,12 +169,11 @@ JOINT_INVERSION_CASES = [
 
 @pytest.mark.parametrize("label, make", JOINT_INVERSION_CASES, ids=[c[0] for c in JOINT_INVERSION_CASES])
 def test_joint_inversion_sparse_matches_dense(label, make):
-    """The joint-reward LST -- including the ``s -> inf`` atoms -- and its cosine CDF/PDF agree whether the
+    """The joint-reward LST -- including the atoms at infinite arguments -- and its cosine CDF/PDF agree whether the
     final-epoch solve uses a dense LU or the sparse block-triangular LU, forced on a small multi-epoch state space
-    where the threshold would otherwise pick dense. (The finite-epoch expm is dense on both paths; the expm_multiply
-    action has no role here, as it cannot evaluate the 1e8 atom shifts every inversion needs.)"""
+    where the threshold would otherwise pick dense. (The finite-epoch expm is dense on both paths.)"""
     pts = [(-1j * 0.5, -1j * 0.7), (-1j * 2.0, 1j * 3.0), (-1j * 1.5, -1j * 4.0),
-           (1e8, -1j * 2.0), (-1j * 3.0, 1e8), (1e8, 1e8)]  # incl. the marginal / joint atom (s -> inf) shifts
+           (np.inf, -1j * 2.0), (-1j * 3.0, np.inf), (np.inf, np.inf)]  # incl. the marginal / joint atoms
     xs, ys = np.array([0.3, 0.8, 1.4]), np.array([0.35, 0.9, 1.6])
 
     def setup(cf_min):
