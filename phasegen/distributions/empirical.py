@@ -20,6 +20,7 @@ from ..utils import parallelize
 from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, DistributionFunction, \
     QuantileFunction
 from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
+from .mutation_configs import MutationConfig, MutationLayout
 from .coalescent import AbstractCoalescent, Coalescent
 
 if TYPE_CHECKING:
@@ -1198,7 +1199,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         super()._touch(t)
 
         if self._mutations is not None:
-            self.__dict__['mutation_configs'] = self.mutation_configs
+            self.__dict__['mutation_configs'] = self._config_frequencies()
 
     def _drop(self) -> None:
         """
@@ -1344,8 +1345,20 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         """Whether the spectrum is folded."""
         return issubclass(self._sfs_dist, FoldedSFSDistribution)
 
+    def mutation_layout(self) -> MutationLayout:
+        """
+        The layout of the configurations, one bin per polymorphic frequency class as
+        :meth:`UnfoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` or
+        :meth:`FoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.FoldedSFSDistribution.mutation_layout>`.
+
+        :return: The layout.
+        """
+        return SFSDistribution._layout_of(self.n, [], folded=self._folded, demes=False)
+
     @property
-    def mutation_configs(self) -> Dict[Tuple[float, ...], float]:
+    def mutation_configs(self) -> Dict[MutationConfig, float]:
         """
         Relative frequency of each mutational configuration among the simulated replicates, of the mutation counts
         summed over loci.
@@ -1354,8 +1367,28 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         :raises ValueError: If the spectrum carries no mutation counts, as a spectrum built by
             :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>`.
         """
-        # stored under its own name, so a serialized comparison restores it through the setter, and persisted by
-        # ``_touch`` only when mutation counts exist
+        layout = self.mutation_layout()
+
+        return {layout.config(c): p for c, p in self._config_frequencies().items()}
+
+    @mutation_configs.setter
+    def mutation_configs(self, configs: Dict[MutationConfig, float]) -> None:
+        """
+        Store the configuration frequencies.
+
+        :param configs: Dictionary from configuration to relative frequency.
+        """
+        self.__dict__['mutation_configs'] = {tuple(int(k) for k in c): p for c, p in configs.items()}
+
+    def _config_frequencies(self) -> Dict[Tuple[int, ...], float]:
+        """
+        The configuration frequencies keyed by the plain tuples of the counts, as they are stored and serialized.
+
+        :return: Dictionary from configuration to relative frequency.
+        :raises ValueError: If the spectrum carries no mutation counts.
+        """
+        # stored under the name of the property, so a serialized comparison restores it through the setter, and
+        # persisted by ``_touch`` only when mutation counts exist
         if 'mutation_configs' in self.__dict__:
             return self.__dict__['mutation_configs']
 
@@ -1369,21 +1402,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         # the mutations of a replicate summed over loci and demes, as the branch lengths of the moments
         for config in self._mutations.sum(axis=(0, 1)):
-            configs[tuple(config)] += 1 / self._mutations.shape[2]
+            configs[tuple(int(c) for c in config)] += 1 / self._mutations.shape[2]
 
         if Settings.cache:
             self.__dict__['mutation_configs'] = configs
 
         return configs
-
-    @mutation_configs.setter
-    def mutation_configs(self, configs: Dict[Tuple[float, ...], float]) -> None:
-        """
-        Store the configuration frequencies.
-
-        :param configs: Dictionary from configuration to relative frequency.
-        """
-        self.__dict__['mutation_configs'] = configs
 
     def get_mutation_config(self, config: Sequence[int]) -> float:
         """
@@ -1394,9 +1418,9 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         :param config: The configuration, one mutation count per frequency class.
         :return: The fraction of replicates showing the configuration.
         """
-        return self.mutation_configs[tuple(config)]
+        return self._config_frequencies()[tuple(config)]
 
-    def get_mutation_configs(self) -> Iterator[Tuple[Tuple[float, ...], float]]:
+    def get_mutation_configs(self) -> Iterator[Tuple[MutationConfig, float]]:
         """
         Sampled counterpart of :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>`, yielding the relative
@@ -1411,7 +1435,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         i = 0
         while True:
             # iterate over configurations
-            for config in self._sfs_dist._get_configs(self.n, i):
+            for config in self.mutation_layout().configs(i):
                 p = self.get_mutation_config(config=config)
                 self.generated_mass += p
                 yield config, p
@@ -1648,11 +1672,25 @@ class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
 class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
     """The mutation-count SFS: drop mutations on the replicate's tree sequence at the configured rate and bin each by
     its locus, the unit interval containing its site, and by the number of leaves the carrying node subtends in the
-    tree at that site (population index 0)."""
+    tree at that site (population index 0). Optionally also bin each by the descendant vector of the carrying node
+    (the numbers of its leaves from each sampling population), and by the deme the carrying lineage resides in at the
+    mutation time, read from the recorded migrations."""
 
-    def __init__(self, n_loci: int, n_pops: int, num_replicates: int, sample_size: int, mutation_rate: float) -> None:
+    def __init__(
+            self,
+            n_loci: int,
+            n_pops: int,
+            num_replicates: int,
+            sample_size: int,
+            mutation_rate: float,
+            jsfs_shape: tuple = None,
+            axis: np.ndarray = None
+    ) -> None:
         self.mutations = np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int)
+        self.joint = None if jsfs_shape is None else np.zeros((num_replicates,) + tuple(jsfs_shape), dtype=int)
+        self.by_deme = None if axis is None else np.zeros((n_loci, n_pops, num_replicates, sample_size + 1), dtype=int)
         self._rate = mutation_rate
+        self._axis = axis
 
     def process_replicate(self, i, ts, ctx, seed) -> None:
         import msprime as ms
@@ -1669,7 +1707,26 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
             for k in range(bounds[tree.index], bounds[tree.index + 1]):
                 leaves[k] = tree.get_num_leaves(nodes[k])
 
+                if self.joint is not None:
+                    vec = [0] * (self.joint.ndim - 1)
+                    for leaf in tree.samples(nodes[k]):
+                        vec[ctx['pop_of_leaf'][leaf]] += 1
+                    self.joint[(i,) + tuple(vec)] += 1
+
         np.add.at(self.mutations, (positions.astype(int), 0, i, leaves), 1)
+
+        if self.by_deme is not None:
+            migrations = mts.tables.migrations
+            times = mts.mutations_time
+
+            for k, (u, t, x) in enumerate(zip(nodes, times, positions)):
+                # the deme at time t is the destination of the latest migration of the lineage below t, or the deme
+                # the node was born in
+                hit = np.flatnonzero((migrations.node == u) & (migrations.left <= x) & (migrations.right > x)
+                                     & (migrations.time <= t))
+                pop = (migrations.dest[hit[np.argmax(migrations.time[hit])]] if hit.size
+                       else mts.node(u).population)
+                self.by_deme[int(x), self._axis[pop], i, leaves[k]] += 1
 
 
 def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
@@ -1793,6 +1850,13 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         #: Mutations per locus, deme and replicate.
         self.mutations: np.ndarray | None = None
+
+        #: Mutations per replicate and descendant vector, for multi-population single-locus scenarios.
+        self.jsfs_mutations: np.ndarray | None = None
+
+        #: Mutations per locus, deme of residence at the mutation time, replicate and frequency class, with migration
+        #: recording.
+        self.deme_mutations: np.ndarray | None = None
 
         #: Joint SFS (non-central) moments per descendant configuration, of orders 1, ..., ``_jsfs_max_order``.
         self.jsfs_moments: np.ndarray | None = None
@@ -1964,7 +2028,9 @@ class MsprimeCoalescent(AbstractCoalescent):
                           else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
             jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)
                           if compute_jsfs else None)
-            mutation_stats = (_MutationStatistics(n_loci, n_pops, num_replicates, sample_size, self.mutation_rate)
+            mutation_stats = (_MutationStatistics(n_loci, n_pops, num_replicates, sample_size, self.mutation_rate,
+                                                  jsfs_shape=jsfs_shape if compute_jsfs else None,
+                                                  axis=axis if self.record_migration else None)
                               if self.simulate_mutations else None)
             stats = [s for s in (tree_stats, jsfs_stats, mutation_stats) if s is not None]
 
@@ -1999,7 +2065,9 @@ class MsprimeCoalescent(AbstractCoalescent):
                 main=np.concatenate([[tree_stats.heights.T], [tree_stats.total_branch_lengths.T],
                                      tree_stats.sfs.T, mutations.T]),
                 jsfs=jsfs_acc,
-                jsfs_samples=jsfs_samples
+                jsfs_samples=jsfs_samples,
+                jsfs_mutations=mutation_stats.joint if mutation_stats is not None else None,
+                deme_mutations=mutation_stats.by_deme if mutation_stats is not None else None
             )
 
         # parallelize over threads
@@ -2027,6 +2095,12 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         # combine the (capped) per-replicate joint SFS branch lengths across threads for the joint ground truth
         self.jsfs_samples = np.concatenate([b['jsfs_samples'] for b in batches]) if compute_jsfs else None
+
+        # combine the per-replicate mutation counts by descendant vector and by deme of residence across threads
+        if batches[0]['jsfs_mutations'] is not None:
+            self.jsfs_mutations = np.concatenate([b['jsfs_mutations'] for b in batches])
+        if batches[0]['deme_mutations'] is not None:
+            self.deme_mutations = np.concatenate([b['deme_mutations'] for b in batches], axis=2)
 
     @staticmethod
     def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:
@@ -2089,6 +2163,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.total_branch_lengths = None
         self.sfs_lengths = None
         self.mutations = None
+        self.jsfs_mutations = None
+        self.deme_mutations = None
 
         # the moments are retained by the cached jsfs distribution (referenced before _drop), so this only removes
         # the duplicate reference held on the coalescent

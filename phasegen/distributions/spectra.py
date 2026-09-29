@@ -1,25 +1,21 @@
 """Site-frequency-spectrum distributions (SFS, folded, joint, two-locus)."""
 
-import heapq
-import itertools
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Iterator, Optional, Sequence, Union, TYPE_CHECKING
+from typing import List, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..errors import ModelError
-import scipy.sparse as sp
 from ..demography import Demography
-from ..expm import Backend
-from ..rewards import Reward, TreeHeightReward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward
+from ..rewards import Reward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward, RestrictedReward
 from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
-from ..utils import multiset_permutations
 
 from ._common import _make_hashable, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
+from .mutation_configs import MutationConfig, MutationLayout, MutationConfigMixin
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
@@ -31,7 +27,6 @@ if TYPE_CHECKING:
         EmpiricalTwoLocusSFSDistribution,
     )
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
 
 
@@ -142,7 +137,7 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
                                          show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class SFSDistribution(PhaseTypeDistribution, ABC):
+class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
     r"""
     Base class for site-frequency spectrum distributions. Bin :math:`i` accumulates the total branch length
     :math:`L_i` subtending :math:`i` of the :math:`n` samples. The spectrum mean is the vector of expected bin branch
@@ -197,10 +192,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
             reward=reward
         )
 
-        #: Probability mass yielded by the most recently started configuration iterator, see
-        #: :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
-        self.generated_mass = 0
-
     @abstractmethod
     def _get_sfs_reward(self, i: int) -> SFSReward:
         """
@@ -220,17 +211,80 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
         """
         pass
 
-    @staticmethod
-    @abstractmethod
-    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
+    def _mutation_class_reward(self, label: 'int | Tuple[str, int]') -> Reward:
         """
-        Get all possible mutational configurations for a given number of mutations.
+        The reward of an elementary frequency class of :meth:`UnfoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>`.
+
+        :param label: The unfolded class :math:`i`, or ``(pop, i)`` for class :math:`i` restricted to the deme
+            ``pop``.
+        :return: The reward.
+        """
+        if isinstance(label, tuple):
+            pop, i = label
+            return RestrictedReward(UnfoldedSFSReward(i), pop=pop)
+
+        return UnfoldedSFSReward(label)
+
+    def mutation_layout(self, folded: bool = False, demes: bool = False) -> MutationLayout:
+        r"""
+        The layout of the mutational configurations of this spectrum. The elementary classes are the unfolded
+        polymorphic classes :math:`i = 1, \dots, n - 1`, labelled ``i``, placed at index ``i`` of an array of length
+        :math:`n + 1`. By default, each class is one bin.
+
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i` into the bin of the smaller one.
+        :param demes: Whether to resolve each bin by the deme in which the mutation occurs, with the class labels
+            ``(pop, i)`` placed at index ``(p, i)`` of an array of shape :math:`(P, n + 1)` for the deme ``pop`` at
+            position :math:`p` of the :math:`P` demes, and the bins ordered by deme and then by class.
+        :return: The layout.
+        """
+        return self._layout_of(int(self.lineage_config.n), list(self.lineage_config.pop_names), folded, demes)
+
+    @staticmethod
+    def _layout_of(n: int, pops: List[str], folded: bool, demes: bool) -> MutationLayout:
+        """
+        The layout of :meth:`UnfoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` for a sample size and demes.
 
         :param n: The number of lineages.
-        :param k: The number of mutations.
-        :return: An iterator over all possible mutational configurations.
+        :param pops: The deme names.
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i`.
+        :param demes: Whether to resolve each bin by deme.
+        :return: The layout.
         """
-        pass
+        indices = list(range(1, n))
+
+        if folded:
+            groups = [(i,) if i == n - i else (i, n - i) for i in indices if i <= n - i]
+        else:
+            groups = [(i,) for i in indices]
+
+        if not demes:
+            return MutationLayout(groups, {i: (i,) for i in indices}, (n + 1,), ('class',))
+
+        return MutationLayout(
+            [tuple((pop, i) for i in g) for pop in pops for g in groups],
+            {(pop, i): (p, i) for p, pop in enumerate(pops) for i in indices},
+            (len(pops), n + 1),
+            ('deme', 'class')
+        )
+
+    def _mutation_start(self, layout: MutationLayout, theta: float) -> MutationConfig:
+        r"""
+        The configuration from which ``get_mutation_configs()`` climbs to the most probable one,
+        :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])`.
+
+        :param layout: The layout.
+        :param theta: The mutation rate.
+        :return: The configuration.
+        """
+        if layout == self.mutation_layout():
+            mean = np.asarray(self.mean.data)[self._get_indices()]
+        else:
+            mean = [PhaseTypeDistribution.moment(self, k=1, rewards=(self._bin_reward(b),), center=False)
+                    for b in layout.bins]
+
+        return MutationConfig([max(0, int(round(theta * mu))) for mu in mean], layout)
 
     def _bin_index(self, i: int) -> int:
         """
@@ -843,414 +897,6 @@ class SFSDistribution(PhaseTypeDistribution, ABC):
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
-    def _get_resolvent(self, n: int, theta: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        r"""
-        Single-epoch resolvent :math:`\mathbf{U} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}`,
-        scaled class rewards :math:`\theta \mathbf{r}_j` and vector :math:`\mathbf{g}` of
-        :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`,
-        so that :math:`\mathbf{G}_j = \mathbf{U} \operatorname{diag}(\theta \mathbf{r}_j)`. The most recent
-        :math:`(J, \theta)` is cached.
-
-        :param n: The number of frequency classes :math:`J`.
-        :param theta: The mutation rate :math:`\theta`.
-        :return: The resolvent :math:`\mathbf{U}`, the scaled rewards :math:`\theta \mathbf{r}_j` as rows and the
-            vector :math:`\mathbf{g}`.
-        """
-        cached = self.__dict__.get('_resolvent')
-        if cached is not None and cached[0] == (n, theta):
-            return cached[1]
-
-        # the state space may be shared with other coalescents, so set it to this one's rates
-        self.state_space.update_epoch(self.demography.get_epoch(0))
-
-        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
-
-        R = np.array([
-            CombinedReward([self.reward, self._get_sfs_reward(i)])._get(self.state_space) for i in range(1, n + 1)
-        ])[:, non_absorbing]
-
-        S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-        S = S.toarray() if sp.issparse(S) else np.asarray(S)
-
-        # resolvent (theta diag(r_total) - T)^{-1}, with r_total the summed class rewards
-        U = np.linalg.inv(theta * np.diag(R.sum(axis=0)) - S)
-
-        g = U @ (-S @ np.ones(S.shape[0]))
-        resolvent = (U, theta * R, g)
-
-        if Settings.cache:
-            self.__dict__['_resolvent'] = ((n, theta), resolvent)
-
-        return resolvent
-
-    def _assert_no_window(self) -> None:
-        """Guard the mutational-configuration path against a bounded accumulation window. The configuration
-        probabilities are computed over the full to-absorption state-space rate matrix and take no ``start_time`` /
-        ``end_time``, so on a windowed host they would silently return the to-absorption result regardless of the
-        window. Fail loudly rather than return a value that ignores the configured window."""
-        if self._windowed:
-            start, end = self.tree_height.start_time, self.tree_height.end_time
-            raise NotImplementedError(
-                "get_mutation_config / get_mutation_configs are not implemented for a bounded accumulation window "
-                f"(start_time={start}, end_time={end}): the mutational-configuration probabilities are computed over "
-                "the full to-absorption state space and ignore start_time / end_time, so a windowed result would be "
-                "the to-absorption one regardless. Use start_time=0 and no finite end_time."
-            )
-
-    def get_mutation_config(self, config: Sequence[int], theta: float) -> float:
-        r"""
-        Probability of a mutational configuration of a single locus under the infinite-sites model, with the notation
-        of :class:`~phasegen.distributions.PhaseTypeDistribution`.
-
-        A configuration :math:`\mathbf{m} = (m_1, \dots, m_J)` counts the mutations in each of the :math:`J`
-        frequency classes, with :math:`J = n - 1` for the unfolded and :math:`J = \lfloor n/2 \rfloor` for the folded
-        spectrum. The reward vector :math:`\mathbf{r}_j` holds for each state the number of blocks that subtend class
-        :math:`j`, multiplied by the reward of this spectrum, so its accumulated reward :math:`\ell_j` is the branch
-        length of :meth:`UnfoldedSFSDistribution.bin() <phasegen.distributions.UnfoldedSFSDistribution.bin>`. On a
-        marginal view such as ``sfs.demes['pop_0']``, the branch lengths and hence the configuration probabilities are
-        restricted like the moments of the view. Given the genealogy, the class counts :math:`Y_j` are independent
-        Poisson variables with means :math:`\theta \ell_j`, where :math:`\theta \ge 0` is the mutation rate per unit of
-        branch length. Hence
-
-        .. math::
-
-            \mathbb{P}(\mathbf{Y} = \mathbf{m})
-            = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right].
-
-        .. rubric:: Single epoch
-
-        Mutations occur in state :math:`x` at rate :math:`\theta \bar{r}(x)`, where
-        :math:`\bar{\mathbf{r}} = \sum_j \mathbf{r}_j`. Starting in state :math:`x`, the entry
-        :math:`(\mathbf{G}_j)_{xy}` of :math:`\mathbf{G}_j = \theta\, (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}
-        \operatorname{diag}(\mathbf{r}_j)` is the probability that the next mutation falls into class :math:`j` while
-        the process is in state :math:`y`. The entry :math:`g_x` of
-        :math:`\mathbf{g} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1} \mathbf{q}_1` is the
-        probability of absorption before the next mutation. The probability generating function of Hobolth et al.
-        (2025) is then
-
-        .. math::
-
-            \mathbb{E}\Big[ \prod_{j=1}^{J} z_j^{Y_j} \Big]
-            = \boldsymbol{\alpha}_T \Big( \mathbf{I} - \sum_{j=1}^{J} z_j \mathbf{G}_j \Big)^{-1} \mathbf{g},
-
-        with :math:`z_j \in [0, 1]` and :math:`\mathbf{I}` the identity matrix. The coefficient of
-        :math:`z_1^{m_1} \cdots z_J^{m_J}` is the sum of :math:`\boldsymbol{\alpha}_T \mathbf{G}_{\sigma_1} \cdots
-        \mathbf{G}_{\sigma_{|\mathbf{m}|}} \mathbf{g}` over all orderings :math:`\sigma` of the
-        :math:`|\mathbf{m}| = \sum_j m_j` mutations by class.
-
-        .. rubric:: Several epochs
-
-        The mutation counts are tracked jointly with the state, on the :math:`L = \prod_j (m_j + 1)` count vectors
-        that do not exceed :math:`\mathbf{m}`. In epoch :math:`i`, this process has the sub-intensity matrix
-
-        .. math::
-
-            \mathbf{A}_i = \mathbf{I}_L \otimes \big( \mathbf{T}_i - \theta \operatorname{diag}(\bar{\mathbf{r}}) \big)
-            + \theta \sum_{j=1}^{J} \mathbf{N}_j \otimes \operatorname{diag}(\mathbf{r}_j),
-
-        where :math:`\otimes` is the Kronecker product, :math:`\mathbf{I}_L` the :math:`L \times L` identity matrix,
-        and :math:`\mathbf{N}_j` raises the count of class :math:`j` by one while it is below :math:`m_j`. A mutation
-        that would exceed :math:`m_j` removes the process. The probability is the mass that starts with zero counts and
-        is absorbed with counts exactly :math:`\mathbf{m}`, accumulated over all epochs.
-
-        .. rubric:: Implementation
-
-        - In a single epoch, the resolvent behind the matrices :math:`\mathbf{G}_j` is formed by one dense inverse and
-          cached for the most recent :math:`\theta`, and the sum over orderings has
-          :math:`|\mathbf{m}|! / \prod_j m_j!` terms, each a product of row vectors with :math:`\mathbf{G}_j`.
-        - Over several epochs, the finite epochs are propagated by matrix exponentials and the last epoch is closed by
-          a linear solve. The solves use a sparse LU factorization once :math:`L n_T` reaches
-          :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`,
-          and the exponentials become sparse actions once it reaches
-          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`.
-        - :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
-          <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>` yields configurations in
-          ascending order of :math:`|\mathbf{m}|`.
-        - :meth:`UnfoldedSFSDistribution.get_mutation_configs()
-          <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` climbs from
-          :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])` to the most probable configuration and expands
-          outward with a priority queue. The order is exactly descending when every other configuration has a
-          neighbour, differing by one mutation, of at least equal probability.
-        - Both iterators reset :attr:`UnfoldedSFSDistribution.generated_mass
-          <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>` when the first configuration is requested
-          and add each yielded probability to it, so one minus its value is the probability not yet yielded.
-
-        .. rubric:: References
-
-        Hobolth, A., Boitard, S., Futschik, A. and Leblois, R. (2025). A matrix-analytical sampling formula for
-        time-homogeneous coalescent processes under the infinite sites mutation model. Theoretical Population
-        Biology, 163, 62-79. https://doi.org/10.1016/j.tpb.2025.03.002
-
-        :param config: The configuration :math:`\mathbf{m}`, a sequence of :math:`J` non-negative integers ordered by
-            class, starting at class 1. For :math:`n = 4`, the unfolded configuration ``[2, 1, 0]`` holds two
-            singletons, one doubleton and no tripletons, and the folded configuration ``[2, 1]`` holds two singletons
-            or tripletons and one doubleton.
-        :param theta: The mutation rate :math:`\theta` per unit of branch length.
-        :return: The probability :math:`\mathbb{P}(\mathbf{Y} = \mathbf{m})`.
-        :raises ValueError: If ``theta`` is negative or not finite, or if ``config`` does not have :math:`J` entries or
-            has an entry that is negative or not an integer.
-        :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
-        """
-        if not 0 <= theta < np.inf:
-            raise ValueError(f"Theta must be a finite number greater than or equal to 0, got {theta}.")
-
-        # the probabilities are to-absorption and ignore a configured window
-        self._assert_no_window()
-
-        # number of frequency bins
-        n = len(self._get_configs(self.lineage_config.n, 0)[0])
-
-        if len(config) != n:
-            raise ValueError(
-                "The length of the configuration must be equal to the number of frequency bins. "
-                f"Expected {n}, got {len(config)}."
-            )
-
-        # entries are counts: integral values of any numeric type (R passes doubles) are accepted
-        if any(not float(c).is_integer() or c < 0 for c in config):
-            raise ValueError(f"The configuration entries must be non-negative integers, got {list(config)}.")
-
-        config = tuple(int(c) for c in config)
-
-        # handle special case when theta = 0
-        if theta == 0:
-            if sum(config) == 0:
-                return 1
-
-            return 0
-
-        # the single-epoch resolvent integrates the inter-mutation waiting time in closed form, which requires a
-        # constant rate matrix. Several epochs integrate the lattice process epoch by epoch.
-        if self.demography.has_n_epochs(2):
-            return self._get_mutation_config_inhomogeneous(config, n, theta)
-
-        return self._get_mutation_config_homogeneous(config, n, theta)
-
-    def _get_mutation_config_homogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
-        r"""
-        Single-epoch configuration probability of
-        :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`,
-        summing :math:`\boldsymbol{\alpha}_T \mathbf{G}_{\sigma_1} \cdots \mathbf{G}_{\sigma_{|\mathbf{m}|}} \mathbf{g}`
-        over the multiset permutations :math:`\sigma` of the mutation classes.
-
-        :param config: The configuration, one non-negative count per frequency class.
-        :param n: The number of frequency classes.
-        :param theta: The mutation rate.
-        :return: The configuration probability.
-        """
-        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
-
-        alpha = self.state_space.alpha[non_absorbing]
-
-        U, R, g = self._get_resolvent(n, theta)
-
-        q = list(itertools.chain(*[[i + 1] * j for i, j in enumerate(config)]))
-
-        # iterate over permutations of q, with G_j = U diag(theta r_j) applied to a row vector
-        total = 0.0
-        for p in multiset_permutations(q):
-            v = alpha
-
-            for i in p:
-                v = (v @ U) * R[i - 1]
-
-            total += v @ g
-
-        return total
-
-    @cached_property
-    def _mutation_epoch_data(self) -> Tuple:
-        """
-        Configuration-independent inputs of ``_get_mutation_config_inhomogeneous``, cached per instance.
-
-        :return: ``(non_absorbing, R, r_total, alpha, epochs)``: the transient-state mask, the per-class reward vectors
-            and their sum, the transient initial distribution, and per epoch the dense sub-intensity matrix, the
-            absorption-rate vector and the duration (``None`` for the unbounded last epoch).
-        """
-        non_absorbing = TreeHeightReward()._get(self.state_space).astype(bool)
-        n = len(self._get_configs(self.lineage_config.n, 0)[0])
-        R = [
-            CombinedReward([self.reward, self._get_sfs_reward(i + 1)])._get(self.state_space)[non_absorbing]
-            for i in range(n)
-        ]
-        r_total = np.sum(R, axis=0)
-        alpha = self.state_space.alpha[non_absorbing]
-
-        epochs = []
-        for epoch in self._get_epochs_until_unbounded():
-            self.state_space.update_epoch(epoch)
-            S = self.state_space.S[non_absorbing, :][:, non_absorbing]  # sparse-safe slice
-            S = S.toarray() if sp.issparse(S) else np.asarray(S)
-            e = -S @ np.ones(S.shape[0])  # coalescent absorption-rate vector (state_space.e is the all-ones vector)
-            tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
-            epochs.append((S, e, tau))
-
-        # leave the state space in the first epoch for any subsequent caller that assumes it
-        self.state_space.update_epoch(self.demography.get_epoch(0))
-
-        return non_absorbing, R, r_total, alpha, epochs
-
-    def _get_mutation_config_inhomogeneous(self, config: Tuple[int, ...], n: int, theta: float) -> float:
-        """
-        Multi-epoch configuration probability of
-        :meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`,
-        propagating the lattice sub-intensity matrix epoch by epoch and solving the last epoch to absorption.
-
-        :param config: The configuration, one non-negative count per frequency class.
-        :param n: The number of frequency classes.
-        :param theta: The mutation rate.
-        :return: The configuration probability.
-        """
-        non_absorbing, R, r_total, alpha, epochs = self._mutation_epoch_data
-        m = len(alpha)
-
-        # enumerate the mutation-count lattice nodes 0..k_i per bin and the super-diagonal (one-mutation) edges
-        nodes = list(itertools.product(*[range(k + 1) for k in config]))
-        index = {c: a for a, c in enumerate(nodes)}
-        edges = [(index[c], index[c[:i] + (c[i] + 1,) + c[i + 1:]], i)
-                 for c in nodes for i in range(n) if c[i] < config[i]]
-        k_block = index[config] * m
-        L = len(nodes)
-        nt = L * m
-
-        # mirror the moment machinery's two crossovers: keep the augmented generator sparse (and LU-solve it in
-        # block-triangular form) above ``closed_form_sparse_min_states``, and propagate via the sparse
-        # matrix-exponential action above ``expm_action_min_dim`` instead of forming the dense exponential. No
-        # ``lamb`` reward-regularization applies here: the mutation rates ``theta R_i`` are genuine generator entries
-        # (not a separately-accumulated reward), so there is nothing to rescale relative to ``S``.
-        sparse = self._solve_sparse(nt)
-        action = nt >= Settings.expm_action_min_dim
-
-        def build_generator(S: np.ndarray) -> 'np.ndarray | sp.spmatrix':
-            diag = S - theta * np.diag(r_total)
-            if sparse:
-                blocks = [[None] * L for _ in range(L)]
-                for a in range(L):
-                    blocks[a][a] = sp.csr_matrix(diag)
-                for a, b, i in edges:
-                    blocks[a][b] = sp.diags(theta * R[i])
-                return sp.bmat(blocks, format='csr')
-
-            A = np.zeros((nt, nt))
-            for a in range(L):
-                A[a * m:(a + 1) * m, a * m:(a + 1) * m] = diag
-            for a, b, i in edges:
-                A[a * m:(a + 1) * m, b * m:(b + 1) * m] = np.diag(theta * R[i])
-            return A
-
-        # entering row vector: alpha at the empty lattice node
-        v = np.zeros(nt)
-        v[:m] = alpha
-
-        p = 0.0
-        for S, e, tau in epochs:
-            A = build_generator(S)
-
-            if tau is None:
-                # final unbounded epoch: integrated occupation to absorption is occ = v @ (-A)^{-1}
-                occ = self._lu_solver((-A).T, sparse)(v)
-                p += occ[k_block:k_block + m] @ e
-                break
-
-            # finite epoch: survivors u = v @ exp(A tau) (matrix-exponential action), then register absorption from
-            # the integrated occupation occ = (u - v) @ A^{-1}, and carry the survivors into the next epoch
-            if action:
-                u = Backend.expm_multiply(A.T * tau, v)
-            else:
-                u = v @ expm((A.toarray() if sparse else A) * tau)
-            occ = self._lu_solver(A.T, sparse)(u - v)
-            p += occ[k_block:k_block + m] @ e
-            v = u
-
-        return float(p)
-
-    def get_mutation_configs_by_count(self, theta: float) -> Iterator[Tuple[List[int], float]]:
-        """
-        Unending iterator over mutational configurations and their probabilities in ascending order of the total
-        number of mutations, as described in :meth:`UnfoldedSFSDistribution.get_mutation_config()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
-
-        :param theta: The mutation rate per unit of branch length.
-        :return: An iterator over pairs of configuration and probability.
-        """
-        # reset generated mass
-        self.generated_mass = 0
-
-        # iterate over number of mutations
-        i = 0
-        while True:
-            # iterate over configurations
-            for config in self._get_configs(self.lineage_config.n, i):
-                p = self.get_mutation_config(config=config, theta=theta)
-                self.generated_mass += p
-                yield config, p
-
-            # increase counter for number of mutations
-            i += 1
-
-    def get_mutation_configs(self, theta: float) -> Iterator[Tuple[Tuple[int, ...], float]]:
-        """
-        Unending iterator over mutational configurations and their probabilities in descending order of probability,
-        as described in :meth:`UnfoldedSFSDistribution.get_mutation_config()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. The following example consumes it until
-        the yielded probability mass exceeds 0.8.
-
-        ::
-
-            coal = pg.Coalescent(n=5)
-
-            it = coal.sfs.get_mutation_configs(theta=1)
-
-            samples = list(pg.takewhile_inclusive(lambda _: coal.sfs.generated_mass < 0.8, it))
-
-        :param theta: The mutation rate per unit of branch length.
-        :return: An iterator over pairs of configuration and probability.
-        """
-        # reset generated mass
-        self.generated_mass = 0
-
-        n = len(self._get_configs(self.lineage_config.n, 0)[0])
-
-        # special case theta = 0: only the empty configuration carries mass
-        if theta == 0:
-            self.generated_mass = 1.0
-            yield (0,) * n, 1.0
-            return
-
-        def neighbours(c: Tuple[int, ...]) -> Iterator[Tuple[int, ...]]:
-            for i in range(n):
-                for step in (1, -1):
-                    if c[i] + step >= 0:
-                        yield c[:i] + (c[i] + step,) + c[i + 1:]
-
-        # modal configuration from the expected per-bin branch lengths (E[# mutations in bin] = theta * E[ell])
-        mean = np.asarray(self.mean.data)
-        mode = tuple(max(0, int(round(theta * mean[idx]))) for idx in self._get_indices())
-
-        # hill-climb to a local maximum of the configuration probability
-        p_mode = self.get_mutation_config(mode, theta)
-        improved = True
-        while improved:
-            improved = False
-            for nb in neighbours(mode):
-                p_nb = self.get_mutation_config(nb, theta)
-                if p_nb > p_mode:
-                    mode, p_mode, improved = nb, p_nb, True
-                    break
-
-        # best-first expansion outward, evaluating each configuration once
-        seen = {mode}
-        heap = [(-p_mode, mode)]
-        while heap:
-            neg_p, c = heapq.heappop(heap)
-            self.generated_mass += -neg_p
-            yield c, -neg_p
-
-            for nb in neighbours(c):
-                if nb not in seen:
-                    seen.add(nb)
-                    heapq.heappush(heap, (-self.get_mutation_config(nb, theta), nb))
-
 
 class TajimaSFSMixin:
     """
@@ -1378,17 +1024,6 @@ class UnfoldedSFSDistribution(SFSDistribution, TajimaSFSMixin):
         n = self.lineage_config.n
         return np.asarray(self.cov.data)[1:n, 1:n]
 
-    @staticmethod
-    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
-        """
-        Get all possible mutational configurations for a given number of mutations.
-
-        :param n: The number of lineages.
-        :param k: The number of mutations.
-        :return: An iterator over all possible mutational configurations.
-        """
-        return StateSpace._get_partitions(n=k, k=n - 1)
-
 
 class FoldedSFSDistribution(SFSDistribution):
     """
@@ -1412,16 +1047,17 @@ class FoldedSFSDistribution(SFSDistribution):
         """
         return np.arange(1, self.lineage_config.n // 2 + 1)
 
-    @staticmethod
-    def _get_configs(n: int, k: int) -> List[Tuple[int, ...]]:
-        """
-        Get all possible mutational configurations for a given number of mutations.
+    def mutation_layout(self, demes: bool = False) -> MutationLayout:
+        r"""
+        The layout of the mutational configurations of this spectrum, the folded layout
+        :meth:`UnfoldedSFSDistribution.mutation_layout(folded=True)
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>`, with bin :math:`i` merging the unfolded
+        classes :math:`i` and :math:`n - i` for :math:`i = 1, \dots, \lfloor n/2 \rfloor`.
 
-        :param n: The number of lineages.
-        :param k: The number of mutations.
-        :return: An iterator over all possible mutational configurations.
+        :param demes: Whether to resolve each bin by the deme in which the mutation occurs.
+        :return: The layout.
         """
-        return StateSpace._get_partitions(n=k, k=n // 2)
+        return super().mutation_layout(folded=True, demes=demes)
 
 
 class _JointSFSAggregateFunction:
@@ -1532,7 +1168,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunct
                                          file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class JointSFSDistribution(PhaseTypeDistribution):
+class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
     r"""
     Joint (multi-population) site-frequency spectrum distribution.
 
@@ -1609,6 +1245,40 @@ class JointSFSDistribution(PhaseTypeDistribution):
         full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
 
         return [c for c in self.state_space.block_configs if c != full]
+
+    def _mutation_class_reward(self, label: Tuple[int, ...]) -> Reward:
+        """
+        The reward of an elementary frequency class of :meth:`JointSFSDistribution.mutation_layout()
+        <phasegen.distributions.JointSFSDistribution.mutation_layout>`.
+
+        :param label: The descendant vector of the joint SFS bin.
+        :return: The reward.
+        """
+        return JointSFSReward(label)
+
+    def mutation_layout(self, folded: bool = False) -> MutationLayout:
+        r"""
+        The layout of the mutational configurations of this joint spectrum. By default, one bin per polymorphic
+        descendant vector :math:`\mathbf{c} = (c_0, \dots, c_{P-1})`, labelled ``c``, in the order of the state
+        space's block configurations.
+
+        :param folded: Whether to merge :math:`\mathbf{c}` with its complement :math:`\mathbf{n} - \mathbf{c}`, where
+            :math:`\mathbf{n}` holds the sample sizes.
+        :return: The layout.
+        """
+        full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
+        configs = self._get_configs()
+
+        if folded:
+            groups = []
+            for c in configs:
+                d = tuple(f - x for f, x in zip(full, c))
+                if c <= d:
+                    groups.append((c,) if c == d else (c, d))
+        else:
+            groups = [(c,) for c in configs]
+
+        return MutationLayout(groups, {c: c for c in configs}, self.shape, tuple(self.lineage_config.pop_names))
 
     def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         r"""
@@ -2092,7 +1762,7 @@ class JointSFSDistribution(PhaseTypeDistribution):
         return out
 
 
-class TwoLocusSFSDistribution(PhaseTypeDistribution):
+class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
     r"""
     Two-locus site-frequency spectrum under recombination. Entry :math:`(i, j)` of the (symmetrized) mean is the
     second cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the expected product of the branch length subtending
@@ -2140,6 +1810,47 @@ class TwoLocusSFSDistribution(PhaseTypeDistribution):
         Polymorphic SFS bins ``1, ..., n - 1`` (the monomorphic ``0`` and ``n`` bins carry no information).
         """
         return list(range(1, self.lineage_config.n))
+
+    def _mutation_class_reward(self, label: Tuple[int, int]) -> Reward:
+        """
+        The reward of an elementary frequency class of :meth:`TwoLocusSFSDistribution.mutation_layout()
+        <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>`.
+
+        :param label: The pair ``(locus, i)`` of frequency class :math:`i` at a locus.
+        :return: The reward.
+        """
+        return TwoLocusSFSReward(*label)
+
+    def mutation_layout(self, loci: Sequence[int] = (0, 1), folded: bool = False) -> MutationLayout:
+        """
+        The layout of the mutational configurations of the two loci. By default, one bin per locus and polymorphic
+        frequency class :math:`i`, labelled ``(locus, i)`` and ordered by locus and then by class. The mutations of
+        the loci left out are not counted, so the probabilities are marginal over them.
+
+        :param loci: The loci whose mutations are counted.
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i` of a locus into one bin.
+        :return: The layout.
+        :raises ValueError: If ``loci`` is empty, repeats a locus or holds a locus other than 0 and 1.
+        """
+        loci = tuple(loci)
+
+        if not loci or len(set(loci)) != len(loci) or not set(loci) <= {0, 1}:
+            raise ValueError(f"The loci must be distinct entries of (0, 1), got {loci}.")
+
+        n = int(self.lineage_config.n)
+        indices = self._get_indices()
+
+        if folded:
+            groups = [(i,) if i == n - i else (i, n - i) for i in indices if i <= n - i]
+        else:
+            groups = [(i,) for i in indices]
+
+        return MutationLayout(
+            [tuple((locus, i) for i in g) for locus in loci for g in groups],
+            {(locus, i): (locus, i) for locus in (0, 1) for i in indices},
+            (2, n + 1),
+            ('locus', 'class')
+        )
 
     def _no_univariate_distribution(self, *args, **kwargs) -> None:
         """A two-locus SFS entry ``(i, j)`` is the cross-moment ``E[L^0_i · L^1_j]`` — a product of two distinct

@@ -1,12 +1,11 @@
 """
 Utility functions.
 """
-import itertools
 import logging
 import os
 import sys
 from types import FunctionType
-from typing import Callable, Dict, List, Sequence, Generator, Tuple, Any, Iterable, Iterator, Optional
+from typing import Callable, Dict, List, Any, Iterable, Iterator, Optional
 
 import dill
 import multiprocess as mp
@@ -168,58 +167,6 @@ def parallelize(
             raise
 
     return np.array(list(with_pbar(map(func, data))), dtype=dtype)
-
-
-def multiset_permutations(items: Sequence) -> Generator[Tuple, None, None]:
-    """
-    Generate multiset permutations.
-    Adapted from https://stackoverflow.com/questions/19676109/how-to-generate-all-the-permutations-of-a-multiset
-
-    :param items: Items to permute
-    :return: Permutations
-    """
-
-    def visit(head) -> tuple:
-        """
-        Visit the head of the permutation.
-        """
-        return tuple(
-            u[i] for i in map(E.__getitem__, itertools.accumulate(range(N - 1), lambda e, N: nxts[e], initial=head))
-        )
-
-    u = list(set(items))
-
-    # special case: empty multiset
-    if len(u) == 0:
-        yield ()
-        return
-
-    # special case: single element multiset
-    if len(u) == 1:
-        yield (u[0],) * len(items)
-        return
-
-    E = list(sorted(map(u.index, items)))
-    N = len(E)
-    nxts = list(range(1, N)) + [None]
-    head = 0
-    i, ai, aai = N - 3, N - 2, N - 1
-
-    yield visit(head)
-
-    while aai is not None or E[ai] > E[head]:
-        # before k
-        before = (i if aai is None or E[i] > E[aai] else ai)
-        k = nxts[before]
-
-        if E[k] > E[head]:
-            i = k
-
-        nxts[before], nxts[k], head = nxts[k], head, k
-        ai = nxts[i]
-        aai = nxts[ai]
-
-        yield visit(head)
 
 
 def takewhile_inclusive(predicate: Callable[[Any], bool], iterable: Iterable) -> Iterator:

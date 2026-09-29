@@ -10,7 +10,6 @@ import pytest
 from matplotlib import pyplot as plt
 
 import phasegen as pg
-from phasegen.utils import multiset_permutations
 
 
 class DistributionTestCase(TestCase):
@@ -397,25 +396,6 @@ class DistributionTestCase(TestCase):
         # check that times add up to tree height
         self.assertAlmostEqual(sum(times), coal.tree_height.mean)
 
-    def test_multiset_permutations(self):
-        """
-        Test multiset permutations.
-        """
-        self.assertEqual(list(multiset_permutations(())), [()])
-        self.assertEqual(len(list(multiset_permutations([1] * 10 + [2] * 2))), 66)
-
-        for sets in [
-            [],
-            [1],
-            [1, 1, 2],
-            [1, 1, 2, 2],
-            [1, 1, 1, 2, 2],
-            [1, 2, 4],
-            [1, 2, 3, 3, 5]
-        ]:
-            # compare with itertools
-            self.assertEqual(set(multiset_permutations(sets)), set(itertools.permutations(sets)))
-
     def test_sampling_formula(self):
         """
         Test sampling formula.
@@ -457,7 +437,7 @@ class DistributionTestCase(TestCase):
                           for p in set(itertools.permutations(classes)))
                 np.testing.assert_allclose(sfs.get_mutation_config(config, theta), ref, rtol=1e-12)
 
-            self.assertEqual(sfs.__dict__['_resolvent'][0], (3, theta))
+            self.assertEqual(sfs.__dict__['_resolvent'][0], (sfs.mutation_layout(), theta))
 
     def test_plot_prob_10_singletons_2_doubletons(self):
         """

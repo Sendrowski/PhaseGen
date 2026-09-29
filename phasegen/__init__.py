@@ -152,6 +152,8 @@ from .distributions import JointRewardDistribution
 
 from .distributions import Coalescent
 
+from .distributions import MutationConfig, MutationLayout
+
 from .demography import (
     Demography,
     Epoch,
@@ -248,6 +250,8 @@ __all__ = [
     'RewardDistribution',
     'JointRewardDistribution',
     'Coalescent',
+    'MutationConfig',
+    'MutationLayout',
     'Demography',
     'Epoch',
     'PopSizeChanges',

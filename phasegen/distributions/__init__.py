@@ -48,6 +48,10 @@ from .spectra import (
     JointSFSCDF,
     JointSFSQuantileFunction,
 )
+from .mutation_configs import (
+    MutationConfig,
+    MutationLayout,
+)
 from .coalescent import (
     AbstractCoalescent,
     Coalescent,
@@ -102,6 +106,8 @@ __all__ = [
     "JointSFSDensity",
     "JointSFSCDF",
     "JointSFSQuantileFunction",
+    "MutationConfig",
+    "MutationLayout",
     "AbstractCoalescent",
     "Coalescent",
     "EmpiricalJointSFSDistribution",

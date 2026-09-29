@@ -734,9 +734,11 @@ class CoalescentTestCase(TestCase):
         original = Settings.dense_rate_matrix_max_states
         try:
             Settings.dense_rate_matrix_max_states = 10 ** 6
-            dense = pg.Coalescent(n=4, demography=dem).sfs._get_mutation_config_inhomogeneous(config, 3, theta)
+            sfs = pg.Coalescent(n=4, demography=dem).sfs
+            dense = sfs._get_mutation_config_inhomogeneous(sfs.mutation_layout().config(config), theta)
             Settings.dense_rate_matrix_max_states = 0
-            sparse = pg.Coalescent(n=4, demography=dem).sfs._get_mutation_config_inhomogeneous(config, 3, theta)
+            sfs = pg.Coalescent(n=4, demography=dem).sfs
+            sparse = sfs._get_mutation_config_inhomogeneous(sfs.mutation_layout().config(config), theta)
         finally:
             Settings.dense_rate_matrix_max_states = original
 
