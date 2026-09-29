@@ -1253,6 +1253,37 @@ def test_a_raising_bootstrap_replicate_does_not_discard_the_others():
     assert 'boom' in inf.bootstraps['result'][1]
 
 
+def _raising_loss(coal, obs):
+    """Loss that raises for every parameter value at an observation above 1.5."""
+    if obs > 1.5:
+        raise RuntimeError('boom')
+
+    return float((coal.tree_height.mean - obs) ** 2)
+
+
+@pytest.mark.parametrize('loss', [_raising_loss, None], ids=['raising', 'invalid'])
+def test_failed_bootstrap_replicate_gives_the_same_row_on_both_paths(loss):
+    """A replicate whose loss raises, or is invalid, at every point gives the same row from bootstrap() and from
+    create_bootstrap(), run() and add_bootstrap(). Regression: the distributed replicate of a raising loss raised
+    RuntimeError in run() and could not be merged."""
+    kwargs = dict(resample=lambda obs, rng: 2.0, n_bootstraps=1) | ({} if loss is None else dict(loss=loss))
+
+    local = _single_ne_inference(**kwargs)
+    local._run()
+    local.bootstrap()
+
+    distributed = _single_ne_inference(**kwargs)
+    distributed._run()
+    replicate = pg.Inference.from_json(distributed.create_bootstrap(index=0).to_json())
+    replicate.run()
+    distributed.add_bootstrap(replicate)
+
+    assert np.isnan(distributed.bootstraps['Ne'][0])
+    assert distributed.bootstraps['loss'][0] == local.bootstraps['loss'][0]
+    assert distributed.bootstraps['result'][0] == local.bootstraps['result'][0]
+    pd.testing.assert_frame_equal(local.bootstraps, distributed.bootstraps)
+
+
 def test_payload_with_encoded_optimize_result_restores():
     """A payload whose result was encoded as an OptimizeResult, as v1.2.0 wrote it, restores to a usable result.
     Regression: the instance dictionary came back as an item '__dict__', and str(result) and add_bootstrap raised

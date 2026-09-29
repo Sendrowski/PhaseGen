@@ -62,6 +62,11 @@ class Inference(Serializable):
     #: Static for backward compatibility with serialized objects whose initial guess was not materialized.
     _x0: Dict[str, float] | None = None
 
+    #: Whether this object is a bootstrap replicate created by :meth:`create_bootstrap`, whose run records a replicate
+    #: without an estimate with NaN parameters, as :meth:`bootstrap` does. Static for backward compatibility with
+    #: serialized objects that lack the attribute.
+    _is_bootstrap: bool = False
+
     def __init__(
             self,
             bounds: Dict[str, Tuple[float, float]],
@@ -518,6 +523,22 @@ class Inference(Serializable):
         # displaced by `min`, since both `x < NaN` and `NaN < x` are False)
         finite = [result for result in results if np.isfinite(result.fun)]
 
+        # a bootstrap replicate whose optimization raised in every run has no estimate, as in bootstrap()
+        if not finite and self._is_bootstrap:
+            self._logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', results[0].message)
+
+            self.result = OptimizeResult(x=np.full(len(self.x0), np.nan), fun=np.inf, success=False,
+                                         message=results[0].message)
+            self.params_inferred = dict(zip(self.x0.keys(), self.result.x))
+            self.loss_inferred = self.result.fun
+            self.dist_inferred = None
+            self.runs = pd.DataFrame(
+                [list(result.x) + [result.fun, str(result)] for result in results],
+                columns=list(self.x0.keys()) + ['loss', 'result']
+            )
+
+            return self.result
+
         if not finite:
             raise RuntimeError(
                 'None of the optimization runs returned a finite loss. The loss function raised or returned a '
@@ -947,6 +968,7 @@ class Inference(Serializable):
         """
         other = copy.deepcopy(self)
         other.__dict__.pop('_state_spaces', None)
+        other.__dict__.pop('_is_bootstrap', None)
 
         # the spawned object performs a single optimization whose result is merged back with ``add_run``, which reads
         # only the main result; bootstrapping it would repeat ``n_bootstraps`` fits per job and discard every one
@@ -1029,7 +1051,8 @@ class Inference(Serializable):
         Resample the observation and return a new Inference object with the resampled observation, whose optimization
         starts from the estimate :attr:`params_inferred` as in :meth:`bootstrap`.
         This is useful when parallelizing bootstraps on a cluster. You can add performed bootstraps
-        by using the :meth:`add_bootstrap` method.
+        by using the :meth:`add_bootstrap` method. A replicate whose optimization raises in every run is recorded with
+        NaN parameters and an infinite loss, as in :meth:`bootstrap`.
 
         :param n_runs: Number of optimization runs. The first run starts from the estimate and any further runs from
             start points sampled within the bounds.
@@ -1046,6 +1069,7 @@ class Inference(Serializable):
         other._x0 = dict(self.params_inferred)
         other.observation = self.resample(self.observation, other._rng)
         other.n_runs = n_runs
+        other._is_bootstrap = True
 
         return other
 
@@ -1054,8 +1078,8 @@ class Inference(Serializable):
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
         :param bootstrap: Either an Inference object or a dictionary of inferred parameters. A dictionary is added
-            with a missing loss and result. An Inference object whose loss was invalid at every evaluated point is
-            added with NaN parameters, as in :meth:`bootstrap`.
+            with a missing loss and result. An Inference object whose loss was invalid at every evaluated point, or
+            whose optimization raised in every run, is added with NaN parameters, as in :meth:`bootstrap`.
         :raises RuntimeError: If the provided Inference object has not been run yet.
         :raises ValueError: If the dictionary keys differ from the parameter names.
         """
@@ -1066,7 +1090,7 @@ class Inference(Serializable):
             params, result = bootstrap.params_inferred, bootstrap.result
 
             # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate, as in bootstrap()
-            if bootstrap.loss_inferred >= _LOSS_PENALTY:
+            if _LOSS_PENALTY <= bootstrap.loss_inferred < np.inf:
                 self._logger.warning(
                     'The loss of the bootstrap replicate was invalid at every evaluated point, so its parameters '
                     'are NaN.'
