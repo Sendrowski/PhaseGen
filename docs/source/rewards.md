@@ -9,6 +9,7 @@ matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
 ```
 
 ```{code-cell} python
+import numpy as np
 import phasegen as pg
 
 coal = pg.Coalescent(n=10)
@@ -46,7 +47,7 @@ coal.total_branch_length.m2 == coal.moment(2, (pg.TotalBranchLengthReward(),) * 
 
 ```{code-cell} python
 # mean of the 2nd unfolded SFS entry
-coal.sfs.mean.data[2] == coal.moment(1, (pg.UnfoldedSFSReward(2),))
+np.isclose(coal.sfs.mean.data[2], coal.moment(1, (pg.UnfoldedSFSReward(2),)))
 ```
 
 ```{code-cell} python
@@ -54,7 +55,7 @@ coal.sfs.mean.data[2] == coal.moment(1, (pg.UnfoldedSFSReward(2),))
 assert coal.tree_height.mean == coal.moment(1, (pg.TreeHeightReward(),))
 assert coal.moment(2, (pg.TreeHeightReward(),) * 2) == coal.tree_height.var
 assert coal.total_branch_length.m2 == coal.moment(2, (pg.TotalBranchLengthReward(),) * 2, center=False)
-assert coal.sfs.mean.data[2] == coal.moment(1, (pg.UnfoldedSFSReward(2),))
+assert np.isclose(coal.sfs.mean.data[2], coal.moment(1, (pg.UnfoldedSFSReward(2),)))
 ```
 
 ```{code-cell} r
@@ -74,7 +75,7 @@ coal$total_branch_length$m2 == coal$moment(2L, c(pg$TotalBranchLengthReward(), p
 
 ```{code-cell} r
 # mean of the 2nd unfolded SFS entry
-coal$sfs$mean$data[[3]] == coal$moment(1L, c(pg$UnfoldedSFSReward(2L)))
+isTRUE(all.equal(coal$sfs$mean$data[[3]], coal$moment(1L, c(pg$UnfoldedSFSReward(2L)))))
 ```
 
 ```{code-cell} r
@@ -83,7 +84,7 @@ stopifnot(
     coal$tree_height$mean == coal$moment(1L, c(pg$TreeHeightReward())),
     coal$moment(2L, c(pg$TreeHeightReward(), pg$TreeHeightReward())) == coal$tree_height$var,
     coal$total_branch_length$m2 == coal$moment(2L, c(pg$TotalBranchLengthReward(), pg$TotalBranchLengthReward()), center = FALSE),
-    coal$sfs$mean$data[[3]] == coal$moment(1L, c(pg$UnfoldedSFSReward(2L)))
+    isTRUE(all.equal(coal$sfs$mean$data[[3]], coal$moment(1L, c(pg$UnfoldedSFSReward(2L)))))
 )
 ```
 
@@ -167,8 +168,6 @@ pg.Spectra({d: coal.sfs.demes[d].mean for d in coal.demography.pop_names}).plot(
 
 ```{code-cell} python
 :tags: [remove-cell]
-import numpy as np
-
 assert np.allclose(sfs.data, coal.sfs.demes['pop_0'].mean.data + coal.sfs.demes['pop_1'].mean.data)
 ```
 

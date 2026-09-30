@@ -55,10 +55,7 @@ inf <- pg$Inference(
     coal = function(t, Ne) pg$Coalescent(
         n = 10,
         demography = pg$Demography(
-            events = c(
-                pg$PopSizeChange(pop = "pop_0", time = 0, size = 1),
-                pg$PopSizeChange(pop = "pop_0", time = t, size = Ne)
-            )
+            pop_sizes = list(pop_0 = reticulate::py_dict(c(0, t), c(1, Ne)))
         )
     ),
     loss = function(coal, ...) pg$PoissonLikelihood()$compute(
@@ -134,10 +131,7 @@ inf <- pg$Inference(
     coal = function(t, Ne) pg$Coalescent(
         n = 10,
         demography = pg$Demography(
-            events = c(
-                pg$PopSizeChange(pop = "pop_0", time = 0, size = 1),
-                pg$PopSizeChange(pop = "pop_0", time = t, size = Ne)
-            )
+            pop_sizes = list(pop_0 = reticulate::py_dict(c(0, t), c(1, Ne)))
         )
     ),
     loss = function(coal, obs) pg$PoissonLikelihood()$compute(

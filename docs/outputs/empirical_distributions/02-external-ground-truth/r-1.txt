@@ -1,1 +1,1 @@
-Simulating trees: 100%|██████████| 5000/5000 [--:--<--:--, --it/s]
+tree height mean   exact = 4.794   msprime = 4.763

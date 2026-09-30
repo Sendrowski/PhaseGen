@@ -111,10 +111,11 @@ config.layout.bins, config.to_array()
 ```
 
 ```{code-cell} r
-res <- reticulate::iter_next(coal$sfs$get_mutation_configs(theta = 1))
-config <- res[[1]]
+# a configuration converts to an integer vector of its counts, so it is retrieved unconverted
+builtins <- reticulate::import_builtins(convert = FALSE)
+config <- reticulate::py_get_item(builtins$`next`(coal$sfs$get_mutation_configs(theta = 1)), 0L)
 
-list(reticulate::py_get_attr(config$layout, "bins"), config$to_array())
+list(config$layout$bins, reticulate::py_to_r(config$to_array()))
 ```
 
 +++
