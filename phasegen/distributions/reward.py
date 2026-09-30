@@ -2213,7 +2213,7 @@ def _dehoog_invert(transform, t, degree: int):
     continued fraction whose coefficients come from the quotient-difference algorithm, with the improved remainder of
     the last term. The abscissa ``gamma = -log(eps) / (2t)``, with ``eps = _DEHOOG_EPS``, bounds the aliasing error by
     about ``eps f(3t)`` at every degree, and the degree sets the truncation of the series. The transform is called
-    once, on the nodes of all points.
+    once, on the nodes of all points. A transform that vanishes on every node of a point inverts to 0 there.
 
     :param transform: The transform, a function of a 1D array of complex arguments returning its values there.
     :param t: The point, or a 1D array of points, at which to evaluate the inverse.
@@ -2227,43 +2227,48 @@ def _dehoog_invert(transform, t, degree: int):
     nodes = gamma[:, None] + 1j * np.pi * np.arange(n) / ts[:, None]
     fp = np.asarray(transform(nodes.ravel()), dtype=complex).reshape(nodes.shape)
 
-    # quotient-difference table, filled by the rhombus rule, one table per point along the first axis
-    e = np.zeros((len(ts), n, M + 1), dtype=complex)
-    q = np.zeros((len(ts), 2 * M, M), dtype=complex)
-    q[:, 0, 0] = fp[:, 1] / (fp[:, 0] / 2)
-    q[:, 1:, 0] = fp[:, 2:2 * M + 1] / fp[:, 1:2 * M]
+    vanishing = ~fp.any(axis=1)
 
-    for r in range(1, M + 1):
-        mr = 2 * (M - r) + 1
-        e[:, :mr, r] = q[:, 1:mr + 1, r - 1] - q[:, :mr, r - 1] + e[:, 1:mr + 1, r - 1]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # quotient-difference table, filled by the rhombus rule, one table per point along the first axis
+        e = np.zeros((len(ts), n, M + 1), dtype=complex)
+        q = np.zeros((len(ts), 2 * M, M), dtype=complex)
+        q[:, 0, 0] = fp[:, 1] / (fp[:, 0] / 2)
+        q[:, 1:, 0] = fp[:, 2:2 * M + 1] / fp[:, 1:2 * M]
 
-        if r < M:
-            q[:, :mr, r] = q[:, 1:mr + 1, r - 1] * e[:, 1:mr + 1, r] / e[:, :mr, r]
+        for r in range(1, M + 1):
+            mr = 2 * (M - r) + 1
+            e[:, :mr, r] = q[:, 1:mr + 1, r - 1] - q[:, :mr, r - 1] + e[:, 1:mr + 1, r - 1]
 
-    # continued-fraction coefficients
-    d = np.empty((len(ts), n), dtype=complex)
-    d[:, 0] = fp[:, 0] / 2
-    d[:, 1:2 * M:2] = -q[:, 0, :M]
-    d[:, 2:2 * M + 1:2] = -e[:, 0, 1:M + 1]
+            if r < M:
+                q[:, :mr, r] = q[:, 1:mr + 1, r - 1] * e[:, 1:mr + 1, r] / e[:, :mr, r]
 
-    # three-term recurrence of the numerator and denominator of the Pade approximant, evaluated at
-    # z = exp(i pi t / t) = -1
-    A = np.zeros((len(ts), n + 1), dtype=complex)
-    B = np.ones((len(ts), n + 1), dtype=complex)
-    A[:, 1] = d[:, 0]
+        # continued-fraction coefficients
+        d = np.empty((len(ts), n), dtype=complex)
+        d[:, 0] = fp[:, 0] / 2
+        d[:, 1:2 * M:2] = -q[:, 0, :M]
+        d[:, 2:2 * M + 1:2] = -e[:, 0, 1:M + 1]
 
-    for i in range(1, 2 * M):
-        A[:, i + 1] = A[:, i] - d[:, i] * A[:, i - 1]
-        B[:, i + 1] = B[:, i] - d[:, i] * B[:, i - 1]
+        # three-term recurrence of the numerator and denominator of the Pade approximant, evaluated at
+        # z = exp(i pi t / t) = -1
+        A = np.zeros((len(ts), n + 1), dtype=complex)
+        B = np.ones((len(ts), n + 1), dtype=complex)
+        A[:, 1] = d[:, 0]
 
-    # improved remainder of the continued fraction: the period-2 tail u = d_e z / (1 + v), v = d_o z / (1 + u)
-    # solves u^2 + u (1 + (d_o - d_e) z) - d_e z = 0, so u = h (sqrt(1 + d_e z / h^2) - 1)
-    h = (1 - (d[:, 2 * M - 1] - d[:, 2 * M])) / 2
-    rem = h * np.expm1(0.5 * np.log1p(-d[:, 2 * M] / h ** 2))
-    A[:, n] = A[:, 2 * M] + rem * A[:, 2 * M - 1]
-    B[:, n] = B[:, 2 * M] + rem * B[:, 2 * M - 1]
+        for i in range(1, 2 * M):
+            A[:, i + 1] = A[:, i] - d[:, i] * A[:, i - 1]
+            B[:, i + 1] = B[:, i] - d[:, i] * B[:, i - 1]
 
-    out = np.exp(gamma * ts) / ts * (A[:, n] / B[:, n]).real
+        # improved remainder of the continued fraction: the period-2 tail u = d_e z / (1 + v), v = d_o z / (1 + u)
+        # solves u^2 + u (1 + (d_o - d_e) z) - d_e z = 0, so u = h (sqrt(1 + d_e z / h^2) - 1)
+        h = (1 - (d[:, 2 * M - 1] - d[:, 2 * M])) / 2
+        rem = h * np.expm1(0.5 * np.log1p(-d[:, 2 * M] / h ** 2))
+        A[:, n] = A[:, 2 * M] + rem * A[:, 2 * M - 1]
+        B[:, n] = B[:, 2 * M] + rem * B[:, 2 * M - 1]
+
+        out = np.exp(gamma * ts) / ts * (A[:, n] / B[:, n]).real
+
+    out[vanishing] = 0.0
 
     return float(out[0]) if np.ndim(t) == 0 else out
 

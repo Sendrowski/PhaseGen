@@ -1672,6 +1672,25 @@ def test_dehoog_inversion_converges_below_the_default_degree(name, transform, in
         assert error < tol, (name, degree, error)
 
 
+def test_dehoog_inversion_of_a_vanishing_transform_is_zero_without_warnings():
+    """The joint distribution of the singleton and doubleton branch lengths of the bottleneck in
+    ``distribution_functions.md`` has no mass at a zero doubleton length, so the transform the near-origin check of the
+    joint CDF inverts vanishes on every node. Its inverse is 0. Regression: the quotient-difference table divided 0 by
+    0, emitting numpy RuntimeWarnings, and the NaN it returned made the check compare nothing."""
+    import warnings
+
+    from phasegen.distributions.reward import _dehoog_invert
+
+    coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
+    joint = coal.sfs.joint_distribution(1, 2)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', RuntimeWarning)
+        assert _dehoog_invert(lambda s: np.zeros(len(s)), np.array([0.5, 2.0]), Settings.dehoog_degree).tolist() == [0, 0]
+        assert abs(joint.cdf(1.5, 0.5) - 0.69425) < 1e-4
+        assert np.isfinite(joint._cos2d_wiggle_check)
+
+
 def test_dehoog_tail_resolves_the_rise_after_a_bottleneck():
     """Across the extreme bottleneck of ``3_epoch_extreme_bottleneck_n_5`` the total branch length has its 0.99
     quantile on a steep rise at 1.56, where lineages that did not coalesce before the bottleneck coalesce almost at

@@ -43,3 +43,12 @@ test_that("distribution-function plots pass the evaluation grid and the joint SF
   q <- plot(pg$Coalescent(n = 3L)$tree_height$quantile, q = c(0.25, 0.5, 0.75))
   expect_equal(sort(unique(q$data$x)), c(0.25, 0.5, 0.75))
 })
+
+test_that("mutational configurations convert to integer vectors of their counts", {
+  skip_if_not(phasegen_is_installed())
+
+  configs <- reticulate::iterate(pg$take_n(pg$Coalescent(n = 4L)$sfs$get_mutation_configs(theta = 1), 2L))
+
+  expect_identical(configs[[1]][[1]], c(0L, 0L, 0L))
+  expect_identical(configs[[2]][[1]], c(1L, 0L, 0L))
+})

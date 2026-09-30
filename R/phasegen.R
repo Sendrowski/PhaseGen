@@ -470,6 +470,21 @@ draw_surface <- function(x, y, z, defaults, user = list(), n_colours = 100) {
 }
 
 
+# ---- mutational configurations --------------------------------------------------------------------------------------
+
+
+#' Convert a mutational configuration to R
+#'
+#' @param x A `MutationConfig`, as yielded by `coal$sfs$get_mutation_configs()`.
+#'
+#' @return The counts in bin order, an integer vector.
+#'
+#' @exportS3Method reticulate::py_to_r
+py_to_r.phasegen.distributions.mutation_configs.MutationConfig <- function(x) {
+  as.integer(reticulate::import_builtins()$list(x))
+}
+
+
 # ---- univariate distribution functions ------------------------------------------------------------------------------
 
 
