@@ -2298,6 +2298,31 @@ def test_bottleneck_density_has_no_jump_near_the_bulk_edge():
         assert joint.conditional('a', v).mean == pytest.approx(0.00842, abs=4 * 0.00006)
 
 
+def test_calibration_requires_three_agreeing_truncations():
+    """Under the extreme bottleneck the marginal density of the singletons at 1.5305 is 0.77137, and its Euler
+    inversions at the truncations 30 and 60 agree to 2% by chance at 1.026 and 1.043. Regression: the calibration
+    accepted the truncation 60 on these two and normalised the conditional by 1.043."""
+    assert _bottleneck_joint().conditional('a', 1.5305)._G0 == pytest.approx(0.77137, rel=1e-2)
+
+
+def test_unresolved_marginal_density_warns(caplog):
+    """Under a thousandfold decline at 1 the density of the tree height just below 1 is not resolved by the inner
+    inversion up to its largest truncation, as the density spikes within 1e-4 after the epoch time. The conditional is
+    built on the largest truncation with a warning. Regression: two truncations agreeing by chance were accepted
+    without a warning."""
+    from phasegen.distributions.reward import _EULER_N0_MAX
+
+    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.001}})).joint_distribution(
+        pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+
+    with caplog.at_level('WARNING'):
+        cond = joint.conditional('a', 0.931213)
+
+    assert cond._N0 == _EULER_N0_MAX
+    assert any('marginal density of R_a at the conditioning value is unresolved' in r.getMessage()
+               for r in caplog.records)
+
+
 def test_truncation_warning_reports_the_estimated_error(caplog):
     """The truncation warning compares an error estimated from the convergence order with its bar, not the raw
     movement of the last half of the terms, which overstates the error about threefold. Regression: the documented

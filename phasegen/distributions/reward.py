@@ -1373,7 +1373,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The conditional distribution of the other reward.
         :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``value`` is negative or not finite, if ``value`` is
             zero and the conditioning reward has a negligible atom, or if the density of the conditioning reward at
-            ``value`` is below the resolution of the inversion or varies on a scale it does not resolve.
+            ``value`` is below the resolution of the inversion.
         :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
             that the conditional is a point mass, or on a windowed coalescent.
 
@@ -1848,9 +1848,10 @@ class ConditionalRewardDistribution(RewardDistribution):
       :math:`H(s)\, e^{-s_c c t_0} / s_c` before the summation and restored as :math:`H(s)` after it, so the series
       sums a function continuous there. The same holds for the Taylor coefficients of the moments. At
       :math:`v = c t_0` the conditional is the limit from the right.
-    - :math:`N` is doubled until :math:`G(0)` is positive and stable. If it does not stabilize, construction raises
-      :class:`ValueError`. This happens where the density of :math:`R_c` at :math:`v` is below the resolution of the
-      inversion, or varies on a scale that the largest truncation does not resolve.
+    - :math:`N` is doubled until :math:`G(0)` is positive and moves by at most 2% between :math:`N / 4`, :math:`N / 2`
+      and :math:`N`. Otherwise :math:`G` at the largest truncation is used, with a warning if :math:`G(0)` moves by
+      more than 2% when it is halved. Construction raises :class:`ValueError` where :math:`G(0)` is not positive, as
+      where the density of :math:`R_c` at :math:`v` is below the resolution of the inversion.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
     - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
@@ -2373,45 +2374,59 @@ class _NestedConditional(ConditionalRewardDistribution):
 
     def _calibrate(self, tol: float = 2e-2, n_max: int = _EULER_N0_MAX) -> tuple:
         """
-        The Euler truncation ``N0``, doubled from ``_EULER_N0`` until ``G(0)`` moves by at most ``tol`` relatively,
-        and ``G(0)`` at it. A sharply peaked density needs a large truncation, an easy case converges at the first
-        step, and a loose ``tol`` suffices because ``G(0)`` only normalises. The ``cur > 0`` condition is essential: a
-        resolved density stays positive under refinement, so a sign change shows the inversion returns noise, as deep
-        in the tail of a strong bottleneck, where the density falls below float64 inversion resolution. Refusing
-        there is correct, the distribution itself is well defined.
+        The Euler truncation ``N0``, doubled from twice ``_EULER_N0`` until ``G(0)`` is positive and moves by at most
+        ``tol`` relatively between the truncations ``N0 / 4``, ``N0 / 2`` and ``N0``, and ``G(0)`` at it. Two
+        truncations can agree by chance, three rarely do. All three weight the nodes of the largest
+        (``_euler_series``), and each node is evaluated once over the doublings. A sharply peaked density needs a large
+        truncation, and a loose ``tol`` suffices because ``G(0)`` only normalises. If the three do not agree at
+        ``n_max``, ``G(0)`` there is served, with a warning when it moves by more than ``tol`` under halving of the
+        truncation.
 
         :param tol: Relative change of ``G(0)`` below which the truncation counts as converged.
         :param n_max: Largest truncation tried.
         :return: ``(N0, G(0))``.
+        :raises ValueError: If ``G(0)`` at the truncation served is not positive, as where the density falls below the
+            float64 resolution of the inversion deep in the tail of a strong bottleneck.
         """
-        n0 = _EULER_N0
-        prev = self._density_at(n0)
-        while n0 < n_max:
-            n0 *= 2
-            cur = self._density_at(n0)
-            if abs(cur - prev) <= tol * abs(cur) and cur > 0:
-                return n0, cur
-            prev = cur
+        values = {}
 
-        if prev <= 1e-300:
+        def densities(n0: int) -> np.ndarray:
+            """``G(0)`` at the truncations ``n0 // 4``, ``n0 // 2`` and ``n0``, with the jumps subtracted
+            (``JointRewardDistribution._jump_correction``)."""
+            truncations = (n0 // 4, n0 // 2, n0)
+            u, w = _euler_series(self._value, truncations)
+            new = [x for x in u if x not in values]
+            if new:
+                values.update(zip(new, self._phi(np.array(new))))
+            inv = np.sum(w * np.array([values[x] for x in u]), axis=1)
+            return (inv - self._joint._jump_correction(self._on, self._value, 0.0, truncations)[:, 0]).real
+
+        n0 = 2 * _EULER_N0
+        while True:
+            G = densities(n0)
+            move = float(np.max(np.abs(np.diff(G)) / np.maximum(np.abs(G[1:]), 1e-300)))
+            if move <= tol and G[2] > 0 or n0 >= n_max:
+                break
+            n0 *= 2
+
+        if G[2] <= 1e-300:
             raise ValueError(
                 f"The marginal density at R_{self._on} = {self._value:g} is not resolvable: the numerical Laplace "
-                f"inversion returns {prev:.3g} there, so the conditional cannot be normalised. The density is far out "
+                f"inversion returns {G[2]:.3g} there, so the conditional cannot be normalised. The density is far out "
                 f"in the tail and below the float64 resolution of the inversion, not necessarily zero -- conditioning "
                 f"closer to the bulk, or sampling, will work."
             )
 
-        raise ValueError(
-            f"The marginal density at R_{self._on} = {self._value:g} did not converge under refinement of the inner "
-            f"inversion (still moving by more than {tol:.0%} at N0 = {n_max}), so the conditional there would be "
-            f"unreliable. Condition closer to the bulk, or sample."
-        )
+        last = abs(G[2] - G[1]) / G[2]
+        if Settings.check_inversions and last > tol:
+            self._logger.warning(
+                "%s: the marginal density of R_%s at the conditioning value is unresolved, moving by %.2e (bar %.0e) "
+                "when the truncation of the inner inversion is halved from N0 = %d. The conditional may be off by "
+                "about that much. Conditioning closer to the bulk may help, or sample.",
+                self.label, self._on, last, tol, n0
+            )
 
-    def _density_at(self, n0: int) -> float:
-        """``G(0)``, the marginal density of the conditioning reward at the value, by the Euler inversion at the
-        truncation ``n0`` with the jumps subtracted (``JointRewardDistribution._jump_correction``)."""
-        correction = self._joint._jump_correction(self._on, self._value, 0.0, (n0,))[0, 0]
-        return (_euler_invert(self._phi, self._value, N0=n0) - correction).real
+        return n0, float(G[2])
 
     def _cumulants(self) -> tuple:
         """The mean and variance at the truncation of ``_calibrate``, held at construction."""
