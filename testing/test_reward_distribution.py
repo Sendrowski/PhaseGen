@@ -2391,9 +2391,10 @@ def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(la
     """The coarser truncation of the refinement weights the nodes of the finer one, so it equals the Euler inversion
     at that truncation from the same transform evaluations. The expansion reuses the values of the refinement's
     locating pass, so past the window search it evaluates the transform once per argument of the locating pass, at
-    both truncations, and once per nonzero frequency of the second pass. A line-atom conditional refines on the locating
-    pass of its continuous part, on the window of that part, so its expansion reuses the same values. The moments do
-    not trigger the refinement."""
+    both truncations, and once per nonzero frequency of the second pass, each pass in one batched inner inversion. A
+    line-atom conditional refines on the locating pass of its continuous part, on the window of that part, so its
+    expansion reuses the same values. The moments do not trigger the refinement. Regression: the inner inversion ran
+    once per argument."""
     from phasegen.distributions.reward import _euler_invert
 
     joint = joint()
@@ -2403,7 +2404,7 @@ def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(la
     assert nested._G_rough is None
 
     s = -2.0j
-    pair = nested._inner(s, (nested._N0, nested._N0 // 2))
+    pair = nested._inner(np.array([s]), (nested._N0, nested._N0 // 2))[0]
     for got, n0 in zip(pair, (nested._N0, nested._N0 // 2)):
         want = _euler_invert(lambda u: joint.lst_batch(u, np.full(len(u), s)), nested._value, N0=n0)
         assert got == pytest.approx(want, rel=1e-12)
@@ -2411,11 +2412,31 @@ def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(la
     served.cdf._range(served.cdf._cos_rough_scale)
     calls = []
     inner = nested._inner
-    nested._inner = lambda s, truncations: calls.append(len(truncations)) or inner(s, truncations)
+    nested._inner = lambda s, truncations: calls.append((len(truncations), np.size(s))) or inner(s, truncations)
     _ = served.cdf._cos_coeffs
-    assert calls.count(2) == served.cdf._cos_terms_rough + 1
-    assert calls.count(1) == served.cdf._cos_terms - 1
+    assert calls == [(2, served.cdf._cos_terms_rough + 1), (1, served.cdf._cos_terms - 1)]
     assert nested._N0 == 60
+
+
+@pytest.mark.parametrize('label, make', [
+    ('nested', lambda j: j.conditional('a', float(j.marginal('a').quantile(0.5)))),
+    ('atom', lambda j: j.conditional('b', 0.0)),
+])
+def test_batched_conditional_transform_matches_the_transform_per_argument(label, make, monkeypatch):
+    """The conditional transform at an array of arguments, evaluated in several blocks of the outer product with the
+    Euler nodes, equals the transform at each argument alone, on a three-epoch joint, at real, imaginary and infinite
+    arguments."""
+    from phasegen.distributions import reward
+
+    cond = make(pg.Coalescent(n=4, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint_distribution(2, 3))
+    s = np.array([0.3, -0.7j, 1.5 - 2j, 0.0, np.inf], dtype=complex)
+    single = np.array([cond.lst(x) for x in s])
+
+    monkeypatch.setattr(reward, '_LST_BATCH_ENTRIES', 1)
+    batched = cond._lst_nodes(s)
+
+    np.testing.assert_allclose(batched, single, rtol=1e-12, atol=0)
 
 
 def test_unresolved_inner_truncation_warns(caplog):
@@ -2457,8 +2478,8 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
     assert cond._N0 > 60
 
     b, w = fit['b'], fit['w']
-    G = np.array([cond._inner(complex(-1j * wk), (1920,))[0] for wk in w])
-    atom = (cond._inner(complex(np.inf), (1920,))[0] / G[0]).real
+    G = cond._inner(-1j * w, (1920,))[:, 0]
+    atom = (cond._inner(np.array([np.inf]), (1920,))[0, 0] / G[0]).real
     xs = np.linspace(0.0, b, 4096)
     ref = np.maximum.accumulate(cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, G / G[0], atom), xs))
     body = ref < 0.98

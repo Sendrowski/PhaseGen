@@ -446,7 +446,7 @@ class _LSTFunction(_HazardGrid):
         """
         d = self._distribution
         w = np.arange(n_terms) * np.pi / b
-        fit = self._cos_fit_from(b, w, np.array([d.lst(-1j * wk) for wk in w]), d.lst(np.inf).real)
+        fit = self._cos_fit_from(b, w, d._lst_nodes(-1j * w), d.lst(np.inf).real)
         if warn:
             self._check_cos_fit(fit, d, d._titled('COS CDF'))
 

@@ -58,7 +58,7 @@ _MOMENT_TOL = 1e-3
 _MOMENT_N0_MAX = 1920
 
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
-_LST_BATCH_ENTRIES = 2 ** 21
+_LST_BATCH_ENTRIES = 2 ** 17
 
 #: Aliasing level :math:`\varepsilon` of the de Hoog contour of ``_dehoog_invert``, the double-precision machine
 #: epsilon to the power 2/3.
@@ -359,8 +359,9 @@ class RewardDistribution(CallableDistributionFunctions):
         carries a negligible mass. A reward that is zero almost surely takes the time scale in place of the root mean
         square."""
         h = self._cumulant_step / (self._rms or self._time_scale)
-        d1 = (self.lst(h).real - self.lst(-h).real) / (2 * h)
-        d2 = (self.lst(h).real - 2.0 + self.lst(-h).real) / h ** 2
+        plus, minus = self._lst_nodes(np.array([h, -h], dtype=complex)).real
+        d1 = (plus - minus) / (2 * h)
+        d2 = (plus - 2.0 + minus) / h ** 2
         return -d1, max(d2 - d1 ** 2, 0.0)
 
     def _range(self, scale: float = 12.0) -> float:
@@ -1892,11 +1893,16 @@ class ConditionalRewardDistribution(RewardDistribution):
         :return: The transform at ``s``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
-        raise NotImplementedError
+        return complex(self._lst_nodes(np.array([s], dtype=complex))[0])
 
     def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
-        """The conditional transform at the 1D array ``s``, one ``lst`` call per argument."""
-        return np.array([self.lst(complex(v)) for v in s])
+        """
+        The conditional transform at the 1D array ``s`` in one batched evaluation.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
+        raise NotImplementedError
 
     def _refine(self) -> None:
         """Refine the inner inversion before the first cosine expansion, nothing for a transform without one."""
@@ -2086,13 +2092,19 @@ class _AtomConditional(ConditionalRewardDistribution):
         self.state_space = joint._host.state_space
         self._on = on
         self._atom = atom
-        self._sub = (lambda s: joint.lst(np.inf, s)) if on == 'a' else (lambda s: joint.lst(s, np.inf))
         self._logger = logger.getChild(self.__class__.__name__)
         self.label = label
 
-    def lst(self, s: complex) -> complex:
-        """The conditional transform on the atom, see ``ConditionalRewardDistribution``."""
-        return self._sub(s) / self._atom
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """
+        The conditional transform on the atom at the 1D array ``s``, see ``ConditionalRewardDistribution``.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
+        inf = np.full(len(s), np.inf)
+        sub = self._joint.lst_batch(inf, s) if self._on == 'a' else self._joint.lst_batch(s, inf)
+        return sub / self._atom
 
 
 def _expm_batch(A: np.ndarray) -> np.ndarray:
@@ -2463,7 +2475,7 @@ class _NestedConditional(ConditionalRewardDistribution):
             """``G`` at ``args`` at the truncation ``n0``, and the largest difference of the locating CDF between
             the truncations ``n0 // 2`` and ``n0``, each from the transform of the target at its own truncation."""
             truncations = (n0, n0 // 2)
-            G = np.array([self._inner(s, truncations) for s in args])  # (len(args), 2)
+            G = self._inner(np.array(args), truncations)  # (len(args), 2)
             phi = target._lst_from_G(np.array(args), G, truncations)
             curves = [cdf._eval_cos_cdf(cdf._cos_fit_from(b, w, f[:-1], f[-1].real), xs) for f in phi.T]
             return G[:, 0], float(np.abs(curves[0] - curves[1]).max())
@@ -2509,34 +2521,51 @@ class _NestedConditional(ConditionalRewardDistribution):
         z = np.zeros(len(u))
         return self._joint.lst_batch(z, u) if self._on == 'b' else self._joint.lst_batch(u, z)
 
-    def _inner(self, s: complex, truncations: Sequence[int]) -> np.ndarray:
+    def _inner(self, s: np.ndarray, truncations: Sequence[int]) -> np.ndarray:
         """
-        The Euler inversions of ``Phi`` along the conditioning axis at the value, with the other argument at ``s``, at
-        each truncation from the nodes of the largest (``_euler_series``), with the jumps along that axis subtracted
-        (``JointRewardDistribution._jump_correction``).
+        The Euler inversions of ``Phi`` along the conditioning axis at the value, with the other argument at each
+        element of ``s``, at each truncation from the nodes of the largest (``_euler_series``), with the jumps along
+        that axis subtracted (``JointRewardDistribution._jump_correction``). ``Phi`` is evaluated on the outer product
+        of ``s`` and the nodes by ``JointRewardDistribution.lst_batch``, in blocks of ``s`` whose shift vectors hold at
+        most ``_LST_BATCH_ENTRIES`` entries.
 
-        :param s: The argument of the other reward.
+        :param s: The arguments of the other reward, a 1D array.
         :param truncations: The truncations ``N0``.
-        :return: ``G(s)`` per truncation.
+        :return: ``G``, of shape ``(len(s), len(truncations))``.
         """
         u, weights = _euler_series(self._value, truncations)
-        other = np.full(len(u), s)
-        vals = self._joint.lst_batch(other, u) if self._on == 'b' else self._joint.lst_batch(u, other)
-        correction = self._joint._jump_correction(self._on, self._value, s, truncations)[:, 0]
-        return np.sum(weights * np.asarray(vals), axis=1) - correction
+        vals = np.empty((len(s), len(u)), dtype=complex)
+        block = max(1, _LST_BATCH_ENTRIES // (len(u) * len(self._joint._setup['alpha'])))
+        for i in range(0, len(s), block):
+            other = np.repeat(s[i:i + block], len(u))
+            cond = np.tile(u, len(other) // len(u))
+            phi = self._joint.lst_batch(other, cond) if self._on == 'b' else self._joint.lst_batch(cond, other)
+            vals[i:i + block] = phi.reshape(-1, len(u))
+        correction = np.array([self._joint._jump_correction(self._on, self._value, x, truncations)[:, 0] for x in s])
+        return np.sum(weights * vals[:, None, :], axis=-1) - correction
 
-    def _G(self, s: complex) -> complex:
-        """``G(s)``, the Euler inversion of ``Phi`` along the conditioning axis at the value. The inner method must be
-        accurate on peaked coalescent densities (Gaver-Stehfest is not), a fixed linear functional so that ``G`` stays
-        analytic in ``s`` for the outer de Hoog recurrence (a nested de Hoog is not), and use a vertical contour, since
-        the epoch exponentials overflow as the real part tends to minus infinity (Talbot's contour does)."""
-        if self._G_rough is not None and s in self._G_rough:
-            return complex(self._G_rough[s])
-        return complex(self._inner(s, (self._N0,))[0])
+    def _G(self, s: np.ndarray) -> np.ndarray:
+        """``G`` at the 1D array ``s``, the Euler inversion of ``Phi`` along the conditioning axis at the value. The
+        inner method must be accurate on peaked coalescent densities (Gaver-Stehfest is not), a fixed linear functional
+        so that ``G`` stays analytic in ``s`` for the outer de Hoog recurrence (a nested de Hoog is not), and use a
+        vertical contour, since the epoch exponentials overflow as the real part tends to minus infinity (Talbot's
+        contour does). The arguments of the locating pass of ``_refine`` take its values."""
+        rough = self._G_rough or {}
+        cached = np.array([x in rough for x in s], dtype=bool)
+        out = np.empty(len(s), dtype=complex)
+        out[cached] = [rough[x] for x in s[cached]]
+        if not cached.all():
+            out[~cached] = self._inner(s[~cached], (self._N0,))[:, 0]
+        return out
 
-    def lst(self, s: complex) -> complex:
-        """The conditional transform ``G(s) / G(0)``, see ``ConditionalRewardDistribution``."""
-        return self._G(complex(s)) / self._G0
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """
+        The conditional transform ``G(s) / G(0)`` at the 1D array ``s``, see ``ConditionalRewardDistribution``.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
+        return self._G(s) / self._G0
 
 
 class _LineContinuous(ConditionalRewardDistribution):
@@ -2616,11 +2645,15 @@ class _LineContinuous(ConditionalRewardDistribution):
         rest = G - self._decay(args) @ f.T
         return rest / rest[0]
 
-    def lst(self, s: complex) -> complex:
-        """The transform of the continuous part."""
-        s = complex(s)
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """
+        The transform of the continuous part at the 1D array ``s``.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
         nested, f = self._nested, self._f
-        return (nested._G(s) - np.sum(f * self._decay(s)[0])) / (nested._G0 - np.sum(f))
+        return (nested._G(s) - np.sum(f * self._decay(s), axis=1)) / (nested._G0 - np.sum(f))
 
 
 class _LineCDF(ConditionalCDF):
@@ -2733,9 +2766,14 @@ class _LineConditional(ConditionalRewardDistribution):
         """Total mass of the atoms."""
         return float(self._atom_masses.sum())
 
-    def lst(self, s: complex) -> complex:
-        """The conditional transform, atoms included."""
-        return self._nested.lst(s)
+    def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
+        """
+        The conditional transform, atoms included, at the 1D array ``s``.
+
+        :param s: The arguments.
+        :return: The transform at ``s``.
+        """
+        return self._nested._lst_nodes(s)
 
     def _cumulants(self) -> tuple:
         """The mean and variance of the conditional with the atoms, whose transform this is."""
