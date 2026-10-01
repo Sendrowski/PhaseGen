@@ -624,17 +624,25 @@ class MomentEvaluator:
         # only migration and recombination create cycles, so a single population at a single locus has classes of one
         # state each
         if self.lineage_config.n_pops > 1 or self.locus_config.n > 1:
-            A = sp.coo_matrix(S)
-            off = (A.row != A.col) & (A.data > 0)
-            rows, cols, data = A.row[off], A.col[off], A.data[off]
+            if sp.issparse(S):
+                A = S.tocoo()
+                off = (A.row != A.col) & (A.data > 0)
+                rows, cols, data = A.row[off], A.col[off], A.data[off]
+            else:
+                S = np.asarray(S)
+                rows, cols = np.nonzero(S > 0)
+                off = rows != cols
+                rows, cols = rows[off], cols[off]
+                data = S[rows, cols]
 
+            n = S.shape[0]
             n_classes, labels = csg.connected_components(
-                sp.csr_matrix((data, (rows, cols)), shape=A.shape), directed=True, connection='strong'
+                sp.csr_matrix((data, (rows, cols)), shape=S.shape), directed=True, connection='strong'
             )
 
-            if n_classes < A.shape[0]:
+            if n_classes < n:
                 leaving = labels[rows] != labels[cols]
-                out = np.bincount(rows[leaving], weights=data[leaving], minlength=A.shape[0])
+                out = np.bincount(rows[leaving], weights=data[leaving], minlength=n)
                 escape = np.zeros(n_classes)
                 np.maximum.at(escape, labels, out)
                 rates = np.concatenate([rates, escape[escape > 0]])
@@ -1125,6 +1133,13 @@ class MomentEvaluator:
 
         epochs, t_absorption, survival, scale, extra, extended = [], None, None, None, 0, False
 
+        # the epochs before the time of almost sure absorption, that time, and the survival and scale there are those
+        # of the first order, whose search stored them, so a higher order resumes the search at that time
+        search = th.__dict__.get('_epochs_search')
+        if k > 1 and isinstance(search, tuple):
+            prefix, t_absorption, survival, scale = search
+            epochs = list(prefix)
+
         # the state distribution propagated to the start of each finite epoch. Where the CDF there is still below the
         # absorption level, the epoch starts before the time of almost sure absorption, whose search is then spared
         w, prev = np.asarray(th.state_space.alpha, dtype=float), None
@@ -1163,7 +1178,7 @@ class MomentEvaluator:
 
             return True
 
-        for epoch in self.demography.epochs:
+        for epoch in itertools.islice(self.demography.epochs, len(epochs), None):
 
             if epoch.end_time == np.inf:
                 epochs.append(epoch)
@@ -1182,6 +1197,7 @@ class MomentEvaluator:
                 # the search is evaluated only once an epoch may start after absorption, and the survival and scale
                 # only once one does
                 t_absorption = self._get_time_to_absorption()
+                prefix = list(epochs)
 
             if epoch.start_time >= t_absorption and survival is None:
                 survival = self.tree_height._survival(t_absorption)
@@ -1212,6 +1228,9 @@ class MomentEvaluator:
 
         memo[k] = (epochs, extended)
 
+        if k == 1 and t_absorption is not None:
+            th.__dict__['_epochs_search'] = (prefix, t_absorption, survival, scale)
+
         return epochs
 
     def _absorption_certain_in_last_epoch(self, k: int = 1) -> bool:
@@ -1236,7 +1255,9 @@ class MomentEvaluator:
         if key in cache and cache[key][0] is ss:
             return cache[key][1]
 
-        certain = self._absorbs_in(self._get_epochs_until_unbounded(k))
+        # the memoized reachability and support, which leave the state space in the last epoch
+        reach = self._reaches_absorption_in_last_epoch(k)
+        certain = bool(reach.all()) or bool(reach[self._alpha_support(k) & ~ss.absorbing].all())
         cache[key] = (ss, certain)
         return certain
 
