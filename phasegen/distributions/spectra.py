@@ -15,7 +15,7 @@ from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountin
 from ._common import _make_hashable, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
-from .mutation_configs import MutationConfig, MutationLayout, MutationConfigMixin
+from .mutation_configs import MutationLayout, MutationConfigMixin
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
@@ -268,23 +268,6 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
             (len(pops), n + 1),
             ('deme', 'class')
         )
-
-    def _mutation_start(self, layout: MutationLayout, theta: float) -> MutationConfig:
-        r"""
-        The configuration from which ``get_mutation_configs()`` climbs to the most probable one,
-        :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])`.
-
-        :param layout: The layout.
-        :param theta: The mutation rate.
-        :return: The configuration.
-        """
-        if layout == self.mutation_layout():
-            mean = np.asarray(self.mean.data)[self._get_indices()]
-        else:
-            mean = [PhaseTypeDistribution.moment(self, k=1, rewards=(self._bin_reward(b),), center=False)
-                    for b in layout.bins]
-
-        return MutationConfig([max(0, int(round(theta * mu))) for mu in mean], layout)
 
     def _bin_index(self, i: int) -> int:
         """
@@ -1862,7 +1845,7 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
             "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf and their .plot()."
         )
 
-    plot_cdf = plot_pdf = bin = _no_univariate_distribution
+    plot_cdf = bin = _no_univariate_distribution
     cdf = pdf = quantile = property(_no_univariate_distribution)
 
     def _unsupported(self, *args, **kwargs) -> None:

@@ -61,8 +61,8 @@ def _assert_matches(dist, layout: pg.MutationLayout, freqs: dict, theta: float, 
 def test_joint_pooled_equals_sfs(sizes):
     """
     Merging the descendant vectors of the joint spectrum by their total gives the pooled configuration probabilities,
-    and descendant vectors that no genealogy carries together have probability zero. The descending generator starts
-    at a configuration of positive probability, where the rounded mean branch lengths give a structural zero.
+    and descendant vectors that no genealogy carries together have probability zero. The descending generator yields
+    a configuration of positive probability first.
     """
     coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(pop_sizes=sizes,
                                                                              migration_rates=MIGRATION))
@@ -183,6 +183,23 @@ def test_mutation_config_object():
         c.layout.config([1, -1, 0])
 
 
+@pytest.mark.parametrize('n, folded', [(2, False), (2, True), (3, True)])
+def test_one_bin_config_accepts_scalar(n, folded):
+    """
+    A one-bin configuration is accepted as a single count, which is how R passes a configuration of length one, for
+    the exact and the simulated spectrum.
+    """
+    coal = pg.Coalescent(n=n)
+    sfs = coal.fsfs if folded else coal.sfs
+    ms = MsprimeCoalescent(n=n, num_replicates=50, n_threads=1, parallelize=False, simulate_mutations=True,
+                           mutation_rate=1.0, seed=1)
+    ms_sfs = ms.fsfs if folded else ms.sfs
+
+    for m in (0, 1, 2.0, np.int64(3)):
+        assert sfs.get_mutation_config(m, 1.1) == sfs.get_mutation_config((int(m),), 1.1)
+        assert ms_sfs.get_mutation_config(m) == ms_sfs.get_mutation_config((int(m),))
+
+
 def test_msprime_mutation_configs_keyed_by_mutation_config():
     """
     The simulated configuration frequencies are keyed by configurations of the spectrum's default layout, which
@@ -278,3 +295,147 @@ def test_two_locus_configs_match_msprime_slow(theta, dem):
     over one and two epochs.
     """
     _check_two_locus(dem, theta, 128000, True, 6, 10)
+
+
+def test_empirical_mutation_config_lookup():
+    """
+    The simulated frequency of a configuration no replicate shows is 0, fresh, after persisting and after a
+    jsonpickle round trip, a malformed configuration raises, and lookups leave the stored frequencies unchanged.
+    """
+    ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False, simulate_mutations=True,
+                           mutation_rate=1.0, seed=1)
+    sfs = ms.sfs
+    unsampled = (50, 0, 0)
+
+    assert sfs.get_mutation_config(unsampled) == 0
+
+    for config in [(1, 2), (-1, 0, 0), (1, 0, 0, 0)]:
+        with pytest.raises(ValueError):
+            sfs.get_mutation_config(config)
+
+    configs = sfs.mutation_configs
+    assert unsampled not in configs and sum(configs.values()) == pytest.approx(1)
+
+    key = next(iter(configs))
+    for config in (key, tuple(key), list(key), np.array(key)):
+        assert sfs.get_mutation_config(config) == configs[key]
+
+    ms._touch()
+    ms._drop()
+
+    for dist in (sfs, jsonpickle.decode(jsonpickle.encode(sfs, keys=True), keys=True)):
+        assert dist.get_mutation_config(unsampled) == 0
+        assert sum(p for _, p in itertools.islice(dist.get_mutation_configs(), 3000)) == pytest.approx(1)
+        assert len(dist.mutation_configs) == len(configs)
+
+
+@pytest.mark.parametrize('dem', ONE_DEME)
+@pytest.mark.parametrize('folded', [False, True])
+def test_descending_generator_climbs_from_empty_configuration(dem, folded, monkeypatch):
+    """
+    The descending generator climbs from the empty configuration and yields the most probable configuration first.
+    """
+    coal = pg.Coalescent(n=4, demography=dem)
+    sfs = coal.fsfs if folded else coal.sfs
+    get = type(sfs).get_mutation_config
+    calls = []
+
+    def spy(self, config, theta):
+        calls.append(tuple(config))
+        return get(self, config, theta)
+
+    monkeypatch.setattr(type(sfs), 'get_mutation_config', spy)
+    config, p = next(sfs.get_mutation_configs(theta=1.0))
+
+    assert sum(calls[0]) == 0
+    assert p == pytest.approx(max(q for _, q in itertools.islice(sfs.get_mutation_configs_by_count(1.0), 200)),
+                              rel=1e-12)
+
+
+@pytest.mark.parametrize('theta', [np.inf, np.nan, -1])
+@pytest.mark.parametrize('name', ['sfs', 'fsfs', 'jsfs'])
+def test_descending_generator_rejects_invalid_theta(theta, name):
+    """The descending generator raises ValueError for a negative or non-finite theta."""
+    dist = getattr(pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)), name)
+
+    with pytest.raises(ValueError):
+        next(dist.get_mutation_configs(theta=theta))
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_layout_without_reward_in_stalled_epoch(sparse, monkeypatch):
+    """
+    A layout that leaves states without reward in a finite epoch in which those states cannot move gives the
+    probabilities of a coarser layout summed over the counts of the bins it leaves out, on the dense and the sparse
+    path.
+    """
+    monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1 if sparse else 10 ** 9)
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1}},
+                        migration_rates={('pop_0', 'pop_1'): {0: 0, 0.5: 1}, ('pop_1', 'pop_0'): {0: 0, 0.5: 1}})
+    sfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).sfs
+    default = sfs.mutation_layout()
+    sparse = pg.MutationLayout([(1,)], default.positions, default.shape, default.axes)
+    coarse = pg.MutationLayout([(1,), (2, 3)], default.positions, default.shape, default.axes)
+    theta, k_max = 0.1, 20
+
+    for m in (2, 1, 0):
+        p = sfs.get_mutation_config(sparse.config((m,)), theta)
+        ref = sum(sfs.get_mutation_config(coarse.config((m, k)), theta) for k in range(k_max + 1))
+        assert np.isfinite(p)
+        np.testing.assert_allclose(p, ref, rtol=1e-10)
+
+
+def test_folded_joint_layout_merges_complements():
+    """
+    The folded joint layout merges each descendant vector with its complement, and its probabilities are the sums of
+    the unfolded probabilities over the unfolded configurations that fold onto the configuration.
+    """
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(pop_sizes=TWO_DEME_SIZES[1],
+                                                                             migration_rates=MIGRATION))
+    unfolded = coal.jsfs.mutation_layout()
+    folded = coal.jsfs.mutation_layout(folded=True)
+
+    assert sorted(folded.bins) == [((0, 1), (2, 0)), ((1, 0), (1, 1))]
+
+    for m in [(0, 0), (1, 0), (0, 1), (2, 1)]:
+        ref = sum(coal.jsfs.get_mutation_config(c, 0.8) for c in unfolded.configs(sum(m))
+                  if folded.from_array(c.to_array()) == m)
+        np.testing.assert_allclose(coal.jsfs.get_mutation_config(folded.config(m), 0.8), ref, rtol=1e-12)
+
+    even = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(pop_sizes=TWO_DEME_SIZES[0],
+                                                                             migration_rates=MIGRATION))
+
+    assert sorted(even.jsfs.mutation_layout(folded=True).bins) == [
+        ((0, 1), (2, 1)), ((0, 2), (2, 0)), ((1, 0), (1, 2)), ((1, 1),)
+    ]
+
+
+def test_folded_two_locus_layout_merges_complements():
+    """
+    The folded two-locus layout merges the classes i and n - i of each locus, and its probabilities are the sums of
+    the unfolded probabilities over the unfolded configurations that fold onto the configuration.
+    """
+    sfs2 = pg.Coalescent(n=4, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).sfs2
+    unfolded = sfs2.mutation_layout()
+    folded = sfs2.mutation_layout(folded=True)
+
+    assert folded.bins == (((0, 1), (0, 3)), ((0, 2),), ((1, 1), (1, 3)), ((1, 2),))
+
+    for m in [(0, 0, 0, 0), (1, 0, 0, 0), (0, 1, 1, 0), (1, 0, 1, 1)]:
+        ref = sum(sfs2.get_mutation_config(c, 0.5) for c in unfolded.configs(sum(m))
+                  if folded.from_array(c.to_array()) == m)
+        np.testing.assert_allclose(sfs2.get_mutation_config(folded.config(m), 0.5), ref, rtol=1e-12)
+
+
+def test_layout_rejects_inconsistent_positions_and_shape():
+    """A layout raises ValueError for a class without a position within its shape and for an array of another shape."""
+    layout = pg.Coalescent(n=4).sfs.mutation_layout()
+
+    for positions in ({1: (1,), 2: (2,)}, {1: (1,), 2: (2,), 3: (5,)}, {1: (1,), 2: (2,), 3: (0, 3)}):
+        with pytest.raises(ValueError):
+            pg.MutationLayout(layout.bins, positions, layout.shape, layout.axes)
+
+    for counts in (np.arange(4), np.arange(10), np.zeros((2, 5))):
+        with pytest.raises(ValueError):
+            layout.from_array(counts)

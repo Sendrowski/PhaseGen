@@ -4,7 +4,7 @@ under the infinite-sites model on any state space whose rewards count the branch
 """
 import heapq
 import itertools
-from typing import Dict, Hashable, Iterator, Sequence, Tuple, TYPE_CHECKING
+from typing import Dict, Hashable, Iterator, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import numpy as np
 import scipy.sparse as sp
@@ -51,13 +51,21 @@ class MutationLayout:
         :param positions: The index of each elementary class label in the spectrum array.
         :param shape: The shape of the spectrum array.
         :param axes: The names of the axes of the spectrum array.
-        :raises ValueError: If there are no bins, a bin is empty, or a class label appears in more than one bin.
+        :raises ValueError: If there are no bins, a bin is empty, a class label appears in more than one bin, or a
+            class label has no position within ``shape``.
         """
         bins = tuple(tuple(b) for b in bins)
         labels = [label for b in bins for label in b]
 
         if not bins or any(len(b) == 0 for b in bins) or len(set(labels)) != len(labels):
             raise ValueError(f"The bins must be non-empty and disjoint, got {bins}.")
+
+        shape = tuple(int(s) for s in shape)
+
+        for label in labels:
+            pos = tuple(np.atleast_1d(positions[label])) if label in positions else None
+            if pos is None or len(pos) != len(shape) or not all(0 <= i < s for i, s in zip(pos, shape)):
+                raise ValueError(f"The class {label} needs a position within the shape {shape}, got {pos}.")
 
         #: The bins, each a tuple of the elementary class labels it merges.
         self.bins: Tuple[Tuple[Hashable, ...], ...] = bins
@@ -68,7 +76,7 @@ class MutationLayout:
         }
 
         #: The shape of the spectrum array.
-        self.shape: Tuple[int, ...] = tuple(shape)
+        self.shape: Tuple[int, ...] = shape
 
         #: The names of the axes of the spectrum array.
         self.axes: Tuple[str, ...] = tuple(axes)
@@ -122,8 +130,12 @@ class MutationLayout:
 
         :param counts: Array of shape :attr:`MutationLayout.shape <phasegen.distributions.MutationLayout.shape>`.
         :return: The configuration.
+        :raises ValueError: If ``counts`` does not have the shape of the layout or does not hold non-negative integers.
         """
         counts = np.asarray(counts)
+
+        if counts.shape != self.shape:
+            raise ValueError(f"The counts must have shape {self.shape}, got {counts.shape}.")
 
         return MutationConfig([sum(counts[self.positions[label]] for label in b) for b in self.bins], self)
 
@@ -286,6 +298,9 @@ class MutationConfigMixin:
         if isinstance(config, MutationConfig):
             return config
 
+        if np.isscalar(config):
+            config = (config,)
+
         return MutationConfig(config, self.mutation_layout())
 
     def _assert_no_window(self: 'PhaseTypeDistribution') -> None:
@@ -378,11 +393,9 @@ class MutationConfigMixin:
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. The probabilities of
           all :math:`L` count vectors are cached for the most recent layout and :math:`\theta`.
         - ``get_mutation_configs_by_count()`` yields configurations in ascending order of :math:`|\mathbf{m}|`.
-        - ``get_mutation_configs()`` climbs to the most probable configuration and expands outward with a priority
-          queue. It starts from :math:`\operatorname{round}(\theta\, \mathbb{E}[\ell_j])` on a single-locus spectrum
-          and from the empty configuration otherwise, or when the rounded means have probability zero. The order is
-          exactly descending when every other configuration has a neighbour, differing by one mutation, of at least
-          equal probability.
+        - ``get_mutation_configs()`` climbs from the empty configuration to the most probable one and expands outward
+          with a priority queue. The order is exactly descending when every other configuration has a neighbour,
+          differing by one mutation, of at least equal probability.
         - Both iterators reset ``generated_mass`` when the first configuration is requested and add each yielded
           probability to it, so one minus its value is the probability not yet yielded.
 
@@ -393,9 +406,9 @@ class MutationConfigMixin:
         Biology, 163, 62-79. https://doi.org/10.1016/j.tpb.2025.03.002
 
         :param config: A :class:`~phasegen.distributions.MutationConfig`, or one non-negative integer per bin of the
-            default layout. For :math:`n = 4`, the unfolded configuration ``[2, 1, 0]`` holds two singletons, one
-            doubleton and no tripletons, and the folded configuration ``[2, 1]`` holds two singletons or tripletons
-            and one doubleton.
+            default layout, a single integer for a one-bin layout. For :math:`n = 4`, the unfolded configuration
+            ``[2, 1, 0]`` holds two singletons, one doubleton and no tripletons, and the folded configuration ``[2, 1]``
+            holds two singletons or tripletons and one doubleton.
         :param theta: The mutation rate :math:`\theta` per unit of branch length.
         :return: The probability :math:`\mathbb{P}(\mathbf{Y} = \mathbf{m})`.
         :raises ValueError: If ``theta`` is negative or not finite, or if ``config`` does not have one non-negative
@@ -517,14 +530,15 @@ class MutationConfigMixin:
 
         :param layout: The layout.
         :return: ``(R, r_total, alpha, epochs)``: the transient bin rewards and their sum, the transient initial
-            distribution, and per epoch the dense sub-intensity matrix, the absorption-rate vector and the duration
-            (``None`` for the unbounded last epoch).
+            distribution, and per epoch the dense sub-intensity matrix, the absorption-rate vector, the duration
+            (``None`` for the unbounded last epoch) and the mask of ``_leaking_states``.
         """
         cache = self.__dict__.get('_mutation_epoch_cache', {})
         if layout in cache:
             return cache[layout]
 
         non_absorbing, alpha, R = self._mutation_rewards(layout)
+        r_total = R.sum(axis=0)
 
         epochs = []
         for epoch in self._get_epochs_until_unbounded():
@@ -533,17 +547,41 @@ class MutationConfigMixin:
             S = S.toarray() if sp.issparse(S) else np.asarray(S)
             e = -S @ np.ones(S.shape[0])
             tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
-            epochs.append((S, e, tau))
+            epochs.append((S, e, tau, self._leaking_states(S, e, r_total)))
 
         # leave the state space in the first epoch for any subsequent caller that assumes it
         self.state_space.update_epoch(self.demography.get_epoch(0))
 
-        data = (list(R), R.sum(axis=0), alpha, epochs)
+        data = (list(R), r_total, alpha, epochs)
 
         if Settings.cache:
             self.__dict__.setdefault('_mutation_epoch_cache', {})[layout] = data
 
         return data
+
+    @staticmethod
+    def _leaking_states(S: np.ndarray, e: np.ndarray, r_total: np.ndarray) -> Optional[np.ndarray]:
+        """
+        The transient states of an epoch from which the process can reach absorption or a state with positive reward.
+        The other states form closed classes without reward or absorption, which leave the epoch's lattice generator
+        singular and contribute no configuration probability.
+
+        :param S: The transient sub-intensity matrix of the epoch.
+        :param e: The absorption-rate vector of the epoch.
+        :param r_total: The total bin reward of each transient state.
+        :return: The boolean mask of these states, or ``None`` if it holds every state.
+        """
+        reach = (e > 0) | (r_total > 0)
+
+        if reach.all():
+            return None
+
+        adjacent = S != 0
+        while True:
+            expanded = reach | (adjacent @ reach)
+            if (expanded == reach).all():
+                return None if reach.all() else reach
+            reach = expanded
 
     def _get_mutation_config_inhomogeneous(
             self: 'PhaseTypeDistribution',
@@ -605,7 +643,7 @@ class MutationConfigMixin:
         v[:m] = alpha
 
         p = np.zeros(L)
-        for S, e, tau in epochs:
+        for S, e, tau, leaking in epochs:
             A = build_generator(S)
 
             if tau is None:
@@ -617,7 +655,14 @@ class MutationConfigMixin:
                 u = Backend.expm_multiply(A.T * tau, v)
             else:
                 u = v @ expm((A.toarray() if sparse else A) * tau)
-            occ = self._lu_solver(A.T, sparse)(u - v)
+
+            if leaking is None:
+                occ = self._lu_solver(A.T, sparse)(u - v)
+            else:
+                # the occupation of the closed classes enters no equation of the others and exits nowhere
+                k = np.tile(leaking, L)
+                occ = np.zeros(nt)
+                occ[k] = self._lu_solver(A[k][:, k].T, sparse)((u - v)[k])
             p += occ.reshape(L, m) @ e
             v = u
 
@@ -630,17 +675,6 @@ class MutationConfigMixin:
                 self.__dict__['_mutation_probs'] = (key, probs)
 
         return probs[tuple(config)]
-
-    def _mutation_start(self, layout: MutationLayout, theta: float) -> MutationConfig:
-        """
-        The configuration from which ``get_mutation_configs()`` climbs to the most probable one, the empty
-        configuration.
-
-        :param layout: The layout.
-        :param theta: The mutation rate.
-        :return: The configuration.
-        """
-        return MutationConfig((0,) * len(layout), layout)
 
     def get_mutation_configs_by_count(
             self: 'PhaseTypeDistribution',
@@ -710,13 +744,9 @@ class MutationConfigMixin:
                     if c[i] + step >= 0:
                         yield MutationConfig(c[:i] + (c[i] + step,) + c[i + 1:], layout)
 
-        mode = self._mutation_start(layout, theta)
+        # the empty configuration has positive probability
+        mode = MutationConfig((0,) * J, layout)
         p_mode = self.get_mutation_config(mode, theta)
-
-        # the empty configuration always has positive probability
-        if p_mode == 0:
-            mode = MutationConfig((0,) * J, layout)
-            p_mode = self.get_mutation_config(mode, theta)
 
         improved = True
         while improved:

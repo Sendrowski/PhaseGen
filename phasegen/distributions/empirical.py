@@ -5,7 +5,6 @@ statistics from the sampled realisations.
 """
 
 import logging
-from collections import defaultdict
 from ..caching import cached_property
 from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING
 import numpy as np
@@ -621,9 +620,71 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
 
 class DictContainer(dict):  # pragma: no cover
     """
-    Dictionary container.
+    Empirical marginal distributions keyed by deme name or locus index, with their covariance and correlation matrices
+    as ``cov`` and ``corr``, ordered as the keys.
     """
-    pass
+
+    #: Covariance matrix of the marginals.
+    cov: Optional[np.ndarray] = None
+
+    #: Correlation matrix of the marginals.
+    corr: Optional[np.ndarray] = None
+
+    @classmethod
+    def _of_spectra(cls, dists: dict, data: np.ndarray) -> 'DictContainer':
+        """
+        The container of marginal spectra, with the covariance and correlation of each frequency class across the
+        marginals, of shape ``(k, k, n + 1)``, ``nan`` where a marginal has zero variance.
+
+        :param dists: The marginal spectra.
+        :param data: Their branch lengths, of shape ``(k, N, n + 1)``.
+        :return: The container.
+        """
+        centered = data - data.mean(axis=1, keepdims=True)
+        cov = np.einsum('anj,bnj->abj', centered, centered) / data.shape[1]
+        sd = np.sqrt(np.einsum('aaj->aj', cov))
+
+        container = cls(dists)
+        container.cov = cov
+        with np.errstate(divide='ignore', invalid='ignore'):
+            container.corr = cov / (sd[:, None] * sd[None, :])
+
+        return container
+
+    def _index(self, key) -> int:
+        """
+        The position of a key.
+
+        :param key: Deme name or locus index.
+        :return: The position.
+        :raises ValueError: If there is no marginal of that key.
+        """
+        if key not in self:
+            raise ValueError(f"There is no marginal distribution {key}.")
+
+        return list(self).index(key)
+
+    def get_cov(self, d1, d2) -> float:
+        """
+        Get the covariance between two marginal distributions.
+
+        :param d1: Deme name or locus index of the first marginal distribution.
+        :param d2: Deme name or locus index of the second marginal distribution.
+        :return: The covariance.
+        :raises ValueError: If there is no marginal of either key.
+        """
+        return np.atleast_2d(self.cov)[self._index(d1), self._index(d2)]
+
+    def get_corr(self, d1, d2) -> float:
+        """
+        Get the correlation coefficient between two marginal distributions.
+
+        :param d1: Deme name or locus index of the first marginal distribution.
+        :param d2: Deme name or locus index of the second marginal distribution.
+        :return: The correlation coefficient.
+        :raises ValueError: If there is no marginal of either key.
+        """
+        return np.atleast_2d(self.corr)[self._index(d1), self._index(d2)]
 
 
 class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
@@ -1312,34 +1373,33 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
         """
-        Get the distribution for each deme.
+        Empirical spectrum of each deme, summed over loci, with the per-class covariance and correlation across demes
+        as ``cov`` and ``corr``.
 
         :return: Dictionary of distributions.
         :raises ValueError: If the branch lengths do not resolve the demes.
         """
         self._check_resolves_demes()
 
-        return {
-            pop: EmpiricalSFSDistribution(self._samples.sum(axis=0)[i], folded=self._folded)
-            for i, pop in enumerate(self.pops)
-        }
+        data = self._samples.sum(axis=0)
+
+        return DictContainer._of_spectra(
+            {pop: EmpiricalSFSDistribution(data[i], folded=self._folded) for i, pop in enumerate(self.pops)}, data
+        )
 
     @cached_property
     def loci(self) -> Dict[int, EmpiricalSFSDistribution]:
         """
-        Empirical spectrum of each locus, summed over demes.
+        Empirical spectrum of each locus, summed over demes, with the per-class covariance and correlation across loci
+        as ``cov`` and ``corr``.
 
         :return: Dictionary of distributions.
         """
-        loci = DictContainer({
-            i: EmpiricalSFSDistribution(self._samples[i].sum(axis=0), folded=self._folded)
-            for i in range(self._samples.shape[0])
-        })
+        data = self._samples.sum(axis=1)
 
-        loci.cov = self.loci_cov
-        loci.corr = self.loci_corr
-
-        return loci
+        return DictContainer._of_spectra(
+            {i: EmpiricalSFSDistribution(data[i], folded=self._folded) for i in range(data.shape[0])}, data
+        )
 
     @property
     def _folded(self) -> bool:
@@ -1399,11 +1459,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
                 "were dropped), so mutational configuration frequencies are unavailable."
             )
 
-        configs = defaultdict(lambda: 0)
+        configs = {}
 
         # the mutations of a replicate summed over loci and demes, as the branch lengths of the moments
         for config in self._mutations.sum(axis=(0, 1)):
-            configs[tuple(int(c) for c in config)] += 1 / self._mutations.shape[2]
+            key = tuple(int(c) for c in config)
+            configs[key] = configs.get(key, 0) + 1 / self._mutations.shape[2]
 
         if Settings.cache:
             self.__dict__['mutation_configs'] = configs
@@ -1416,10 +1477,17 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, which defines configurations.
 
-        :param config: The configuration, one mutation count per frequency class.
-        :return: The fraction of replicates showing the configuration.
+        :param config: The configuration, one mutation count per frequency class, a single count for one class.
+        :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
+        :raises ValueError: If ``config`` does not have one non-negative integer per frequency class, or the spectrum
+            carries no mutation counts.
         """
-        return self._config_frequencies()[tuple(config)]
+        frequencies = self._config_frequencies()
+
+        if not isinstance(config, MutationConfig):
+            config = self.mutation_layout().config((config,) if np.isscalar(config) else config)
+
+        return frequencies.get(tuple(config), 0)
 
     def get_mutation_configs(self) -> Iterator[Tuple[MutationConfig, float]]:
         """
@@ -2315,14 +2383,19 @@ class MsprimeCoalescent(AbstractCoalescent):
         Joint (multi-population) site-frequency spectrum ground truth, accumulated from the same simulated trees as
         the other statistics (see :meth:`simulate`), returned as an :class:`EmpiricalJointSFSDistribution`. The
         descendant configuration of a branch is the number of its sample descendants from each population (its deme of
-        origin). Only available for multi-population, single-locus scenarios.
-        """
-        self.simulate()
+        origin). Only available for multi-population, single-locus scenarios with a single lineage configuration.
 
-        if self.jsfs_moments is None:
+        :raises NotImplementedError: If there is one population or more than one locus.
+        :raises ValueError: If the lineage configurations of an initial distribution differ.
+        """
+        if self.lineage_config.n_pops < 2 or self.locus_config.n != 1:
             raise NotImplementedError(
                 "The joint SFS is only available for multi-population, single-locus scenarios."
             )
+
+        self._assert_single_lineage_config("The joint SFS")
+
+        self.simulate()
 
         return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples,
                                              n_samples=self.n_total)
