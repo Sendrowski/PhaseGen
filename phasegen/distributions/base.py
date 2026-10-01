@@ -620,7 +620,9 @@ class _LSTFunction(_HazardGrid):
         The ``(x, F)`` de Hoog nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
         They are cached on the distribution and extended when a query reaches past their end, never trimmed, so an
         answer does not depend on later queries. The march advances on the de Hoog values, because the cosine quantile
-        saturates at the end of its window.
+        saturates at the end of its window. It ends once the nodes cover the query and reach the CDF level
+        ``_tail_target``, or a query level above it, or earlier where the CDF saturates at 1 or, past that level,
+        stops rising.
 
         The anchor carries the fit's cumulative hazard :math:`H_c` at ``x_cut``, where the de Hoog hazard is
         :math:`H_d(x_\mathrm{cut})`. Every later node carries the de Hoog hazard :math:`H_d(x)` shifted by
@@ -655,12 +657,15 @@ class _LSTFunction(_HazardGrid):
         band = abs(shift) / self._join_density_tol
 
         target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
+        top = max(c for _, c in nodes[:-1]) if len(nodes) > 1 else -np.inf
         while len(nodes) < self._max_exact_nodes:
             x, cdf = nodes[-1]
-            # stop once the ladder covers the query and holds the target mass; a CDF that has saturated at 1 says
-            # nothing more about points beyond it either, so it ends the march regardless
-            if cdf >= target and (x >= x_max or cdf >= 1.0 - 1e-12):
+            # stop once the ladder covers the query and holds the target mass. A CDF that has saturated at 1, or that
+            # stops rising above the nodes before it once it holds the target mass, has reached the resolution of
+            # the inversion and says nothing more about points beyond it, so either ends the march regardless
+            if max(cdf, top) >= target and (x >= x_max or cdf >= 1.0 - 1e-12 or cdf <= top):
                 break
+            top = max(top, cdf)
             # scattered per-point values on a near-vertical rise can shrink the step towards the spacing of the
             # floats; a floor relative to ``x`` keeps the march advancing, and the growth limit then widens it again
             x_next = x + max(self._exact_step(nodes), _EXACT_STEP_FLOOR * abs(x))
@@ -1208,17 +1213,6 @@ class CallableDistributionFunctions:
         warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
                       "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
         return self.cdf.plot(*args, **kwargs)
-
-    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
-        """
-        Plot the density curve.
-
-        .. deprecated:: 2.0.0
-            Use ``pdf.plot()``. ``plot_pdf`` will be removed in a future release.
-        """
-        warnings.warn("plot_pdf() is deprecated since 2.0.0 and will be removed in a future release; "
-                      "use .pdf.plot() instead.", DeprecationWarning, stacklevel=2)
-        return self.pdf.plot(*args, **kwargs)
 
     def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
         """Warn (via this distribution's logger) if ``values`` has a substantial negative entry relative to its scale,

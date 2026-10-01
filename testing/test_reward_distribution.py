@@ -356,7 +356,7 @@ def test_two_locus_sfs_has_no_univariate_distribution():
     """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly.
     Regression: ``sfs2.cdf.plot()`` raised AttributeError."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
-    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf', 'plot_pdf'):
+    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf'):
         with pytest.raises(NotImplementedError):
             getattr(sfs2, method)(1.0)
 
@@ -997,7 +997,7 @@ def test_plot_endpoint_tracks_quantile_setting():
 
 def test_distribution_functions_are_callable_and_plottable():
     """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
-    expose ``.plot()``. The former ``plot_pdf``/``plot_cdf`` still work but warn (deprecated)."""
+    expose ``.plot()``. The former ``plot_cdf`` still works but warns (deprecated)."""
     import matplotlib
     matplotlib.use('Agg')
     from phasegen.distributions.base import DistributionFunction
@@ -1027,9 +1027,30 @@ def test_distribution_functions_are_callable_and_plottable():
 
     # deprecated aliases still work but warn
     with pytest.warns(DeprecationWarning):
-        coal.sfs.plot_pdf(show=False)
+        coal.sfs.plot_cdf(show=False)
     with pytest.warns(DeprecationWarning):
         jd.plot_cdf(show=False, n_points=12)
+
+
+def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path):
+    """``plot_cdf`` takes the keyword arguments of version 1.2.0, ``ax``, ``t``, ``show``, ``file``, ``clear``,
+    ``label`` and ``title``, and passes them to ``cdf.plot()``."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    ax = plt.figure().gca()
+    file = tmp_path / 'cdf.png'
+
+    with pytest.warns(DeprecationWarning):
+        out = pg.Coalescent(n=4).tree_height.plot_cdf(ax=ax, t=np.linspace(0, 3, 20), show=False, file=str(file),
+                                                      clear=False, label='th', title='T')
+
+    assert out is ax and ax.get_title() == 'T' and file.exists()
+    np.testing.assert_allclose(ax.lines[-1].get_xdata(), np.linspace(0, 3, 20))
+    assert ax.lines[-1].get_label() == 'th'
+    assert not hasattr(pg.Coalescent(n=4).tree_height, 'plot_pdf')
+    plt.close('all')
 
 
 def test_phasetype_distribution_exposes_cdf_pdf_quantile():
@@ -1557,21 +1578,28 @@ def test_far_tail_is_exact_not_saturated():
         assert float(d.pdf(x)) == pytest.approx(pdf_point(x), rel=1e-2), f"density past the window at q = {q}"
 
 
-def test_density_is_continuous_at_the_tail_join():
+def test_density_is_continuous_at_the_tail_join(monkeypatch):
     """The density read off the grid must not step where the de Hoog tail joins the cosine fit.
 
-    The tail is anchored at the fit's value at the cut. On the total branch length of an extreme bottleneck, the de
-    Hoog CDF sits 1.1e-3 below the fit there, and a tail made of the raw de Hoog values put that difference into the
-    first tail segment of width 6e-3: the served density fell from 0.87 to 0.66 across the cut and the pdf missed the
-    msprime reference beyond its tolerance. Shifting the de Hoog hazard onto the anchor over a band above the cut
-    keeps the density within about ten percent across the join.
+    The tail is anchored at the fit's value at the cut. Here the fit of the total branch length at n = 4 is moved
+    left by 0.2, which puts it 2.1e-3 above the de Hoog CDF at the cut. A tail made of the raw de Hoog values puts
+    that difference into its first segment, and the density falls to 0.60 of its value below the cut. Shifting the
+    de Hoog hazard onto the anchor over a band above the cut keeps the density within about ten percent across the
+    join.
     """
-    d = pg.Coalescent(
-        n=5, demography=pg.Demography(pop_sizes={0: 1, 0.3: 0.01, 1: 1})
-    ).total_branch_length._reward_distribution
+    from phasegen.distributions.base import _LSTFunction
+    build = _LSTFunction._build_cos_cdf_grid
+
+    def moved(self):
+        xs, cdf = build(self)
+        return xs, np.interp(xs + 0.2, xs, cdf)
+
+    monkeypatch.setattr(_LSTFunction, '_build_cos_cdf_grid', moved)
+    d = pg.Coalescent(n=4).total_branch_length._reward_distribution
 
     xs, cdf = d.cdf._cos_cdf_grid
     x_cut = float(np.interp(Settings.dehoog_tail_quantile, cdf, xs))
+    assert float(np.interp(x_cut, xs, cdf)) - d.cdf._cdf_point(x_cut) > 1e-3
     below, above = float(d.pdf(x_cut - 1e-9)), float(d.pdf(x_cut + 1e-9))
 
     assert above == pytest.approx(below, rel=0.15), f"the density steps from {below:.4f} to {above:.4f} at the join"
@@ -2342,6 +2370,7 @@ def test_unresolved_marginal_density_warns(caplog):
                for r in caplog.records)
 
 
+@pytest.mark.slow
 def test_truncation_warning_reports_the_estimated_error(caplog):
     """The truncation warning compares an error estimated from the convergence order with its bar, not the raw
     movement of the last half of the terms, which overstates the error about threefold. Regression: the documented
@@ -2851,9 +2880,9 @@ def test_conditional_moments_warn_when_unresolved(caplog, monkeypatch):
 
 def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
     """The density of a locus tree height jumps at the epoch times 0.1 and 0.4 below the conditioning value 0.5. With
-    the jumps subtracted, the conditional moments converge at the first truncation, and the mean agrees with that of
-    4e7 sampled paths in a window of half-width 2.5e-3, 0.79910 +- 0.00408. Regression: the moments moved by 8.6e-3
-    at the truncation 60 and converged like the inverse truncation, reaching 1.3e-3 only at 480."""
+    the jumps subtracted, the conditional moments agree over the first three truncations, and the mean agrees with
+    that of 4e7 sampled paths in a window of half-width 2.5e-3, 0.79910 +- 0.00408. Regression: the moments moved by
+    8.6e-3 at the truncation 60 and converged like the inverse truncation, reaching 1.3e-3 only at 480."""
     import logging
     from phasegen.distributions import reward
     log = logging.getLogger('phasegen')
@@ -2865,7 +2894,7 @@ def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
 
     try:
         mean = joint().conditional('a', 0.5).mean
-        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
+        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 120)
         capped = joint().conditional('a', 0.5).mean
         assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
     finally:
@@ -2914,3 +2943,93 @@ def test_cosine_window_short_of_a_recent_crash_warns(caplog):
         assert not warned(crash, cut=0.0)
     finally:
         log.removeHandler(caplog.handler)
+
+
+def test_tail_march_ends_where_the_cdf_stops_rising(monkeypatch):
+    """Past the CDF level ``_tail_target`` a de Hoog CDF at the resolution of its inversion scatters and stops rising,
+    and the exact nodes end there. The CDF of the total branch length at n = 2, 1 - exp(-x / 2), is given scatter of
+    up to 2e-7 below it. Regression: a query at 200 marched on through the scatter, every upward outlier shrinking the
+    next step, to 117 nodes ending at 91, where 47 nodes ending at 28 reach the target."""
+    from phasegen.distributions.base import _LSTFunction
+    point = _LSTFunction._cdf_point
+
+    def scattered(self, t):
+        return point(self, t) - 1e-7 * (1 + np.cos(7.3 * np.asarray(t)))
+
+    monkeypatch.setattr(_LSTFunction, '_cdf_point', scattered)
+    d = pg.Coalescent(n=2).total_branch_length._reward_distribution
+
+    assert float(d.cdf(200.0)) == pytest.approx(1.0, abs=2e-6)
+    assert len(d._lst_curve_cache['cdf_exact']) < 60
+    assert float(d.quantile(1 - 1e-6)) == pytest.approx(2 * np.log(1e6), rel=1e-2)
+
+
+def _bottleneck_moments_joint(pop_sizes: dict):
+    return pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).joint_distribution(
+        pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+
+
+def test_conditional_moments_require_three_agreeing_truncations():
+    """Under a twentyfold growth at 0.3 the conditional mean of the total branch length given the tree height 0.303
+    is 0.741151, from the derivative identity with the moments moving by 1e-7 over truncations up to 7680. Regression:
+    the truncations 30 and 60 agreed to 8.7e-4 by chance and served 0.749091, 1.1% off."""
+    assert _bottleneck_moments_joint({0: 1, 0.3: 20}).conditional('a', 0.303).mean == pytest.approx(0.741151, rel=1e-3)
+
+
+def test_conditional_variance_takes_both_moments_from_one_truncation(caplog):
+    """Under a twentyfold decline at 0.5 the conditional variance of the total branch length given the tree height
+    0.45 is 0.0162131, from the derivative identity with the moments moving by 1e-6 over truncations up to 7680. It
+    cancels in E[R^2] - E[R]^2, which amplifies the error of the moments about 150 times. At 0.45 the variance moves by
+    less than 1% between the last two truncations and is served without a warning, and at 0.7 it moves by more and a
+    warning is logged. A single epoch resolves it and logs nothing. Regression: the mean and the second moment came
+    from the truncations 60 and 240, and the variance was 0.0135173, 17% off, with no warning."""
+    joint = _bottleneck_moments_joint({0: 1, 0.5: 0.05})
+
+    with caplog.at_level('WARNING'):
+        cond = joint.conditional('a', 0.45)
+        assert cond.var == pytest.approx(0.0162131, rel=2e-3)
+    assert not [r for r in caplog.records if 'conditional variance is unresolved' in r.getMessage()]
+    assert cond.var == pytest.approx(cond.moment(2) - cond.mean ** 2, rel=1e-12)
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        assert joint.conditional('a', 0.7).var > 0
+    assert any('conditional variance is unresolved' in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        assert _bottleneck_moments_joint({0: 1}).conditional('a', 0.5).var > 0
+    assert not [r for r in caplog.records if 'unresolved' in r.getMessage()]
+
+
+def test_long_epoch_keeps_the_absorbed_mass_exact():
+    """Three lineages in a deme of size 1e-6 coalesce long before the first epoch ends at 100, about 3e8 time units of
+    the transform, so the total branch length is that of a single epoch, the sum of exponentials of rates 1 / (2N) and
+    1 / N. Regression: the Pade exponential of the epoch carried the absorbed mass as 1 - 1.1e-16, squared about 2^27
+    times, so the transform was off by 5.8e-9 on the de Hoog nodes and the CDF was 1 where the survival is 1e-6."""
+    from scipy.optimize import brentq
+
+    rates = {('pop_0', 'pop_1'): {0: 0, 100: 1}, ('pop_1', 'pop_0'): {0: 0, 100: 1}}
+    d = pg.Coalescent(n={'pop_0': 0, 'pop_1': 3}, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1e-6}}, migration_rates=rates)).total_branch_length.distribution()
+    a, b = 0.5e6, 1e6
+
+    def survival(x):
+        return (b * np.exp(-a * x) - a * np.exp(-b * x)) / (b - a)
+
+    x = brentq(lambda y: survival(y) - 1e-6, 1e-6, 1e-4, xtol=1e-14)
+    assert 1 - float(d.cdf(x)) == pytest.approx(1e-6, rel=1e-2)
+    assert float(d.quantile(1 - 1e-6)) == pytest.approx(x, rel=1e-3)
+
+
+def test_lst_taylor_validates_its_arguments():
+    """``JointRewardDistribution.lst_taylor`` raises for an axis other than ``'a'`` and ``'b'`` and for a negative order,
+    as ``JointRewardDistribution.conditional`` does for the axis. Regression: ``on='c'`` returned the coefficients of
+    ``on='b'`` and ``order=-1`` raised ZeroDivisionError."""
+    joint = pg.Coalescent(n=3).sfs.joint_distribution(1, 2)
+
+    with pytest.raises(ValueError, match='on'):
+        joint.lst_taylor(0.5, on='c')
+    with pytest.raises(ValueError, match='order'):
+        joint.lst_taylor(0.5, order=-1)
+    assert len(joint.lst_taylor(0.5, on='b', order=0)) == 1

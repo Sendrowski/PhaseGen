@@ -57,6 +57,10 @@ _MOMENT_TOL = 1e-3
 #: Largest Fourier truncation of the Euler inversion tried by ``ConditionalRewardDistribution._raw_moments``.
 _MOMENT_N0_MAX = 1920
 
+#: Relative change of the conditional variance between the last two truncations of
+#: ``ConditionalRewardDistribution._raw_moments`` above which ``ConditionalRewardDistribution.var`` warns.
+_VAR_TOL = 1e-2
+
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
 _LST_BATCH_ENTRIES = 2 ** 17
 
@@ -672,9 +676,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The coefficients :math:`[\Phi_0(s), \ldots, \Phi_J(s)]`.
         :raises NotImplementedError: If a reward does not assign one value per state, or if the coalescent has a
             bounded accumulation window.
-        :raises ValueError: If a reward is negative, or if some state carrying mass can never reach a common ancestor
-            in the final epoch.
+        :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``order`` is not a non-negative integer, if a
+            reward is negative, or if some state carrying mass can never reach a common ancestor in the final epoch.
         """
+        if on not in ('a', 'b'):
+            raise ValueError("`on` must be 'a' or 'b'.")
+        if not isinstance(order, (int, np.integer)) or order < 0:
+            raise ValueError("`order` must be a non-negative integer.")
+
         return [complex(c) for c in self._lst_taylor_batch(np.array([s], dtype=complex), on, order)[0]]
 
     def _lst_taylor_batch(self, s: np.ndarray, on: str, order: int) -> np.ndarray:
@@ -1912,28 +1921,42 @@ class ConditionalRewardDistribution(RewardDistribution):
         r"""The mean :math:`\mathbb{E}[R_o \mid R_c = v]`, with the notation of
         :class:`~phasegen.distributions.ConditionalRewardDistribution`, by the derivative identity of
         :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`
-        for :math:`v > 0`, and as :math:`-\varphi'(0)` by a central difference of the conditional transform for
-        :math:`v = 0`."""
+        for :math:`v > 0`, from the same truncation as the second moment, and as :math:`-\varphi'(0)` by a central
+        difference of the conditional transform for :math:`v = 0`."""
         if self._value == 0.0:
             return float(self._cumulants()[0])
 
-        return float(self._raw_moments(1)[0])
+        return float(self._raw_moments(2)[0])
 
     def _raw_moments(self, k: int = 2) -> list:
         """
-        The raw moments of orders ``1..k`` by the derivative identity of ``ConditionalRewardDistribution.moment``, with
-        the Taylor coefficients of ``JointRewardDistribution.lst_taylor`` inverted by the Euler-summed Fourier series of
-        the inner inversion (``_euler_series``), less the contribution of the jumps along the conditioning axis
-        (``JointRewardDistribution._jump_correction``). The truncation is doubled from ``_EULER_N0``, or next to a
-        subtracted jump from half the truncation of ``_NestedConditional._calibrate``, until no moment moves by more
-        than ``_MOMENT_TOL`` when it is halved, relative to the moment or to 1% of the same power of the root mean
-        square of the unconditional other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving
-        there is reported by a warning. Each node is evaluated once, since every truncation weights a subset of the
-        nodes of the next, and a node below the real axis takes the conjugate of the coefficients at its mirror image,
-        as they are real on the axis.
+        The raw moments of orders ``1..k`` by the derivative identity of ``ConditionalRewardDistribution.moment``, the
+        last row of ``_moment_ladder``.
 
         :param k: Highest order.
         :return: ``[E[R_o | R_c = v], ..., E[R_o^k | R_c = v]]``.
+        :raises NotImplementedError: For the atom conditional, where the identity has no continuous density to divide
+            by.
+        :raises ValueError: If the density of the conditioning reward at the value is not resolvable.
+        """
+        return [float(m) for m in self._moment_ladder(k)[1]]
+
+    def _moment_ladder(self, k: int) -> np.ndarray:
+        """
+        The raw moments of orders ``1..k`` by the derivative identity of ``ConditionalRewardDistribution.moment`` at
+        the last two truncations of the inner inversion, with the Taylor coefficients of
+        ``JointRewardDistribution.lst_taylor`` inverted by the Euler-summed Fourier series (``_euler_series``), less
+        the contribution of the jumps along the conditioning axis (``JointRewardDistribution._jump_correction``). The
+        truncation is doubled from ``_EULER_N0``, or next to a subtracted jump from half the truncation of
+        ``_NestedConditional._calibrate``, until no moment moves by more than ``_MOMENT_TOL`` over the last three
+        truncations, relative to the moment or to 1% of the same power of the root mean square of the unconditional
+        other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving there is reported by a
+        warning. Each node is evaluated once, since every truncation weights a subset of the nodes of the next, and a
+        node below the real axis takes the conjugate of the coefficients at its mirror image, as they are real on the
+        axis.
+
+        :param k: Highest order.
+        :return: The moments at the last two truncations, of shape ``(2, k)``.
         :raises NotImplementedError: For the atom conditional, where the identity has no continuous density to divide
             by.
         :raises ValueError: If the density of the conditioning reward at the value is not resolvable.
@@ -1953,42 +1976,47 @@ class ConditionalRewardDistribution(RewardDistribution):
         calibrated = getattr(self, '_nested', self).__dict__.get('_N0_calibrated')
         if calibrated and self._joint._step_errors(self._on, self._value, (calibrated,)) is not None:
             # next to a subtracted jump the doubling starts at half the calibrated truncation: below it the density in
-            # the denominator is unresolved, and two truncations there can agree by chance
+            # the denominator is unresolved
             n0 = max(n0, calibrated // 2)
+
+        # moments and density at each truncation, and the moves between consecutive truncations. Two truncations can
+        # agree by chance, so three consecutive ones must.
+        ladder, f_on, moves = [], [], []
         while True:
-            u, w = _euler_series(self._value, (n0, 2 * n0))
+            u, w = _euler_series(self._value, (n0,))
             new = np.array([x for x in u if x not in coeffs and x.imag >= 0], dtype=complex)
             if new.size:
                 vals = self._joint._lst_taylor_batch(new, self._on, k)
                 coeffs.update(zip(new, vals))
                 coeffs.update(zip(new.conj(), vals.conj()))
             inv = (w @ np.array([coeffs[x] for x in u])
-                   - self._joint._jump_correction(self._on, self._value, 0.0, (n0, 2 * n0), k)).real
-            moments = signs * inv[:, 1:] / inv[:, :1]
-            move = float(np.max(np.abs(moments[1] - moments[0]) / np.maximum(np.abs(moments[1]), floors)))
-            if move <= _MOMENT_TOL or 2 * n0 >= _MOMENT_N0_MAX:
+                   - self._joint._jump_correction(self._on, self._value, 0.0, (n0,), k)).real[0]
+            ladder.append(signs * inv[1:] / inv[0])
+            f_on.append(inv[0])
+            if len(ladder) > 1:
+                moves.append(float(np.max(np.abs(ladder[-1] - ladder[-2]) / np.maximum(np.abs(ladder[-1]), floors))))
+            if (len(moves) > 1 and max(moves[-2:]) <= _MOMENT_TOL) or n0 >= _MOMENT_N0_MAX:
                 break
             n0 *= 2
 
         # a density has units of 1 / reward, so the floor below which the inversion cannot resolve it scales like
         # 1 / E[R_on], NOT like E[R_on]: a large-N demography carries rewards of ~1e7 and so healthy densities of
         # ~1e-7, every one of which a floor proportional to the mean would reject as unresolvable
-        f_on = inv[1, 0]
-        if not f_on > 1e-12 / max(abs(float(self._joint.marginal(self._on).mean)), 1e-300):
+        if not f_on[-1] > 1e-12 / max(abs(float(self._joint.marginal(self._on).mean)), 1e-300):
             raise ValueError(
-                f"The marginal density at R_{self._on} = {self._value:g} inverts to {f_on:.3g}, so the conditional "
+                f"The marginal density at R_{self._on} = {self._value:g} inverts to {f_on[-1]:.3g}, so the conditional "
                 f"moments there cannot be normalised. The density is below the float64 resolution of the inversion, "
                 f"not necessarily zero -- condition closer to the bulk."
             )
 
+        move = max(moves[-2:])
         if Settings.check_inversions and move > _MOMENT_TOL:
             self._logger.warning(
-                "%s: the conditional moments are unresolved, moving by %.2e (bar %.0e) when the truncation of the "
-                "inner inversion is halved from N0 = %d. They may be off by about that much.", self.label, move,
-                _MOMENT_TOL, 2 * n0
+                "%s: the conditional moments are unresolved, moving by %.2e (bar %.0e) over the truncations of the "
+                "inner inversion up to N0 = %d. They may be off by about that much.", self.label, move, _MOMENT_TOL, n0
             )
 
-        return [float(m) for m in moments[1]]
+        return np.array(ladder[-2:])
 
     @cached_property
     def var(self) -> float:
@@ -1996,12 +2024,26 @@ class ConditionalRewardDistribution(RewardDistribution):
         The variance :math:`\operatorname{Var}(R_o \mid R_c = v) = \mathbb{E}[R_o^2 \mid R_c = v] - \mathbb{E}[R_o \mid
         R_c = v]^2`, with the notation of :class:`~phasegen.distributions.ConditionalRewardDistribution`, from the
         mean and the second moment of :meth:`ConditionalRewardDistribution.moment()
-        <phasegen.distributions.ConditionalRewardDistribution.moment>`, truncated at zero.
+        <phasegen.distributions.ConditionalRewardDistribution.moment>`, truncated at zero. The difference amplifies
+        the error of the moments by about :math:`2\,\mathbb{E}[R_o^2 \mid R_c = v] / \operatorname{Var}(R_o \mid R_c =
+        v)`, and a warning is logged where the variance moves by more than 1% between the last two truncations of the
+        inner inversion.
         """
         if self._value == 0.0:
             return float(self._cumulants()[1])
 
-        return max(self.moment(2) - float(self.mean) ** 2, 0.0)
+        (m1_prev, m2_prev), (m1, m2) = self._moment_ladder(2)
+        var, var_prev = m2 - m1 ** 2, m2_prev - m1_prev ** 2
+
+        if Settings.check_inversions and not abs(var - var_prev) <= _VAR_TOL * var:
+            self._logger.warning(
+                "%s: the conditional variance is unresolved, moving by %.2e relative (bar %.0e) between the last two "
+                "truncations of the inner inversion. It cancels in E[R^2] - E[R]^2, which amplifies the error of the "
+                "moments by about %.3g.", self.label, abs(var - var_prev) / abs(var) if var else np.inf, _VAR_TOL,
+                2 * m2 / var if var > 0 else np.inf
+            )
+
+        return max(float(var), 0.0)
 
     def moment(self, k: int) -> float:
         r"""
@@ -2019,8 +2061,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         :math:`s_o = 0`, from :meth:`JointRewardDistribution.lst_taylor()
         <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inverse
         transforms are the Fourier series of the inner inversion, with the truncation :math:`N` doubled until no moment
-        up to order :math:`k` moves by more than 0.1% when :math:`N` is halved, and a warning logged where one still
-        moves at the largest truncation. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
+        up to order :math:`k` moves by more than 0.1% over three consecutive truncations, and a warning logged where one
+        still moves at the largest truncation. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
         :math:`\varphi''(0)` are available, by central differences.
 
         :param k: Order :math:`k` of the moment.
@@ -2110,7 +2152,8 @@ class _AtomConditional(ConditionalRewardDistribution):
 def _expm_batch(A: np.ndarray) -> np.ndarray:
     """
     Matrix exponential of a stack ``(k, n, n)`` by Pade-13 with scaling and squaring, vectorised over the leading
-    axis, each matrix squared back up to its own scaling.
+    axis, each matrix squared back up to its own scaling. A zero row, such as that of an absorbing state, is the unit
+    row of the exponential exactly, and the squarings keep it so.
 
     :param A: The stack of matrices.
     :return: The stack of their exponentials.
@@ -2128,6 +2171,8 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
     V = (A6 @ (_PADE13[12] * A6 + _PADE13[10] * A4 + _PADE13[8] * A2)
          + _PADE13[6] * A6 + _PADE13[4] * A4 + _PADE13[2] * A2 + _PADE13[0] * I)
     R = np.linalg.solve(V - U, V + U)
+    zero = ~A.any(-1)
+    R[zero] = I[zero]
     for i in range(int(sq.max(initial=0))):
         m = sq > i
         if m.all():

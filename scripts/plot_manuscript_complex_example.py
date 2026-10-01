@@ -32,7 +32,7 @@ t = np.linspace(0, coal.tree_height.quantile(0.99), 100)
 
 coal.demography.plot(ax=axs[0, 0], show=False, t=t)
 axs[0, 0].legend(prop={'size': 6}, loc='center left')
-coal.tree_height.plot_pdf(ax=axs[0, 1], show=False)
+coal.tree_height.pdf.plot(ax=axs[0, 1], show=False)
 coal.sfs.mean.plot(ax=axs[1, 0], show=False, title='Expected SFS')
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='SFS correlations')
 

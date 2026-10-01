@@ -29,7 +29,7 @@ axs[0, 0].imshow(plt.imread("results/graphs/code/mmc_example.png"))
 axs[0, 0].axis('off')
 axs[0, 0].set_title('Python code')
 
-coal.tree_height.plot_pdf(ax=axs[0, 1], show=False)
+coal.tree_height.pdf.plot(ax=axs[0, 1], show=False)
 coal.sfs.mean.plot(ax=axs[1, 0], show=False, title='Expected SFS')
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='SFS correlations', max_abs=1)
 

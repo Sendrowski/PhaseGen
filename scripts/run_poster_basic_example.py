@@ -34,7 +34,7 @@ axs[0, 0].legend(
     framealpha=0.35
 )
 
-coal.tree_height.plot_pdf(ax=axs[0, 1], show=False)
+coal.tree_height.pdf.plot(ax=axs[0, 1], show=False)
 coal.sfs.mean.plot(ax=axs[1, 0], show=False, title='SFS')
 coal.sfs.corr.plot(ax=axs[1, 1], show=False, title='2-SFS')
 
