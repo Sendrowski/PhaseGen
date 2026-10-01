@@ -28,6 +28,7 @@
 ^\.coveragerc$
 ^\.coverage$
 ^\.readthedocs\.yaml$
+^\.git$
 ^\.github$
 ^\.idea$
 ^\.claude$

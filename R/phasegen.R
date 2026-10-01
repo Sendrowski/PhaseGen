@@ -24,16 +24,14 @@ phasegen_is_installed <- function() {
 }
 
 
-# Requirement string for the Python distribution, carrying a pinned version where one is given
+# Requirement string for the Python distribution: the pinned version where one is given, version 2.0 or later otherwise
 py_requirement <- function(version = NULL) {
 
-  spec <- "phasegen"
-
-  if (!is.null(version)) {
-    spec <- paste0(spec, "==", version)
+  if (is.null(version)) {
+    return("phasegen>=2.0")
   }
 
-  spec
+  paste0("phasegen==", version)
 }
 
 
@@ -44,8 +42,8 @@ py_requirement <- function(version = NULL) {
 
 #' Declare the `phasegen` Python module requirement
 #'
-#' Loading the package declares `phasegen`. This function declares a pinned version. The requirement is resolved when
-#' Python is first initialised, at which point reticulate provisions an environment satisfying it.
+#' Loading the package declares `phasegen>=2.0`. This function declares a pinned version. The requirement is resolved
+#' when Python is first initialised, at which point reticulate provisions an environment satisfying it.
 #'
 #' @param version A character string specifying the version of the `phasegen` module
 #'        to require. Default is `NULL` which resolves to the latest version.

@@ -10,7 +10,7 @@
 \item{x}{A \code{MutationConfig}, as yielded by \code{coal$sfs$get_mutation_configs()}.}
 }
 \value{
-The counts in bin order, a list of integers as for a plain tuple.
+The counts in bin order, an integer vector.
 }
 \description{
 Convert a mutational configuration to R

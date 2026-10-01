@@ -52,3 +52,14 @@ test_that("mutational configurations convert to integer vectors of their counts"
   expect_identical(configs[[1]][[1]], c(0L, 0L, 0L))
   expect_identical(configs[[2]][[1]], c(1L, 0L, 0L))
 })
+
+test_that("one-bin mutational configurations pass back to get_mutation_config", {
+  skip_if_not(phasegen_is_installed())
+
+  for (sfs in list(pg$Coalescent(n = 2L)$sfs, pg$Coalescent(n = 2L)$fsfs, pg$Coalescent(n = 3L)$fsfs)) {
+    for (pair in reticulate::iterate(pg$take_n(sfs$get_mutation_configs(theta = 1), 3L))) {
+      expect_length(pair[[1]], 1)
+      expect_equal(sfs$get_mutation_config(pair[[1]], theta = 1), pair[[2]], tolerance = 1e-14)
+    }
+  }
+})
