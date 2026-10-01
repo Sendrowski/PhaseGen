@@ -316,4 +316,6 @@ __all__ = [
     'JaxExpmBackend',
     'PyTorchExpmBackend',
     'Settings',
+    'take_n',
+    'takewhile_inclusive',
 ]

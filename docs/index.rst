@@ -40,6 +40,7 @@ Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/in
    modules/state_space
    modules/spectrum
    modules/settings
+   modules/utils
 
 .. toctree::
    :caption: Miscellaneous

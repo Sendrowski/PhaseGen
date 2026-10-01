@@ -25,7 +25,7 @@ pg <- load_phasegen()
 
 +++
 ## Joint site-frequency spectrum
-For multiple populations, {meth}`~phasegen.distributions.Coalescent.jsfs` gives the joint (multi-population) SFS: the expected branch length subtending each configuration of derived-allele counts per population (the deme of origin). For ``P`` populations it is a ``P``-dimensional {class}`~sfsutils.spectrum.JointSFS` of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, with higher moments available via {meth}`moment(k) <phasegen.distributions.JointSFSDistribution.moment>`, {meth}`var <phasegen.distributions.JointSFSDistribution.var>` and {meth}`cov <phasegen.distributions.JointSFSDistribution.cov>`. It is restricted to a single locus, and the state space grows quickly with the per-population sample sizes, which therefore need to remain small.
+For multiple populations, {attr}`~phasegen.distributions.Coalescent.jsfs` gives the joint (multi-population) SFS: the expected branch length subtending each configuration of derived-allele counts per population (the deme of origin). For ``P`` populations it is a ``P``-dimensional {class}`~sfsutils.spectrum.JointSFS` of shape ``(n_0 + 1, ..., n_{P-1} + 1)``, with higher moments available via {meth}`moment(k) <phasegen.distributions.JointSFSDistribution.moment>`, {attr}`var <phasegen.distributions.JointSFSDistribution.var>` and {attr}`cov <phasegen.distributions.JointSFSDistribution.cov>`. It is restricted to a single locus, and the state space grows quickly with the per-population sample sizes, which therefore need to remain small.
 
 ```{code-cell} python
 # a two-population demography with a population-size change and asymmetric migration
@@ -147,9 +147,9 @@ stopifnot(coal$tree_height$mean > linked)
 
 +++
 ## Two-locus SFS under recombination
-For two loci separated by recombination rate ``r``, {meth}`~phasegen.distributions.Coalescent.sfs2` gives the two-locus SFS, whose entry ``(i, j)`` is the expected product of the branch length subtending ``i`` samples at locus 0 and ``j`` samples at locus 1. Its mean and correlation are {class}`~sfsutils.spectrum.TwoLocusSFS` objects, and it interpolates between the within-tree SFS covariance at ``r = 0`` (fully linked) and independent loci as ``r → ∞`` (for the standard coalescent). The starting linkage is set via the {class}`~phasegen.locus.LocusConfig` ``n_unlinked``. A single population is supported, and the state space grows quickly with the sample size.
+For two loci separated by recombination rate ``r``, {attr}`~phasegen.distributions.Coalescent.sfs2` gives the two-locus SFS, whose entry ``(i, j)`` is the expected product of the branch length subtending ``i`` samples at locus 0 and ``j`` samples at locus 1. Its mean and correlation are {class}`~sfsutils.spectrum.TwoLocusSFS` objects, and it interpolates between the within-tree SFS covariance at ``r = 0`` (fully linked) and independent loci as ``r → ∞`` (for the standard coalescent). The starting linkage is set via the {class}`~phasegen.locus.LocusConfig` ``n_unlinked``. A single population is supported, and the state space grows quickly with the sample size.
 
-The single- and two-locus spectra apply to different locus configurations. {meth}`~phasegen.distributions.Coalescent.sfs2` requires exactly two loci, while the single-locus {meth}`~phasegen.distributions.Coalescent.sfs` requires one. Its marginal mean does not depend on the recombination rate, so the SFS of one of two loci equals that of a coalescent with a single locus.
+The single- and two-locus spectra apply to different locus configurations. {attr}`~phasegen.distributions.Coalescent.sfs2` requires exactly two loci, while the single-locus {attr}`~phasegen.distributions.Coalescent.sfs` requires one. Its marginal mean does not depend on the recombination rate, so the SFS of one of two loci equals that of a coalescent with a single locus.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -219,7 +219,7 @@ Beyond full spectra, several standard scalar summaries are available directly fr
 
 - Population structure: Hudson's {attr}`Coalescent.fst <phasegen.distributions.Coalescent.fst>` and Patterson's f-statistics ({meth}`~phasegen.distributions.Coalescent.f2`, {meth}`~phasegen.distributions.Coalescent.f3`, {meth}`~phasegen.distributions.Coalescent.f4`), all derived from inter-population pairwise coalescence times.
 - Linkage: the correlation of coalescence times between two loci ({meth}`tree_height.loci.get_corr <phasegen.distributions.MarginalLocusDistributions.get_corr>`), which decays towards zero as the recombination rate grows (for the standard coalescent).
-- SFS skew: Tajima's {meth}`~phasegen.distributions.UnfoldedSFSDistribution.tajimas_d`, together with the underlying {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_pi` and {meth}`~phasegen.distributions.UnfoldedSFSDistribution.theta_w` estimators.
+- SFS skew: Tajima's {attr}`~phasegen.distributions.UnfoldedSFSDistribution.tajimas_d`, together with the underlying {attr}`~phasegen.distributions.UnfoldedSFSDistribution.theta_pi` and {attr}`~phasegen.distributions.UnfoldedSFSDistribution.theta_w` estimators.
 
 We illustrate them on a relatively complex scenario: a structured three-population demography with asymmetric population sizes and migration.
 

@@ -3,7 +3,7 @@
 Changelog
 =========
 
-[2.0.0] - 2026-07-10
+[2.0.0] - Unreleased
 ^^^^^^^^^^^^^^^^^^^^
 - Start the coalescent from a weighted mixture of lineage or locus configurations with :class:`~phasegen.initial.InitialDistribution`, accepted as ``n`` and ``loci`` by :class:`~phasegen.distributions.Coalescent` and :class:`~phasegen.distributions.MsprimeCoalescent`.
 - Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` slices.
@@ -34,10 +34,13 @@ Changelog
 - Rename ``SFS2`` to :class:`~sfsutils.spectrum.TwoSFS` and replace the ``fastdfe`` dependency with ``sfsutils-popgen``, whose :mod:`sfsutils` module provides the spectrum classes.
 - Replace ``TotalBranchLengthLocusReward`` with :class:`~phasegen.rewards.RestrictedReward`.
 - Remove ``Settings.cache_epochs`` and ``Inference.loss_runs``, and raise ``AttributeError`` when assigning an undeclared name on :class:`~phasegen.settings.Settings`.
+- Remove ``plot_pdf`` and the tuning arguments of ``pdf`` and ``quantile``.
+- Return central moments by default from :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+- Fix bugs affecting population splits, F_ST and :meth:`Coalescent.accumulate() <phasegen.distributions.Coalescent.accumulate>`.
 
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
-- Add the cross-locus correlation of the two-locus SFS via :meth:`TwoLocusSFSDistribution.corr() <phasegen.distributions.TwoLocusSFSDistribution.corr>`.
+- Add the cross-locus correlation of the two-locus SFS via :attr:`TwoLocusSFSDistribution.corr <phasegen.distributions.TwoLocusSFSDistribution.corr>`.
 - Build large rate matrices sparsely with an explicit state-space size cap (:attr:`Settings.dense_rate_matrix_max_states <phasegen.settings.Settings.dense_rate_matrix_max_states>`, :attr:`Settings.max_state_space_size <phasegen.settings.Settings.max_state_space_size>`).
 - Evaluate the final unbounded epoch in closed form by default and batch the per-bin spectrum solves, substantially speeding up SFS/jSFS/2-SFS moments (:attr:`Settings.closed_form_last_epoch <phasegen.settings.Settings.closed_form_last_epoch>`).
 - Compute the single-population standard-coalescent SFS flattening weights in closed form, avoiding the partition-sized block-counting state space, so large-``n`` SFS (and SFS-based inference) is much faster.
@@ -49,9 +52,9 @@ Changelog
 
 [1.1.0] - 2026-06-10
 ^^^^^^^^^^^^^^^^^^^^
-- Add the joint (multi-population) site-frequency spectrum via :meth:`Coalescent.jsfs() <phasegen.distributions.Coalescent.jsfs>`.
-- Add the two-locus site-frequency spectrum under recombination via :meth:`Coalescent.sfs2() <phasegen.distributions.Coalescent.sfs2>`, with support for multiple-merger coalescents.
-- Add summary statistics: Hudson's :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>`, Patterson's f-statistics (:meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`, :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`, :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`), Tajima's :meth:`UnfoldedSFSDistribution.tajimas_d() <phasegen.distributions.UnfoldedSFSDistribution.tajimas_d>` with the :meth:`UnfoldedSFSDistribution.theta_pi() <phasegen.distributions.UnfoldedSFSDistribution.theta_pi>` and :meth:`UnfoldedSFSDistribution.theta_w() <phasegen.distributions.UnfoldedSFSDistribution.theta_w>` estimators, and cross-locus linkage via the correlation of coalescence times.
+- Add the joint (multi-population) site-frequency spectrum via :attr:`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>`.
+- Add the two-locus site-frequency spectrum under recombination via :attr:`Coalescent.sfs2 <phasegen.distributions.Coalescent.sfs2>`, with support for multiple-merger coalescents.
+- Add summary statistics: Hudson's :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>`, Patterson's f-statistics (:meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`, :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`, :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`), Tajima's :attr:`UnfoldedSFSDistribution.tajimas_d <phasegen.distributions.UnfoldedSFSDistribution.tajimas_d>` with the :attr:`UnfoldedSFSDistribution.theta_pi <phasegen.distributions.UnfoldedSFSDistribution.theta_pi>` and :attr:`UnfoldedSFSDistribution.theta_w <phasegen.distributions.UnfoldedSFSDistribution.theta_w>` estimators, and cross-locus linkage via the correlation of coalescence times.
 - Accelerate state-space construction with `numba <https://numba.pydata.org/>`__, which is now a required dependency.
 - Compute moments of large state spaces from the sparse action of the matrix exponential (threaded over epochs), controlled by :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`.
 - Validate the new statistics against msprime/tskit ground truth, including within the scenario-comparison workflow (Kingman and multiple-merger models, and beyond the two-lineage case).
