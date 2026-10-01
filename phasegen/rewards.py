@@ -898,9 +898,17 @@ class CompositeReward(Reward, ABC):
 
         :param rewards: Rewards to composite
         :raises ValueError: If no reward is given.
+        :raises TypeError: If a member is not a :class:`Reward`.
         """
         if len(rewards) == 0:
             raise ValueError(f"{self.__class__.__name__} needs at least one reward.")
+
+        for reward in rewards:
+            if not isinstance(reward, Reward):
+                raise TypeError(
+                    f"{self.__class__.__name__} members must be {Reward.__name__} instances, "
+                    f"but got {type(reward).__name__}."
+                )
 
         self.rewards: List[Reward] = rewards
 

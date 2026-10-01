@@ -8,6 +8,11 @@ from typing import Any, Iterable
 
 import numpy as np
 from ._likelihood import Likelihood as _Likelihood
+from .errors import ModelError
+
+#: Magnitude, relative to the largest modelled magnitude, up to which a negative modelled value is taken as round-off
+#: and clamped to zero
+_NEGATIVE_RTOL = 1e-10
 
 
 class Norm(ABC):
@@ -121,7 +126,29 @@ class Likelihood(Norm, ABC):
     """
     Abstract class for likelihoods.
     """
-    pass
+
+    @staticmethod
+    def _check_signs(observed: np.ndarray, modelled: np.ndarray) -> np.ndarray:
+        """
+        Check that the observed counts are non-negative and the modelled values are non-negative up to round-off.
+
+        :param observed: Observed counts.
+        :param modelled: Modelled values.
+        :return: The modelled values, those negative within round-off of zero set to zero.
+        :raises ValueError: If an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off, relative to the largest modelled
+            magnitude.
+        """
+        if np.any(observed < 0):
+            raise ValueError(f'Observed counts must be non-negative, got minimum {np.min(observed)}.')
+
+        if np.any(modelled < 0):
+            if np.min(modelled) < -_NEGATIVE_RTOL * np.max(np.abs(modelled)):
+                raise ModelError(f'Modelled values must be non-negative, got minimum {np.min(modelled)}.')
+
+            return np.maximum(modelled, 0)
+
+        return modelled
 
 
 class PoissonLikelihood(Likelihood):
@@ -146,7 +173,8 @@ class PoissonLikelihood(Likelihood):
         :param observed: Observed value or values.
         :param modelled: Modelled value or values.
         :return: A numerical value representing the difference between the two values.
-        :raises ValueError: If the observed and modelled values differ in shape.
+        :raises ValueError: If the observed and modelled values differ in shape, or an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off.
         """
         # special case: single value
         if not isinstance(observed, Iterable) or not isinstance(modelled, Iterable):
@@ -155,6 +183,7 @@ class PoissonLikelihood(Likelihood):
         observed = np.array(list(observed))
         modelled = np.array(list(modelled))
         self._check_shapes(observed, modelled)
+        modelled = self._check_signs(observed, modelled)
 
         return - _Likelihood.log_poisson(mu=modelled, k=observed).sum()
 
@@ -183,11 +212,13 @@ class MultinomialLikelihood(Likelihood):
         :param observed: Observed counts per category.
         :param modelled: Modelled values (will be normalized to probabilities).
         :return: Negative log-likelihood as a float.
-        :raises ValueError: If the observed and modelled values differ in shape.
+        :raises ValueError: If the observed and modelled values differ in shape, or an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off.
         """
         observed = np.array(list(observed))
         modelled = np.array(list(modelled))
         self._check_shapes(observed, modelled)
+        modelled = self._check_signs(observed, modelled)
 
         modelled = modelled / max(modelled.sum(), np.finfo(float).tiny)
 

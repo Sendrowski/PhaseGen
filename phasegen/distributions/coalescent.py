@@ -257,10 +257,10 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | LineageConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig | InitialDistribution,
             model: CoalescentModel = None,
             demography: Demography = None,
-            loci: int | LocusConfig = 1,
+            loci: int | LocusConfig | InitialDistribution = 1,
             recombination_rate: float = None,
             start_time: float = 0,
             end_time: float = None,
@@ -270,14 +270,20 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
-            Alternatively, a :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            Alternatively, a :class:`~phasegen.lineage.LineageConfig` object, or an
+            :class:`~phasegen.initial.InitialDistribution` over lineage configurations, can be passed.
         :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
-        :param loci: Number of loci or locus configuration.
+        :param loci: Number of loci, locus configuration, or :class:`~phasegen.initial.InitialDistribution` over
+            locus configurations.
         :param recombination_rate: Recombination rate.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily long end times can lead to numerical errors.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
+        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel`,
+            ``demography`` is not a :class:`~phasegen.demography.Demography`, or an initial distribution passed as
+            ``n`` or ``loci`` holds the other kind of configuration.
         """
         super().__init__(
             n=n,
@@ -624,12 +630,16 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :return: Distribution.
         :raises ValueError: if a single :class:`~phasegen.rewards.Reward` is passed instead of a sequence.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         if isinstance(rewards, Reward):
             raise ValueError(
                 f"rewards must be a sequence of {k} rewards, but a single {Reward.__name__} instance was given. "
                 f"Wrap it in a list, e.g. rewards=[reward]."
             )
+
+        for i, reward in enumerate(rewards or []):
+            _validate_reward(reward, f"rewards[{i}]")
 
         # an order of zero has no rewards, and its moment of one is taken on the tree-height distribution
         if not rewards:
@@ -743,6 +753,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
         :raises ValueError: if ``k`` is not integral or is negative.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
 
@@ -778,6 +789,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the coalescent.
         :return: The moment at each end time.
         :raises ValueError: if ``k`` is not integral or is negative.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
 
@@ -823,6 +835,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param title: Title of the plot.
         :return: Axes.
         :raises ValueError: if ``k`` is not integral or is negative.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
 

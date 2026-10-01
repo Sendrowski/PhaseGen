@@ -938,3 +938,21 @@ def test_state_reward_validates_its_index():
 
     with pytest.raises(ValueError, match='does not exist'):
         pg.Coalescent(n=4).moment(1, rewards=[pg.StateReward(1000)])
+
+
+def test_composite_reward_and_rewards_sequence_reject_non_rewards():
+    """Regression: a non-Reward member of a composite reward or of ``rewards`` leaked an AttributeError."""
+    for cls in [pg.SumReward, pg.ProductReward, pg.CombinedReward]:
+        with pytest.raises(TypeError, match='Reward'):
+            cls([pg.TreeHeightReward(), 'tree_height'])
+
+    with pytest.raises(TypeError, match='Reward'):
+        pg.RestrictedReward('tree_height', locus=0)
+
+    coal = pg.Coalescent(n=3)
+
+    with pytest.raises(TypeError, match=r'rewards\[1\]'):
+        coal.moment(2, rewards=[pg.TreeHeightReward(), 'tree_height'])
+
+    with pytest.raises(TypeError, match=r'rewards\[0\]'):
+        coal.accumulate(1, end_times=[1.0], rewards=['tree_height'])

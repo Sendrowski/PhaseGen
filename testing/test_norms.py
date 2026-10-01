@@ -205,3 +205,18 @@ class NormTestCase(unittest.TestCase):
         actual_result = pg.MultinomialLikelihood().compute(observed, [2, 3, 5])
 
         self.assertAlmostEqual(expected_result, actual_result, places=7)
+
+    def test_likelihood_sign_validation(self):
+        """
+        A negative modelled value within round-off is clamped to zero, a larger one raises ModelError, and a
+        negative observed count raises ValueError. All three gave NaN with a numpy warning, or a silent value.
+        """
+        for compute in [pg.PoissonLikelihood().compute, pg.MultinomialLikelihood().compute]:
+            with np.errstate(all='raise'):
+                self.assertEqual(compute([2, 3, 0], [2., 3., -1e-18]), compute([2, 3, 0], [2., 3., 0.]))
+
+            with self.assertRaises(pg.ModelError):
+                compute([2, 3, 0], [2., 3., -1e-3])
+
+            with self.assertRaises(ValueError):
+                compute([2, -3, 0], [2., 3., 1.])

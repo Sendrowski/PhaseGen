@@ -182,10 +182,11 @@ def test_invalid_uses_raise():
         pg.Coalescent(n=2, loci=pg.InitialDistribution([(1, pg.LocusConfig(n=2, n_unlinked=3))]))
 
     with pytest.raises(ValueError):
-        _ = pg.Coalescent(n=lineages).jsfs
+        _ = pg.Coalescent(n=lineages, demography=_two_deme_demography()).jsfs
 
-    with pytest.raises(ValueError):
-        _ = pg.Coalescent(n=lineages).fst
+    # migration makes F_ST evaluable, so only the single-configuration guard raises
+    with pytest.raises(ValueError, match='single lineage configuration'):
+        _ = pg.Coalescent(n=lineages, demography=_two_deme_demography()).fst
 
 
 def test_msprime_agrees_with_mixture_over_deme_placements():

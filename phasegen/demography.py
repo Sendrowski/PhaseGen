@@ -1300,8 +1300,13 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         :param start_time: Start times of the events. A single value or a dictionary mapping keys to values.
         :param end_time: End times of the events.
         :param step_size: Step size used for the discretization.
-        :raises ValueError: If a key is neither a population name nor a (source, destination) pair of population names.
+        :raises ValueError: If ``trajectory`` is empty, a key is neither a population name nor a (source, destination)
+            pair of population names, or a dictionary-valued ``start_time`` or ``end_time`` lacks a key of
+            ``trajectory``.
         """
+        if len(trajectory) == 0:
+            raise ValueError('At least one trajectory must be given.')
+
         #: Discretized rate change events.
         self.events = {}
         for k in trajectory:
@@ -1311,8 +1316,8 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
 
             self.events[k] = DiscretizedRateChange(
                 trajectory=trajectory[k],
-                start_time=start_time[k] if isinstance(start_time, dict) else start_time,
-                end_time=end_time[k] if isinstance(end_time, dict) else end_time,
+                start_time=self._get_value(start_time, k, 'start_time'),
+                end_time=self._get_value(end_time, k, 'end_time'),
                 pop=k if isinstance(k, str) else None,
                 source=k[0] if isinstance(k, tuple) else None,
                 dest=k[1] if isinstance(k, tuple) else None,
@@ -1327,6 +1332,25 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
 
         #: End time of the event.
         self.end_time: float = max([e.end_time for e in self.events.values()])
+
+    @staticmethod
+    def _get_value(value: Dict[Any, float] | float, k: Any, name: str) -> float:
+        """
+        The value of a parameter for a key, given either as a single value or as a dictionary over the keys.
+
+        :param value: A single value or a dictionary mapping keys to values.
+        :param k: Key.
+        :param name: Name of the parameter, used in the error message.
+        :return: The value for ``k``.
+        :raises ValueError: If ``value`` is a dictionary without the key ``k``.
+        """
+        if not isinstance(value, dict):
+            return value
+
+        if k not in value:
+            raise ValueError(f'{name} has no entry for {k!r}.')
+
+        return value[k]
 
     def _broadcast(self, epoch: Epoch) -> None:
         """
@@ -1396,6 +1420,8 @@ class ExponentialRateChanges(DiscretizedRateChanges):
         :param start_time: Start times of the growth. A single value or a dictionary mapping keys to values.
         :param end_time: End times of the growth.
         :param step_size: Step size used for the discretization.
+        :raises ValueError: If ``initial_rate`` is empty, or a dictionary-valued ``growth_rate``, ``start_time`` or
+            ``end_time`` lacks a key of ``initial_rate``.
         """
 
         def get_trajectory(k: Any) -> '_ExponentialTrajectory':
@@ -1405,8 +1431,8 @@ class ExponentialRateChanges(DiscretizedRateChanges):
             :param k: Key.
             :return: Trajectory, a callable of the time.
             """
-            g = growth_rate[k] if isinstance(growth_rate, dict) else growth_rate
-            t0 = start_time[k] if isinstance(start_time, dict) else start_time
+            g = self._get_value(growth_rate, k, 'growth_rate')
+            t0 = self._get_value(start_time, k, 'start_time')
             x0 = initial_rate[k] if isinstance(initial_rate, dict) else initial_rate
 
             return _ExponentialTrajectory(x0=x0, g=g, t0=t0)
@@ -1441,6 +1467,8 @@ class ExponentialPopSizeChanges(ExponentialRateChanges):
         :param start_time: Start times of the growth. A single value or a dictionary mapping keys to values.
         :param end_time: End times of the growth.
         :param step_size: Step size used for the discretization.
+        :raises ValueError: If ``initial_size`` is empty, or a dictionary-valued ``growth_rate``, ``start_time`` or
+            ``end_time`` lacks a population of ``initial_size``.
         """
         super().__init__(
             initial_rate=initial_size,

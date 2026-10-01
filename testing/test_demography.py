@@ -1039,3 +1039,18 @@ def test_discretized_rate_change_rejects_pop_with_migration():
     trajectory."""
     with pytest.raises(ValueError, match='not both'):
         pg.DiscretizedRateChange(trajectory=lambda t: 1, start_time=0, end_time=1, pop='a', source='a', dest='b')
+
+
+def test_rate_changes_reject_missing_dict_keys():
+    """Regression: a dictionary-valued growth rate, start time or end time missing a key raised a bare KeyError,
+    and an empty trajectory a ValueError about ``min()``."""
+    for kwargs in [dict(growth_rate={'b': 1}, start_time=0), dict(growth_rate=1, start_time={'b': 0}),
+                   dict(growth_rate=1, start_time=0, end_time={'b': 1})]:
+        with pytest.raises(ValueError, match="no entry for 'a'"):
+            pg.ExponentialPopSizeChanges(initial_size={'a': 1}, **kwargs)
+
+    with pytest.raises(ValueError, match='At least one trajectory'):
+        pg.DiscretizedRateChanges(trajectory={}, start_time=0)
+
+    with pytest.raises(ValueError, match="no entry for 'a'"):
+        pg.DiscretizedRateChanges(trajectory={'a': lambda t: 1}, start_time={'b': 0})
