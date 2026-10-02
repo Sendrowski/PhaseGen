@@ -185,13 +185,17 @@ class StateSpace(ABC):
 
     def _warn_if_large(self, n_states: int) -> None:
         """
-        Warn once, at the appropriate severity, if the state space is large; computation time (and the dense
-        rate-matrix memory, which grows as ``n_states**2``) grow steeply with the number of states. The size is
-        already known here, so a single warning at the highest crossed threshold is emitted (not one per threshold).
+        Warn once, at the highest severity whose threshold the number of states reaches. Means stay fast at any size,
+        while the cost of second-order statistics grows steeply with the number of states.
+
+        :param n_states: The number of states.
         """
-        for threshold, level in ((25000, 'extremely slow'), (5000, 'very slow'), (1000, 'slow')):
+        for threshold, level in ((50000, 'extremely slow'), (15000, 'very slow'), (5000, 'slow')):
             if n_states >= threshold:
-                self._logger.warning(f'State space is large ({n_states} states). Computations may be {level}.')
+                self._logger.warning(
+                    "State space is large (%d states). Second-order statistics such as var and cov may be %s.",
+                    n_states, level
+                )
                 break
 
     @cached_property
