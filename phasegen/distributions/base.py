@@ -179,15 +179,16 @@ class QuantileFunction(DistributionFunction):
     .. rubric:: Cumulative-hazard grid
 
     The analytic distributions carry the cumulative hazard :math:`H(x) = -\log(1 - F(x))` on a grid of nodes and
-    interpolate it linearly, which is exact for an exponential tail. With :math:`\hat H` the interpolant,
+    interpolate it, which is exact for an exponential tail. With :math:`\hat H` the interpolant,
 
     .. math::
 
         F^{-1}(q) = \hat H^{-1}\big(-\log(1 - q)\big).
 
-    The tree height evaluates its CDF and density pointwise (see
-    :class:`~phasegen.distributions.TreeHeightDistribution`). Any other accumulated reward reads them from the same
-    grid (see :class:`~phasegen.distributions.RewardDistribution`), as :math:`F = 1 - e^{-\hat H}` and
+    The tree height interpolates :math:`H` by cubic Hermite polynomials and evaluates its CDF and density pointwise
+    (see :class:`~phasegen.distributions.TreeHeightDistribution`). Any other accumulated reward interpolates
+    :math:`H` linearly and reads its CDF and density from the same grid (see
+    :class:`~phasegen.distributions.RewardDistribution`), as :math:`F = 1 - e^{-\hat H}` and
     :math:`f = e^{-\hat H} \hat H'`, so that its quantile inverts its CDF exactly and its density is non-negative.
 
     .. rubric:: Implementation

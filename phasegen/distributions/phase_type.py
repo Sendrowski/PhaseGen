@@ -2,6 +2,7 @@
 
 import itertools
 import logging
+import math
 import warnings
 from ..caching import cached_property
 from typing import Tuple, Iterable, Sequence, Union, TYPE_CHECKING
@@ -751,85 +752,173 @@ class _ExpmFunction(_HazardGrid):
     Grid of the tree-height quantile, described at ``TreeHeightDistribution``. The cdf and pdf evaluate
     ``TreeHeightDistribution._sweep`` pointwise and do not read the grid.
     """
-    #: Number of grid nodes :math:`K`.
-    _n_grid: int = 8192
+    #: Tolerance :math:`\epsilon` of the bisection, about the largest relative error of a quantile and of its
+    #: cumulative hazard.
+    _quantile_tol: float = 1e-8
 
-    #: Number of octaves :math:`J` of the locating pass below ``t_max``, and its nodes per octave.
-    _n_probe_octaves: int = 30
-    _n_probe_per_octave: int = 16
+    #: Cumulative hazard up to which a segment is accepted without test.
+    _min_hazard: float = float(np.finfo(float).eps)
 
-    #: Step between the segment bounds of the second pass, in cumulative hazard above one and in its logarithm below.
-    _segment_hazard_step: float = 1.0
-
-    #: Smallest cumulative hazard that bounds a segment of the second pass.
-    _min_segment_hazard: float = float(np.finfo(float).eps)
-
-    #: Number of probe intervals of the locating pass that are additionally bounded, the steepest in cumulative
-    #: hazard, and the share of ``_segment_hazard_step`` an interval must gain to qualify.
-    _n_refine: int = 64
-    _refine_hazard_share: float = 0.125
+    #: Largest number of bisections of an epoch.
+    _max_depth: int = 64
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
-        """The grid over ``[0, t_max]``, built once. The arguments are ignored, the grid always spans the support."""
+        """The grid over ``[0, t_max]``, built once. The arguments are ignored."""
         return self._shared('expm_cdf_grid', self._build_cdf_grid)
-
-    def _steep_bounds(self, nodes: np.ndarray, hazard: np.ndarray) -> set:
-        """
-        The ends of the ``_n_refine`` intervals of ``nodes`` across which the cumulative hazard rises most, among
-        those gaining more than ``_refine_hazard_share`` of ``_segment_hazard_step``.
-
-        :param nodes: Ascending times.
-        :param hazard: Cumulative hazard on them, ascending.
-        :return: Times to bound a segment at.
-        """
-        jumps = np.diff(hazard)
-        steep = np.argsort(jumps)[-self._n_refine:]
-        steep = steep[jumps[steep] > self._segment_hazard_step * self._refine_hazard_share]
-
-        return set(nodes[steep]) | set(nodes[steep + 1])
 
     def _build_cdf_grid(self) -> tuple:
         """
-        Build the two-pass grid described at ``TreeHeightDistribution``.
+        Build the grid by bisecting each epoch below ``t_max``, as described at ``TreeHeightDistribution``.
 
-        :return: The nodes and the cumulative hazard on them.
+        :return: The nodes, the cumulative hazard on them, and the hazard rate at the left and at the right end of
+            each segment between them.
         """
         d = self._distribution
         t_max = float(d.t_max)
+        e = np.asarray(d._e, dtype=float)
+        eps = float(np.finfo(float).eps)
 
-        # pass 1 (locate): octaves down from t_max, uniform within each, so one exponential covers each octave
-        octaves = [0.0] + [t_max * 2.0 ** -k for k in range(self._n_probe_octaves, -1, -1)]
-        x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
+        # the largest cumulative hazard a level below 1 maps to
+        h_top = float(self._hazard(1.0))
 
-        # where the CDF is exactly zero up to an epoch start, as behind a migration barrier, the octaves are taken
-        # down from t_max to the largest such start
-        positive = x_probe[cdf_probe > 0]
-        starts = np.array(sorted(e.start_time for e in d._get_epochs_until_unbounded()
-                                 if 0.0 < e.start_time < (positive[0] if positive.size else t_max)))
-        zero = starts[d._sweep(starts)[0] == 0] if starts.size else starts
-        if zero.size:
-            s = float(zero[-1])
-            octaves = [0.0, s] + [s + (t_max - s) * 2.0 ** -k for k in range(self._n_probe_octaves, -1, -1)]
-            x_probe, cdf_probe, _ = d._sweep_uniform(octaves, self._n_probe_per_octave * len(octaves))
+        epochs = itertools.takewhile(lambda ep: ep.start_time < t_max, d.demography.epochs)
+        bounds = [float(ep.start_time) for ep in epochs] + [t_max]
 
-        h_probe = np.maximum.accumulate(self._hazard(cdf_probe))
+        w = np.asarray(d.state_space.alpha, dtype=float)
+        nodes, hazard, left, right = [0.0], [float(self._hazard(d._cum(w)))], [], []
 
-        # pass 2 (resolve): segment bounds at equal steps of that hazard above one and at equal steps of its logarithm
-        # below, down to the smallest resolved hazard, plus the epoch kinks
-        step = self._segment_hazard_step
-        h_min = max(h_probe[h_probe > 0][0], self._min_segment_hazard)
-        levels = np.concatenate([np.exp(np.arange(np.log(h_min), 0.0, step)), np.arange(1.0, h_probe[-1], step)])
-        bounds = set(np.interp(levels, h_probe, x_probe))
-        bounds |= {e.start_time for e in d._get_epochs_until_unbounded() if 0.0 < e.start_time < t_max}
+        for a, b in zip(bounds[:-1], bounds[1:]):
+            epoch = d.demography.get_epoch(a)
+            d.state_space.update_epoch(epoch)
+            d._check_numerical_stability(d.state_space.S, epoch.index)
 
-        # bound the probe intervals across which the hazard rises most: a rise that is narrow in time and gains less
-        # than one step of hazard attracts no level, and the nodes within a segment are uniform in time, so the
-        # interpolated hazard would run straight across it
-        bounds |= self._steep_bounds(x_probe, h_probe)
+            memo, propagators = {}, {}
+            # the absorbed and the surviving mass and the absorption flux of a row vector, in one product. The
+            # absorption rates are summed over the absorbing columns, which keeps a small flux free of cancellation
+            reads = np.column_stack([1 - e, e, np.asarray(d.state_space.S @ (1 - e), dtype=float).ravel()])
+            dense = d.state_space.k < Settings.expm_action_min_dim
 
-        nodes, cdf, _ = d._sweep_uniform(sorted(bounds | {0.0, t_max}), self._n_grid)
+            def advance(v: np.ndarray, tau: float) -> np.ndarray:
+                """``v`` advanced by ``tau``, by one propagator per step length on the dense path."""
+                if not dense:
+                    return d._propagate(v, tau, memo)
 
-        return nodes, np.maximum.accumulate(self._hazard(cdf))
+                if tau not in propagators:
+                    propagators[tau] = d._propagate(np.eye(d.state_space.k), tau, memo)
+
+                return v @ propagators[tau]
+
+            def point(x: float, v: np.ndarray) -> tuple:
+                """The time, row vector, cumulative hazard and hazard rate at ``x``."""
+                absorbed, surviving, flux = (v @ reads).tolist()
+                total = absorbed + surviving
+
+                # the absorbed share keeps the relative precision of a small CDF, the surviving share that of a small
+                # survival
+                if surviving > absorbed:
+                    return x, v, -math.log1p(-absorbed / total), flux / surviving
+
+                if surviving > 0:
+                    return x, v, -math.log(surviving / total), flux / surviving
+
+                return x, v, math.inf, 0.0
+
+            lo = point(a, w)
+            stack = [(b - a, 0, point(b, advance(w, b - a)))]
+
+            while stack:
+                width, depth, hi = stack.pop()
+                mid = point(lo[0] + width / 2, advance(lo[1], width / 2))
+
+                # the cubic Hermite interpolant at the midpoint against the exact value, relative to the hazard there
+                # and to the hazard a relative error of the quantile moves, above the rounding of the hazard
+                cubic = (lo[2] + hi[2]) / 2 + width * (lo[3] - hi[3]) / 8
+                tol = self._quantile_tol * min(mid[2], mid[0] * mid[3]) + 8 * eps * lo[2]
+
+                if hi[2] <= self._min_hazard or abs(cubic - mid[2]) <= tol or depth >= self._max_depth:
+                    nodes += [mid[0], hi[0]]
+                    hazard += [mid[2], hi[2]]
+                    left += [lo[3], mid[3]]
+                    right += [mid[3], hi[3]]
+                    lo = hi
+
+                    # no level below 1 lies beyond
+                    if hi[2] >= h_top:
+                        break
+                else:
+                    stack += [(width / 2, depth + 1, hi), (width / 2, depth + 1, mid)]
+
+            if lo[2] >= h_top:
+                break
+
+            w = lo[1]
+
+        return np.array(nodes), np.maximum.accumulate(hazard), np.array(left), np.array(right)
+
+    def _interp_quantile(
+            self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray, left: np.ndarray, right: np.ndarray
+    ) -> np.ndarray:
+        r"""
+        The quantile from the cubic Hermite interpolant of the cumulative hazard. On the segment
+        :math:`[x_i, x_{i+1}]` of width :math:`\Delta_i`, with :math:`s = (x - x_i) / \Delta_i \in [0, 1]`,
+
+        .. math::
+
+            \hat H(x) = h_{00}(s) H_i + h_{10}(s) \Delta_i \lambda_i^+ + h_{01}(s) H_{i+1}
+                + h_{11}(s) \Delta_i \lambda_{i+1}^-,
+
+        with :math:`h_{00}, h_{10}, h_{01}, h_{11}` the cubic Hermite basis, :math:`H_i` the cumulative hazard at
+        :math:`x_i` and :math:`\lambda_i^+`, :math:`\lambda_{i+1}^-` the hazard rates at the ends of the segment, taken
+        within it. The level :math:`H = -\log(1 - q)` is solved for :math:`s` by Newton's method, safeguarded by
+        bisection. Levels at or below the hazard at the first node return the first node, and levels above the last
+        node return the last node.
+
+        :param q: Probability levels.
+        :param nodes: The grid's nodes.
+        :param hazard: The cumulative hazard on them.
+        :param left: The hazard rate at the left end of each segment.
+        :param right: The hazard rate at the right end of each segment.
+        :return: The quantiles at ``q``.
+        """
+        hq = self._hazard(q)
+        j = np.searchsorted(hazard, hq, side='left')
+        out = nodes[np.minimum(j, len(nodes) - 1)].astype(float)
+
+        inner = (j > 0) & (j < len(nodes))
+        inner[inner] = hazard[j[inner]] > hq[inner]
+        i = j[inner] - 1
+
+        x0, width = nodes[i], nodes[i + 1] - nodes[i]
+        h0, h1 = hazard[i], hazard[i + 1]
+        m0, m1 = width * left[i], width * right[i]
+        target = hq[inner]
+
+        lo, hi = np.zeros_like(target), np.ones_like(target)
+
+        # a segment ending in an infinite hazard, where the surviving mass underflows, is solved by bisection
+        with np.errstate(divide='ignore', invalid='ignore'):
+            s = (target - h0) / (h1 - h0)
+
+            for _ in range(100):
+                s2, s3 = s * s, s * s * s
+                f = (2 * s3 - 3 * s2 + 1) * h0 + (s3 - 2 * s2 + s) * m0 + (3 * s2 - 2 * s3) * h1 + (s3 - s2) * m1
+                f -= target
+                df = (6 * s2 - 6 * s) * (h0 - h1) + (3 * s2 - 4 * s + 1) * m0 + (3 * s2 - 2 * s) * m1
+
+                lo, hi = np.where(f < 0, s, lo), np.where(f > 0, s, hi)
+                newton = s - f / df
+
+                s_new = np.where(f == 0, s, np.where((newton > lo) & (newton < hi), newton, (lo + hi) / 2))
+                converged = np.all(np.abs(s_new - s) <= 4 * np.finfo(float).eps)
+                s = s_new
+    
+                if converged:
+                    break
+
+        out[inner] = x0 + s * width
+        out[np.isnan(hq)] = np.nan
+
+        return out
 
 
 class _ExpmCumulativeDistributionFunction(_ExpmFunction, _GridCumulativeDistributionFunction):
@@ -888,7 +977,8 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
         if np.any((qa < 0) | (qa > 1)):
             raise ValueError("Specified quantile must be between 0 and 1.")
 
-        out = self._interp_quantile(qa, *self._cdf_grid())
+        out = self._interp_quantile(qa.ravel(), *self._cdf_grid()).reshape(qa.shape)
+        out[qa == 1] = self._distribution.t_max
 
         return out if np.ndim(q) > 0 else float(out[0])
 
@@ -964,9 +1054,14 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
       and Higham, 2011).
     - The quantile is read from the cumulative-hazard grid of :class:`~phasegen.distributions.QuantileFunction` on
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
-      <phasegen.distributions.TreeHeightDistribution.t_max>`. A first pass over octaves below :math:`t_\mathrm{max}`
-      locates the rise of the CDF. The grid nodes are then spread over segments whose cumulative hazard grows by a
-      constant factor below one and by a constant step above, with the epoch boundaries as nodes.
+      <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact cumulative hazard
+      :math:`H` and hazard rate :math:`H' = f / (1 - F)`, the latter taken within the epoch of each adjacent segment,
+      and the epoch boundaries are nodes. Each epoch is bisected until, at the midpoint :math:`x` of every segment,
+      the cubic Hermite interpolant departs from the exact :math:`H` by at most
+      :math:`\epsilon \min\{H(x), x H'(x)\}`, which bounds the relative errors of the quantile and of its cumulative
+      hazard by about :math:`\epsilon`, with :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A
+      segment whose cumulative hazard stays below the double-precision resolution is not bisected, and the level 1
+      returns :math:`t_\mathrm{max}`.
     - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 
     .. rubric:: References
@@ -1052,26 +1147,34 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     #: Largest row-sum norm of ``S tau`` exponentiated in one step by ``_propagate``.
     _max_step_norm: float = 1e3
 
-    def _propagate(self, w: np.ndarray, tau: float) -> np.ndarray:
+    def _per_epoch(self, memo: dict | None, key: str, compute) -> object:
         """
-        Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
-        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
-        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step at least as
-        long as the slowest mean exit time of a transient state leaves the transient entries unchanged. The absorbing
-        states never feed the transient ones, so those entries are then stationary, and the CDF and density they carry
-        are final. This makes ``tau`` of any size a finite number of exponentials. An infinite ``tau`` takes the limit
-        of ``_limit``.
+        ``compute()`` for the current epoch of the state space, computed once per epoch of a sweep.
 
-        :param w: The row vector to advance.
-        :param tau: Time to advance by, within the current epoch.
-        :return: The advanced row vector.
+        :param memo: Values by name and epoch index for one sweep, which visits each epoch once and in ascending order,
+            or ``None`` to compute afresh.
+        :param key: Name of the value.
+        :param compute: Function computing the value from the current rate matrix.
+        :return: The value.
         """
-        if tau <= 0:
-            return w
+        if memo is None:
+            return compute()
 
-        if tau == np.inf:
-            return self._limit(w)
+        k = (key, self.state_space.epoch.index)
+        if k not in memo:
+            memo[k] = compute()
 
+        return memo[k]
+
+    def _step_constants(self) -> tuple:
+        """
+        The quantities of the current epoch that ``_propagate`` reads.
+
+        :return: The rate matrix, its dense form below ``Settings.expm_action_min_dim`` states (``None`` at or above),
+            the longest step whose exponent stays within ``_max_step_norm`` (``None`` for a zero rate matrix) and the
+            slowest mean exit time of a transient state.
+        :raises ModelError: If the rates are not finite.
+        """
         S = self.state_space.S
         rate = float(abs(S).max())
 
@@ -1083,20 +1186,48 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         # the row-sum norm, divided by the largest rate so that it stays finite
         norm = float((abs(S) / rate).sum(axis=1).max()) if rate > 0 else 0
-        h = self._max_step_norm / rate / norm if norm > 0 else tau
+        h = self._max_step_norm / rate / norm if norm > 0 else None
 
         exit_rates = -np.asarray(S.diagonal())[self._e > 0]
         exit_rates = exit_rates[exit_rates > 0]
         t_exit = 1 / exit_rates.min() if exit_rates.size else 0
 
+        dense = self._dense_rate_matrix() if self.state_space.k < Settings.expm_action_min_dim else None
+
+        return S, dense, h, t_exit
+
+    def _propagate(self, w: np.ndarray, tau: float, memo: dict = None) -> np.ndarray:
+        """
+        Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
+        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
+        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step at least as
+        long as the slowest mean exit time of a transient state leaves the transient entries unchanged. The absorbing
+        states never feed the transient ones, so those entries are then stationary, and the CDF and density they carry
+        are final. This makes ``tau`` of any size a finite number of exponentials. An infinite ``tau`` takes the limit
+        of ``_limit``.
+
+        :param w: The row vector to advance, or a matrix whose rows are advanced.
+        :param tau: Time to advance by, within the current epoch.
+        :param memo: Per-epoch values of the sweep, see ``_per_epoch``.
+        :return: The advanced row vector.
+        """
+        if tau <= 0:
+            return w
+
+        if tau == np.inf:
+            return self._limit(w)
+
+        S, dense, h, t_exit = self._per_epoch(memo, 'step', self._step_constants)
+        h = tau if h is None else h
+
         while tau > 0:
             step = min(tau, h)
 
             # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
-            if self.state_space.k >= Settings.expm_action_min_dim:
+            if dense is None:
                 v = Backend.expm_multiply((sp.csr_matrix(S) * step).T.tocsr(), w)
             else:
-                v = w @ expm(self._dense_rate_matrix() * step)
+                v = w @ expm(dense * step)
 
             stationary = step >= t_exit and np.array_equal(v * self._e, w * self._e)
             w, tau, h = v, tau - step, 2 * h
@@ -1152,7 +1283,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         return float(w @ (1 - self._e) / w.sum())
 
-    def _sweep_to(self, w: np.ndarray, u_prev: float, u: float, epoch: 'Epoch') -> np.ndarray:
+    def _sweep_to(self, w: np.ndarray, u_prev: float, u: float, epoch: 'Epoch', memo: dict = None) -> np.ndarray:
         """
         Advance the row vector from ``u_prev`` to ``u``, crossing whatever epoch boundaries lie between (the rate
         matrix changes at each, so the exponential is taken piecewise). Leaves the state space updated to the epoch
@@ -1163,21 +1294,22 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param u_prev: Time the vector is currently at.
         :param u: Time to advance to.
         :param epoch: Epoch containing ``u_prev``.
+        :param memo: Per-epoch values of the sweep, see ``_per_epoch``.
         :return: The row vector at ``u``.
         """
         self.state_space.update_epoch(epoch)
 
         while u > epoch.end_time:
-            self._check_numerical_stability(self.state_space.S, epoch.index)
-            w = self._propagate(w, epoch.end_time - u_prev)
+            self._per_epoch(memo, 'stable', lambda: self._check_numerical_stability(self.state_space.S, epoch.index))
+            w = self._propagate(w, epoch.end_time - u_prev, memo)
 
             u_prev = epoch.end_time
             epoch = self.demography.get_epoch(epoch.end_time)
             self.state_space.update_epoch(epoch)
 
-        self._check_numerical_stability(self.state_space.S, epoch.index)
+        self._per_epoch(memo, 'stable', lambda: self._check_numerical_stability(self.state_space.S, epoch.index))
 
-        return self._propagate(w, u - u_prev)
+        return self._propagate(w, u - u_prev, memo)
 
     def _sweepable(self, t: np.ndarray) -> np.ndarray:
         """
@@ -1217,73 +1349,17 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         u_prev = 0.0
 
         cdf, pdf = np.zeros(len(t)), np.zeros(len(t))
+        memo = {}
 
         for i, u in enumerate(t):
-            w = self._sweep_to(w, u_prev, float(u), epoch)
+            w = self._sweep_to(w, u_prev, float(u), epoch, memo)
             epoch = self.state_space.epoch
 
             cdf[i] = self._cum(w)
-            pdf[i] = float(w @ self._exit_rates())
+            pdf[i] = float(w @ self._per_epoch(memo, 'exit', self._exit_rates))
             u_prev = float(u)
 
         return cdf, pdf
-
-    def _sweep_uniform(self, bounds: Sequence[float], n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        The exact CDF and density on roughly ``n`` nodes, spread uniformly *within* each segment of ``bounds``, with
-        every bound landing exactly on a node. The node budget is split equally between segments, so the segmentation
-        is what grades the nodes (see ``_ExpmFunction._build_cdf_grid``, which chooses the segments by cumulative
-        hazard).
-
-        Uniform within a segment is what makes this affordable at large ``n``: when the segment lies within a single
-        epoch the propagator ``exp(S dt)`` is the same for every step, so the dense path forms one exponential per
-        segment and applies it repeatedly rather than one per node. A segment that straddles an epoch boundary cannot
-        share one propagator (the rate matrix changes at the boundary), so each of its steps is taken piecewise via
-        :meth:`_sweep_to`. The segment boundaries (set by cumulative hazard) do not align with the epoch boundaries, so
-        this case does arise; it is rare, so the per-segment fast path is kept for the common one.
-
-        :param bounds: Ascending segment boundaries, the first of which the propagation starts from.
-        :param n: Approximate total number of nodes.
-        :return: The nodes, the CDF and the density on them.
-        """
-        w = np.asarray(self.state_space.alpha, dtype=float)
-        self.state_space.update_epoch(self.demography.get_epoch(bounds[0]))
-
-        nodes, cdf, pdf = [bounds[0]], [self._cum(w)], [float(w @ self._exit_rates())]
-        n_seg = max(1, int(round(n / (len(bounds) - 1))))
-
-        for start, end in zip(bounds[:-1], bounds[1:]):
-            dt = (end - start) / n_seg
-            start_epoch = self.demography.get_epoch(start)
-
-            if start_epoch.end_time >= end:
-                # the whole segment lies within one epoch: exponentiate once and reuse the propagator for every step
-                self.state_space.update_epoch(start_epoch)
-                self._check_numerical_stability(self.state_space.S, start_epoch.index)
-
-                dense = self.state_space.k < Settings.expm_action_min_dim
-                P = expm(self._dense_rate_matrix() * dt) if dense else None
-                # a propagator that is not finite leaves each step to the split steps of ``_propagate``
-                dense = dense and bool(np.isfinite(P).all())
-                s = self._exit_rates()
-
-                for j in range(n_seg):
-                    w = w @ P if dense else self._propagate(w, dt)
-                    nodes.append(start + (j + 1) * dt)
-                    cdf.append(self._cum(w))
-                    pdf.append(float(w @ s))
-
-            else:
-                # an epoch boundary crosses this segment: propagate each step piecewise, switching the rate matrix at
-                # the boundary, and read the density off the epoch active at the node ``_sweep_to`` leaves us in
-                for j in range(n_seg):
-                    u_prev, u = start + j * dt, start + (j + 1) * dt
-                    w = self._sweep_to(w, u_prev, u, self.demography.get_epoch(u_prev))
-                    nodes.append(u)
-                    cdf.append(self._cum(w))
-                    pdf.append(float(w @ self._exit_rates()))
-
-        return np.array(nodes), np.array(cdf), np.array(pdf)
 
     @cached_property
     def t_max(self) -> float:
