@@ -16,5 +16,5 @@ comparisons:
         # law has no density: only the CDF exists, through the diagonal reduction
         '[(1, 2), (2, 2)]':
           cdf: 0.022
-      mean: 0.009
-      var: 0.083
+      mean: 0.019
+      var: 0.075

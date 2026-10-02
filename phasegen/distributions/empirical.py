@@ -680,6 +680,14 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         return JointSFS(self._moments[2])
 
+    @cached_property
+    def m4(self) -> JointSFS:
+        """
+        Fourth raw sample moment of the stored samples, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return JointSFS(super().m4)
+
     def moment(self, k: int, center: bool = True) -> JointSFS:
         r"""
         The :math:`k`-th sample moment of :meth:`EmpiricalDistribution.moment()
@@ -692,6 +700,9 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         :return: The :math:`k`-th moment per descendant vector.
         """
         if k > 3:
+            if self.samples is None:
+                raise ValueError("Moments above order three need the per-replicate samples, which have been dropped.")
+
             return JointSFS(super().moment(k, center))
 
         raw = [np.ones(self._moments.shape[1:])] + list(self._moments)
@@ -707,6 +718,31 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         The mean joint site-frequency spectrum array.
         """
         return self._moments[0]
+
+    def _drop(self) -> None:
+        """Drop the per-replicate samples, retaining their covariance, correlation and block standard errors."""
+        if self.samples is not None:
+            for name in ('cov', 'corr'):
+                self.__dict__[name] = getattr(self, name)
+
+            self._cache_standard_errors()
+
+        super()._drop()
+
+    def _cache_standard_errors(self, n_blocks: int = 100) -> None:
+        """
+        Cache the block standard errors over the stored samples, scaling those of the moments over all replicates to
+        the number of replicates.
+
+        :param n_blocks: Number of blocks.
+        """
+        super()._cache_standard_errors(n_blocks)
+
+        scale = np.sqrt(len(self.samples) / self.n_samples) if self.n_samples else 1.0
+
+        for name in ('mean', 'var', 'm2', 'm3'):
+            if name in self._standard_errors:
+                self._standard_errors[name] = self._standard_errors[name] * scale
 
     def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
         """
@@ -836,7 +872,16 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cov
         :param k: Order :math:`k \ge 1` of the moment.
         :param center: Whether to center the moment around the sample mean.
         :return: The :math:`k`-th moment per pair of classes.
+        :raises ValueError: If the samples have been dropped and the moment is not among those retained.
         """
+        if self.samples is None:
+            retained = {1: 'mean', 2: 'var' if center else 'm2', 3: None if center else 'm3', 4: None if center else 'm4'}
+
+            if retained.get(k) is None:
+                raise ValueError(f"The moment of order {k} needs the per-replicate samples, which have been dropped.")
+
+            return getattr(self, retained[k])
+
         return TwoLocusSFS(super().moment(k, center))
 
     @cached_property
@@ -870,14 +915,20 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cov
         return EmpiricalJointDistribution(self._left[:, i], self._right[:, j])
 
     def _drop(self) -> None:
-        """Drop the per-replicate samples, retaining the moment statistics."""
-        for name in ('mean', 'var', 'm2', 'm3', 'm4', 'corr'):
+        """Drop the per-replicate samples, retaining the moment statistics and their block standard errors."""
+        if self.samples is None:
+            return
+
+        for name in ('mean', 'var', 'm2', 'm3', 'm4', 'cov', 'corr'):
             self.__dict__[name] = getattr(self, name)
+
+        self._cache_standard_errors()
 
         super()._drop()
 
         self._left = None
         self._right = None
+
 
 class DictContainer(dict):  # pragma: no cover
     """
@@ -2632,46 +2683,22 @@ class MsprimeCoalescent(AbstractCoalescent):
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
         """
-        Two-locus SFS estimated from msprime simulations of two loci separated by the recombination rate of the
-        locus configuration, as the per-replicate product of the locus-0 and locus-1 branch lengths of each pair of
-        frequency classes, averaged over replicates and returned as an
-        :class:`~phasegen.distributions.EmpiricalTwoLocusSFSDistribution`.
+        Two-locus SFS of the simulated replicates, from the locus-0 and locus-1 branch lengths of each frequency class
+        that :meth:`MsprimeCoalescent.simulate() <phasegen.distributions.MsprimeCoalescent.simulate>` records, as an
+        :class:`~phasegen.distributions.EmpiricalTwoLocusSFSDistribution`. It is paired with the other statistics of
+        the same replicates.
 
         :raises NotImplementedError: If the scenario does not have exactly two loci.
         """
         if self.locus_config.n != 2:
             raise NotImplementedError("The two-locus SFS is only available for two-locus scenarios.")
 
-        n = self.lineage_config.n
-        demography = self.demography.to_msprime()
-        model = self.get_coalescent_model()
+        self.simulate()
 
-        # per-replicate locus-0 / locus-1 SFS branch lengths, retained for the joint distribution / cross-moments
-        lefts = np.zeros((self.num_replicates, n + 1))
-        rights = np.zeros((self.num_replicates, n + 1))
-        for rep, ts in enumerate(self._sim_ancestry(
-                self._placements(demography),
-                self.num_replicates,
-                self._msprime_seed(),
-                recombination_rate=self.locus_config.recombination_rate,
-                demography=demography,
-                model=model,
-                ploidy=1,
-                end_time=self.end_time
-        )):
-            t0, t1 = ts.at(0.5), ts.at(1.5)
-            left = np.zeros(n + 1)
-            right = np.zeros(n + 1)
-            for nd in t0.nodes():
-                if t0.parent(nd) != -1:
-                    left[t0.num_samples(nd)] += t0.branch_length(nd)
-            for nd in t1.nodes():
-                if t1.parent(nd) != -1:
-                    right[t1.num_samples(nd)] += t1.branch_length(nd)
-            lefts[rep] = left
-            rights[rep] = right
+        # the branch lengths of a locus summed over the demes they reside in
+        lengths = self.sfs_lengths.sum(axis=1)
 
-        return EmpiricalTwoLocusSFSDistribution(lefts, rights)
+        return EmpiricalTwoLocusSFSDistribution(lengths[0], lengths[1])
 
     @cached_property
     def fst(self) -> float:

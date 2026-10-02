@@ -1715,6 +1715,7 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
             self,
             k: int = 1,
             end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True
     ) -> '_CurveData':
@@ -1725,11 +1726,16 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         :param k: The order of the moment.
         :param end_times: Times at which to evaluate the moment. By default, :attr:`Settings.plot_n_grid` points up to
             the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+        :param rewards: Must be ``None``, the rewards being those of the bins.
         :param center: Whether to center the moment around the mean.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
         :return: The curves, labelled by descendant configuration.
+        :raises ValueError: If ``rewards`` is given.
         """
         from ..visualization import _CurveData
+
+        if rewards is not None:
+            raise ValueError("The joint spectrum accumulates the rewards of its bins and takes no other rewards.")
 
         k = _validate_order(k)
         end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
@@ -1747,38 +1753,6 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
             title=f"Joint SFS moment accumulation (order {k})",
             legend_title='config'
         )
-
-    def plot_accumulation(
-            self,
-            k: int = 1,
-            end_times: Iterable[float] = None,
-            center: bool = True,
-            permute: bool = True,
-            ax: 'plt.Axes' = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            title: str = None
-    ) -> 'plt.Axes':
-        """
-        Plot accumulation of joint SFS moments over time, one curve per polymorphic bin.
-
-        :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, :attr:`~phasegen.settings.Settings.plot_n_grid`
-            points up to the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the tree height.
-        :param center: Whether to center the moment around the mean.
-        :param permute: Whether to average over the :math:`k!` orderings of the rewards.
-        :param ax: The axes to plot on.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
-        :param title: Plot title, ``None`` for the default title.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        return Visualization.plot_curves(ax=ax, data=self._plot_accumulation_data(k, end_times, center, permute),
-                                         file=file, show=show, clear=clear, title=title)
 
     @cached_property
     def mean(self) -> JointSFS:
@@ -2020,6 +1994,23 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         )
 
     loci = demes = property(_unsupported)
+
+    def distribution(self, reward: Reward = None) -> 'RewardDistribution':
+        """
+        The distribution of an accumulated reward on the two-locus state space, as
+        :meth:`PhaseTypeDistribution.distribution() <phasegen.distributions.PhaseTypeDistribution.distribution>`, for
+        example of :class:`~phasegen.rewards.TwoLocusSFSReward` ``(0, i)``, the branch length of class :math:`i` at
+        locus 0. The bins of the spectrum are products of two rewards and have no distribution of their own.
+
+        :param reward: The reward whose accumulation is distributed.
+        :return: The accumulated-reward distribution.
+        :raises ValueError: If ``reward`` is not given.
+        """
+        if reward is None:
+            raise ValueError("The two-locus spectrum has no distribution of its own. Pass the reward to distribute, "
+                             "such as pg.rewards.TwoLocusSFSReward(0, i).")
+
+        return super().distribution(reward)
 
     def _bin_rewards(self, i: int, j: int) -> Tuple[Reward, Reward]:
         """
@@ -2267,17 +2258,18 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         Draw samples of the two-locus site-frequency spectrum. With the branch lengths :math:`L^0_i` and :math:`L^1_j`
         of :meth:`TwoLocusSFSDistribution.sample_per_locus()
         <phasegen.distributions.TwoLocusSFSDistribution.sample_per_locus>`, entry :math:`(i, j)` of a sample is
-        :math:`\tfrac{1}{2}(L^0_i L^1_j + L^0_j L^1_i)`.
+        :math:`L^0_i L^1_j`, so that the sample moments estimate those of
+        :meth:`TwoLocusSFSDistribution.moment() <phasegen.distributions.TwoLocusSFSDistribution.moment>`, which
+        averages the two loci.
 
         :param n_samples: Number of two-locus spectra.
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
-        :return: Array of shape ``(n_samples, n + 1, n + 1)``, whose means over the first axis estimate :attr:`mean`.
+        :return: Array of shape ``(n_samples, n + 1, n + 1)``.
         """
         left, right = self.sample_per_locus(n_samples, seed=seed)
-        out = np.einsum('ni,nj->nij', left, right)
 
-        return (out + out.transpose(0, 2, 1)) / 2
+        return np.einsum('ni,nj->nij', left, right)
 
     def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalTwoLocusSFSDistribution':
         """

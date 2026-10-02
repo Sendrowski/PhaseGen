@@ -793,3 +793,73 @@ def test_msprime_migration_history_gives_no_negative_branch_length_when_a_tree_s
     ms.simulate()
 
     assert ms.total_branch_lengths.min() >= 0
+
+
+def test_windowed_moments_match_sampled_products():
+    """
+    The mean and second moment of the products on a window of the coalescent, and the accumulation from the window
+    start, match the sampled products of the windowed coalescent within four standard errors.
+    """
+    windowed = pg.Coalescent(n=3, loci=2, recombination_rate=1.0, start_time=0.3, end_time=1.5).sfs2
+    a, b = windowed.sample_per_locus(200000, seed=2)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+
+    for k, exact in ((1, windowed.mean.data), (2, windowed.m2.data)):
+        est, se = (y ** k).mean(axis=0), (y ** k).std(axis=0) / np.sqrt(len(y))
+        assert np.all(np.abs(exact[1:3, 1:3] - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+    acc = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.accumulate(1, [1.5], center=False, start_time=0.3)
+    np.testing.assert_allclose(acc[0], windowed.mean.data, rtol=1e-8)
+
+
+def test_plot_accumulation_draws_one_curve_per_pair():
+    """The accumulation plot draws the accumulated moment of each pair of classes i <= j and takes no rewards."""
+    sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
+    data = sfs2._plot_accumulation_data(2, [0.5, 1.0])
+    acc = sfs2.accumulate(2, [0.5, 1.0])
+    pairs = [(i, j) for i in (1, 2, 3) for j in (1, 2, 3) if i <= j]
+
+    assert data.labels == [f"({i}, {j})" for i, j in pairs]
+    np.testing.assert_allclose(data.y, [acc[:, i, j] for i, j in pairs])
+
+    with pytest.raises(ValueError):
+        sfs2._plot_accumulation_data(1, [1.0], rewards=[pg.TreeHeightReward()])
+
+
+def test_distribution_requires_a_reward():
+    """The spectrum has no distribution of its own, so a call without a reward raises."""
+    with pytest.raises(ValueError, match="no distribution of its own"):
+        pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.distribution()
+
+
+def test_sample_variance_matches_var():
+    """The sampled products have the variance of var within four standard errors, also off the diagonal."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    s = sfs2.sample(200000, seed=3)[:, 1:3, 1:3]
+    blocks = np.array([b.var(axis=0) for b in np.array_split(s, 100)])
+    est, se = s.var(axis=0), blocks.std(axis=0) / 10
+
+    assert np.all(np.abs(sfs2.var.data[1:3, 1:3] - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+
+def test_empirical_moments_survive_dropping_the_samples():
+    """After the samples are freed, the empirical spectrum serves its retained moments and covariance."""
+    e = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.to_empirical(5000, seed=1)
+    m2, var, cov = e.moment(2, center=False).data, e.var.data, e.cov
+    e._drop()
+
+    np.testing.assert_array_equal(e.moment(2, center=False).data, m2)
+    np.testing.assert_array_equal(e.moment(2).data, var)
+    np.testing.assert_array_equal(e.cov, cov)
+
+    with pytest.raises(ValueError, match="dropped"):
+        e.moment(3)
+
+
+def test_msprime_two_locus_spectrum_uses_the_shared_replicates():
+    """The msprime two-locus spectrum is built from all replicates of the shared simulation."""
+    ms = pg.distributions.MsprimeCoalescent(n=3, loci=2, recombination_rate=1.0, num_replicates=500, n_threads=2,
+                                            parallelize=False, seed=1)
+
+    assert ms.sfs2.n_samples == ms.sfs_lengths.shape[2]
+    np.testing.assert_allclose(ms.sfs2.mean.data, np.einsum('ni,nj->ij', *ms.sfs_lengths.sum(axis=1)) / ms.sfs2.n_samples)

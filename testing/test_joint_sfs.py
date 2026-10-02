@@ -504,3 +504,29 @@ def test_bin_distributions_are_served_when_the_cache_is_off(two_pop_coalescent):
         assert spectrum._bin_distribution(key) is stored
         assert spectrum._bin_distribution(other) is not spectrum._bin_distribution(other)
         pg.Settings.cache = True
+
+
+def test_empirical_joint_spectrum_keeps_its_statistics_when_dropped():
+    """The fourth moment is a joint spectrum as the lower ones, and the covariance survives freeing the samples."""
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+    e = coal.jsfs.to_empirical(2000, seed=1)
+    cov = e.cov
+
+    assert isinstance(e.m4, type(e.m3))
+
+    e._drop()
+    np.testing.assert_array_equal(e.cov, cov)
+    assert {'mean', 'var', 'cov'} <= set(e._standard_errors)
+
+
+def test_joint_plot_accumulation_takes_a_label():
+    """The joint spectrum plots its accumulation through the shared method, with a legend label."""
+    import matplotlib
+    matplotlib.use('Agg')
+
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    ax = coal.jsfs.plot_accumulation(end_times=[0.5, 1.0], show=False, label='x')
+    assert ax.get_lines()

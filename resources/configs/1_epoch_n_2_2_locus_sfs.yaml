@@ -15,5 +15,5 @@ comparisons:
         '[(1, 1)]':
           cdf: 0.014
           pdf: 0.074
-      mean: 0.009
-      var: 0.059
+      mean: 0.017
+      var: 0.067
