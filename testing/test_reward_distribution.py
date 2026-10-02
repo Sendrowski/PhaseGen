@@ -709,65 +709,48 @@ def test_inversion_detectors_warn(caplog):
     noise-level deviations -- so a clipped/flattened curve is surfaced, not hidden."""
     import logging
     d = pg.Coalescent(n=4).sfs.bin(2)  # any distribution exposing the (inherited) guard methods
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it (and its children) directly
+    def warned(method, arr):
+        caplog.clear()
+        method(np.asarray(arr, dtype=float), 'test')
+        return any(r.levelno >= logging.WARNING for r in caplog.records)
+
+    # substantial negative density -> warns; noise-level negative -> silent
+    assert warned(d._warn_if_negative, [0.0, 1.0, -0.5])
+    assert not warned(d._warn_if_negative, [0.0, 1.0, -1e-9])
+    # non-monotone CDF (real downward step) -> warns; noise-level wiggle -> silent
+    assert warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
+    assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.5 - 1e-9, 1.0])
+
+    # the Settings.check_inversions flag silences both detectors
+    pg.Settings.check_inversions = False
     try:
-        def warned(method, arr):
-            caplog.clear()
-            method(np.asarray(arr, dtype=float), 'test')
-            return any(r.levelno >= logging.WARNING for r in caplog.records)
-
-        # substantial negative density -> warns; noise-level negative -> silent
-        assert warned(d._warn_if_negative, [0.0, 1.0, -0.5])
-        assert not warned(d._warn_if_negative, [0.0, 1.0, -1e-9])
-        # non-monotone CDF (real downward step) -> warns; noise-level wiggle -> silent
-        assert warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
-        assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.5 - 1e-9, 1.0])
-
-        # the Settings.check_inversions flag silences both detectors
-        pg.Settings.check_inversions = False
-        try:
-            assert not warned(d._warn_if_negative, [0.0, 1.0, -0.5])
-            assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
-        finally:
-            pg.Settings.check_inversions = True
+        assert not warned(d._warn_if_negative, [0.0, 1.0, -0.5])
+        assert not warned(d._warn_if_nonmonotone, [0.0, 0.5, 0.3, 1.0])
     finally:
-        log.removeHandler(caplog.handler)
+        pg.Settings.check_inversions = True
 
 
 def test_nonmonotone_detector_catches_a_cumulative_sag(caplog):
     """A CDF sagging below its running maximum through many small downward steps warns although no single step
     passes the noise band. Regression: the detector tested only the largest single step, so a ripple spread over the
     grid of the cosine expansion was flattened by the monotone clamp without notice."""
-    import logging
     d = pg.Coalescent(n=4).sfs.bin(2)
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
-    try:
-        # twenty steps of 2e-4 each: every step is below rtol = 1e-3 of the range, the sag of 4e-3 is above
-        cdf = np.concatenate([np.linspace(0.0, 0.5, 50), 0.5 - 2e-4 * np.arange(1, 21), np.linspace(0.5, 1.0, 50)])
-        assert -np.diff(cdf).min() < 1e-3
-        caplog.clear()
-        d._warn_if_nonmonotone(cdf, 'test')
-        assert any('sag' in r.getMessage() for r in caplog.records)
-    finally:
-        log.removeHandler(caplog.handler)
+    # twenty steps of 2e-4 each: every step is below rtol = 1e-3 of the range, the sag of 4e-3 is above
+    cdf = np.concatenate([np.linspace(0.0, 0.5, 50), 0.5 - 2e-4 * np.arange(1, 21), np.linspace(0.5, 1.0, 50)])
+    assert -np.diff(cdf).min() < 1e-3
+    caplog.clear()
+    d._warn_if_nonmonotone(cdf, 'test')
+    assert any('sag' in r.getMessage() for r in caplog.records)
 
 
 def test_clean_distribution_emits_no_inversion_warning(caplog):
     """A well-behaved distribution's CDF/PDF curves route through the detectors without false-positive warnings."""
-    import logging
-    log = logging.getLogger('phasegen')
     marg = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).marginal('a')
     grid = np.linspace(0.0, marg._range(8.0), 50)
-    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
-    try:
-        caplog.clear()
-        marg.cdf(grid)
-        marg.pdf(grid)
-        assert not [r for r in caplog.records if 'imprecise' in r.getMessage()]
-    finally:
-        log.removeHandler(caplog.handler)
+    caplog.clear()
+    marg.cdf(grid)
+    marg.pdf(grid)
+    assert not [r for r in caplog.records if 'imprecise' in r.getMessage()]
 
 
 @pytest.mark.parametrize("dist_name, n_bins", [("sfs", 6), ("fsfs", 3)])
@@ -825,28 +808,22 @@ def test_cos_inversion_imprecision_warning(caplog):
     against the window for the terms summed), and stays silent on well-behaved curves."""
     import logging
 
-    # the package logger does not propagate to root (where caplog listens), so capture it directly
-    pg_logger = logging.getLogger('phasegen')
-    pg_logger.addHandler(caplog.handler)
     caplog.set_level(logging.WARNING, logger='phasegen')
-    try:
-        d = pg.Coalescent(n=6).total_branch_length.distribution()
+    d = pg.Coalescent(n=6).total_branch_length.distribution()
 
-        # well-behaved curves must not warn (otherwise the warning is noise on every plot)
-        d.cdf(np.linspace(0, d._range(), 100))
-        d.pdf(np.linspace(0, d._range(), 100))
-        assert 'residual ripple' not in caplog.text
-        assert 'truncation' not in caplog.text
+    # well-behaved curves must not warn (otherwise the warning is noise on every plot)
+    d.cdf(np.linspace(0, d._range(), 100))
+    d.pdf(np.linspace(0, d._range(), 100))
+    assert 'residual ripple' not in caplog.text
+    assert 'truncation' not in caplog.text
 
-        # a heavy-tailed bin whose body is narrow against the window the tail forces, which the terms summed at the
-        # default cannot resolve
-        pg.Settings.cos_terms = 64  # the autouse fixture restores it
-        e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
-        e.distribution(reward=e._get_sfs_reward(5)).cdf(np.linspace(0, 50, 100))
-        assert 'truncation' in caplog.text
-        assert 'Settings.cos_terms' in caplog.text
-    finally:
-        pg_logger.removeHandler(caplog.handler)
+    # a heavy-tailed bin whose body is narrow against the window the tail forces, which the terms summed at the
+    # default cannot resolve
+    pg.Settings.cos_terms = 64  # the autouse fixture restores it
+    e = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={0: 1, 1: 10})).sfs
+    e.distribution(reward=e._get_sfs_reward(5)).cdf(np.linspace(0, 50, 100))
+    assert 'truncation' in caplog.text
+    assert 'Settings.cos_terms' in caplog.text
 
 
 def test_plot_n_grid_setting_controls_grid_size():
@@ -1395,14 +1372,8 @@ def test_conditional_checks_skip_levels_that_cannot_be_constructed(caplog):
 
     jd = _refusing_joint(0.6)
 
-    # the package logger does not propagate to root, where caplog listens, so capture it directly
-    pg_logger = logging.getLogger('phasegen')
-    pg_logger.addHandler(caplog.handler)
     caplog.set_level(logging.WARNING, logger='phasegen')
-    try:
-        moments = jd.check_conditional_moments(quantiles=[0.3, 0.9], tol=1.0)
-    finally:
-        pg_logger.removeHandler(caplog.handler)
+    moments = jd.check_conditional_moments(quantiles=[0.3, 0.9], tol=1.0)
     assert np.isfinite(list(moments.values())).all()
     assert any("could not be constructed" in r.getMessage() and "0.9" in r.getMessage() for r in caplog.records)
 
@@ -2625,26 +2596,20 @@ def test_joint_axis_expansion_reports_truncation(caplog):
     """The axis terms of the joint CDF run the truncation check of the marginal CDF, and span the atom
     ``P(R_a = 0, R_b = 0)`` at 0 to the axis mass at the window end. Regression: an unresolved axis term was not
     reported."""
-    import logging
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
-    try:
-        joint = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs.joint_distribution(2, 3)
-        joint.cdf(0.5, 0.5)
-        assert not any('axis g_' in r.getMessage() for r in caplog.records)
+    joint = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs.joint_distribution(2, 3)
+    joint.cdf(0.5, 0.5)
+    assert not any('axis g_' in r.getMessage() for r in caplog.records)
 
-        atoms = joint._atoms
-        assert atoms['both0'] > 1e-2
-        for which, total in (('a', atoms['a0']), ('b', atoms['b0'])):
-            b = joint._cos_axis_coeffs[which]['b']
-            assert joint._cos_axis(which, np.array([-1.0, 0.0]))[1] == atoms['both0']
-            assert joint._cos_axis(which, np.array([2 * b]))[0] == pytest.approx(total, abs=1e-3)
+    atoms = joint._atoms
+    assert atoms['both0'] > 1e-2
+    for which, total in (('a', atoms['a0']), ('b', atoms['b0'])):
+        b = joint._cos_axis_coeffs[which]['b']
+        assert joint._cos_axis(which, np.array([-1.0, 0.0]))[1] == atoms['both0']
+        assert joint._cos_axis(which, np.array([2 * b]))[0] == pytest.approx(total, abs=1e-3)
 
-        Settings.cos_terms = 8
-        pg.Coalescent(n=5).sfs.joint_distribution(1, 3).cdf(0.5, 0.5)
-        assert any('axis g_b (truncation)' in r.getMessage() for r in caplog.records)
-    finally:
-        log.removeHandler(caplog.handler)
+    Settings.cos_terms = 8
+    pg.Coalescent(n=5).sfs.joint_distribution(1, 3).cdf(0.5, 0.5)
+    assert any('axis g_b (truncation)' in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize('orders', [(-1, 1), (1, -1), (2, -2), (0.5, 1), ('1', 1)])
@@ -2808,18 +2773,12 @@ def test_locating_pass_does_not_report_ringing(monkeypatch):
 
 def test_far_tail_quantile_warns(caplog):
     """A reward quantile above 1 - 1e-9 logs that it is approximate, and a body quantile does not."""
-    import logging
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
-    try:
-        d = pg.Coalescent(n=4).total_branch_length.distribution()
-        d.quantile(0.5)
-        assert not any('approximate' in r.getMessage() for r in caplog.records)
+    d = pg.Coalescent(n=4).total_branch_length.distribution()
+    d.quantile(0.5)
+    assert not any('approximate' in r.getMessage() for r in caplog.records)
 
-        d.quantile(1 - 1e-10)
-        assert any('approximate' in r.getMessage() for r in caplog.records)
-    finally:
-        log.removeHandler(caplog.handler)
+    d.quantile(1 - 1e-10)
+    assert any('approximate' in r.getMessage() for r in caplog.records)
 
 
 def test_density_evaluators_reject_unknown_keywords():
@@ -2900,20 +2859,14 @@ def test_multi_epoch_conditional_mean_is_stable_in_the_conditioning_value(sizes,
 def test_conditional_moments_warn_when_unresolved(caplog, monkeypatch):
     """The conditional moments under the extreme bottleneck at v = 1.2 converge in the truncation only at N0 = 480,
     where they move by less than 1e-3 when it is halved. Capped at 60, they move by 2.8e-2 and a warning is logged."""
-    import logging
     from phasegen.distributions import reward
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
 
-    try:
-        _ = _bottleneck_joint().conditional('a', 1.2).mean
-        assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
+    _ = _bottleneck_joint().conditional('a', 1.2).mean
+    assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
 
-        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
-        _ = _bottleneck_joint().conditional('a', 1.2).mean
-        assert any('moments are unresolved' in r.getMessage() for r in caplog.records)
-    finally:
-        log.removeHandler(caplog.handler)
+    monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 60)
+    _ = _bottleneck_joint().conditional('a', 1.2).mean
+    assert any('moments are unresolved' in r.getMessage() for r in caplog.records)
 
 
 def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
@@ -2921,22 +2874,16 @@ def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
     the jumps subtracted, the conditional moments agree over the first three truncations, and the mean agrees with
     that of 4e7 sampled paths in a window of half-width 2.5e-3, 0.79910 +- 0.00408. Regression: the moments moved by
     8.6e-3 at the truncation 60 and converged like the inverse truncation, reaching 1.3e-3 only at 480."""
-    import logging
     from phasegen.distributions import reward
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
 
     def joint():
         return pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
             pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
 
-    try:
-        mean = joint().conditional('a', 0.5).mean
-        monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 120)
-        capped = joint().conditional('a', 0.5).mean
-        assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
-    finally:
-        log.removeHandler(caplog.handler)
+    mean = joint().conditional('a', 0.5).mean
+    monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 120)
+    capped = joint().conditional('a', 0.5).mean
+    assert not any('moments are unresolved' in r.getMessage() for r in caplog.records)
 
     assert capped == pytest.approx(mean, rel=1e-6)
     assert mean == pytest.approx(0.79910, abs=4 * 0.00408)
@@ -2962,10 +2909,6 @@ def test_cosine_window_short_of_a_recent_crash_warns(caplog):
     """On a recent crash backward in time the window of the expansion ends before the long tail, and the CDF at the
     join with the de Hoog nodes is off by more than the bar, which is logged. A standard coalescent logs nothing, nor
     does the crash on a grid without a join. Regression: the CDF was off by 2.8e-2 with no warning."""
-    import logging
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)
-
     def warned(demography, cut=0.98) -> bool:
         caplog.clear()
         Settings.dehoog_tail_quantile = cut
@@ -2973,14 +2916,11 @@ def test_cosine_window_short_of_a_recent_crash_warns(caplog):
         d.cdf(1.0)
         return any('COS CDF (window)' in r.getMessage() for r in caplog.records)
 
-    try:
-        crash = pg.Demography(pop_sizes={0: 0.01, 0.05: 1})
-        assert warned(crash)
-        assert not warned(pg.Demography())
-        assert not warned(crash, cut=None)
-        assert not warned(crash, cut=0.0)
-    finally:
-        log.removeHandler(caplog.handler)
+    crash = pg.Demography(pop_sizes={0: 0.01, 0.05: 1})
+    assert warned(crash)
+    assert not warned(pg.Demography())
+    assert not warned(crash, cut=None)
+    assert not warned(crash, cut=0.0)
 
 
 def test_tail_march_ends_where_the_cdf_stops_rising(monkeypatch):

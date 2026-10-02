@@ -1,6 +1,7 @@
 """
 Shared pytest fixtures and hooks for the test suite.
 """
+import logging
 import os
 from itertools import product
 
@@ -36,6 +37,19 @@ def pytest_configure(config):
             f"unpinned thread pools ({', '.join(unpinned)}); tolerances are tuned against single-threaded summation "
             "order and the suite is 4x slower without them. Set them to 1, or PHASEGEN_ALLOW_THREADS=1 to override."
         )
+
+
+@pytest.fixture(autouse=True)
+def _capture_phasegen_logs(caplog):
+    """
+    Attach the ``caplog`` handler to the ``phasegen`` logger, which does not propagate to the root logger where
+    ``caplog`` listens, so that every test sees the records of the package and its class loggers in
+    ``caplog.records``.
+    """
+    log = logging.getLogger('phasegen')
+    log.addHandler(caplog.handler)
+    yield
+    log.removeHandler(caplog.handler)
 
 
 @pytest.fixture(autouse=True)

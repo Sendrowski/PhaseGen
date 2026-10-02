@@ -245,18 +245,10 @@ def test_python_beta_rates_match_the_kernel_in_log_space():
 def test_the_pure_python_construction_logs_its_deprecation_once(caplog):
     """Choosing the pure-Python construction is logged as a deprecation warning, once per state space. Regression:
     a DeprecationWarning attributed to the package was hidden by the default filters."""
-    import logging
-
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)  # the phasegen logger does not propagate, so capture it directly
     Settings.use_numba = False
-    try:
-        ss = LineageCountingStateSpace(pg.LineageConfig(n=3))
-        _ = ss.S
-        ss.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
-        _ = ss.S
-    finally:
-        Settings.use_numba = True
-        log.removeHandler(caplog.handler)
+    ss = LineageCountingStateSpace(pg.LineageConfig(n=3))
+    _ = ss.S
+    ss.update_epoch(pg.Epoch(pop_sizes={'pop_0': 2}))
+    _ = ss.S
 
     assert sum('pure-Python construction, which is deprecated' in r.getMessage() for r in caplog.records) == 1

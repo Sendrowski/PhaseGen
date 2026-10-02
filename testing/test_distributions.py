@@ -752,14 +752,9 @@ def test_stability_warning_names_the_offending_epoch(caplog):
     )
     coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem)
 
-    log = logging.getLogger('phasegen')
-    log.addHandler(caplog.handler)  # the phasegen logger does not propagate; capture it directly
-    try:
-        caplog.clear()
-        # end times straddling the epoch boundary at t = 1, so the dense loop advances into epoch 1
-        coal.tree_height.accumulate(1, [0.5, 2.0, 5.0])
-    finally:
-        log.removeHandler(caplog.handler)
+    caplog.clear()
+    # end times straddling the epoch boundary at t = 1, so the dense loop advances into epoch 1
+    coal.tree_height.accumulate(1, [0.5, 2.0, 5.0])
 
     named = {r.getMessage().split('epoch ')[1].split(' ')[0]
              for r in caplog.records if r.levelno >= logging.WARNING and 'Intensity matrix in epoch' in r.getMessage()}
