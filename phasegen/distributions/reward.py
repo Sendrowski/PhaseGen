@@ -84,7 +84,9 @@ class RewardDistribution(CallableDistributionFunctions):
     transform :math:`\varphi` given by :meth:`RewardDistribution.lst() <phasegen.distributions.RewardDistribution.lst>`
     is exact, requires a single linear solve and determines the distribution uniquely, so the ``cdf``, ``pdf`` and
     ``quantile`` are obtained by inverting it numerically. The tree height is the exception, as its distribution
-    follows directly from matrix exponentials (see :class:`~phasegen.distributions.TreeHeightDistribution`).
+    follows directly from matrix exponentials (see :class:`~phasegen.distributions.TreeHeightDistribution`). On a
+    coalescent with a start or end time, the mean and variance accumulate over that window, and the transform and the
+    distribution functions raise :class:`NotImplementedError`.
 
     .. rubric:: Fourier-cosine expansion
 
@@ -572,8 +574,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
       :class:`~phasegen.distributions.ConditionalRewardDistribution`.
     - An infinite argument is evaluated exactly, by restricting the process to the states where its reward is zero,
       as for the atom of a :class:`~phasegen.distributions.RewardDistribution`.
-    - A joint distribution has no quantile function. On a coalescent with a start or end time, the transform and the
-      distribution functions raise :class:`NotImplementedError`.
+    - A joint distribution has no quantile function. On a coalescent with a start or end time, the moments accumulate
+      over that window, and the transform and the distribution functions raise :class:`NotImplementedError`.
 
     .. versionadded:: 2.0
     """
@@ -681,8 +683,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """
         if on not in ('a', 'b'):
             raise ValueError("`on` must be 'a' or 'b'.")
-        if not isinstance(order, (int, np.integer)) or order < 0:
-            raise ValueError("`order` must be a non-negative integer.")
+        order = _validate_order(order)
 
         return [complex(c) for c in self._lst_taylor_batch(np.array([s], dtype=complex), on, order)[0]]
 
@@ -1689,7 +1690,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 v = float(marg_on.quantile(p0 + (1.0 - p0) * float(u)))
                 try:
                     cond = self.conditional(on, v)
-                    exact = cond._raw_moments(k=1)[0]
+                    exact = float(cond.mean)
                     got = float(cond._cumulants()[0])
                 except ValueError as e:
                     refused.append((float(u), str(e)))
@@ -1953,7 +1954,7 @@ class ConditionalRewardDistribution(RewardDistribution):
         other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving there is reported by a
         warning. Each node is evaluated once, since every truncation weights a subset of the nodes of the next, and a
         node below the real axis takes the conjugate of the coefficients at its mirror image, as they are real on the
-        axis.
+        axis. The ladder is memoised per ``k``, so that ``mean``, ``var`` and ``moment(2)`` share one.
 
         :param k: Highest order.
         :return: The moments at the last two truncations, of shape ``(2, k)``.
@@ -1966,6 +1967,10 @@ class ConditionalRewardDistribution(RewardDistribution):
                 "The derivative identity divides by the conditioning marginal's continuous density, which is not the "
                 "atom mass at 0, so it cannot give the moments of the atom conditional."
             )
+
+        cache = self.__dict__.setdefault('_ladder_cache', {})
+        if k in cache:
+            return cache[k]
 
         orders = np.arange(1, k + 1)
         signs = np.array([factorial(j) * (-1) ** j for j in orders], dtype=float)
@@ -2016,7 +2021,9 @@ class ConditionalRewardDistribution(RewardDistribution):
                 "inner inversion up to N0 = %d. They may be off by about that much.", self.label, move, _MOMENT_TOL, n0
             )
 
-        return np.array(ladder[-2:])
+        cache[k] = np.array(ladder[-2:])
+
+        return cache[k]
 
     @cached_property
     def var(self) -> float:
@@ -2067,10 +2074,11 @@ class ConditionalRewardDistribution(RewardDistribution):
 
         :param k: Order :math:`k` of the moment.
         :return: The raw moment of order ``k``.
-        :raises ValueError: If ``k`` is below 1, or if the density of the conditioning reward at :math:`v` is not
-            resolvable.
+        :raises ValueError: If ``k`` is not an integer of at least 1, or if the density of the conditioning reward at
+            :math:`v` is not resolvable.
         :raises NotImplementedError: If ``k`` exceeds 2 for :math:`v = 0`.
         """
+        k = _validate_order(k)
         if k < 1:
             raise ValueError("k must be at least 1.")
 

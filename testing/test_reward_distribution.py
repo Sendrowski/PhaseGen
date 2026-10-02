@@ -1260,6 +1260,44 @@ def test_conditional_variance_uses_the_mean_it_reports():
         assert float(cond.var) == pytest.approx(cond.moment(2) - cond.moment(1) ** 2, rel=1e-12, abs=1e-15)
 
 
+def test_conditional_moments_share_one_ladder(monkeypatch):
+    """``ConditionalRewardDistribution.mean``, ``var`` and ``moment(2)`` each ran the moment ladder from scratch,
+    evaluating the joint Taylor coefficients three times and repeating any warning, and ``moment`` and
+    ``JointRewardDistribution.lst_taylor`` rejected an integral float order, which is how R passes every order."""
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
+    cond = jd.conditional('a', v)
+
+    calls = []
+    batch = jd._lst_taylor_batch
+    monkeypatch.setattr(jd, '_lst_taylor_batch', lambda *args: calls.append(1) or batch(*args))
+
+    _ = cond.mean
+    n = len(calls)
+    assert n > 0
+    _ = cond.var
+    _ = cond.moment(2)
+    assert len(calls) == n
+
+    assert cond.moment(2.0) == cond.moment(np.float64(2.0)) == cond.moment(2)
+    with pytest.raises(ValueError):
+        cond.moment(1.5)
+    with pytest.raises(ValueError):
+        jd.lst_taylor(0.5, order=1.5)
+    assert jd.lst_taylor(0.5, order=2.0) == jd.lst_taylor(0.5, order=2)
+
+
+def test_check_conditional_moments_compares_against_the_reported_mean():
+    """``JointRewardDistribution.check_conditional_moments`` took its reference from an order-1 ladder, which can stop
+    at a different truncation than the order-2 ladder the conditional's mean is read from."""
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    jd.check_conditional_moments(quantiles=[0.5])
+    _, exact, _, _ = jd.conditional_moment_curves['a']
+
+    v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
+    assert exact[0] == float(jd.conditional('a', v).mean)
+
+
 def test_joint_cdf_vanishes_below_the_origin():
     """``JointCDF`` integrated the cosine box at negative thresholds, whose antiderivatives are negative there, so
     ``pg.Coalescent(n=4).sfs.joint_distribution(1, 2).cdf(-1.0, 1.0)`` returned -0.147. For identical rewards the
