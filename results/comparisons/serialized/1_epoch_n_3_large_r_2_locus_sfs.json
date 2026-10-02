@@ -21,7 +21,8 @@
                         "pdf": 0.012
                     }
                 },
-                "mean": 0.009
+                "mean": 0.009,
+                "var": 0.061
             }
         }
     },
@@ -36,6 +37,7 @@
     "migration_rates": {},
     "n_loci": 2,
     "recombination_rate": 100.0,
+    "n_unlinked": 0,
     "num_replicates": 200000,
     "n_samples": null,
     "mutation_rate": null,
@@ -53,7 +55,7 @@
         "py/object": "phasegen.coalescent_models.StandardCoalescent"
     },
     "n_assertions": 0,
-    "runtimes": {},
+    "_ms_statistics": {},
     "ms": {
         "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
         "_logger": {
@@ -86,7 +88,8 @@
                 "py/object": "numpy.ndarray",
                 "data": [
                     3
-                ]
+                ],
+                "dtype": "int64"
             },
             "n": 3,
             "n_pops": 1,
@@ -110,8 +113,7 @@
             },
             "n": 2,
             "n_unlinked": 0,
-            "recombination_rate": 100.0,
-            "_allow_coalescence": true
+            "recombination_rate": 100.0
         },
         "model": {
             "py/id": 11
@@ -122,8 +124,11 @@
         "total_branch_lengths": null,
         "heights": null,
         "mutations": null,
+        "jsfs_mutations": null,
+        "deme_mutations": null,
         "jsfs_moments": null,
         "jsfs_samples": null,
+        "n_total": null,
         "num_replicates": 200000,
         "mutation_rate": null,
         "n_threads": 1,
@@ -133,38 +138,24 @@
         "seed": 48,
         "sfs2": {
             "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
-            "_mean": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        4.015466587492734,
-                        2.0018016571903203,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        2.0074114262297096,
-                        1.004541416846388,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ]
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.EmpiricalTwoLocusSFSDistribution"
+                        ]
+                    }
                 ]
             },
+            "_cache": null,
+            "samples": null,
+            "n_samples": 200000,
+            "_standard_errors": {},
             "_left": null,
             "_right": null,
-            "n_samples": 200000,
             "_joint_surface": [
                 {
                     "py/tuple": [
@@ -198,7 +189,8 @@
                                 4.3619000503857865,
                                 4.560168234494231,
                                 4.758436418602676
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -228,7 +220,8 @@
                                 2.7413020839932227,
                                 2.8659067241747325,
                                 2.9905113643562427
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -908,7 +901,8 @@
                                     0.896345,
                                     0.90253
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -1588,7 +1582,8 @@
                                     0.002529838356570252,
                                     0.00222625775378665
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         }
                     ]
                 },
@@ -1624,7 +1619,8 @@
                                 2.761681677800065,
                                 2.8872126631546133,
                                 3.0127436485091614
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -1654,7 +1650,8 @@
                                 2.7413020839932227,
                                 2.8659067241747325,
                                 2.9905113643562427
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -2334,7 +2331,8 @@
                                     0.89643,
                                     0.902625
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         },
                         {
                             "py/object": "numpy.ndarray",
@@ -3014,11 +3012,222 @@
                                     0.0027170884529202632,
                                     0.0019179447903021015
                                 ]
-                            ]
+                            ],
+                            "dtype": "float64"
                         }
                     ]
                 }
-            ]
+            ],
+            "mean": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            4.015466587492734,
+                            2.0018016571903203,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            2.0074114262297096,
+                            1.004541416846388,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "var": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            20.27765243984462,
+                            8.089450220795445,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            8.128008251276967,
+                            3.074869284494937,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m2": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            36.401624355115466,
+                            12.096660095525346,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            12.15770888543433,
+                            4.083972742654767,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m3": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            590.773902203595,
+                            147.63697142813888,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            150.1400282342956,
+                            38.42702872618516,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m4": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            15176.22227581794,
+                            3087.2269679942247,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            3133.0070192407884,
+                            648.6637083250873,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "corr": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.010408642581184211,
+                            0.0031918417544092156,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0013742181258936288,
+                            0.0018189370101592117,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            }
         }
     }
 }

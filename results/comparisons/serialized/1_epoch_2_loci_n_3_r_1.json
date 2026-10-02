@@ -12262,12 +12262,7 @@
                 }
             },
             "mutation_configs": {
-                "py/object": "collections.defaultdict",
-                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}, {\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.000000000007918,
-                "default_factory": {
-                    "py/object": "jsonpickle.handlers.CloneFactory",
-                    "exemplar": 0
-                }
+                "json://{\"py/tuple\": [0, 0]}": 1.000000000007918
             },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
@@ -14083,19 +14078,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 409
+                                "py/id": 406
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 409
+                                "py/id": 406
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 409
+                                "py/id": 406
                             }
                         }
                     }
@@ -15912,19 +15907,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 434
+                                "py/id": 431
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 434
+                                "py/id": 431
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 434
+                                "py/id": 431
                             }
                         }
                     }
@@ -19634,31 +19629,26 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 490
+                                "py/id": 487
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 490
+                                "py/id": 487
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 490
+                                "py/id": 487
                             }
                         }
                     }
                 }
             },
             "mutation_configs": {
-                "py/object": "collections.defaultdict",
-                "json://{\"py/tuple\": [{\"py/object\": \"numpy.int64\", \"dtype\": \"int64\", \"value\": 0}]}": 1.000000000007918,
-                "default_factory": {
-                    "py/object": "jsonpickle.handlers.CloneFactory",
-                    "exemplar": 0
-                }
+                "json://{\"py/tuple\": [0]}": 1.000000000007918
             },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
@@ -21474,19 +21464,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 524
+                                "py/id": 519
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 524
+                                "py/id": 519
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 524
+                                "py/id": 519
                             }
                         }
                     }
@@ -23303,19 +23293,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 549
+                                "py/id": 544
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 549
+                                "py/id": 544
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 549
+                                "py/id": 544
                             }
                         }
                     }
@@ -23462,19 +23452,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 473
+                        "py/id": 470
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 473
+                        "py/id": 470
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 473
+                        "py/id": 470
                     }
                 }
             }
@@ -25507,7 +25497,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 596
+                            "py/id": 591
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -25902,29 +25892,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 620
+                                "py/id": 615
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 620
+                                "py/id": 615
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 620
+                                "py/id": 615
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 615
+                        "py/id": 610
                     },
                     "corr": {
-                        "py/id": 616
+                        "py/id": 611
                     }
                 }
             },
@@ -25937,7 +25927,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 596
+                            "py/id": 591
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -26332,19 +26322,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 645
+                                "py/id": 640
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 645
+                                "py/id": 640
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 645
+                                "py/id": 640
                             }
                         }
                     }
@@ -26356,7 +26346,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 596
+                            "py/id": 591
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -26751,29 +26741,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 668
+                                "py/id": 663
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 668
+                                "py/id": 663
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 668
+                                "py/id": 663
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 618
+                        "py/id": 613
                     },
                     "corr": {
-                        "py/id": 617
+                        "py/id": 612
                     }
                 }
             },
@@ -26816,19 +26806,19 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 594
+                        "py/id": 589
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 594
+                        "py/id": 589
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 594
+                        "py/id": 589
                     }
                 }
             }
@@ -27328,7 +27318,7 @@
                 }
             },
             "pops": {
-                "py/id": 609
+                "py/id": 604
             },
             "_samples": null,
             "_loci_joint_surface": [
@@ -28810,7 +28800,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 705
+                            "py/id": 700
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -29205,29 +29195,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 728
+                                "py/id": 723
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 728
+                                "py/id": 723
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 728
+                                "py/id": 723
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 723
+                        "py/id": 718
                     },
                     "corr": {
-                        "py/id": 724
+                        "py/id": 719
                     }
                 }
             },
@@ -29240,7 +29230,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 705
+                            "py/id": 700
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -29635,19 +29625,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 753
+                                "py/id": 748
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 753
+                                "py/id": 748
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 753
+                                "py/id": 748
                             }
                         }
                     }
@@ -29659,7 +29649,7 @@
                     },
                     "_cache": {
                         "t": {
-                            "py/id": 705
+                            "py/id": 700
                         },
                         "cdf": {
                             "py/object": "numpy.ndarray",
@@ -30054,29 +30044,29 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 776
+                                "py/id": 771
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 776
+                                "py/id": 771
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 776
+                                "py/id": 771
                             }
                         }
                     }
                 },
                 "__dict__": {
                     "cov": {
-                        "py/id": 726
+                        "py/id": 721
                     },
                     "corr": {
-                        "py/id": 725
+                        "py/id": 720
                     }
                 }
             },
@@ -30119,58 +30109,254 @@
                 "cdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                     "_distribution": {
-                        "py/id": 703
+                        "py/id": 698
                     }
                 },
                 "pdf": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                     "_distribution": {
-                        "py/id": 703
+                        "py/id": 698
                     }
                 },
                 "quantile": {
                     "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                     "_distribution": {
-                        "py/id": 703
+                        "py/id": 698
                     }
                 }
             }
         },
         "sfs2": {
             "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
-            "_mean": {
-                "py/object": "numpy.ndarray",
-                "data": [
-                    [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        4.999022644845508,
-                        2.349368244673932,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        2.3458796133964097,
-                        1.309092957306616,
-                        0.0
-                    ],
-                    [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ]
-                ],
-                "dtype": "float64"
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.EmpiricalTwoLocusSFSDistribution"
+                        ]
+                    }
+                ]
             },
+            "_cache": null,
+            "samples": null,
+            "n_samples": 200000,
+            "_standard_errors": {},
             "_left": null,
             "_right": null,
-            "n_samples": 200000
+            "_joint_surface": [],
+            "mean": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            4.997020291734705,
+                            2.3475500650077166,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            2.3470963255535384,
+                            1.3083208058894806,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "var": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            40.440944530213876,
+                            12.412092257317873,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            12.346714499937498,
+                            5.635544362535465,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m2": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            65.41115632622483,
+                            17.923083565035405,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            17.855575661364842,
+                            7.3472476936586375,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m3": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            1573.7749090497962,
+                            282.1811118407696,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            272.8674126549609,
+                            90.19598457298295,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "m4": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            58417.51537841648,
+                            7676.584863775439,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            6787.254435714769,
+                            1906.3262918981056,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            },
+            "corr": {
+                "py/object": "sfsutils.spectrum.TwoLocusSFS",
+                "n": 4,
+                "w": 2,
+                "data": {
+                    "py/object": "numpy.ndarray",
+                    "data": [
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.49969783962935893,
+                            0.2494902592913514,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.2485635363248287,
+                            0.3135096982127218,
+                            0.0
+                        ],
+                        [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    ],
+                    "dtype": "float64"
+                }
+            }
         }
     }
 }

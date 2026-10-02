@@ -699,13 +699,13 @@ def test_two_locus_joint_distribution_vs_msprime():
 
     for i, j in [(1, 1), (1, 2), (2, 2), (2, 3)]:
         jd = ph.sfs2.joint_distribution(i, j)
-        empirical_cross = ms2.cross_moment(i, j)
+        empirical_cross = ms2.joint_distribution(i, j).moment(1, 1)
         assert abs(jd.moment(1, 1) - empirical_cross) < 0.04 * empirical_cross + 0.01
 
         for qa, qb in [(0.5, 0.6), (0.7, 0.4)]:
             x = float(jd.marginal('a').quantile(qa))
             y = float(jd.marginal('b').quantile(qb))
-            assert abs(jd.cdf(x, y) - ms2.joint_cdf(i, j, x, y)) < 0.02
+            assert abs(jd.cdf(x, y) - ms2.joint_distribution(i, j).cdf(x, y)) < 0.02
 
 
 def test_two_locus_joint_distribution_restricted_by_spectrum_reward():

@@ -35,104 +35,6 @@ logger = logging.getLogger('phasegen')
 _MSPRIME_BETA_ALPHA_MAX = 1.991
 
 
-class EmpiricalJointSFSDistribution:  # pragma: no cover
-    r"""
-    Empirical joint site-frequency spectrum, built by
-    :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
-    :class:`~phasegen.distributions.MsprimeCoalescent`. It holds the raw sample moments
-
-    .. math::
-
-        \hat M_o(\mathbf{c}) = \frac{1}{N} \sum_{m=1}^{N} L_{m\mathbf{c}}^o, \qquad o = 1, 2, 3,
-
-    where :math:`L_{m\mathbf{c}}` is the branch length of replicate :math:`m = 1, \dots, N` whose descendants number
-    :math:`c_p` in population :math:`p`, for the descendant vector :math:`\mathbf{c} = (c_0, \dots, c_{P-1})` over
-    :math:`P` populations. :attr:`mean`, :attr:`m2` and :attr:`m3` return :math:`\hat M_1`, :math:`\hat M_2` and
-    :math:`\hat M_3`, and :attr:`var` is :math:`\hat M_2 - \hat M_1^2`.
-    """
-
-    def __init__(self, moments: np.ndarray, samples: np.ndarray = None, n_samples: int = None) -> None:
-        """
-        Initialize the distribution.
-
-        :param moments: Raw moments per descendant configuration of orders one to three, stacked along the first
-            axis, of shape ``(3, n_0 + 1, ..., n_{P-1} + 1)``.
-        :param samples: Optional per-replicate joint SFS branch lengths, of shape ``(N, n_0 + 1, ...)``, possibly a
-            capped subset of the replicates the moments were averaged over.
-        :param n_samples: The number of replicates :math:`N` the moments were averaged over. Defaults to the length
-            of ``samples``, and must be given when ``samples`` is a capped subset.
-        """
-        #: Non-central moments per descendant configuration, indexed by order minus one.
-        self._moments: np.ndarray = np.asarray(moments)
-
-        #: Joint SFS branch lengths, one row per simulated replicate, of shape
-        #: ``(n_samples, n_0 + 1, ..., n_{P-1} + 1)``, possibly a capped subset of the replicates. ``None`` once freed
-        #: for serialization.
-        self.samples: np.ndarray | None = None if samples is None else np.asarray(samples)
-
-        #: Number of replicates the moments were averaged over, retained when the samples are freed so that it is
-        #: recorded in a serialized comparison. Not ``len(samples)`` when the samples are a capped subset.
-        self.n_samples: Optional[int] = (
-            n_samples if n_samples is not None else (None if samples is None else np.asarray(samples).shape[0]))
-
-        #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
-        self._joint_surface: list = []
-
-    def _cache_joint_surface(self, pairs: List[Tuple[Tuple[int, ...], Tuple[int, ...]]], n_grid: int = 25,
-                            q_max: float = 0.95) -> None:
-        """Cache the ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` per configuration
-        pair."""
-        s = self.samples
-        n = s.shape[0]
-        self._joint_surface = []
-        for ca, cb in pairs:
-            li, lj = s[(slice(None),) + tuple(ca)], s[(slice(None),) + tuple(cb)]
-            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
-            ys = np.linspace(0.0, float(np.quantile(lj, q_max)), n_grid)
-            cdf = ((li[:, None] <= xs[None, :]).astype(float).T @ (lj[:, None] <= ys[None, :]).astype(float)) / n
-            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
-            self._joint_surface.append((tuple(ca), tuple(cb), xs, ys, cdf, pdf))
-
-    def _drop(self) -> None:
-        """Drop the (large) per-replicate samples once the joint ground truth has been cached."""
-        self.samples = None
-
-    @property
-    def mean(self) -> JointSFS:
-        """
-        Mean of the joint site-frequency spectrum.
-        """
-        return JointSFS(self._moments[0])
-
-    @property
-    def m2(self) -> JointSFS:
-        """
-        Second (non-central) moment of the joint site-frequency spectrum.
-        """
-        return JointSFS(self._moments[1])
-
-    @property
-    def m3(self) -> JointSFS:
-        """
-        Third (non-central) moment of the joint site-frequency spectrum.
-        """
-        return JointSFS(self._moments[2])
-
-    @property
-    def var(self) -> JointSFS:
-        """
-        Variance of the joint site-frequency spectrum.
-        """
-        return JointSFS(self._moments[1] - self._moments[0] ** 2)
-
-    @property
-    def data(self) -> np.ndarray:
-        """
-        The mean joint site-frequency spectrum array.
-        """
-        return self._moments[0]
-
-
 class _EmpiricalFunction:  # pragma: no cover
     """Mixin building the plot data of an empirical function object: one curve for a sample vector (a scalar
     distribution), one per polymorphic bin for a replicate-by-bin sample matrix (a spectrum)."""
@@ -156,11 +58,16 @@ class _EmpiricalFunction:  # pragma: no cover
         from ..visualization import _CurveData
 
         samples = np.asarray(self._distribution.samples)
-        per_bin = samples.ndim == 2
-        columns = [int(i) for i in (self._distribution._polymorphic_bins() if bins is None else np.atleast_1d(bins))] \
+        per_bin = samples.ndim >= 2
+        keys = (list(self._distribution._polymorphic_bins()) if bins is None else list(np.atleast_1d(bins))) \
             if per_bin else []
+        if samples.ndim == 2:
+            keys = [int(i) for i in keys]
+        columns = [
+            int(np.ravel_multi_index(np.atleast_1d(key), samples.shape[1:])) for key in keys
+        ] if per_bin else []
 
-        included = samples[:, columns] if per_bin else samples
+        included = samples.reshape(samples.shape[0], -1)[:, columns] if per_bin else samples
         x = DistributionFunction._default_grid(
             self.kind, grid, n_points, lambda: np.quantile(included, Settings.plot_endpoint_quantile, axis=0).max()
         )
@@ -175,13 +82,13 @@ class _EmpiricalFunction:  # pragma: no cover
         else:
             values = np.asarray(self(x))
 
-        y = values.T[columns] if per_bin else values[None]
+        y = values.reshape(values.shape[0], -1).T[columns] if per_bin else values[None]
         name = dict(pdf='PDF', cdf='CDF', quantile='quantile function')[self.kind]
 
         return _CurveData(
             x=x,
             y=y,
-            labels=[str(i) for i in columns] if per_bin else [''],
+            labels=[str(key) for key in keys] if per_bin else [''],
             xlabel='q' if self.kind == 'quantile' else 't',
             ylabel=dict(pdf='f(t)', cdf='F(t)', quantile='quantile')[self.kind],
             title=f'SFS bin {name}s' if per_bin else name[0].upper() + name[1:],
@@ -227,23 +134,21 @@ class _EmpiricalFunction:  # pragma: no cover
 
 
 class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDistributionFunction):  # pragma: no cover
-    """The empirical CDF of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples, of shape
-    ``(len(t), n + 1)`` for a spectrum."""
+    """The empirical CDF of ``EmpiricalDistribution`` (see its class docstring), per entry for the samples of a
+    spectrum, of shape ``t.shape + shape`` with ``shape`` the shape of one sample."""
 
     def __call__(self, t) -> 'np.ndarray':
-        # sort along the replicate axis (axis 0); for 2-D (per-bin) samples this must not be the default last axis,
-        # which would sort across bins within a replicate and produce a meaningless ECDF
+        # sort along the replicate axis, never across the entries of one replicate
         samples = self._distribution.samples
-        x = np.sort(samples, axis=0)
+        x = np.sort(samples.reshape(samples.shape[0], -1), axis=0)
         y = np.arange(1, len(samples) + 1) / len(samples)
 
-        if x.ndim == 1:
-            return np.interp(t, x, y, left=0.0)
+        if samples.ndim == 1:
+            return np.interp(t, x[:, 0], y, left=0.0)
 
-        if x.ndim == 2:
-            return np.stack([np.interp(t, x_, y, left=0.0) for x_ in x.T], axis=-1)
+        out = np.stack([np.interp(t, x_, y, left=0.0) for x_ in x.T], axis=-1)
 
-        raise ValueError("Samples must be 1 or 2 dimensional.")
+        return out.reshape(np.shape(t) + samples.shape[1:])
 
     def _plot_data(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
         """
@@ -259,7 +164,8 @@ class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDis
 
 
 class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragma: no cover
-    """The sample quantile of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples."""
+    """The sample quantile of ``EmpiricalDistribution`` (see its class docstring), per entry for the samples of a
+    spectrum."""
 
     def __call__(self, q) -> 'np.ndarray':
         # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
@@ -314,9 +220,9 @@ class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragm
 
 
 class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma: no cover
-    """The cell-average density of ``EmpiricalDistribution`` (see its class docstring), per column for 2-D samples,
-    of shape ``(len(t), n + 1)`` for a spectrum. ``Comparison._cell_average`` integrates the exact density over the
-    same cells, so both sides estimate the same functional."""
+    """The cell-average density of ``EmpiricalDistribution`` (see its class docstring), per entry for the samples of a
+    spectrum, of shape ``(len(t),) + shape`` with ``shape`` the shape of one sample. ``Comparison._cell_average``
+    integrates the exact density over the same cells, so both sides estimate the same functional."""
 
     def __call__(self, t) -> 'np.ndarray':
         samples = self._distribution.samples
@@ -331,10 +237,9 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
         if samples.ndim == 1:
             return self._cell_density(samples, edges, widths)
 
-        if samples.ndim == 2:
-            return np.stack([self._cell_density(s, edges, widths) for s in samples.T], axis=-1)
+        out = np.stack([self._cell_density(s, edges, widths) for s in samples.reshape(samples.shape[0], -1).T], axis=-1)
 
-        raise ValueError("Samples must be 1 or 2 dimensional.")
+        return out.reshape((len(t),) + samples.shape[1:])
 
     def _plot_data(self, t: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
         """
@@ -380,7 +285,18 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
       Zero realisations are excluded but counted in :math:`N`, so the cells carry the mass :math:`1 - p_0`.
     - :attr:`cov` and :attr:`corr`: the sample covariance with normalisation :math:`1 / N`, so that :attr:`var` is
-      its diagonal, and the correlation derived from it. Entries without variance are set to zero.
+      its diagonal, and the correlation derived from it, of shape ``shape + shape`` for samples whose entries have
+      the shape ``shape``. Entries without variance are set to zero.
+
+    The following example estimates the 90% quantile of the tree height and its CDF at 2 from 1000 sampled
+    trajectories.
+
+    ::
+
+        emp = pg.Coalescent(n=5).tree_height.to_empirical(1000, seed=1)
+
+        q = emp.quantile(0.9)
+        p = emp.cdf(2.0)
     """
     # the cdf / pdf / quantile evaluation lives on these sample-based function objects; the distribution supplies the
     # ``samples`` they read (the per-bin spectrum case is handled by the same objects, on 2-D samples)
@@ -474,6 +390,23 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         self.samples = None
 
+    def _cache_joint_surface(self, pairs: Sequence[tuple], n_grid: int = 25, q_max: float = 0.95) -> None:
+        """
+        Cache the empirical joint CDF and density surface of each pair of entries of a spectrum that provides
+        ``joint_distribution``, for the full-grid surface comparison, as
+        ``self._joint_surface = [(a, b, xs, ys, cdf_grid, pdf_grid), ...]``, serialized with the comparison.
+
+        :param pairs: The pairs ``(a, b)`` of entries, as ``joint_distribution`` takes them.
+        :param n_grid: Number of grid points per axis.
+        :param q_max: Quantile of each entry up to which its axis extends.
+        """
+        def key(k):
+            return tuple(int(c) for c in k) if isinstance(k, (tuple, list)) else int(k)
+
+        self._joint_surface = [
+            (key(a), key(b)) + self.joint_distribution(a, b)._surface(n_grid, q_max) for a, b in pairs
+        ]
+
     @cached_property
     def mean(self) -> float | np.ndarray:
         """
@@ -517,16 +450,29 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
-            return np.nan_to_num(np.cov(self.samples, rowvar=False, bias=True))
+        return self._pairwise(lambda x: np.cov(x, rowvar=False, bias=True))
 
     @cached_property
     def corr(self) -> float | np.ndarray:
         """
         Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
         """
+        return self._pairwise(lambda x: np.corrcoef(x, rowvar=False))
+
+    def _pairwise(self, func: Callable[[np.ndarray], np.ndarray]) -> float | np.ndarray:
+        """
+        A matrix statistic of the entries, computed on the samples flattened to one row per replicate and reshaped
+        to ``shape + shape``.
+
+        :param func: The statistic of a matrix with one column per entry.
+        :return: The statistic, with entries without variance set to zero.
+        """
+        shape = self.samples.shape[1:]
+
         with np.errstate(divide='ignore', invalid='ignore'):
-            return np.nan_to_num(np.corrcoef(self.samples, rowvar=False))
+            out = np.nan_to_num(func(self.samples.reshape(self.samples.shape[0], -1)))
+
+        return out.reshape(shape + shape) if len(shape) > 1 else out
 
     def moment(self, k: int, center: bool = True) -> float | np.ndarray:
         r"""
@@ -629,6 +575,309 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         return TwoSFS(super().corr)
 
+
+class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
+    r"""
+    Empirical joint site-frequency spectrum, built by
+    :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
+    :class:`~phasegen.distributions.MsprimeCoalescent`, the sampled counterpart of
+    :class:`~phasegen.distributions.JointSFSDistribution`. With :math:`L_{m\mathbf{c}}` the branch length of
+    replicate :math:`m = 1, \dots, N` whose descendants number :math:`c_p` in population :math:`p`, for the
+    descendant vector :math:`\mathbf{c} = (c_0, \dots, c_{P-1})` over :math:`P` populations, it holds the raw moments
+
+    .. math::
+
+        \hat M_o(\mathbf{c}) = \frac{1}{N} \sum_{m=1}^{N} L_{m\mathbf{c}}^o, \qquad o = 1, 2, 3,
+
+    over all replicates, which :attr:`mean`, :attr:`var`, :attr:`m2`, :attr:`m3` and :meth:`moment` up to order three
+    return. The other estimators of :class:`~phasegen.distributions.EmpiricalDistribution` apply per descendant
+    vector to the stored samples, which may be a capped subset of the replicates.
+
+    The following example estimates the mean joint spectrum of two demes from 1000 sampled trajectories.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.jsfs.to_empirical(1000, seed=1).mean
+    """
+
+    #: Static for backward compatibility.
+    _cache: Optional[dict] = None
+
+    #: Static for backward compatibility.
+    _standard_errors: dict = {}
+
+    #: Static for backward compatibility.
+    _joint_surface: list = []
+
+    def __init__(self, moments: np.ndarray, samples: np.ndarray = None, n_samples: int = None) -> None:
+        """
+        Initialize the distribution from the raw moments and, optionally, per-replicate samples.
+
+        :param moments: Raw moments per descendant vector of orders one to three, stacked along the first axis, of
+            shape ``(3, n_0 + 1, ..., n_{P-1} + 1)``.
+        :param samples: Optional per-replicate joint SFS branch lengths, of shape ``(N, n_0 + 1, ...)``, possibly a
+            capped subset of the replicates the moments were averaged over.
+        :param n_samples: The number of replicates :math:`N` the moments were averaged over. Defaults to the length
+            of ``samples``, and must be given when ``samples`` is a capped subset.
+        """
+        moments = np.asarray(moments)
+
+        super().__init__(np.zeros((0,) + moments.shape[1:]) if samples is None else samples)
+
+        if samples is None:
+            self.samples = None
+
+        #: Raw moments per descendant vector, indexed by order minus one.
+        self._moments: np.ndarray = moments
+
+        #: Number of replicates the moments were averaged over, which exceeds ``len(samples)`` for a capped subset.
+        self.n_samples: Optional[int] = n_samples if n_samples is not None else (
+            None if samples is None else self.samples.shape[0])
+
+        #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
+        self._joint_surface = []
+
+    def _polymorphic_bins(self) -> List[Tuple[int, ...]]:
+        """
+        The polymorphic descendant vectors, all but the empty one and the one holding every lineage.
+
+        :return: The descendant vectors.
+        """
+        shape = self._moments.shape[1:]
+        full = tuple(s - 1 for s in shape)
+
+        return [c for c in np.ndindex(*shape) if c != (0,) * len(shape) and c != full]
+
+    @cached_property
+    def mean(self) -> JointSFS:
+        r"""
+        Sample mean over all replicates, :math:`\hat M_1`.
+        """
+        return JointSFS(self._moments[0])
+
+    @cached_property
+    def var(self) -> JointSFS:
+        r"""
+        Sample variance over all replicates, :math:`\hat M_2 - \hat M_1^2`.
+        """
+        return JointSFS(self._moments[1] - self._moments[0] ** 2)
+
+    @cached_property
+    def m2(self) -> JointSFS:
+        r"""
+        Second raw sample moment over all replicates, :math:`\hat M_2`.
+        """
+        return JointSFS(self._moments[1])
+
+    @cached_property
+    def m3(self) -> JointSFS:
+        r"""
+        Third raw sample moment over all replicates, :math:`\hat M_3`.
+        """
+        return JointSFS(self._moments[2])
+
+    def moment(self, k: int, center: bool = True) -> JointSFS:
+        r"""
+        The :math:`k`-th sample moment of :meth:`EmpiricalDistribution.moment()
+        <phasegen.distributions.EmpiricalDistribution.moment>`, from the raw moments over all replicates up to order
+        three, where the central moment is :math:`\sum_{o=0}^{k} \binom{k}{o} \hat M_o (-\hat M_1)^{k-o}` with
+        :math:`\hat M_0 = 1`, and from the stored samples above.
+
+        :param k: Order :math:`k \ge 1` of the moment.
+        :param center: Whether to center the moment around the sample mean.
+        :return: The :math:`k`-th moment per descendant vector.
+        """
+        if k > 3:
+            return JointSFS(super().moment(k, center))
+
+        raw = [np.ones(self._moments.shape[1:])] + list(self._moments)
+
+        if not center or k < 2:
+            return JointSFS(raw[k])
+
+        return JointSFS(sum(math.comb(k, o) * raw[o] * (-raw[1]) ** (k - o) for o in range(k + 1)))
+
+    @property
+    def data(self) -> np.ndarray:
+        """
+        The mean joint site-frequency spectrum array.
+        """
+        return self._moments[0]
+
+    def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
+        """
+        The empirical joint distribution of the branch lengths of the descendant vectors ``config_a`` and
+        ``config_b``, the sampled counterpart of :meth:`JointSFSDistribution.joint_distribution()
+        <phasegen.distributions.JointSFSDistribution.joint_distribution>`.
+
+        :param config_a: The first descendant vector.
+        :param config_b: The second descendant vector.
+        :return: The empirical joint distribution.
+        :raises ValueError: If the per-replicate samples have been dropped.
+        """
+        if self.samples is None:
+            raise ValueError("The per-replicate samples have been dropped, and the joint distribution needs them.")
+
+        return EmpiricalJointDistribution(
+            self.samples[(slice(None),) + tuple(config_a)], self.samples[(slice(None),) + tuple(config_b)]
+        )
+
+class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cover
+    r"""
+    Empirical two-locus site-frequency spectrum, built by
+    :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
+    by :class:`~phasegen.distributions.MsprimeCoalescent`, the sampled counterpart of
+    :class:`~phasegen.distributions.TwoLocusSFSDistribution`. Its samples are the products
+    :math:`Y_{mij} = L^0_{mi} L^1_{mj}`, where :math:`L^\ell_{mi}` is the branch length subtending :math:`i` of the
+    :math:`n` lineages at locus :math:`\ell \in \{0, 1\}` in replicate :math:`m = 1, \dots, N`, and the estimators
+    of :class:`~phasegen.distributions.EmpiricalDistribution` apply per pair of classes :math:`(i, j)`, without
+    symmetrizing over the two loci. :attr:`corr` is the correlation between :math:`L^0_i` and :math:`L^1_j`, as for
+    :attr:`TwoLocusSFSDistribution.corr <phasegen.distributions.TwoLocusSFSDistribution.corr>`. The moment
+    statistics are retained when the samples are freed.
+
+    The following example estimates the two-locus spectrum and its cross-locus correlation from 1000 sampled
+    trajectories.
+
+    ::
+
+        emp = pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2.to_empirical(1000, seed=1)
+
+        mean, corr = emp.mean, emp.corr
+    """
+
+    #: Static for backward compatibility.
+    _cache: Optional[dict] = None
+
+    #: Static for backward compatibility.
+    _standard_errors: dict = {}
+
+    #: Static for backward compatibility.
+    _joint_surface: list = []
+
+    #: Statistics :meth:`_cache_standard_errors` estimates a standard error for.
+    _STANDARD_ERROR_STATISTICS = ('mean', 'var', 'm2', 'm3', 'm4')
+
+    def __init__(self, left: np.ndarray, right: np.ndarray) -> None:
+        """
+        Initialize the distribution from the per-replicate branch lengths of the two loci.
+
+        :param left: Locus-0 SFS branch lengths, of shape ``(N, n + 1)``.
+        :param right: Locus-1 SFS branch lengths, of shape ``(N, n + 1)``.
+        """
+        left, right = np.asarray(left, dtype=float), np.asarray(right, dtype=float)
+
+        super().__init__(left[:, :, None] * right[:, None, :])
+
+        #: Per-replicate branch lengths of the two loci, ``None`` once freed for serialization.
+        self._left: np.ndarray | None = left
+        self._right: np.ndarray | None = right
+
+        #: Cached full-grid joint surface ground truth: ``[(i, j, xs, ys, cdf_grid, pdf_grid), ...]``.
+        self._joint_surface = []
+
+    def _polymorphic_bins(self) -> List[Tuple[int, int]]:
+        """
+        The pairs of polymorphic classes.
+
+        :return: The pairs ``(i, j)``.
+        """
+        n = self.samples.shape[1] - 1
+
+        return [(i, j) for i in range(1, n) for j in range(1, n)]
+
+    @cached_property
+    def mean(self) -> TwoLocusSFS:
+        """
+        Sample mean, see :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return TwoLocusSFS(super().mean)
+
+    @cached_property
+    def var(self) -> TwoLocusSFS:
+        """
+        Sample variance, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return TwoLocusSFS(super().var)
+
+    @cached_property
+    def m2(self) -> TwoLocusSFS:
+        """
+        Second raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return TwoLocusSFS(super().m2)
+
+    @cached_property
+    def m3(self) -> TwoLocusSFS:
+        """
+        Third raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return TwoLocusSFS(super().m3)
+
+    @cached_property
+    def m4(self) -> TwoLocusSFS:
+        """
+        Fourth raw sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return TwoLocusSFS(super().m4)
+
+    def moment(self, k: int, center: bool = True) -> TwoLocusSFS:
+        r"""
+        The :math:`k`-th sample moment, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+
+        :param k: Order :math:`k \ge 1` of the moment.
+        :param center: Whether to center the moment around the sample mean.
+        :return: The :math:`k`-th moment per pair of classes.
+        """
+        return TwoLocusSFS(super().moment(k, center))
+
+    @cached_property
+    def corr(self) -> TwoLocusSFS:
+        r"""
+        Sample Pearson correlation between :math:`L^0_i` and :math:`L^1_j` for every pair of classes, the sampled
+        counterpart of :attr:`TwoLocusSFSDistribution.corr <phasegen.distributions.TwoLocusSFSDistribution.corr>`.
+        Pairs without variance are set to zero.
+        """
+        a = self._left - self._left.mean(axis=0)
+        b = self._right - self._right.mean(axis=0)
+        cov = a.T @ b / a.shape[0]
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return TwoLocusSFS(np.nan_to_num(cov / np.outer(a.std(axis=0), b.std(axis=0))))
+
+    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
+        """
+        The empirical joint distribution of :math:`L^0_i` and :math:`L^1_j`, the sampled counterpart of
+        :meth:`TwoLocusSFSDistribution.joint_distribution()
+        <phasegen.distributions.TwoLocusSFSDistribution.joint_distribution>`.
+
+        :param i: The locus-0 frequency class.
+        :param j: The locus-1 frequency class.
+        :return: The empirical joint distribution.
+        :raises ValueError: If the per-replicate samples have been dropped.
+        """
+        if self._left is None:
+            raise ValueError("The per-replicate samples have been dropped, and the joint distribution needs them.")
+
+        return EmpiricalJointDistribution(self._left[:, i], self._right[:, j])
+
+    def _drop(self) -> None:
+        """Drop the per-replicate samples, retaining the moment statistics."""
+        for name in ('mean', 'var', 'm2', 'm3', 'm4', 'corr'):
+            self.__dict__[name] = getattr(self, name)
+
+        super()._drop()
+
+        self._left = None
+        self._right = None
 
 class DictContainer(dict):  # pragma: no cover
     """
@@ -735,7 +984,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
             resolves_demes: bool = True
     ) -> None:
         """
-        Create object.
+        Initialize the distribution from the given realisations.
 
         :param samples: Realisations per locus, deme and replicate, of shape ``(loci, demes, N)``.
         :param pops: List of population names.
@@ -1138,6 +1387,38 @@ class EmpiricalJointDistribution:  # pragma: no cover
         r"""The pair of sample means of :math:`R_a` and :math:`R_b`."""
         return np.array([self._a.mean(), self._b.mean()])
 
+    def moment(self, order_a: int = 1, order_b: int = 1, center: bool = False) -> float:
+        r"""
+        The sample cross-moment :math:`N^{-1} \sum_{m=1}^{N} R_{am}^{j_a} R_{bm}^{j_b}` of orders
+        :math:`j_a, j_b \ge 0`, uncentered by default, the sampled counterpart of
+        :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>`.
+
+        :param order_a: The order :math:`j_a` of :math:`R_a`.
+        :param order_b: The order :math:`j_b` of :math:`R_b`.
+        :param center: Whether to center around the sample means.
+        :return: The cross-moment.
+        """
+        a = self._a - self._a.mean() if center else self._a
+        b = self._b - self._b.mean() if center else self._b
+
+        return float((a ** order_a * b ** order_b).mean())
+
+    def _surface(self, n_grid: int, q_max: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        The joint CDF on a grid spanning each reward up to its ``q_max`` quantile, and the density as its mixed
+        second difference.
+
+        :param n_grid: Number of grid points per axis.
+        :param q_max: Quantile of each reward up to which its axis extends.
+        :return: The grids ``xs`` and ``ys``, and the CDF and density on ``xs x ys``.
+        """
+        xs = np.linspace(0.0, float(np.quantile(self._a, q_max)), n_grid)
+        ys = np.linspace(0.0, float(np.quantile(self._b, q_max)), n_grid)
+        cdf = (self._a[:, None] <= xs).astype(float).T @ (self._b[:, None] <= ys).astype(float) / len(self._a)
+        pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
+
+        return xs, ys, cdf, pdf
+
     @property
     def cov(self) -> float:
         """The sample covariance of the two rewards, with the normalisation of
@@ -1316,56 +1597,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         super()._drop()
 
         self._mutations = None
-
-    def cross_moment(self, i: int, j: int) -> float:
-        r"""
-        Sample cross-moment :math:`N^{-1} \sum_{m} L_{mi} L_{mj}` of the branch lengths :math:`L_{mi}` and
-        :math:`L_{mj}` subtending ``i`` and ``j`` of the :math:`n` lineages in replicate :math:`m = 1, \dots, N`, the
-        sampled counterpart of
-        :meth:`JointRewardDistribution.moment() <phasegen.distributions.JointRewardDistribution.moment>` ``(1, 1)``.
-
-        :param i: First frequency class.
-        :param j: Second frequency class.
-        :return: The empirical cross-moment.
-        """
-        return float((self.samples[:, i] * self.samples[:, j]).mean())
-
-    def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
-        r"""
-        Empirical joint CDF of two SFS bins, the fraction of replicates whose branch lengths :math:`L_i` and
-        :math:`L_j` subtending ``i`` and ``j`` of the :math:`n` lineages satisfy :math:`L_i \le x` and
-        :math:`L_j \le y`, the sampled counterpart of :attr:`JointRewardDistribution.cdf
-        <phasegen.distributions.JointRewardDistribution.cdf>`.
-
-        :param i: First frequency class.
-        :param j: Second frequency class.
-        :param x: Threshold for :math:`L_i`.
-        :param y: Threshold for :math:`L_j`.
-        :return: The empirical joint probability.
-        """
-        return float(((self.samples[:, i] <= x) & (self.samples[:, j] <= y)).mean())
-
-    def _cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
-        """
-        Pre-compute, for each requested bin pair, the empirical joint CDF and density over a 2D grid (spanning each
-        bin's support up to its ``q_max`` quantile), for the full-grid surface comparison. The density is the mixed
-        second difference of the CDF grid (grid spacing = bandwidth). Stored as
-        ``self._joint_surface = [(i, j, xs, ys, cdf_grid, pdf_grid), ...]`` and serialized with the comparison.
-        """
-        s = self.samples
-        n = s.shape[0]
-        self._joint_surface = []
-        for i, j in pairs:
-            li, lj = s[:, i], s[:, j]
-            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
-            ys = np.linspace(0.0, float(np.quantile(lj, q_max)), n_grid)
-            # empirical joint CDF on the grid: P(L_i <= x_a, L_j <= y_b) = (1/N) sum_r 1{li_r<=x_a} 1{lj_r<=y_b}
-            a = (li[:, None] <= xs[None, :]).astype(float)  # (N, X)
-            b = (lj[:, None] <= ys[None, :]).astype(float)  # (N, Y)
-            cdf = (a.T @ b) / n  # (X, Y)
-            # density via the mixed second difference of the CDF surface (no separate bandwidth needed)
-            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
-            self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
     def _cache_atom_conditional(self, pairs: List[Tuple[int, int]], n_grid: int = 100) -> None:
         """
@@ -1567,79 +1798,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
             # increase counter for number of mutations
             i += 1
-
-
-class EmpiricalTwoLocusSFSDistribution:  # pragma: no cover
-    r"""
-    Empirical two-locus site-frequency spectrum, built by
-    :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
-    by :class:`~phasegen.distributions.MsprimeCoalescent`. Its :attr:`mean` has the entries
-    :math:`N^{-1} \sum_{m=1}^{N} L^0_{mi} L^1_{mj}`, where :math:`L^\ell_{mi}` is the branch length subtending
-    :math:`i` of the :math:`n` lineages at locus :math:`\ell \in \{0, 1\}` in replicate :math:`m = 1, \dots, N`. The
-    mean is not symmetrized over the two loci.
-    """
-
-    def __init__(self, mean: np.ndarray, left: np.ndarray = None, right: np.ndarray = None) -> None:
-        """
-        :param mean: The sample mean two-locus SFS array.
-        :param left: Optional per-replicate locus-0 SFS branch lengths, of shape ``(N, n + 1)``.
-        :param right: Optional per-replicate locus-1 SFS branch lengths, of shape ``(N, n + 1)``.
-        """
-        self._mean = np.asarray(mean)
-        self._left = None if left is None else np.asarray(left)
-        self._right = None if right is None else np.asarray(right)
-
-        #: Number of samples, retained when the samples are freed so that it is recorded in a serialized comparison.
-        self.n_samples: Optional[int] = None if left is None else np.asarray(left).shape[0]
-
-    @property
-    def mean(self) -> TwoLocusSFS:
-        """Mean two-locus SFS."""
-        return TwoLocusSFS(self._mean)
-
-    def _drop(self) -> None:
-        """Drop the per-replicate samples (the mean is retained)."""
-        self._left = None
-        self._right = None
-
-    def cross_moment(self, i: int, j: int) -> float:
-        r"""
-        Empirical cross-locus moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the two-locus SFS entry, estimated as in
-        :meth:`EmpiricalPhaseTypeSFSDistribution.cross_moment()
-        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.cross_moment>`.
-
-        :param i: Locus-0 frequency class.
-        :param j: Locus-1 frequency class.
-        :return: The empirical cross-moment.
-        """
-        return float((self._left[:, i] * self._right[:, j]).mean())
-
-    def joint_cdf(self, i: int, j: int, x: float, y: float) -> float:
-        r"""
-        Empirical cross-locus joint CDF :math:`P(L^0_i \le x, L^1_j \le y)`, estimated as in
-        :meth:`EmpiricalPhaseTypeSFSDistribution.joint_cdf()
-        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint_cdf>`.
-
-        :param i: Locus-0 frequency class.
-        :param j: Locus-1 frequency class.
-        :param x: Threshold for ``L^0_i``.
-        :param y: Threshold for ``L^1_j``.
-        :return: The empirical joint probability.
-        """
-        return float(((self._left[:, i] <= x) & (self._right[:, j] <= y)).mean())
-
-    def _cache_joint_surface(self, pairs: List[Tuple[int, int]], n_grid: int = 25, q_max: float = 0.95) -> None:
-        """Pre-compute the joint surface ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface``
-        for each cross-locus bin pair ``(i, j)``, locus-0 class ``i`` against locus-1 class ``j``."""
-        n = self._left.shape[0]
-        self._joint_surface = []
-        for i, j in pairs:
-            li, rj = self._left[:, i], self._right[:, j]
-            xs = np.linspace(0.0, float(np.quantile(li, q_max)), n_grid)
-            ys = np.linspace(0.0, float(np.quantile(rj, q_max)), n_grid)
-            cdf = ((li[:, None] <= xs[None, :]).astype(float).T @ (rj[:, None] <= ys[None, :]).astype(float)) / n
-            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
-            self._joint_surface.append((int(i), int(j), xs, ys, cdf, pdf))
 
 
 class _ReplicateStatistic:  # pragma: no cover
@@ -2488,7 +2646,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         demography = self.demography.to_msprime()
         model = self.get_coalescent_model()
 
-        out = np.zeros((n + 1, n + 1))
         # per-replicate locus-0 / locus-1 SFS branch lengths, retained for the joint distribution / cross-moments
         lefts = np.zeros((self.num_replicates, n + 1))
         rights = np.zeros((self.num_replicates, n + 1))
@@ -2511,11 +2668,10 @@ class MsprimeCoalescent(AbstractCoalescent):
             for nd in t1.nodes():
                 if t1.parent(nd) != -1:
                     right[t1.num_samples(nd)] += t1.branch_length(nd)
-            out += np.outer(left, right)
             lefts[rep] = left
             rights[rep] = right
 
-        return EmpiricalTwoLocusSFSDistribution(out / self.num_replicates, left=lefts, right=rights)
+        return EmpiricalTwoLocusSFSDistribution(lefts, rights)
 
     @cached_property
     def fst(self) -> float:

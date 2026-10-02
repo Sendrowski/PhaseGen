@@ -105,7 +105,7 @@ def test_to_empirical_sfs2_cross_moment():
     """The empirical two-locus cross-moment reproduces the analytic two-locus SFS entry."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
     e = sfs2.to_empirical(N_SAMPLES, seed=SEED)
-    assert e.cross_moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
+    assert e.joint_distribution(1, 1).moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
 
 
 def test_empirical_joint_marginal_conditional_match_analytic():

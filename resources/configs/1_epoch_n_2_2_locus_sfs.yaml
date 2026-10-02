@@ -16,3 +16,4 @@ comparisons:
           cdf: 0.014
           pdf: 0.074
       mean: 0.009
+      var: 0.059

@@ -2285,10 +2285,7 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         """
         from .empirical import EmpiricalTwoLocusSFSDistribution
 
-        left, right = self.sample_per_locus(n_samples, seed=seed)
-        mean = np.einsum('ni,nj->ij', left, right) / n_samples  # non-symmetrized, as in the msprime path
-
-        return EmpiricalTwoLocusSFSDistribution(mean, left=left, right=right)
+        return EmpiricalTwoLocusSFSDistribution(*self.sample_per_locus(n_samples, seed=seed))
 
     @cached_property
     def corr(self) -> TwoLocusSFS:

@@ -387,8 +387,8 @@ def test_sfs_bin_distributions_vs_msprime():
 @pytest.mark.slow
 def test_joint_distribution_cross_moment_and_cdf_vs_msprime():
     """Ground truth via the scenario infrastructure: the joint reward distribution's cross-moment ``E[L_i L_j]``
-    and joint CDF match a fresh msprime simulation, compared through the empirical SFS's cross-moment / joint-CDF
-    tracking (``EmpiricalPhaseTypeSFSDistribution.cross_moment`` / ``joint_cdf``)."""
+    and joint CDF match a fresh msprime simulation, compared through the empirical joint distribution of the
+    sampled SFS (``EmpiricalPhaseTypeSFSDistribution.joint_distribution``)."""
     from phasegen.comparison import Comparison
 
     c = Comparison(n=6, num_replicates=200000, pop_sizes={'pop_0': {0: 1.0}},
@@ -397,13 +397,13 @@ def test_joint_distribution_cross_moment_and_cdf_vs_msprime():
 
     for i, j in [(1, 2), (2, 3), (1, 4), (3, 3)]:
         jd = ph.sfs.joint_distribution(i, j)
-        empirical_cross = ms.sfs.cross_moment(i, j)
+        empirical_cross = ms.sfs.joint_distribution(i, j).moment(1, 1)
         assert abs(jd.moment(1, 1) - empirical_cross) < 0.03 * empirical_cross + 0.01  # E[L_i L_j]
 
         for qa, qb in [(0.4, 0.6), (0.7, 0.5)]:
             x = float(jd.marginal('a').quantile(qa))
             y = float(jd.marginal('b').quantile(qb))
-            assert abs(jd.cdf(x, y) - ms.sfs.joint_cdf(i, j, x, y)) < 0.02  # P(L_i <= x, L_j <= y)
+            assert abs(jd.cdf(x, y) - ms.sfs.joint_distribution(i, j).cdf(x, y)) < 0.02  # P(L_i <= x, L_j <= y)
 
 
 @pytest.mark.slow

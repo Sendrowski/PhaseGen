@@ -12,6 +12,7 @@ comparisons:
   tolerance:
     sfs2:
       mean: 0.013
+      var: 0.21
       pairwise:
         '[(1, 2), (1, 3), (2, 3)]':
           cdf: 0.0045
