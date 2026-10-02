@@ -870,3 +870,21 @@ def test_rescale_uses_sampled_population_size():
     fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch_next)
 
     testing.assert_allclose(np.asarray(s.S), np.asarray(fresh.S), rtol=1e-12)
+
+
+@pytest.mark.parametrize('n_states, level', [(4999, None), (5000, 'slow'), (15000, 'very slow'),
+                                              (50000, 'extremely slow')])
+def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog):
+    """A state space logs one warning at the severity of the highest threshold it reaches, and none below 5,000."""
+    ss = pg.Coalescent(n=3).block_counting_state_space
+    caplog.clear()
+
+    with caplog.at_level('WARNING'):
+        ss._warn_if_large(n_states)
+
+    records = [r for r in caplog.records if 'State space is large' in r.getMessage()]
+
+    if level is None:
+        assert not records
+    else:
+        assert len(records) == 1 and records[0].getMessage().endswith(f"may be {level}.")
