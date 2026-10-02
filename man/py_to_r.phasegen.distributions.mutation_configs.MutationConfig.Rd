@@ -10,7 +10,8 @@
 \item{x}{A \code{MutationConfig}, as yielded by \code{coal$sfs$get_mutation_configs()}.}
 }
 \value{
-The counts in bin order, an integer vector.
+The counts in bin order, an integer vector of class \code{phasegen_mutation_config} whose attribute \code{layout}
+holds the layout of the configuration. Passed back to Python, it converts to a \code{MutationConfig} of that layout.
 }
 \description{
 Convert a mutational configuration to R

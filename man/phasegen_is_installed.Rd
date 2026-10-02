@@ -7,15 +7,18 @@
 phasegen_is_installed()
 }
 \value{
-Logical \code{TRUE} if the \code{phasegen} Python module is installed, otherwise \code{FALSE}.
+Logical \code{TRUE} if Python is initialised and the \code{phasegen} Python module is installed, otherwise \code{FALSE}.
+The result is \code{FALSE} until Python is initialised, for example by \code{\link[=load_phasegen]{load_phasegen()}}.
 }
 \description{
 This function uses the reticulate package to verify if the \code{phasegen} Python
-module is currently installed.
+module is available to the initialised Python interpreter.
 }
 \examples{
 \dontrun{
-phasegen_is_installed()  # Returns TRUE or FALSE based on the installation status of phasegen
+phasegen_is_installed()  # FALSE before Python is initialised
+pg <- load_phasegen()
+phasegen_is_installed()  # TRUE
 }
 
 }

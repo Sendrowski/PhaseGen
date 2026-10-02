@@ -27,7 +27,7 @@ should provision the environment with. Default is \code{'3.11'}.}
 Invisible \code{NULL}.
 }
 \description{
-Loading the package declares \code{phasegen>=2.0}. This function declares a pinned version. The requirement is resolved
+Loading the package declares \code{phasegen>=2.0} on Python 3.10 to 3.13. This function declares a pinned version. The requirement is resolved
 when Python is first initialised, at which point reticulate provisions an environment satisfying it.
 }
 \examples{

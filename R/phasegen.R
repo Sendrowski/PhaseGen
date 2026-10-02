@@ -1,13 +1,16 @@
 #' Check if the `phasegen` Python module is installed
 #'
 #' This function uses the reticulate package to verify if the `phasegen` Python
-#' module is currently installed.
+#' module is available to the initialised Python interpreter.
 #'
-#' @return Logical `TRUE` if the `phasegen` Python module is installed, otherwise `FALSE`.
+#' @return Logical `TRUE` if Python is initialised and the `phasegen` Python module is installed, otherwise `FALSE`.
+#'   The result is `FALSE` until Python is initialised, for example by [load_phasegen()].
 #'
 #' @examples
 #' \dontrun{
-#' phasegen_is_installed()  # Returns TRUE or FALSE based on the installation status of phasegen
+#' phasegen_is_installed()  # FALSE before Python is initialised
+#' pg <- load_phasegen()
+#' phasegen_is_installed()  # TRUE
 #' }
 #'
 #' @export
@@ -36,13 +39,13 @@ py_requirement <- function(version = NULL) {
 
 
 .onLoad <- function(libname, pkgname) {
-  reticulate::py_require(py_requirement(), python_version = "3.11")
+  reticulate::py_require(py_requirement(), python_version = ">=3.10,<3.14")
 }
 
 
 #' Declare the `phasegen` Python module requirement
 #'
-#' Loading the package declares `phasegen>=2.0`. This function declares a pinned version. The requirement is resolved
+#' Loading the package declares `phasegen>=2.0` on Python 3.10 to 3.13. This function declares a pinned version. The requirement is resolved
 #' when Python is first initialised, at which point reticulate provisions an environment satisfying it.
 #'
 #' @param version A character string specifying the version of the `phasegen` module
@@ -437,7 +440,8 @@ draw_surface <- function(x, y, z, defaults, user = list(), n_colours = 100) {
     args$zlim <- args$zlim + c(-0.5, 0.5)
   }
 
-  if (diff(colour_range) == 0) {
+  # a range within round-off of its bounds would give duplicate colour breaks
+  if (diff(colour_range) <= 4 * n_colours * .Machine$double.eps * max(abs(colour_range))) {
     colour_range <- colour_range + c(-0.5, 0.5)
   }
 
@@ -475,13 +479,45 @@ draw_surface <- function(x, y, z, defaults, user = list(), n_colours = 100) {
 #'
 #' @param x A `MutationConfig`, as yielded by `coal$sfs$get_mutation_configs()`.
 #'
-#' @return The counts in bin order, an integer vector.
+#' @return The counts in bin order, an integer vector of class `phasegen_mutation_config` whose attribute `layout`
+#'   holds the layout of the configuration. Passed back to Python, it converts to a `MutationConfig` of that layout.
 #'
 #' @exportS3Method reticulate::py_to_r
 py_to_r.phasegen.distributions.mutation_configs.MutationConfig <- function(x) {
-  as.integer(reticulate::import_builtins()$list(x))
+  structure(
+    as.integer(reticulate::import_builtins()$list(x)),
+    layout = reticulate::py_get_attr(x, "layout"),
+    class = "phasegen_mutation_config"
+  )
 }
 
+
+#' Convert a mutational configuration to Python
+#'
+#' @param x A configuration converted from a `MutationConfig`.
+#' @param convert Ignored. The returned Python object does not convert to R.
+#'
+#' @return The `MutationConfig` of the counts in the layout of `x`.
+#'
+#' @exportS3Method reticulate::r_to_py
+r_to_py.phasegen_mutation_config <- function(x, convert = FALSE) {
+  mc <- reticulate::import("phasegen.distributions.mutation_configs", convert = FALSE)
+  mc$MutationConfig(as.list(as.integer(x)), attr(x, "layout"))
+}
+
+
+#' Print a mutational configuration
+#'
+#' @param x A configuration converted from a `MutationConfig`.
+#' @param ... Further arguments passed to [print()].
+#'
+#' @return `x`, invisibly.
+#'
+#' @export
+print.phasegen_mutation_config <- function(x, ...) {
+  print(as.integer(x), ...)
+  invisible(x)
+}
 
 # ---- univariate distribution functions ------------------------------------------------------------------------------
 
