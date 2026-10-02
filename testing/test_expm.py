@@ -34,7 +34,10 @@ class ExpmTestCase(TestCase):
 
         np.testing.assert_allclose(pg.SciPyExpmBackend().compute_action(sp.csr_matrix(np.eye(2)), np.ones(2)), np.e)
 
-        for precision in ('np.float32', int, np.float16, 'float16', np.longdouble, 'longdouble'):
+        # long double is plain double precision on some platforms, such as arm64 macOS
+        extended = (np.longdouble, 'longdouble') if np.dtype(np.longdouble) != np.dtype(np.float64) else ()
+
+        for precision in ('np.float32', int, np.float16, 'float16') + extended:
             with self.assertRaisesRegex(TypeError, "np.float32 or np.float64"):
                 pg.SciPyExpmBackend(precision=precision)
 
