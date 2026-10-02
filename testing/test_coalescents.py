@@ -2226,12 +2226,15 @@ def test_tree_height_quantile_behind_a_migration_barrier_followed_by_a_change():
         assert c.tree_height.cdf(c.tree_height.quantile(q)) == pytest.approx(q, rel=1e-4)
 
 
-def test_sfs_mean_under_overflowing_growth_raises_model_error():
-    """Growth by a factor of e^600 over two time units makes the propagated occupation times non-finite, and the
-    batched SFS mean raises ModelError. Regression: the solve of the occupation times raised a plain ValueError of
-    scipy."""
-    coal = pg.Coalescent(n=5, demography=pg.Demography([pg.ExponentialPopSizeChanges(
-        initial_size={'pop_0': 1}, growth_rate={'pop_0': 300}, start_time={'pop_0': 0}, end_time={'pop_0': 2})]))
+def test_sfs_mean_under_overflowing_growth_matches_stopped_growth():
+    """Growth by a factor of e^600 over two time units drives the coalescence rates to 1e248, so every lineage
+    coalesces within the first epochs, and the SFS mean equals that of growth stopped at 0.4. Regression: the solve of
+    the occupation times raised a plain ValueError of scipy, and then scipy.linalg.expm squared 2^31 times once the
+    1-norm of an epoch's generator passed about 1e38."""
+    def sfs(end_time):
+        return pg.Coalescent(n=5, demography=pg.Demography([pg.ExponentialPopSizeChanges(
+            initial_size={'pop_0': 1}, growth_rate={'pop_0': 300}, start_time={'pop_0': 0},
+            end_time={'pop_0': end_time})])).sfs
 
     with pytest.raises(pg.ModelError):
         _ = coal.sfs.mean

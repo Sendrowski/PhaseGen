@@ -88,6 +88,10 @@ class SciPyExpmBackend(ExpmBackend):
         This is the default backend.
     """
 
+    #: Largest 1-norm passed to :func:`scipy.linalg.expm`. Its choice of the number of squarings overflows for 1-norms
+    #: above about 1e38, so a larger argument is scaled by a power of two below this bound and the result squared.
+    _max_norm: float = 1e30
+
     def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
         """
         Initialize the backend.
@@ -110,13 +114,22 @@ class SciPyExpmBackend(ExpmBackend):
         self.precision: np.dtype = dtype
 
     def compute(self, m: np.ndarray) -> np.ndarray:
-        """
-        Compute the matrix exponential using SciPy.
+        r"""
+        Compute the matrix exponential using SciPy, as :math:`\exp(\mathbf{A} / 2^k)^{2^k}` with the smallest
+        :math:`k \ge 0` that brings the 1-norm of :math:`\mathbf{A} / 2^k` within :attr:`_max_norm`.
 
         :param m: Matrix
         :return: Matrix exponential
         """
-        return scipy.linalg.expm(m.astype(self.precision))
+        m = m.astype(self.precision)
+        norm = float(np.abs(m).sum(axis=0).max()) if m.size else 0.0
+        k = int(np.ceil(np.log2(norm / self._max_norm))) if np.isfinite(norm) and norm > self._max_norm else 0
+
+        e = scipy.linalg.expm(m / 2.0 ** k if k else m)
+        for _ in range(k):
+            e = e @ e
+
+        return e
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """

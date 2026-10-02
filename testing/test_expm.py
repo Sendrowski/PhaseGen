@@ -6,6 +6,7 @@ import importlib.util
 from testing import TestCase
 
 import numpy as np
+import scipy.linalg
 import pytest
 
 import phasegen as pg
@@ -36,6 +37,19 @@ class ExpmTestCase(TestCase):
         for precision in ('np.float32', int, np.float16, 'float16', np.longdouble, 'longdouble'):
             with self.assertRaisesRegex(TypeError, "np.float32 or np.float64"):
                 pg.SciPyExpmBackend(precision=precision)
+
+    def test_scipy_backend_scales_a_large_norm(self):
+        """
+        An upper-triangular generator of 1-norm 1e39 exponentiates to its exact limit, the zero matrix up to the
+        absorbing column, as for a scaled-down argument. Regression: scipy.linalg.expm chose 2^31 squarings and did not
+        return.
+        """
+        a = np.triu(np.random.default_rng(1).random((8, 8)))
+        np.fill_diagonal(a, -a.sum(axis=1) + np.diag(a))
+
+        np.testing.assert_allclose(pg.SciPyExpmBackend().compute(a * 1e39), pg.SciPyExpmBackend().compute(a * 1e30),
+                                   atol=1e-300)
+        np.testing.assert_allclose(pg.SciPyExpmBackend().compute(a), scipy.linalg.expm(a), rtol=1e-14)
 
     @pytest.mark.slow
     def test_expm_different_backends(self):
