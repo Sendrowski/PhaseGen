@@ -68,8 +68,7 @@ def test_joint_pooled_equals_sfs(sizes):
                                                                              migration_rates=MIGRATION))
     jsfs = coal.jsfs
     configs = jsfs._get_configs()
-    pooled = pg.MutationLayout([tuple(c for c in configs if sum(c) == i) for i in (1, 2, 3)],
-                               {c: c for c in configs}, jsfs.shape, ('pop_0', 'pop_1'))
+    pooled = jsfs.mutation_layout().rebin([tuple(c for c in configs if sum(c) == i) for i in (1, 2, 3)])
 
     for m in [(0, 0, 0), (1, 0, 0), (2, 1, 0), (0, 1, 1)]:
         np.testing.assert_allclose(jsfs.get_mutation_config(pooled.config(m), 0.7),
@@ -348,7 +347,7 @@ def test_descending_generator_climbs_from_empty_configuration(dem, folded, monke
     config, p = next(sfs.get_mutation_configs(theta=1.0))
 
     assert sum(calls[0]) == 0
-    assert p == pytest.approx(max(q for _, q in itertools.islice(sfs.get_mutation_configs_by_count(1.0), 200)),
+    assert p == pytest.approx(max(q for _, q in itertools.islice(sfs.get_mutation_configs(1.0, order='count'), 200)),
                               rel=1e-12)
 
 
@@ -363,6 +362,23 @@ def test_descending_generator_rejects_invalid_theta(theta, name):
         next(dist.get_mutation_configs(theta=theta))
 
 
+def test_generator_rejects_invalid_order():
+    """The generator raises ValueError for an order other than 'probability' and 'count'."""
+    with pytest.raises(ValueError):
+        next(pg.Coalescent(n=4).sfs.get_mutation_configs(theta=1, order='mass'))
+
+
+def test_generator_orders_yield_same_configurations():
+    """Both orders yield the same configurations with the same probabilities, the count order by total."""
+    sfs = pg.Coalescent(n=4).sfs
+    by_count = list(itertools.islice(sfs.get_mutation_configs(theta=1, order='count'), 35))
+    by_prob = dict(itertools.islice(sfs.get_mutation_configs(theta=1), 2000))
+
+    assert [c.total for c, _ in by_count] == sorted(c.total for c, _ in by_count)
+    for c, p in by_count:
+        assert by_prob[c] == pytest.approx(p, rel=1e-12)
+
+
 @pytest.mark.parametrize('sparse', [False, True])
 def test_layout_without_reward_in_stalled_epoch(sparse, monkeypatch):
     """
@@ -375,8 +391,8 @@ def test_layout_without_reward_in_stalled_epoch(sparse, monkeypatch):
                         migration_rates={('pop_0', 'pop_1'): {0: 0, 0.5: 1}, ('pop_1', 'pop_0'): {0: 0, 0.5: 1}})
     sfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).sfs
     default = sfs.mutation_layout()
-    sparse = pg.MutationLayout([(1,)], default.positions, default.shape, default.axes)
-    coarse = pg.MutationLayout([(1,), (2, 3)], default.positions, default.shape, default.axes)
+    sparse = default.rebin([(1,)])
+    coarse = default.rebin([(1,), (2, 3)])
     theta, k_max = 0.1, 20
 
     for m in (2, 1, 0):
@@ -434,7 +450,8 @@ def test_layout_rejects_inconsistent_positions_and_shape():
 
     for positions in ({1: (1,), 2: (2,)}, {1: (1,), 2: (2,), 3: (5,)}, {1: (1,), 2: (2,), 3: (0, 3)}):
         with pytest.raises(ValueError):
-            pg.MutationLayout(layout.bins, positions, layout.shape, layout.axes)
+            pg.MutationLayout(layout.bins, positions, layout.shape, layout.axes, layout.lineage_config,
+                              layout.locus_config)
 
     for counts in (np.arange(4), np.arange(10), np.zeros((2, 5))):
         with pytest.raises(ValueError):
@@ -465,7 +482,7 @@ def test_empirical_mutation_config_rejects_other_layout():
     ms = MsprimeCoalescent(n=4, num_replicates=50, n_threads=1, parallelize=False, simulate_mutations=True,
                            mutation_rate=1.0, seed=1)
     own = ms.sfs.mutation_layout()
-    permuted = pg.MutationLayout(own.bins[::-1], own.positions, own.shape, own.axes)
+    permuted = own.rebin(own.bins[::-1])
 
     for config in (permuted.config((0, 0, 2)), ms.fsfs.mutation_layout().config((1, 0))):
         with pytest.raises(ValueError):
@@ -493,7 +510,7 @@ def test_mutation_configs_raise_on_a_demography_that_does_not_absorb(rates, thet
         next(sfs.get_mutation_configs(theta))
 
     with pytest.raises(pg.ModelError):
-        next(sfs.get_mutation_configs_by_count(theta))
+        next(sfs.get_mutation_configs(theta, order='count'))
 
 
 def test_multi_epoch_mutation_configs_follow_theta():
@@ -526,3 +543,32 @@ def test_multi_epoch_expm_action_matches_dense_exponential(sparse, monkeypatch):
     action = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
 
     np.testing.assert_allclose(action, dense, rtol=1e-12)
+
+
+def test_rebin_rejects_unknown_class():
+    """Rebinning raises ValueError for a class label that is not one of the layout."""
+    with pytest.raises(ValueError):
+        pg.Coalescent(n=4).sfs.mutation_layout().rebin([(1,), (4,)])
+
+
+def test_layout_records_lineages_and_loci():
+    """The layouts of every spectrum record the lineages and loci of the coalescent, also of a mixture."""
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION))
+
+    for layout in (coal.sfs.mutation_layout(), coal.fsfs.mutation_layout(demes=True), coal.jsfs.mutation_layout()):
+        assert layout.lineage_config == coal.lineage_config
+        assert layout.locus_config.n == 1
+        assert "n={'pop_0': 2, 'pop_1': 1}, loci=1" in repr(layout)
+
+    assert repr(coal.sfs.mutation_layout().rebin([(1, 2)]).config([3])) == \
+           "MutationConfig({(1, 2): 3}, n={'pop_0': 2, 'pop_1': 1}, loci=1)"
+
+    two = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1)).sfs2.mutation_layout()
+    assert two.locus_config.n == 2 and two.lineage_config.n == 3
+
+    mixture = pg.InitialDistribution([(1, {'pop_0': 2, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 2})])
+    layout = pg.Coalescent(n=mixture, demography=pg.Demography(
+        pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)).sfs.mutation_layout()
+    assert layout.lineage_config == mixture
+    assert repr(layout).startswith("MutationLayout(n=[(0.25, {'pop_0': 2, 'pop_1': 1}), (0.75,")

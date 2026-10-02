@@ -5,8 +5,9 @@ statistics from the sampled realisations.
 """
 
 import logging
+import math
 from ..caching import cached_property
-from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING
+from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING, Union
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from ..demography import Demography
@@ -1155,7 +1156,21 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
     :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>` or
     by :class:`~phasegen.distributions.MsprimeCoalescent`. The estimators of
     :class:`~phasegen.distributions.EmpiricalDistribution` apply per frequency class.
+
+    The following example estimates the mean and covariance of the spectrum from 1000 sampled trajectories.
+
+    ::
+
+        emp = pg.Coalescent(n=5).sfs.to_empirical(1000, seed=1)
+
+        mean, cov = emp.mean, emp.cov
     """
+
+    #: Static for backward compatibility.
+    _layout_lineages: LineageConfig | InitialDistribution | None = None
+
+    #: Static for backward compatibility.
+    _layout_loci: LocusConfig | InitialDistribution | None = None
 
     def _tajima_n(self) -> int:
         # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
@@ -1186,7 +1201,9 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             pops: List[str],
             sfs_dist: Type[SFSDistribution],
             locus_agg: Callable = lambda x: x.sum(axis=0),
-            resolves_demes: bool = True
+            resolves_demes: bool = True,
+            lineage_config: LineageConfig | InitialDistribution = None,
+            locus_config: LocusConfig | InitialDistribution = None
     ) -> None:
         """
         Initialize the distribution from the given realisations.
@@ -1199,6 +1216,10 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         :param sfs_dist: SFS distribution class.
         :param locus_agg: Aggregation function for loci.
         :param resolves_demes: Whether the branch lengths resolve the demes. Otherwise :attr:`demes` raises.
+        :param lineage_config: The lineages the replicates start from, recorded by :meth:`mutation_layout`. By default,
+            ``n`` lineages in one deme.
+        :param locus_config: The loci the replicates start from, recorded by :meth:`mutation_layout`. By default, one
+            locus.
         """
         over_loci = locus_agg(branch_lengths).astype(float)
 
@@ -1220,6 +1241,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         self._mutations = mutations
 
         self.resolves_demes = resolves_demes
+
+        #: The lineages the replicates start from.
+        self._layout_lineages: LineageConfig | InitialDistribution = lineage_config
+
+        #: The loci the replicates start from.
+        self._layout_loci: LocusConfig | InitialDistribution = locus_config
 
         #: Relative frequency yielded by the most recently started
         #: :meth:`EmpiricalPhaseTypeSFSDistribution.get_mutation_configs()
@@ -1435,7 +1462,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         :return: The layout.
         """
-        return SFSDistribution._layout_of(self.n, [], folded=self._folded, demes=False)
+        return SFSDistribution._layout_of(
+            LineageConfig(self.n) if self._layout_lineages is None else self._layout_lineages,
+            LocusConfig() if self._layout_loci is None else self._layout_loci,
+            folded=self._folded,
+            demes=False
+        )
 
     @property
     def mutation_configs(self) -> Dict[MutationConfig, float]:
@@ -1490,13 +1522,14 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         return configs
 
-    def get_mutation_config(self, config: Sequence[int]) -> float:
+    def get_mutation_config(self, config: Union[MutationConfig, Sequence[int], int]) -> float:
         """
         Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, which defines configurations.
 
-        :param config: The configuration, one mutation count per frequency class, a single count for one class.
+        :param config: A :class:`~phasegen.distributions.MutationConfig`, or one mutation count per frequency class of
+            the default layout, a single count for one class.
         :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
         :raises ValueError: If ``config`` does not have one non-negative integer per frequency class, is a
             :class:`~phasegen.distributions.MutationConfig` of another layout, or the spectrum carries no mutation
@@ -1514,9 +1547,9 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
     def get_mutation_configs(self) -> Iterator[Tuple[MutationConfig, float]]:
         """
-        Sampled counterpart of :meth:`UnfoldedSFSDistribution.get_mutation_configs_by_count()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs_by_count>`, yielding the relative
-        frequencies of the configurations among the simulated replicates.
+        Sampled counterpart of :meth:`UnfoldedSFSDistribution.get_mutation_configs()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` with ``order='count'``, yielding the
+        relative frequencies of the configurations among the simulated replicates.
 
         :return: An iterator over pairs of configuration and relative frequency.
         """
@@ -2375,7 +2408,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
             sfs_dist=UnfoldedSFSDistribution,
-            resolves_demes=self._resolves_demes
+            resolves_demes=self._resolves_demes,
+            lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
+            locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
 
     @cached_property
@@ -2402,7 +2437,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             mutations=mutations.T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
             sfs_dist=FoldedSFSDistribution,
-            resolves_demes=self._resolves_demes
+            resolves_demes=self._resolves_demes,
+            lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
+            locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
 
     #: Highest moment order computed for the empirical joint SFS ground truth.

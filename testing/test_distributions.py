@@ -497,7 +497,7 @@ class DistributionTestCase(TestCase):
             with self.assertRaises(NotImplementedError):
                 next(sfs.get_mutation_configs(theta=1))
             with self.assertRaises(NotImplementedError):
-                next(sfs.get_mutation_configs_by_count(theta=1))
+                next(sfs.get_mutation_configs(theta=1, order='count'))
 
     def test_get_mutation_config_zero_theta(self):
         """

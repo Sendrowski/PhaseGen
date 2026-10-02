@@ -18,8 +18,6 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.UnfoldedSFSDistribution
    ~phasegen.distributions.JointSFSDistribution
    ~phasegen.distributions.TwoLocusSFSDistribution
-   ~phasegen.distributions.MutationConfig
-   ~phasegen.distributions.MutationLayout
    ~phasegen.distributions.MarginalLocusDistributions
    ~phasegen.distributions.MarginalDemeDistributions
    ~phasegen.distributions.RewardDistribution
@@ -68,11 +66,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.JointSFSDistribution
 
 .. autoclass:: phasegen.distributions.TwoLocusSFSDistribution
-
-.. autoclass:: phasegen.distributions.MutationConfig
-   :exclude-members: count, index
-
-.. autoclass:: phasegen.distributions.MutationLayout
+   :exclude-members: cdf, pdf, quantile, plot_cdf, bin, loci, demes
 
 .. autoclass:: phasegen.distributions.MarginalLocusDistributions
 

@@ -4,12 +4,15 @@ under the infinite-sites model on any state space whose rewards count the branch
 """
 import heapq
 import itertools
-from typing import Dict, Hashable, Iterator, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Dict, Hashable, Iterator, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union
 
 import numpy as np
 import scipy.sparse as sp
 
 from ..expm import Backend
+from ..initial import InitialDistribution
+from ..lineage import LineageConfig
+from ..locus import LocusConfig
 from ..rewards import CombinedReward, Reward, SumReward, TreeHeightReward
 from ..settings import Settings
 from ..state_space import StateSpace
@@ -25,16 +28,32 @@ _LATTICE_MEMO_MAX_FLOATS = 2 ** 25
 
 class MutationLayout:
     r"""
-    The bins of a mutational configuration. Each bin merges one or more elementary frequency classes of a spectrum,
-    and a configuration counts the mutations per bin. The elementary classes are labelled as the spectrum labels its
-    bins: the unfolded class :math:`i` of a single-locus spectrum, the pair ``(pop, i)`` of class :math:`i` in which
-    the mutation occurs in the deme ``pop``, the descendant vector :math:`(c_0, \dots, c_{P-1})` of a joint spectrum,
-    and the pair ``(locus, i)`` of a two-locus spectrum. Layouts are obtained from
-    :meth:`UnfoldedSFSDistribution.mutation_layout() <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>`,
-    :meth:`FoldedSFSDistribution.mutation_layout() <phasegen.distributions.FoldedSFSDistribution.mutation_layout>`,
-    :meth:`JointSFSDistribution.mutation_layout() <phasegen.distributions.JointSFSDistribution.mutation_layout>` and
-    :meth:`TwoLocusSFSDistribution.mutation_layout() <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>`,
-    or constructed with any merge of the elementary classes of a spectrum.
+    The bins in which the mutations of a spectrum are counted, defining the configurations :math:`\mathbf{m} = (m_1,
+    \dots, m_J)` whose probabilities :meth:`UnfoldedSFSDistribution.get_mutation_config()
+    <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>` computes and
+    :meth:`UnfoldedSFSDistribution.get_mutation_configs()
+    <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` enumerates, where :math:`m_j` is the number
+    of mutations in bin :math:`j` and :math:`J` the number of bins.
+
+    Each mutation belongs to the frequency class of the branch it falls on, and a bin is a set of classes whose
+    mutations are counted together. The classes are labelled as the entries of the spectrum: ``i`` for the mutations
+    carried by :math:`i` of the :math:`n` lineages, ``(pop, i)`` when additionally resolved by the deme ``pop`` in which
+    the mutation occurs, the descendant vector :math:`(c_0, \dots, c_{P-1})` of a joint spectrum for a mutation carried
+    by :math:`c_p` lineages of deme :math:`p` of :math:`P`, and ``(locus, i)`` for a two-locus spectrum. The default
+    layout of :meth:`UnfoldedSFSDistribution.mutation_layout()
+    <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` has one bin per class, and its folded variant
+    merges the classes :math:`i` and :math:`n - i`. :meth:`MutationLayout.rebin()
+    <phasegen.distributions.MutationLayout.rebin>` groups the classes into any other bins, here singletons against all
+    other classes. The lineages and loci of the spectrum are given by :attr:`MutationLayout.lineage_config
+    <phasegen.distributions.MutationLayout.lineage_config>` and :attr:`MutationLayout.locus_config
+    <phasegen.distributions.MutationLayout.locus_config>`.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs
+        layout = sfs.mutation_layout().rebin([(1,), (2, 3)])
+
+        p = sfs.get_mutation_config(layout.config([2, 1]), theta=1)
     """
 
     def __init__(
@@ -42,15 +61,20 @@ class MutationLayout:
             bins: Sequence[Sequence[Hashable]],
             positions: Dict[Hashable, Tuple[int, ...]],
             shape: Tuple[int, ...],
-            axes: Sequence[str]
+            axes: Sequence[str],
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution
     ) -> None:
         """
-        Initialize the layout.
+        Initialize the layout. Layouts are obtained from the spectra and regrouped with
+        :meth:`MutationLayout.rebin() <phasegen.distributions.MutationLayout.rebin>`.
 
         :param bins: The bins, each a sequence of the elementary class labels it merges.
         :param positions: The index of each elementary class label in the spectrum array.
         :param shape: The shape of the spectrum array.
         :param axes: The names of the axes of the spectrum array.
+        :param lineage_config: The lineages of the spectrum.
+        :param locus_config: The loci of the spectrum.
         :raises ValueError: If there are no bins, a bin is empty, a class label appears in more than one bin, or a
             class label has no position within ``shape``.
         """
@@ -77,6 +101,12 @@ class MutationLayout:
 
         #: The shape of the spectrum array.
         self.shape: Tuple[int, ...] = shape
+
+        #: The lineages of the spectrum, or the mixture over lineage configurations the coalescent starts from.
+        self.lineage_config: LineageConfig | InitialDistribution = lineage_config
+
+        #: The loci of the spectrum, or the mixture over locus configurations the coalescent starts from.
+        self.locus_config: LocusConfig | InitialDistribution = locus_config
 
         #: The names of the axes of the spectrum array.
         self.axes: Tuple[str, ...] = tuple(axes)
@@ -106,13 +136,41 @@ class MutationLayout:
         """
         return hash(self.bins)
 
+    def _describe(self) -> str:
+        """
+        The lineages and loci of the spectrum, as shown in the representations.
+
+        :return: The description.
+        """
+        def lineages(c: LineageConfig) -> int | Dict[str, int]:
+            return int(c.n) if c.n_pops == 1 else {pop: int(k) for pop, k in c.lineage_dict.items()}
+
+        if isinstance(self.lineage_config, InitialDistribution):
+            n = [(float(w), lineages(c)) for w, c in self.lineage_config]
+        else:
+            n = lineages(self.lineage_config)
+
+        return f"n={n}, loci={InitialDistribution._split(self.locus_config)[0].n}"
+
     def __repr__(self) -> str:
         """
-        Representation listing the bins.
+        Representation listing the lineages, loci and bins.
 
         :return: The representation.
         """
-        return f"MutationLayout(bins={list(self.bins)})"
+        return f"MutationLayout({self._describe()}, bins={list(self.bins)})"
+
+    def rebin(self, bins: Sequence[Sequence[Hashable]]) -> 'MutationLayout':
+        """
+        The layout of the same spectrum with other bins.
+
+        :param bins: The bins, each a sequence of the class labels of this layout it merges. Classes left out are not
+            counted.
+        :return: The layout.
+        :raises ValueError: If there are no bins, a bin is empty, a class label appears in more than one bin, or a
+            class label is not one of this layout.
+        """
+        return MutationLayout(bins, self.positions, self.shape, self.axes, self.lineage_config, self.locus_config)
 
     def config(self, counts: Sequence[int]) -> 'MutationConfig':
         """
@@ -156,10 +214,27 @@ class MutationLayout:
 
 class MutationConfig(tuple):
     """
-    A mutational configuration: the number of mutations in each bin of a
-    :class:`~phasegen.distributions.MutationLayout`. It is a tuple of the counts in bin order, so it compares and
-    hashes equal to the plain tuple of its counts, and the counts are also available by bin label and as a
-    spectrum-shaped array.
+    One outcome of the mutation counts: the number :math:`m_j` of mutations in each bin :math:`j` of a
+    :class:`~phasegen.distributions.MutationLayout`.
+
+    Configurations are yielded with their probabilities by :meth:`UnfoldedSFSDistribution.get_mutation_configs()
+    <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>`, built with :meth:`MutationLayout.config()
+    <phasegen.distributions.MutationLayout.config>` or :meth:`MutationLayout.from_array()
+    <phasegen.distributions.MutationLayout.from_array>`, and passed to
+    :meth:`UnfoldedSFSDistribution.get_mutation_config()
+    <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. A configuration is the tuple of its counts in
+    bin order and compares and hashes equal to that plain tuple. The count of a class is given by
+    :meth:`MutationConfig.count_of() <phasegen.distributions.MutationConfig.count_of>`, and the counts as a
+    spectrum-shaped array by :meth:`MutationConfig.to_array() <phasegen.distributions.MutationConfig.to_array>`.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs
+        config = sfs.mutation_layout().config([2, 1, 0])
+
+        config == (2, 1, 0)  # True
+        config.count_of(1)  # 2 singletons
+        config.to_array()  # array([0, 2, 1, 0, 0])
     """
 
     #: The layout.
@@ -198,6 +273,17 @@ class MutationConfig(tuple):
         :return: The counts and the layout.
         """
         return tuple(self), self.layout
+
+    def __repr__(self) -> str:
+        """
+        Representation of the counts keyed by bin, a bin of one class by its class label, and of the lineages and
+        loci.
+
+        :return: The representation.
+        """
+        counts = {b[0] if len(b) == 1 else b: c for b, c in zip(self.layout.bins, self)}
+
+        return f"MutationConfig({counts}, {self.layout._describe()})"
 
     @property
     def total(self) -> int:
@@ -270,6 +356,18 @@ class MutationConfigMixin:
         """
         raise NotImplementedError
 
+    @property
+    def _layout_lineages(self: 'PhaseTypeDistribution') -> LineageConfig | InitialDistribution:
+        """The lineages the coalescent starts from, as recorded by the layouts."""
+        dist = self.state_space.lineage_distribution
+        return self.lineage_config if dist is None else dist
+
+    @property
+    def _layout_loci(self: 'PhaseTypeDistribution') -> LocusConfig | InitialDistribution:
+        """The loci the coalescent starts from, as recorded by the layouts."""
+        dist = self.state_space.locus_distribution
+        return self.locus_config if dist is None else dist
+
     def _bin_reward(self: 'PhaseTypeDistribution', b: Tuple[Hashable, ...]) -> Reward:
         """
         The reward of a bin, the sum of its class rewards times the reward of this distribution.
@@ -313,7 +411,11 @@ class MutationConfigMixin:
                 "the to-absorption one regardless. Use start_time=0 and no finite end_time."
             )
 
-    def get_mutation_config(self: 'PhaseTypeDistribution', config: Sequence[int], theta: float) -> float:
+    def get_mutation_config(
+            self: 'PhaseTypeDistribution',
+            config: Union[MutationConfig, Sequence[int], int],
+            theta: float
+    ) -> float:
         r"""
         Probability of a mutational configuration under the infinite-sites model, with the notation of
         :class:`~phasegen.distributions.PhaseTypeDistribution`.
@@ -337,6 +439,17 @@ class MutationConfigMixin:
 
             \mathbb{P}(\mathbf{Y} = \mathbf{m})
             = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right].
+
+        The following example computes the probability of two singletons, one doubleton and no tripletons, first in the
+        default unfolded layout and then of two singletons or tripletons and one doubleton in the folded layout.
+
+        ::
+
+            coal = pg.Coalescent(n=4)
+
+            p = coal.sfs.get_mutation_config([2, 1, 0], theta=1)
+
+            p_folded = coal.sfs.get_mutation_config(coal.sfs.mutation_layout(folded=True).config([2, 1]), theta=1)
 
         .. rubric:: Single epoch
 
@@ -387,11 +500,11 @@ class MutationConfigMixin:
           and the exponentials become sparse actions once it reaches
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. The probabilities of
           all :math:`L` count vectors are cached for the most recent layout and :math:`\theta`.
-        - ``get_mutation_configs_by_count()`` yields configurations in ascending order of :math:`|\mathbf{m}|`.
-        - ``get_mutation_configs()`` climbs from the empty configuration to a local maximum of the probability and
-          expands outward with a priority queue. The order is exactly descending when every other configuration has a
-          neighbour, differing by one mutation, of at least equal probability.
-        - Both iterators reset ``generated_mass`` when the first configuration is requested and add each yielded
+        - ``get_mutation_configs(order='probability')`` climbs from the empty configuration to a local maximum of the
+          probability and expands outward with a priority queue. The order is exactly descending when every other
+          configuration has a neighbour, differing by one mutation, of at least equal probability.
+        - ``get_mutation_configs(order='count')`` yields configurations in ascending order of :math:`|\mathbf{m}|`.
+        - The iterator resets ``generated_mass`` when the first configuration is requested and adds each yielded
           probability to it, so one minus its value is the probability not yet yielded.
 
         .. rubric:: References
@@ -673,42 +786,14 @@ class MutationConfigMixin:
 
         return probs[tuple(config)]
 
-    def get_mutation_configs_by_count(
-            self: 'PhaseTypeDistribution',
-            theta: float,
-            layout: MutationLayout = None
-    ) -> Iterator[Tuple[MutationConfig, float]]:
-        """
-        Unending iterator over mutational configurations and their probabilities in ascending order of the total
-        number of mutations, as described in :meth:`UnfoldedSFSDistribution.get_mutation_config()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
-
-        :param theta: The mutation rate per unit of branch length.
-        :param layout: The layout of the configurations, by default the layout of one bin per polymorphic frequency
-            class of the spectrum.
-        :return: An iterator over pairs of configuration and probability.
-        """
-        layout = self.mutation_layout() if layout is None else layout
-
-        self.generated_mass = 0
-
-        k = 0
-        while True:
-            for config in layout.configs(k):
-                p = self.get_mutation_config(config=config, theta=theta)
-                self.generated_mass += p
-                yield config, p
-
-            k += 1
-
     def get_mutation_configs(
             self: 'PhaseTypeDistribution',
             theta: float,
-            layout: MutationLayout = None
+            layout: MutationLayout = None,
+            order: Literal['probability', 'count'] = 'probability'
     ) -> Iterator[Tuple[MutationConfig, float]]:
         """
-        Unending iterator over mutational configurations and their probabilities, starting at a local maximum of the
-        probability and in descending order of probability under the neighbour condition described in
+        Unending iterator over mutational configurations and their probabilities, as described in
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. The following example consumes it until
         the yielded probability mass exceeds 0.8.
@@ -724,15 +809,30 @@ class MutationConfigMixin:
         :param theta: The mutation rate per unit of branch length.
         :param layout: The layout of the configurations, by default the layout of one bin per polymorphic frequency
             class of the spectrum.
+        :param order: ``'probability'`` yields the configurations in descending order of probability, so that
+            stopping at a target ``generated_mass`` yields the fewest configurations. ``'count'`` yields them in
+            ascending order of the total number of mutations, so that stopping after a given total yields every
+            configuration with at most that many mutations.
         :return: An iterator over pairs of configuration and probability.
+        :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``.
         :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
+        if order not in ('probability', 'count'):
+            raise ValueError(f"The order must be 'probability' or 'count', got {order!r}.")
+
         layout = self.mutation_layout() if layout is None else layout
         J = len(layout)
 
         self._assert_absorbs()
 
         self.generated_mass = 0
+
+        if order == 'count':
+            for k in itertools.count():
+                for config in layout.configs(k):
+                    p = self.get_mutation_config(config=config, theta=theta)
+                    self.generated_mass += p
+                    yield config, p
 
         if theta == 0:
             self.generated_mass = 1.0

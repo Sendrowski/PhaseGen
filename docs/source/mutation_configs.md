@@ -48,7 +48,7 @@ do.call(rbind, reticulate::iterate(
 ```
 
 +++
-The iterator does not terminate, so we consume it until the yielded probability mass, {attr}`UnfoldedSFSDistribution.generated_mass <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>`, exceeds 0.8.
+By default, the iterator yields the configurations in descending order of probability, and with ``order='count'`` in ascending order of the total number of mutations. It does not terminate, so we consume it until the yielded probability mass, {attr}`UnfoldedSFSDistribution.generated_mass <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>`, exceeds 0.8.
 
 ```{code-cell} python
 it = coal.sfs.get_mutation_configs(theta=1)
@@ -102,7 +102,7 @@ stopifnot(p > 0, p < 1)
 
 +++
 ## Layouts
-The iterators yield {class}`~phasegen.distributions.MutationConfig` objects, which compare equal to the plain tuple of their counts. Each carries the {class}`~phasegen.distributions.MutationLayout` that defines its bins. A bin merges one or more elementary frequency classes, listed in {attr}`MutationLayout.bins <phasegen.distributions.MutationLayout.bins>`, and {meth}`MutationConfig.to_array() <phasegen.distributions.MutationConfig.to_array>` places the counts at the positions of the classes in the spectrum array.
+The iterator yields {class}`~phasegen.distributions.MutationConfig` objects, which compare equal to the plain tuple of their counts. Each carries the {class}`~phasegen.distributions.MutationLayout` that defines its bins. A bin merges one or more elementary frequency classes, listed in {attr}`MutationLayout.bins <phasegen.distributions.MutationLayout.bins>`, and {meth}`MutationConfig.to_array() <phasegen.distributions.MutationConfig.to_array>` places the counts at the positions of the classes in the spectrum array.
 
 ```{code-cell} python
 config, p = next(coal.sfs.get_mutation_configs(theta=1))
@@ -119,7 +119,7 @@ list(config$layout$bins, reticulate::py_to_r(config$to_array()))
 ```
 
 +++
-The iterators and {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>` accept any layout of the spectrum. The folded layout of {meth}`UnfoldedSFSDistribution.mutation_layout() <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` merges the classes ``i`` and ``n - i``. It is the default layout of {attr}`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, whose configuration ``(2, 1)`` holds two singletons or tripletons and one doubleton.
+The iterator and {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>` accept any layout of the spectrum, and {meth}`MutationLayout.rebin() <phasegen.distributions.MutationLayout.rebin>` groups its classes into other bins. The folded layout of {meth}`UnfoldedSFSDistribution.mutation_layout() <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` merges the classes ``i`` and ``n - i``. It is the default layout of {attr}`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, whose configuration ``(2, 1)`` holds two singletons or tripletons and one doubleton.
 
 ```{code-cell} python
 df = pd.DataFrame(islice(coal.fsfs.get_mutation_configs(theta=1), 30))

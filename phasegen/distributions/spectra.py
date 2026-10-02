@@ -1,11 +1,15 @@
 """Site-frequency-spectrum distributions (SFS, folded, joint, two-locus)."""
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
+from typing import List, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..errors import ModelError
+from ..initial import InitialDistribution
+from ..lineage import LineageConfig
+from ..locus import LocusConfig
 from ..demography import Demography
 from ..rewards import Reward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward, RestrictedReward
 from ..settings import Settings
@@ -238,20 +242,27 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
             position :math:`p` of the :math:`P` demes, and the bins ordered by deme and then by class.
         :return: The layout.
         """
-        return self._layout_of(int(self.lineage_config.n), list(self.lineage_config.pop_names), folded, demes)
+        return self._layout_of(self._layout_lineages, self._layout_loci, folded, demes)
 
     @staticmethod
-    def _layout_of(n: int, pops: List[str], folded: bool, demes: bool) -> MutationLayout:
+    def _layout_of(
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution,
+            folded: bool,
+            demes: bool
+    ) -> MutationLayout:
         """
         The layout of :meth:`UnfoldedSFSDistribution.mutation_layout()
-        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` for a sample size and demes.
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` for given lineages and loci.
 
-        :param n: The number of lineages.
-        :param pops: The deme names.
+        :param lineage_config: The lineages.
+        :param locus_config: The loci.
         :param folded: Whether to merge the classes :math:`i` and :math:`n - i`.
         :param demes: Whether to resolve each bin by deme.
         :return: The layout.
         """
+        lineages = InitialDistribution._split(lineage_config)[0]
+        n, pops = int(lineages.n), list(lineages.pop_names)
         indices = list(range(1, n))
 
         if folded:
@@ -260,13 +271,17 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
             groups = [(i,) for i in indices]
 
         if not demes:
-            return MutationLayout(groups, {i: (i,) for i in indices}, (n + 1,), ('class',))
+            return MutationLayout(
+                groups, {i: (i,) for i in indices}, (n + 1,), ('class',), lineage_config, locus_config
+            )
 
         return MutationLayout(
             [tuple((pop, i) for i in g) for pop in pops for g in groups],
             {(pop, i): (p, i) for p, pop in enumerate(pops) for i in indices},
             (len(pops), n + 1),
-            ('deme', 'class')
+            ('deme', 'class'),
+            lineage_config,
+            locus_config
         )
 
     def _bin_index(self, i: int) -> int:
@@ -483,7 +498,9 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
             branch_lengths=branch_lengths,
             mutations=None,
             pops=pops,
-            sfs_dist=type(self)
+            sfs_dist=type(self),
+            lineage_config=self._layout_lineages,
+            locus_config=self._layout_loci
         )
 
     def accumulate(
@@ -1291,7 +1308,14 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         else:
             groups = [(c,) for c in configs]
 
-        return MutationLayout(groups, {c: c for c in configs}, self.shape, tuple(self.lineage_config.pop_names))
+        return MutationLayout(
+            groups,
+            {c: c for c in configs},
+            self.shape,
+            tuple(self.lineage_config.pop_names),
+            self._layout_lineages,
+            self._layout_loci
+        )
 
     def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
         r"""
@@ -1861,13 +1885,20 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
             [tuple((locus, i) for i in g) for locus in loci for g in groups],
             {(locus, i): (locus, i) for locus in (0, 1) for i in indices},
             (2, n + 1),
-            ('locus', 'class')
+            ('locus', 'class'),
+            self._layout_lineages,
+            self._layout_loci
         )
 
-    def _no_univariate_distribution(self, *args, **kwargs) -> None:
-        """A two-locus SFS entry ``(i, j)`` is the cross-moment ``E[L^0_i · L^1_j]`` — a product of two distinct
-        branch lengths — so it has no single univariate distribution to invert. The marginal per-locus branch-length
-        distributions are the ordinary single-locus SFS bin distributions (``pg.Coalescent(...).sfs``)."""
+    def _no_univariate_distribution(self, *args, **kwargs) -> NoReturn:
+        """
+        Not available for the two-locus spectrum. An entry :math:`(i, j)` is the cross-moment of the branch lengths of
+        class :math:`i` at locus 0 and class :math:`j` at locus 1, which has no univariate distribution. The
+        distribution of a single class at one locus is that of the single-locus spectrum
+        :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`.
+
+        :raises NotImplementedError: Always.
+        """
         raise NotImplementedError(
             "A two-locus SFS entry (i, j) is a cross-moment E[L^0_i . L^1_j] (a product of two rewards), so it has "
             "no single univariate CDF/PDF/quantile. For the marginal branch-length distribution of a frequency "
