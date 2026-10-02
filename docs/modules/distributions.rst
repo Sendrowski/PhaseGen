@@ -75,14 +75,13 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.RewardDistribution
 
 .. autoclass:: phasegen.distributions.ConditionalRewardDistribution
-   :exclude-members: __init__
+   :exclude-members: __init__, plot_cdf
 
 .. autoclass:: phasegen.distributions.JointRewardDistribution
-   :exclude-members: quantile
+   :exclude-members: quantile, plot_cdf
 
 .. autoclass:: phasegen.distributions.DistributionFunction
    :members:
-   :special-members: __call__
 
 .. autoclass:: phasegen.distributions.DensityFunction
    :members:

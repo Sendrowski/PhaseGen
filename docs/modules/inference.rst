@@ -43,3 +43,4 @@ Gradient-based parameter inference. An :class:`~phasegen.inference.Inference` ob
 .. autoclass:: phasegen.norms.MultinomialLikelihood
 
 .. autoclass:: phasegen.errors.ModelError
+   :exclude-members: __init__

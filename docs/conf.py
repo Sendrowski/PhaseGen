@@ -82,6 +82,8 @@ autodoc_default_options = {
     'undoc-members': True,
     # Members inherited from ``collections.abc.Mapping`` carry docstring signatures that autodoc misreads as types.
     'inherited-members': 'object,Mapping',
+    # ``plot_cdf`` forwards to ``cdf.plot()`` for code written against 1.x and is not part of the documented API.
+    'exclude-members': 'plot_cdf',
     'show-inheritance': True,
     # autodocsumm: prepend a compact summary table to each documented object -- a class table at the top of every
     # module page and a method table at the top of every class. Limit it to those two sections (``;;``-separated):

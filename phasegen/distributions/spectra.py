@@ -42,7 +42,7 @@ class _SFSAggregateFunction:
         Evaluate the function of every polymorphic bin, each that of the bin's
         :class:`~phasegen.distributions.RewardDistribution` under the spectrum's reward.
 
-        :param t: A point or an array of points, or probability levels for a quantile function.
+        :param t: A point or an array of points.
         :return: For a scalar ``t``, a spectrum with one value per bin. The bins that are zero almost surely, the
             monomorphic and folded-away ones, hold the function of a point mass at zero. For an array, an array of
             shape ``t.shape + (n + 1,)``, which is ``(len(t), n + 1)`` for a 1-D ``t``.
@@ -94,17 +94,52 @@ class _SFSAggregateFunction:
 
 class SFSDensity(_SFSAggregateFunction, MarginalDensity):
     """Per-bin densities of the SFS, one per frequency class, each that of the bin's
-    :class:`~phasegen.distributions.RewardDistribution`."""
+    :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example evaluates the density of every bin on a grid.
+
+    ::
+
+        f = pg.Coalescent(n=5).sfs.pdf(np.linspace(0.1, 2, 20))
+    """
 
 
 class SFSCDF(_SFSAggregateFunction, MarginalCDF):
     """Per-bin CDFs of the SFS, one per frequency class, each that of the bin's
-    :class:`~phasegen.distributions.RewardDistribution`."""
+    :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example evaluates the CDF of every bin at 1 and draws the CDFs.
+
+    ::
+
+        cdf = pg.Coalescent(n=5).sfs.cdf
+
+        p = cdf(1.0)
+        cdf.plot(show=False)
+    """
 
 
 class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin quantile functions of the SFS, one per frequency class, each that of the bin's
-    :class:`~phasegen.distributions.RewardDistribution`."""
+    :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example computes the median of every bin.
+
+    ::
+
+        x = pg.Coalescent(n=5).sfs.quantile(0.5)
+    """
+
+    def __call__(self, q) -> 'SFS | np.ndarray':
+        """
+        The quantile of every polymorphic bin at the probability level ``q``.
+
+        :param q: A probability level in :math:`[0, 1]` or an array of levels.
+        :return: For a scalar ``q``, a spectrum with one quantile per bin. For an array, an array of shape
+            ``q.shape + (n + 1,)``.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
+        return super().__call__(q)
 
     def plot(
             self,
@@ -1088,7 +1123,7 @@ class _JointSFSAggregateFunction:
         Evaluate the function of every joint SFS bin under the spectrum's reward, as for
         :class:`~phasegen.distributions.SFSCDF`.
 
-        :param t: A point or an array of points, or probability levels for a quantile function.
+        :param t: A point or an array of points.
         :return: For a scalar ``t``, a :class:`~sfsutils.spectrum.JointSFS` with one value per descendant
             configuration, where the monomorphic configurations hold the function of a point mass at zero. For an
             array, an array of shape ``t.shape + shape``, with ``shape`` the shape of the joint SFS.
@@ -1141,16 +1176,61 @@ class _JointSFSAggregateFunction:
 
 
 class JointSFSDensity(_JointSFSAggregateFunction, MarginalDensity):
-    """Per-bin densities of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
+    """Per-bin densities of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example evaluates the density of every bin of the joint spectrum of two demes at 1.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        f = coal.jsfs.pdf(1.0)
+    """
 
 
 class JointSFSCDF(_JointSFSAggregateFunction, MarginalCDF):
-    """Per-bin CDFs of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
+    """Per-bin CDFs of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example evaluates the CDF of every bin of the joint spectrum of two demes at 1.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        p = coal.jsfs.cdf(1.0)
+    """
 
 
 class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunction):
     """Per-bin quantile functions of the joint SFS, each that of the bin's
-    :class:`~phasegen.distributions.RewardDistribution`."""
+    :class:`~phasegen.distributions.RewardDistribution`.
+
+    The following example computes the median of every bin of the joint spectrum of two demes.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        x = coal.jsfs.quantile(0.5)
+    """
+
+    def __call__(self, q) -> 'JointSFS | np.ndarray':
+        """
+        The quantile of every joint SFS bin at the probability level ``q``.
+
+        :param q: A probability level in :math:`[0, 1]` or an array of levels.
+        :return: For a scalar ``q``, a :class:`~sfsutils.spectrum.JointSFS` with one quantile per descendant
+            configuration. For an array, an array of shape ``q.shape + shape``, with ``shape`` the shape of the joint
+            SFS.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
+        return super().__call__(q)
 
     def plot(
             self,

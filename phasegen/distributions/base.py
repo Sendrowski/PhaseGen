@@ -175,6 +175,15 @@ class DensityFunction(DistributionFunction):
     """
     kind = 'pdf'
 
+    def __call__(self, t: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The density at ``t``.
+
+        :param t: A point or an array of points.
+        :return: The density, of the same shape as ``t``.
+        """
+        return super().__call__(t)
+
 
 class CumulativeDistributionFunction(DistributionFunction):
     r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)` of the random variable :math:`Y` of a
@@ -195,6 +204,15 @@ class CumulativeDistributionFunction(DistributionFunction):
         cdf.plot(show=False)
     """
     kind = 'cdf'
+
+    def __call__(self, t: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The cumulative probability at ``t``.
+
+        :param t: A point or an array of points.
+        :return: The cumulative probability, of the same shape as ``t``.
+        """
+        return super().__call__(t)
 
 
 class QuantileFunction(DistributionFunction):
@@ -231,6 +249,15 @@ class QuantileFunction(DistributionFunction):
     - Levels beyond the last node return the last node.
     """
     kind = 'quantile'
+
+    def __call__(self, q: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The quantile at the probability level ``q``.
+
+        :param q: A probability level in :math:`[0, 1]` or an array of levels.
+        :return: The quantile, of the same shape as ``q``.
+        """
+        return super().__call__(q)
 
     def plot(
             self,
