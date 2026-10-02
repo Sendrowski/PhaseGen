@@ -1,7 +1,6 @@
 """
 Plot the migration example used in the manuscript.
 """
-import fastdfe as fd
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
@@ -35,7 +34,7 @@ axs[0, 0].set_title('Python code')
 
 coal.tree_height.pdf.plot(ax=axs[0, 1], show=False)
 
-fd.Spectra(dict(total=coal.sfs.mean, pop0=coal.sfs.demes['pop0'].mean, pop1=coal.sfs.demes['pop1'].mean)).plot(
+pg.Spectra(dict(total=coal.sfs.mean, pop0=coal.sfs.demes['pop0'].mean, pop1=coal.sfs.demes['pop1'].mean)).plot(
     ax=axs[1, 0], show=False, title='Expected SFS'
 )
 
