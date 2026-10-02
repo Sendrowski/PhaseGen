@@ -214,7 +214,7 @@ class PoissonLikelihood(Likelihood):
 
         :param observed: Observed value or values.
         :param modelled: Modelled value or values.
-        :return: A numerical value representing the difference between the two values.
+        :return: The negative Poisson log-likelihood of ``observed`` given the means ``modelled``.
         :raises ValueError: If the observed and modelled values differ in shape, or an observed count is negative.
         :raises ModelError: If a modelled value is negative beyond round-off.
         """

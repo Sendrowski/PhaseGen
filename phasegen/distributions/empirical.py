@@ -389,7 +389,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
     def __init__(self, samples: np.ndarray | list) -> None:
         """
-        Create object.
+        Initialize the distribution from the given realisations.
 
         :param samples: The realisations, of shape ``(N,)``, or ``(N, n + 1)`` for a spectrum.
         """
@@ -571,7 +571,7 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
 
     def __init__(self, samples: np.ndarray | list, folded: bool = False) -> None:
         """
-        Create object.
+        Initialize the distribution from the given realisations.
 
         :param samples: The sampled spectra, of shape ``(N, n + 1)``.
         :param folded: Whether the spectrum is folded.
@@ -1189,7 +1189,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
             resolves_demes: bool = True
     ) -> None:
         """
-        Create object.
+        Initialize the distribution from the given realisations.
 
         :param branch_lengths: Branch lengths per locus, deme, replicate and frequency class, of shape
             ``(loci, demes, N, n + 1)``.
@@ -1902,7 +1902,8 @@ class MsprimeCoalescent(AbstractCoalescent):
             seed: int = None
     ) -> None:
         """
-        Simulate data using msprime.
+        Configure an msprime simulation of the given scenario. The replicates are simulated on first access to a
+        statistic.
 
         :param n: Number of lineages, lineage configuration, or initial distribution over lineage configurations,
             from which each replicate draws its starting configuration.
@@ -2436,9 +2437,12 @@ class MsprimeCoalescent(AbstractCoalescent):
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
         """
-        Two-locus SFS ground truth, simulated with msprime: two sites at recombination distance ``r`` (the two loci),
-        the per-bin branch-length cross product averaged over replicates, returned as an
-        :class:`EmpiricalTwoLocusSFSDistribution`. Only available for two-locus, single-locus-sample scenarios.
+        Two-locus SFS estimated from msprime simulations of two loci separated by the recombination rate of the
+        locus configuration, as the per-replicate product of the locus-0 and locus-1 branch lengths of each pair of
+        frequency classes, averaged over replicates and returned as an
+        :class:`~phasegen.distributions.EmpiricalTwoLocusSFSDistribution`.
+
+        :raises NotImplementedError: If the scenario does not have exactly two loci.
         """
         if self.locus_config.n != 2:
             raise NotImplementedError("The two-locus SFS is only available for two-locus scenarios.")
@@ -2482,7 +2486,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         Hudson's :math:`F_{ST}` ground truth, simulated with msprime: ``1 - mean within-population branch diversity /
         mean between-population branch divergence``, averaged over replicate trees. The diversity averages over the
         populations with at least two sampled lineages and the divergence over the pairs of sampled populations, as
-        :meth:`Coalescent.fst` does.
+        :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>` does.
 
         :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
             lineage configurations of an initial distribution differ.
@@ -2569,17 +2573,26 @@ class MsprimeCoalescent(AbstractCoalescent):
         return cache[key]
 
     def f2(self, pop_0: str, pop_1: str) -> float:
-        """msprime ``f2`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f2`."""
+        """
+        msprime ``f2`` ground truth from simulated pairwise coalescence times. Matches
+        :meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`.
+        """
         t = self._pairwise_coalescence_time
         return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
 
     def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        """msprime ``f3`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f3`."""
+        """
+        msprime ``f3`` ground truth from simulated pairwise coalescence times. Matches
+        :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`.
+        """
         t = self._pairwise_coalescence_time
         return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
 
     def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        """msprime ``f4`` ground truth from simulated pairwise coalescence times. Matches :meth:`Coalescent.f4`."""
+        """
+        msprime ``f4`` ground truth from simulated pairwise coalescence times. Matches
+        :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`.
+        """
         t = self._pairwise_coalescence_time
         return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
 

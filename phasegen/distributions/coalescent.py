@@ -278,7 +278,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             end_time: float = None,
     ) -> None:
         """
-        Create object.
+        Configure the coalescent. The state spaces are constructed when a statistic first requires them.
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
@@ -752,8 +752,8 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute: bool = True
     ) -> float:
         r"""
-        The :math:`k`-th moment of the accumulated rewards, evaluated on the smallest state space supporting all
-        ``rewards`` as described in
+        The :math:`k`-th moment of the accumulated rewards, central by default, evaluated on the smallest state space
+        supporting all ``rewards`` as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
         :param k: The order :math:`k` of the moment.
@@ -835,7 +835,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param end_times: Times when to evaluate the moment. Defaults to a grid over
             :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
             :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
-        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
         :param center: Whether to center the moment around the mean.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
@@ -846,7 +846,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
-        :raises ValueError: if ``k`` is not integral or is negative.
+        :raises ValueError: if ``k`` is not integral or is negative, or if ``rewards`` is a single
+            :class:`~phasegen.rewards.Reward` and not a sequence.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
@@ -914,7 +915,8 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def to_json(self) -> str:
         """
-        Serialize to JSON. Drop cache before serializing.
+        Serialize the coalescent to a JSON string, leaving out the caches of its state spaces. The coalescent itself
+        is not modified.
 
         :return: JSON string.
         """

@@ -97,7 +97,7 @@ class StateSpace(ABC):
             epoch: Epoch = None
     ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
         :param lineage_config: Population configuration, or an initial distribution over population configurations,
             whose first component is used to construct the states.
@@ -154,7 +154,7 @@ class StateSpace(ABC):
     @cached_property
     def states(self) -> List['State']:
         """
-        The states.
+        The states of the space, in the row order of :attr:`StateSpace.S <phasegen.state_space.StateSpace.S>`.
 
         :raises ModelError: If a population size of the current epoch is not positive.
         """
@@ -236,9 +236,9 @@ class StateSpace(ABC):
 
     def get_transitions(self) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
         """
-        Get all possible transitions from the given state.
+        Enumerate the state space by breadth-first search from the initial state.
 
-        :return: All possible transitions from the given state.
+        :return: The transitions, keyed by (source, target) pair with their rate and kind, and the list of states.
         """
         sources = [self._get_initial()]
         transitions = {}
@@ -376,27 +376,25 @@ class StateSpace(ABC):
     @cached_property
     def absorbing(self) -> np.ndarray:
         """
-        Boolean mask over :attr:`states` marking the absorbing states, using the absorption predicate of the state
-        space. Subclasses with a non-default condition, e.g. the two-locus space, where the
-        unlinked dual-MRCA state ``(n, 0) + (0, n)`` is absorbing although
-        :meth:`~phasegen.state_space.State.is_absorbing` does not see it, are then classified consistently everywhere
-        (moment paths, occupation times, sampling). Epoch-independent (depends only on the state topology), so it is
-        safe to cache across :meth:`update_epoch`.
+        Boolean mask over :attr:`StateSpace.states <phasegen.state_space.StateSpace.states>` marking the absorbing
+        states. In the two-locus space, the state ``(n, 0) + (0, n)``, in which both loci have reached their MRCA on
+        separate lineages, is absorbing. The mask does not depend on the epoch.
         """
         return np.array([self._is_absorbing(s) for s in self.states])
 
     @cached_property
     def transition(self) -> 'Transition':
         """
-        Transition.
+        The :class:`~phasegen.state_space.Transition` that enumerates the transitions out of a state of this space.
         """
         return Transition(self)
 
     def update_epoch(self, epoch: Epoch) -> None:
         """
-        Update the epoch.
+        Switch the rate matrix to the given epoch. The states do not depend on the epoch.
 
         :param epoch: Epoch.
+        :raises ModelError: If a population size of the epoch is not positive.
         """
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
@@ -873,7 +871,7 @@ class BlockCountingStateSpace(StateSpace):
             epoch: Epoch = None
     ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
@@ -971,7 +969,7 @@ class BlockCountingStateSpace(StateSpace):
 
 class JointBlockCountingStateSpace(StateSpace):
     r"""
-    Rate matrix for the joint (multi-population) site-frequency spectrum.
+    Block-counting state space for the joint (multi-population) site-frequency spectrum.
 
     This is a generalization of :class:`BlockCountingStateSpace`. In the block-counting state space a block is a
     single size class ``i`` (the number of sampled lineages a lineage subtends), which discards the population those
@@ -1010,7 +1008,7 @@ class JointBlockCountingStateSpace(StateSpace):
             epoch: Epoch = None
     ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
@@ -1039,8 +1037,7 @@ class JointBlockCountingStateSpace(StateSpace):
     def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
         Ordered descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has ``0 <= v_p <= n_p``
-        and at least one non-zero entry. Returned as an immutable tuple so a consumer cannot mutate the cached
-        configurations in place.
+        and at least one non-zero entry. The vectors are returned as a tuple.
         """
         sizes = [int(n_p) for n_p in self.lineage_config.lineages]
 
@@ -1672,26 +1669,26 @@ class State:
     @property
     def lineages(self) -> np.ndarray:
         """
-        Get the number of lineages.
+        The number of lineages per locus, deme and block.
 
-        :return: The number of lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.data[0]
 
     @property
     def linked(self) -> np.ndarray:
         """
-        Get the number of linked lineages.
+        The number of linked lineages per locus, deme and block.
 
-        :return: The number of linked lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.data[1]
 
     @property
     def unlinked(self) -> np.ndarray:
         """
-        Get the number of unlinked lineages.
+        The number of unlinked lineages per locus, deme and block.
 
-        :return: The number of unlinked lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.lineages - self.linked

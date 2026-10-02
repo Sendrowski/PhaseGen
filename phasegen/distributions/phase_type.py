@@ -1605,8 +1605,8 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
         :param state_space: The state space.
         :param tree_height: The tree height distribution.
         :param demography: The demography.
-        :param reward: The reward. Defaults to the total-branch-length reward. The marginal views pass the total
-            branch length restricted to one locus or deme.
+        :param reward: The reward. Defaults to the total-branch-length reward. A restricted total-branch-length
+            reward gives the distribution of one locus or deme.
         """
         super().__init__(
             state_space=state_space,

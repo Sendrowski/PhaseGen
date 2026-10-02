@@ -810,9 +810,8 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
     @cached_property
     def var(self) -> SFS:
         """
-        Variance across site-frequency counts, the diagonal of :attr:`cov` where the spectrum-wide evaluation of
-        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` applies or a
-        cached :attr:`cov` holds the closed form, and the second central moment of each bin otherwise.
+        Variance of the branch length of each frequency class, the diagonal of
+        :attr:`UnfoldedSFSDistribution.cov <phasegen.distributions.UnfoldedSFSDistribution.cov>`.
         """
         batched = self._cov_batched
         if batched is not None:
@@ -975,8 +974,18 @@ class TajimaSFSMixin:
 
 
 class UnfoldedSFSDistribution(SFSDistribution, TajimaSFSMixin):
-    """
-    Unfolded site-frequency spectrum distribution.
+    r"""
+    Distribution of the unfolded site-frequency spectrum, whose bin :math:`i` is the total length :math:`L_i` of the
+    branches subtending :math:`i` of the :math:`n` samples, for :math:`i = 1, \dots, n - 1`.
+
+    The following example computes the mean and covariance of the spectrum and the CDF of bin 2 at 1.
+
+    ::
+
+        sfs = pg.Coalescent(n=5).sfs
+
+        mean, cov = sfs.mean, sfs.cov
+        p = sfs.bin(2).cdf(1.0)
     """
 
     def _get_sfs_reward(self, i: int) -> UnfoldedSFSReward:
@@ -1009,8 +1018,18 @@ class UnfoldedSFSDistribution(SFSDistribution, TajimaSFSMixin):
 
 
 class FoldedSFSDistribution(SFSDistribution):
-    """
-    Folded site-frequency spectrum distribution.
+    r"""
+    Distribution of the folded site-frequency spectrum, whose bin :math:`i` is :math:`L_i + L_{n-i}` for
+    :math:`i = 1, \dots, \lfloor n/2 \rfloor`, counted once where the two classes coincide, with :math:`L_i` the
+    total length of the branches subtending :math:`i` of the :math:`n` samples.
+
+    The following example computes the mean and correlation matrix of the folded spectrum.
+
+    ::
+
+        fsfs = pg.Coalescent(n=5).fsfs
+
+        mean, corr = fsfs.mean, fsfs.corr
     """
 
     def _get_sfs_reward(self, i: int) -> FoldedSFSReward:
@@ -1661,9 +1680,8 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
     @cached_property
     def var(self) -> JointSFS:
         """
-        Variance of the joint site-frequency spectrum, the diagonal of :attr:`cov` where the spectrum-wide evaluation
-        of :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` applies, and
-        the second central moment of each bin otherwise.
+        Variance of the branch length of each joint site-frequency spectrum bin, the diagonal of
+        :attr:`JointSFSDistribution.cov <phasegen.distributions.JointSFSDistribution.cov>`.
         """
         batched = self._cov_batched
         if batched is not None:

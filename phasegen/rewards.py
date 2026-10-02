@@ -1317,8 +1317,9 @@ class CustomReward(Reward):
         """
         Initialize the custom reward.
 
-        :param func: The function to use to calculate the reward vector.
-        :param supports: The function to use to check if the reward supports the state space.
+        :param func: Function taking the state space and returning the reward vector, one entry per state.
+        :param supports: Function taking a state-space class and returning whether the reward is defined on it. By
+            default, the reward is defined on every state space.
         """
         #: The function to calculate the reward vector
         self.func: Callable[[StateSpace], np.ndarray] = func

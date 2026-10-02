@@ -147,7 +147,8 @@ class MutationLayout:
         The configurations with ``k`` mutations in total.
 
         :param k: The total number of mutations.
-        :return: The configurations, in the order of ``StateSpace._get_partitions``.
+        :return: An iterator over the configurations, ordered by increasing count of the last bin, then of the
+            second-to-last bin, and so on.
         """
         for counts in StateSpace._get_partitions(n=k, k=len(self)):
             yield MutationConfig(counts, self)
@@ -246,8 +247,7 @@ class MutationConfigMixin:
         = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right],
 
     which depends on the state space only through the sub-intensity matrices, the initial distribution and the
-    reward vectors. A spectrum provides the elementary class rewards in ``_mutation_class_reward`` and its default
-    layout in ``mutation_layout``.
+    reward vectors.
     """
 
     #: Probability mass yielded by the most recently started configuration iterator.

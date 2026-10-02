@@ -1269,14 +1269,22 @@ class CallableDistributionFunctions:
 
     @property
     def cdf(self) -> CumulativeDistributionFunction:
-        """Cumulative distribution function: callable (``cdf(t)``) and plottable (``cdf.plot()`` / -- joint --
-        ``cdf.plot_surface()``)."""
+        """
+        The cumulative distribution function. Calling it evaluates the function at ``t``, and
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve. The
+        CDF of a joint distribution also draws its surface with
+        :meth:`JointCDF.plot_surface() <phasegen.distributions.JointCDF.plot_surface>`.
+        """
         return self._function('cdf', self._cdf_function)
 
     @property
     def pdf(self) -> DensityFunction:
-        """Probability density function: callable (``pdf(t)``) and plottable (``pdf.plot()`` / -- joint --
-        ``pdf.plot_surface()``)."""
+        """
+        The probability density function. Calling it evaluates the function at ``t``, and
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve. The
+        density of a joint distribution also draws its surface with
+        :meth:`JointDensity.plot_surface() <phasegen.distributions.JointDensity.plot_surface>`.
+        """
         return self._function('pdf', self._pdf_function)
 
     @property
@@ -1473,7 +1481,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         Get the distribution for the given locus.
 
-        :param item: Deme name.
+        :param item: The locus index.
         :return: Distribution.
         """
         return self.loci[item]
@@ -1497,7 +1505,7 @@ class MarginalLocusDistributions(MarginalDistributions):
     @cached_property
     def loci(self) -> dict:
         """
-        Distributions marginalized over loci, keyed by locus index.
+        The distribution restricted to each locus, keyed by locus index.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -1644,7 +1652,7 @@ class MarginalDemeDistributions(MarginalDistributions):
     @cached_property
     def demes(self) -> dict:
         """
-        Distributions marginalized over demes, keyed by population name.
+        The distribution restricted to each deme, keyed by population name.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution

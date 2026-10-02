@@ -97,12 +97,12 @@ class Inference(Serializable):
             method_mle: str = 'L-BFGS-B'
     ) -> None:
         """
-        Initialize the class with the provided parameters.
+        Configure the inference.
 
         :param bounds: Dictionary of tuples representing the bounds for each
             parameter in x0.
         :param coal: Callback returning the configured coalescent distribution on which
-            the inference is based on. The parameters specified in ``x0`` and ``bounds``
+            the inference is based. The parameters specified in ``x0`` and ``bounds``
             are passed as keyword arguments.
         :param loss: The loss function, evaluating :math:`L(\\theta)`. This function must return a single numerical
             value that is to be minimized. It receives as first argument the coalescent
@@ -112,8 +112,8 @@ class Inference(Serializable):
             summary statistics (e.g. the :class:`~phasegen.norms.PoissonLikelihood` for site-frequency-spectrum counts).
         :param x0: Dictionary of initial numeric guesses for parameters to optimize.
         :param observation: The observed summary statistic the inference is based on.
-            This is passed as second argument to the ``loss`` function, and is only required
-            if you want to use automatic bootstrapping.
+            This is passed as second argument to the ``loss`` function. It is required for
+            automatic bootstrapping.
         :param resample: Callback that resamples the observation. This is
             required for automatic bootstrapping. The resample function must accept
             the observation as first argument and a random number generator as second
@@ -610,7 +610,9 @@ class Inference(Serializable):
 
     def run(self) -> None:
         """
-        Execute the optimization.
+        Minimize the loss from ``n_runs`` start points, store the best estimate in :attr:`Inference.params_inferred
+        <phasegen.inference.Inference.params_inferred>` and every run in :attr:`Inference.runs
+        <phasegen.inference.Inference.runs>`, and bootstrap when ``do_bootstrap`` is set.
         """
         self._run()
 
@@ -846,8 +848,10 @@ class Inference(Serializable):
         """
         Plot inferred demography.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param include_bootstraps: Whether to include bootstraps.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
@@ -877,8 +881,10 @@ class Inference(Serializable):
         """
         Plot inferred population sizes.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param file: File to save the plot.
@@ -908,8 +914,10 @@ class Inference(Serializable):
         """
         Plot inferred migration rates.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param include_bootstraps: Whether to include bootstraps.
@@ -1030,11 +1038,11 @@ class Inference(Serializable):
 
     def add_run(self, inference: 'Inference') -> None:
         """
-        Merge the main optimization result from another Inference object into the current Inference object. We only
-        store the result of the run with the lowest loss.
+        Append the run of another Inference object to :attr:`Inference.runs <phasegen.inference.Inference.runs>`,
+        and adopt its estimate when its loss is lower than the current one.
 
         :param inference: Inference object.
-        :raises RuntimeError: If the main optimization has not been run yet.
+        :raises RuntimeError: If ``inference`` has not been run.
         """
         if inference.loss_inferred is None:
             raise RuntimeError('The provided Inference object must be run first (call run()).')
@@ -1183,7 +1191,8 @@ class WeightedLoss:  # pragma: no cover
     @property
     def average(self) -> Dict[str, float]:
         """
-        Average of the cached values.
+        Running average :math:`\bar{L}_c` of each loss component over its most recent ``n_max`` values, keyed by
+        component.
         """
         return {key: np.mean(self.cache[key][-self.n_max:]) for key in self.keys}
 

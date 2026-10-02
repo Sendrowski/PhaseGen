@@ -1396,8 +1396,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def conditional(self, on: str = 'a', value: float = 0.0) -> 'ConditionalRewardDistribution':
         r"""
         The distribution of the other reward given that the reward ``on`` equals ``value``, as a
-        :class:`~phasegen.distributions.ConditionalRewardDistribution`, whose docstring describes its transform and
-        inversion. A ``value`` of zero conditions on the atom of the reward ``on``, a positive ``value`` on its
+        :class:`~phasegen.distributions.ConditionalRewardDistribution`, whose transform and inversion are described
+        there. A ``value`` of zero conditions on the atom of the reward ``on``, a positive ``value`` on its
         continuous part. Mass on a line :math:`R_a = c R_b` gives the conditional on a ``value`` :math:`v > 0` an atom
         at :math:`v / c` given :math:`R_a`, or :math:`c v` given :math:`R_b`, which its density excludes.
 

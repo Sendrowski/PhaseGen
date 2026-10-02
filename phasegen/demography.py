@@ -252,7 +252,8 @@ class Demography:
     @property
     def epochs(self) -> Iterator['Epoch']:
         """
-        Get a generator for the epochs. An epoch is built once and kept, so later iterations and lookups reuse it.
+        Iterator over the epochs in order of time, ending with the epoch of infinite end time, or without end for a
+        demography whose rates change indefinitely.
         """
         self._prepare_events()
 
@@ -866,7 +867,7 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
             migration_rates: Dict[Tuple[str, str], Dict[float, float]] = None
     ) -> None:
         """
-        Initialize the population size change.
+        Initialize the changes in population sizes and migration rates.
 
         :param pop_sizes: Population sizes, a dictionary of the form ``{pop_i: {time1: size1, time2: size2}}`` indexed
             by population name. :class:`~phasegen.demography.Demography` also accepts the single-population and
@@ -1069,9 +1070,9 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
         Initialize the (backwards-time) migration rate change.
 
         :param pops: Population names across which the migration rates change uniformly.
-        :param rate: Migration rates. A dictionary of the form `{time1: rate1, time2: rate2}` of migration
-            from population `pop_i` to population `pop_j` at time `time1` etc. or alternatively a single float
-            if the migration rate is constant over time.
+        :param rate: Migration rate applied in both directions between every pair of ``pops``, either a dictionary
+            of the form ``{time1: rate1, time2: rate2}`` or a single float if the migration rate is constant over
+            time.
         """
         if isinstance(rate, numbers.Real):
             rate = {0: rate}
@@ -1234,7 +1235,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
             step_size: float = 0.1
     ) -> None:
         """
-        Initialize the population size change.
+        Initialize the discretized change of a population size or migration rate.
 
         :param trajectory: Trajectory function taking the time as argument and returning the rate.
         :param start_time: Start time of the event.
@@ -1389,7 +1390,7 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
             step_size: float = 0.1
     ) -> None:
         """
-        Initialize the population size change.
+        Initialize the discretized changes of population sizes and migration rates.
 
         :param trajectory: Trajectory functions taking the time as argument and returning the rate.
         :param start_time: Start times of the events. A single value or a dictionary mapping keys to values.
