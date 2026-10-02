@@ -1,2 +1,0 @@
-WARNING:TwoLocusBlockCountingStateSpace: State space is large (1043 states). Computations may be slow.
-WARNING:TwoLocusBlockCountingStateSpace: State space is large (1043 states). Computations may be slow.

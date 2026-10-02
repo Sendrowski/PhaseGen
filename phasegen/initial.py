@@ -12,23 +12,30 @@ from .locus import LocusConfig
 
 class InitialDistribution:
     r"""
-    Weighted mixture of lineage or locus configurations from which the coalescent starts. Component :math:`i` with
-    weight :math:`w_i` has the initial vector :math:`\boldsymbol{\alpha}_i`, and the process starts from
+    Mixture of starting configurations of the coalescent, for example over the number of lineages sampled in each
+    deme, given as :class:`~phasegen.lineage.LineageConfig` components, or over the number of lineages whose loci are
+    initially unlinked, given as :class:`~phasegen.locus.LocusConfig` components. With :math:`w_i > 0` the weight and
+    :math:`\boldsymbol{\alpha}_i` the initial vector of component :math:`i`, the process starts from
 
     .. math::
         \boldsymbol{\alpha} = \sum_i \frac{w_i}{\sum_j w_j} \boldsymbol{\alpha}_i,
 
-    so every raw moment, transform, density and distribution function is the correspondingly weighted sum over the
-    components, while central moments and quantiles are those of the mixture. :math:`F_{ST}` requires the components
-    to share one lineage configuration. An initial distribution of lineage configurations is passed as ``n`` and one of locus configurations
-    as ``loci`` to :class:`~phasegen.distributions.Coalescent` and
-    :class:`~phasegen.distributions.MsprimeCoalescent`, the latter drawing the starting configuration of each
-    replicate from the normalized weights.
+    so every raw moment, transform, density and distribution function is the weighted sum of those of the
+    components, while central moments and quantiles are those of the mixture. It is passed as ``n`` or ``loci`` to
+    :class:`~phasegen.distributions.Coalescent`. All components share one state space: lineage configurations have
+    the same populations and total number of lineages, and, for the joint SFS and :math:`F_{ST}`, the same number per
+    population, while locus configurations have the same number of loci and recombination rate.
 
-    All components share one state space: lineage configurations have the same populations, in the same order, and
-    the same total number of lineages, and locus configurations have the same number of loci and recombination rate.
-    The joint block-counting state space, which underlies the joint SFS, further depends on the number of lineages
-    per population, which then must agree between the components.
+    The following example samples three of the four lineages in ``pop_1`` with probability 0.75.
+
+    ::
+
+        init = pg.InitialDistribution([(1, {'pop_0': 3, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 3})])
+
+        coal = pg.Coalescent(n=init, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 0.5},
+            migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
     """
 
     def __init__(

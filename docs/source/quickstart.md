@@ -225,6 +225,17 @@ plot(coal$sfs$corr)
 ```
 
 +++
+With several populations, the joint SFS ({attr}`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>`) resolves each bin by the number of descendants in every population. Its mean, with the descendant counts in ``pop_1`` on the horizontal and those in ``pop_0`` on the vertical axis:
+
+```{code-cell} python
+coal.jsfs.mean.plot();
+```
+
+```{code-cell} r
+plot(coal$jsfs$mean)
+```
+
++++
 We may also marginalize over a single population. Here we obtain the mean SFS of ``pop_0``, which represents the branch lengths for lineages that subtend ``i`` lineages in the coalescent tree, while spending time in population ``pop_0``.
 
 ```{code-cell} python
@@ -248,7 +259,7 @@ stopifnot(isTRUE(all.equal(demes_sum, coal$sfs$mean$data)))
 
 +++
 ## Initial distributions
-The lineages may also start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds weighted lineage configurations, or {class}`~phasegen.locus.LocusConfig` instances when passed as ``loci``, and the process starts from their mixture with the normalized weights. The configurations must share one state space. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75.
+So far, each deme held a fixed number of sampled lineages. When the composition of the sample is itself uncertain, for example when the deme of origin of some lineages is unknown, or when the number of lineages linked between two loci varies, the coalescent may instead start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds weighted {class}`~phasegen.lineage.LineageConfig` instances, passed as ``n``, or {class}`~phasegen.locus.LocusConfig` instances, passed as ``loci``, and the process starts from their mixture with the normalized weights. Every raw moment, density and distribution function is then the weighted average of those of the configurations, while central moments such as the variance and quantiles are those of the mixture. The configurations must share one state space. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75, and the mean tree height of the mixture equals the weighted mean of those of the two configurations.
 
 ```{code-cell} python
 init = pg.InitialDistribution([(1, {'pop_0': 3, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 3})])

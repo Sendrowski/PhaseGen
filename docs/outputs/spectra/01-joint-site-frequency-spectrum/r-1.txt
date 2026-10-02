@@ -1,1 +1,1 @@
-WARNING:JointBlockCountingStateSpace: State space is large (6770 states). Computations may be very slow.
+WARNING:JointBlockCountingStateSpace: State space is large (6770 states). Second-order statistics such as var and cov may be slow.
