@@ -664,24 +664,24 @@ class DictContainer(dict):  # pragma: no cover
 
         return list(self).index(key)
 
-    def get_cov(self, d1, d2) -> float:
+    def get_cov(self, d1, d2) -> float | np.ndarray:
         """
         Get the covariance between two marginal distributions.
 
         :param d1: Deme name or locus index of the first marginal distribution.
         :param d2: Deme name or locus index of the second marginal distribution.
-        :return: The covariance.
+        :return: The covariance, one per frequency class for spectra.
         :raises ValueError: If there is no marginal of either key.
         """
         return np.atleast_2d(self.cov)[self._index(d1), self._index(d2)]
 
-    def get_corr(self, d1, d2) -> float:
+    def get_corr(self, d1, d2) -> float | np.ndarray:
         """
         Get the correlation coefficient between two marginal distributions.
 
         :param d1: Deme name or locus index of the first marginal distribution.
         :param d2: Deme name or locus index of the second marginal distribution.
-        :return: The correlation coefficient.
+        :return: The correlation coefficient, one per frequency class for spectra.
         :raises ValueError: If there is no marginal of either key.
         """
         return np.atleast_2d(self.corr)[self._index(d1), self._index(d2)]
@@ -788,9 +788,9 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
     def _cache_standard_errors(self, n_blocks: int = 100) -> None:
         """
-        Block standard errors of the totals, as ``EmpiricalDistribution._cache_standard_errors``, and of the deme and
-        locus covariance and correlation matrices, keyed ``"demes.cov"``, ``"demes.corr"``, ``"loci.cov"`` and
-        ``"loci.corr"``.
+        Block standard errors of the totals, as ``EmpiricalDistribution._cache_standard_errors``, and, except for a
+        spectrum, of the deme and locus covariance and correlation matrices, keyed ``"demes.cov"``, ``"demes.corr"``,
+        ``"loci.cov"`` and ``"loci.corr"``.
         """
         super()._cache_standard_errors(n_blocks)
 
@@ -1191,17 +1191,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         self.resolves_demes = resolves_demes
 
-        #: Deme-deme covariance/correlation are unused for the SFS (``demes`` is overridden to a plain per-deme
-        #: dict), so they are not computed here.
-        self.pops_corr: np.ndarray = None
-        self.pops_cov: np.ndarray = None
-
-        #: Correlation matrix for the loci
-        self.loci_corr: np.ndarray = None
-
-        #: Covariance matrix for the loci
-        self.loci_cov: np.ndarray = None
-
         #: Relative frequency yielded by the most recently started
         #: :meth:`EmpiricalPhaseTypeSFSDistribution.get_mutation_configs()
         #: <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.get_mutation_configs>` iterator.
@@ -1479,13 +1468,17 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         :param config: The configuration, one mutation count per frequency class, a single count for one class.
         :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
-        :raises ValueError: If ``config`` does not have one non-negative integer per frequency class, or the spectrum
-            carries no mutation counts.
+        :raises ValueError: If ``config`` does not have one non-negative integer per frequency class, is a
+            :class:`~phasegen.distributions.MutationConfig` of another layout, or the spectrum carries no mutation
+            counts.
         """
         frequencies = self._config_frequencies()
+        layout = self.mutation_layout()
 
         if not isinstance(config, MutationConfig):
-            config = self.mutation_layout().config((config,) if np.isscalar(config) else config)
+            config = layout.config((config,) if np.isscalar(config) else config)
+        elif config.layout != layout:
+            raise ValueError(f"The configuration must have the layout {layout}, got {config.layout}.")
 
         return frequencies.get(tuple(config), 0)
 
@@ -1505,7 +1498,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
         while True:
             # iterate over configurations
             for config in self.mutation_layout().configs(i):
-                p = self.get_mutation_config(config=config)
+                p = self._config_frequencies().get(tuple(config), 0)
                 self.generated_mass += p
                 yield config, p
 
@@ -1817,6 +1810,7 @@ def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tski
 
     # the two loci are the unit intervals of a length-two sequence
     tables = tskit.TableCollection(sequence_length=2)
+    tables.time_units = 'generations'
     tables.populations.metadata_schema = tskit.MetadataSchema.permissive_json()
 
     index = {}

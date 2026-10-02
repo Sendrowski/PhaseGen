@@ -18,8 +18,9 @@ class InitialDistribution:
     .. math::
         \boldsymbol{\alpha} = \sum_i \frac{w_i}{\sum_j w_j} \boldsymbol{\alpha}_i,
 
-    so every moment, transform, density and distribution function is the correspondingly weighted sum over the
-    components. An initial distribution of lineage configurations is passed as ``n`` and one of locus configurations
+    so every raw moment, transform, density and distribution function is the correspondingly weighted sum over the
+    components, while central moments and quantiles are those of the mixture. :math:`F_{ST}` requires the components
+    to share one lineage configuration. An initial distribution of lineage configurations is passed as ``n`` and one of locus configurations
     as ``loci`` to :class:`~phasegen.distributions.Coalescent` and
     :class:`~phasegen.distributions.MsprimeCoalescent`, the latter drawing the starting configuration of each
     replicate from the normalized weights.

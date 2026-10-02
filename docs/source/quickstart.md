@@ -248,7 +248,7 @@ stopifnot(isTRUE(all.equal(demes_sum, coal$sfs$mean$data)))
 
 +++
 ## Initial distributions
-The lineages may also start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds weighted lineage configurations, or {class}`~phasegen.locus.LocusConfig` instances when passed as ``loci``, and every statistic averages over them with the normalized weights. The configurations must share one state space. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75.
+The lineages may also start from a random configuration. An {class}`~phasegen.initial.InitialDistribution` holds weighted lineage configurations, or {class}`~phasegen.locus.LocusConfig` instances when passed as ``loci``, and the process starts from their mixture with the normalized weights. The configurations must share one state space. Here, three of the four lineages are sampled in ``pop_1`` with probability 0.75.
 
 ```{code-cell} python
 init = pg.InitialDistribution([(1, {'pop_0': 3, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 3})])

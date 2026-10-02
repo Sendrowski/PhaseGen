@@ -439,3 +439,90 @@ def test_layout_rejects_inconsistent_positions_and_shape():
     for counts in (np.arange(4), np.arange(10), np.zeros((2, 5))):
         with pytest.raises(ValueError):
             layout.from_array(counts)
+
+
+@pytest.mark.parametrize('folded', [False, True])
+def test_from_array_rejects_entries_that_are_not_counts(folded):
+    """
+    An array with a negative or fractional entry raises ValueError, also where a merged bin sums it to a valid count
+    and at the monomorphic classes no bin reads.
+    """
+    coal = pg.Coalescent(n=4)
+    layout = (coal.fsfs if folded else coal.sfs).mutation_layout()
+
+    for counts in ([0, -1, 0, 2, 0], [0, 0.5, 0, 0.5, 0], [-5, 1, 0, 0, 7], [0, 1, np.nan, 0, 0]):
+        with pytest.raises(ValueError):
+            layout.from_array(np.array(counts))
+
+    assert layout.from_array(np.array([3, 1, 0, 0, 2.0])) == ((1, 0) if folded else (1, 0, 0))
+
+
+def test_empirical_mutation_config_rejects_other_layout():
+    """
+    A configuration of another layout raises ValueError on the simulated spectrum, which stores its frequencies in
+    its own layout, rather than reading the frequency of the configuration with the same counts there.
+    """
+    ms = MsprimeCoalescent(n=4, num_replicates=50, n_threads=1, parallelize=False, simulate_mutations=True,
+                           mutation_rate=1.0, seed=1)
+    own = ms.sfs.mutation_layout()
+    permuted = pg.MutationLayout(own.bins[::-1], own.positions, own.shape, own.axes)
+
+    for config in (permuted.config((0, 0, 2)), ms.fsfs.mutation_layout().config((1, 0))):
+        with pytest.raises(ValueError):
+            ms.sfs.get_mutation_config(config)
+
+    assert ms.sfs.get_mutation_config(own.config((0, 0, 0))) == ms.sfs.get_mutation_config((0, 0, 0))
+
+
+@pytest.mark.parametrize('rates', [{0: 0}, {0: 1, 0.5: 0}])
+@pytest.mark.parametrize('theta', [0, 0.5])
+def test_mutation_configs_raise_on_a_demography_that_does_not_absorb(rates, theta):
+    """
+    Demes disconnected in the last epoch leave absorption uncertain, so the configuration probabilities raise
+    ModelError, as the moments do, rather than returning a defective distribution whose descending iterator never
+    accumulates the requested mass.
+    """
+    dem = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1},
+                        migration_rates={('pop_0', 'pop_1'): rates, ('pop_1', 'pop_0'): rates})
+    sfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=dem).sfs
+
+    with pytest.raises(pg.ModelError):
+        sfs.get_mutation_config((0, 0, 0), theta)
+
+    with pytest.raises(pg.ModelError):
+        next(sfs.get_mutation_configs(theta))
+
+    with pytest.raises(pg.ModelError):
+        next(sfs.get_mutation_configs_by_count(theta))
+
+
+def test_multi_epoch_mutation_configs_follow_theta():
+    """
+    The multi-epoch configuration probabilities are cached per layout and theta, so a second theta on the same
+    distribution must give the probabilities of a fresh coalescent, not those cached for the first.
+    """
+    dem = ONE_DEME[1]
+    sfs = pg.Coalescent(n=4, demography=dem).sfs
+
+    for config in ((1, 0, 0), (2, 1, 0)):
+        sfs.get_mutation_config(config, 0.5)
+        np.testing.assert_allclose(sfs.get_mutation_config(config, 2.0),
+                                   pg.Coalescent(n=4, demography=dem).sfs.get_mutation_config(config, 2.0), rtol=1e-14)
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_multi_epoch_expm_action_matches_dense_exponential(sparse, monkeypatch):
+    """
+    The multi-epoch configuration probabilities propagated by the matrix-exponential action agree with those of the
+    dense exponential, on the dense and the sparse generator.
+    """
+    monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1 if sparse else 10 ** 9)
+    configs = ((0, 0, 0), (1, 0, 0), (2, 1, 0), (0, 1, 2))
+
+    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 10 ** 9)
+    dense = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
+
+    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 1)
+    action = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
+
+    np.testing.assert_allclose(action, dense, rtol=1e-12)

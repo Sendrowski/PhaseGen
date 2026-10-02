@@ -137,6 +137,9 @@ class MutationLayout:
         if counts.shape != self.shape:
             raise ValueError(f"The counts must have shape {self.shape}, got {counts.shape}.")
 
+        if counts.dtype.kind not in 'iuf' or not np.all(np.isfinite(counts) & (counts >= 0) & (counts % 1 == 0)):
+            raise ValueError(f"The counts must be non-negative integers, got {counts.tolist()}.")
+
         return MutationConfig([sum(counts[self.positions[label]] for label in b) for b in self.bins], self)
 
     def configs(self, k: int) -> Iterator['MutationConfig']:
@@ -215,14 +218,6 @@ class MutationConfig(tuple):
                 return c
 
         raise KeyError(f"No bin holds the class {label}.")
-
-    def as_dict(self) -> Dict[Tuple[Hashable, ...], int]:
-        """
-        The counts keyed by bin.
-
-        :return: Dictionary from bin (a tuple of class labels) to count.
-        """
-        return dict(zip(self.layout.bins, self))
 
     def to_array(self) -> np.ndarray:
         """
@@ -393,9 +388,9 @@ class MutationConfigMixin:
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. The probabilities of
           all :math:`L` count vectors are cached for the most recent layout and :math:`\theta`.
         - ``get_mutation_configs_by_count()`` yields configurations in ascending order of :math:`|\mathbf{m}|`.
-        - ``get_mutation_configs()`` climbs from the empty configuration to the most probable one and expands outward
-          with a priority queue. The order is exactly descending when every other configuration has a neighbour,
-          differing by one mutation, of at least equal probability.
+        - ``get_mutation_configs()`` climbs from the empty configuration to a local maximum of the probability and
+          expands outward with a priority queue. The order is exactly descending when every other configuration has a
+          neighbour, differing by one mutation, of at least equal probability.
         - Both iterators reset ``generated_mass`` when the first configuration is requested and add each yielded
           probability to it, so one minus its value is the probability not yet yielded.
 
@@ -414,11 +409,13 @@ class MutationConfigMixin:
         :raises ValueError: If ``theta`` is negative or not finite, or if ``config`` does not have one non-negative
             integer per bin.
         :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
+        :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         if not 0 <= theta < np.inf:
             raise ValueError(f"Theta must be a finite number greater than or equal to 0, got {theta}.")
 
         self._assert_no_window()
+        self._assert_absorbs()
 
         config = self._as_mutation_config(config)
 
@@ -710,8 +707,9 @@ class MutationConfigMixin:
             layout: MutationLayout = None
     ) -> Iterator[Tuple[MutationConfig, float]]:
         """
-        Unending iterator over mutational configurations and their probabilities in descending order of probability,
-        as described in :meth:`UnfoldedSFSDistribution.get_mutation_config()
+        Unending iterator over mutational configurations and their probabilities, starting at a local maximum of the
+        probability and in descending order of probability under the neighbour condition described in
+        :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. The following example consumes it until
         the yielded probability mass exceeds 0.8.
 
@@ -727,9 +725,12 @@ class MutationConfigMixin:
         :param layout: The layout of the configurations, by default the layout of one bin per polymorphic frequency
             class of the spectrum.
         :return: An iterator over pairs of configuration and probability.
+        :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         layout = self.mutation_layout() if layout is None else layout
         J = len(layout)
+
+        self._assert_absorbs()
 
         self.generated_mass = 0
 
