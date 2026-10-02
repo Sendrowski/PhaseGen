@@ -108,3 +108,24 @@ def test_sweep_reads_each_epoch_once():
 
     assert stability.call_count == 3
     assert rates.call_count == 3
+
+
+def test_tree_height_pdf_lower_tail_relative_accuracy():
+    """
+    The density keeps its relative precision far into the lower tail of a two-deme coalescent with migration, where
+    it falls to 1e-11. Absorption rates taken as the negated row sums over the transient columns cancel to a rounding
+    residual on states that do not absorb directly, which put relative errors of up to 3e-5 on the density at a CDF of
+    1e-15. The reference values are the densities of the same rate matrices in 60-digit arithmetic (mpmath), at the
+    levels 1e-15, 1e-12 and 1e-6 of the CDF and at the median.
+    """
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 0.5, 1: 0.5}, 'pop_1': {0: 2}},
+            migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 0.2}}
+        )
+    )
+    t = [0.00027026238749769724, 0.0015203809069530894, 0.04885328141256676, 3.616369621142335]
+    expected = [1.4799206499923377e-11, 2.6296870454997604e-09, 8.042806633234013e-05, 0.16113377457891845]
+
+    np.testing.assert_allclose(coal.tree_height.pdf(t), expected, rtol=1e-12, atol=0)

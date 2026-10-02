@@ -803,9 +803,8 @@ class _ExpmFunction(_HazardGrid):
             d._check_numerical_stability(d.state_space.S, epoch.index)
 
             memo, propagators = {}, {}
-            # the absorbed and the surviving mass and the absorption flux of a row vector, in one product. The
-            # absorption rates are summed over the absorbing columns, which keeps a small flux free of cancellation
-            reads = np.column_stack([1 - e, e, np.asarray(d.state_space.S @ (1 - e), dtype=float).ravel()])
+            # the absorbed and the surviving mass and the absorption flux of a row vector, in one product
+            reads = np.column_stack([1 - e, e, d._exit_rates()])
             dense = d.state_space.k < Settings.expm_action_min_dim
 
             def advance(v: np.ndarray, tau: float) -> np.ndarray:
@@ -1348,17 +1347,24 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         return mask
 
     def _exit_rates(self) -> np.ndarray:
-        """The per-state absorption rates of the current epoch, see ``_sweep``."""
-        return -(self.state_space.S @ self._e)
+        r"""
+        The per-state absorption rates of the current epoch, :math:`\mathbf{S}\,(\mathbf{1} - \mathbf{h})` with
+        :math:`\mathbf{S}` its rate matrix, :math:`\mathbf{h}` the indicator of the transient states (``_e``) and
+        :math:`\mathbf{1}` the vector of ones. Summing over the absorbing columns keeps a small rate free of
+        cancellation, and the rate is exactly zero on states that do not absorb directly.
+
+        :return: The absorption rates, one per state.
+        """
+        return np.asarray(self.state_space.S @ (1 - np.asarray(self._e, dtype=float)), dtype=float).ravel()
 
     def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         r"""
         The exact CDF and density at the ascending times ``t``, in one pass. The state distribution
         :math:`\mathbf{p}(x)` is propagated through the epochs, and at each time
         :math:`F = \mathbf{p}\,(\mathbf{1} - \mathbf{h}) / \mathbf{p}\,\mathbf{1}` and
-        :math:`f = \mathbf{p}\,(-\mathbf{S}_\ell\,\mathbf{h})` are read off, with :math:`\mathbf{h}` the indicator of
-        the transient states (``_e``), :math:`\mathbf{1}` the vector of ones and :math:`\ell` the epoch
-        ``_sweep_to`` leaves the state space in (``TreeHeightDistribution``).
+        :math:`f = \mathbf{p}\,\mathbf{S}_\ell\,(\mathbf{1} - \mathbf{h})` (``_exit_rates``) are read off, with
+        :math:`\mathbf{h}` the indicator of the transient states (``_e``), :math:`\mathbf{1}` the vector of ones and
+        :math:`\ell` the epoch ``_sweep_to`` leaves the state space in (``TreeHeightDistribution``).
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.
