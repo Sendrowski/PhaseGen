@@ -261,6 +261,18 @@ class _NaNJD:
     def check_total_expectation(self, tol, **kwargs):
         return self.check
 
+    def conditional(self, on, v):
+        """A conditional whose served CDF is NaN on axis ``a`` and whose de Hoog reference is NaN on axis ``b``."""
+        def nan(y):
+            return np.full_like(np.asarray(y, dtype=float), np.nan)
+
+        def zero(y):
+            return np.zeros_like(np.asarray(y, dtype=float))
+
+        served, exact = (nan, zero) if on == 'a' else (zero, nan)
+        cdf = type('CDF', (), {'__call__': lambda self, y: served(y), '_cdf_point': staticmethod(exact)})()
+        return type('Conditional', (), {'quantile': staticmethod(lambda p: p), 'cdf': cdf})()
+
 
 class ConditionalNaNTestCase(TestCase):
     """A NaN returned by phasegen fails a conditional check. Regression: the worst case was taken with Python's
@@ -292,6 +304,14 @@ class ConditionalNaNTestCase(TestCase):
                 tols = {'quantiles': [0.5], 'window': 0.2, stat: 1.0}
                 with self.assertRaises(AssertionError):
                     self._comparison()._compare_windowed_conditional(_NaNJD(), ms, pair, tols, 't')
+
+    def test_nan_dehoog_cdf_fails(self):
+        """A NaN in the served conditional CDF or in its de Hoog reference fails the ``dehoog`` check."""
+        for axes in (['a'], ['b'], ['b', 'a']):
+            with self.subTest(axes=axes):
+                tols = {'cdf': 1.0, 'quantiles': [0.5], 'levels': [0.5], 'axes': axes}
+                with self.assertRaises(AssertionError):
+                    self._comparison()._compare_dehoog_conditional(_NaNJD(), (1, 2), tols, 't')
 
 
 class _ExplodingJD:

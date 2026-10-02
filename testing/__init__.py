@@ -4,7 +4,6 @@ Initialization for the testing module.
 import logging
 import os
 import sys
-from pathlib import Path
 from unittest import TestCase as BaseTestCase
 
 # Pin the BLAS/numba thread pools to one thread per process. Under ``pytest -n auto`` every xdist worker would
@@ -25,24 +24,6 @@ import matplotlib
 if not (os.environ.get('PHASEGEN_SHOW_PLOTS') or os.environ.get('MPLBACKEND')):
     matplotlib.use('Agg')
 
-
-def prioritize_installed_packages():
-    """
-    This function prioritizes installed packages over local packages.
-    """
-    # Get the current working directory
-    cwd = str(Path().resolve())
-
-    # Check if the current working directory is in sys.path
-    if cwd in sys.path:
-        # Remove the current working directory from sys.path
-        sys.path = [p for p in sys.path if p != cwd]
-        # Append the current working directory to the end of sys.path
-        sys.path.append(cwd)
-
-
-# run before importing phasegen
-prioritize_installed_packages()
 
 import phasegen as pg
 

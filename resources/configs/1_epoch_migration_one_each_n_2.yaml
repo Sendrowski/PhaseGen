@@ -38,7 +38,7 @@ comparisons:
     sfs:
       demes:
         mean: 0.01
-        # var: 0.02 variance not supported by MsprimeCoalescent
+        var: 0.013
       mean: 0.0039
       cov: 0.013
       corr: 0.0005

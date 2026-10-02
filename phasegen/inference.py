@@ -129,10 +129,14 @@ class Inference(Serializable):
         :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
-            exactly the parameters in ``bounds``, or ``method_mle`` is not one of the supported methods.
+            exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, or ``n_runs`` or
+            ``n_bootstraps`` is less than 1.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
+
+        if int(n_runs) < 1 or int(n_bootstraps) < 1:
+            raise ValueError(f'n_runs and n_bootstraps must be at least 1, got {n_runs} and {n_bootstraps}.')
 
         reversed_bounds = [key for key, (lower, upper) in bounds.items() if not lower <= upper]
         if reversed_bounds:
@@ -1061,9 +1065,13 @@ class Inference(Serializable):
             default, each call draws fresh entropy.
         :return: Inference object with the resampled observation.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``n_runs`` is less than 1.
         """
         if not self.params_inferred:
             raise RuntimeError('The main optimization must be run first (call run()).')
+
+        if int(n_runs) < 1:
+            raise ValueError(f'n_runs must be at least 1, got {n_runs}.')
 
         other = self._spawn(index)
         other._x0 = dict(self.params_inferred)

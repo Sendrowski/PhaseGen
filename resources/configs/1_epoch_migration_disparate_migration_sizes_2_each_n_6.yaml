@@ -62,14 +62,14 @@ comparisons:
     sfs:
       demes:
         mean: 0.015
-        # var: 0.02 variance not supported by MsprimeCoalescent
+        var: 0.022
       mean: 0.0078
       cov: 0.06
       corr: 0.059
     fsfs:
       demes:
         mean: 0.015
-            # var: 0.02 variance not supported by MsprimeCoalescent
+        var: 0.022
       mean: 0.0078
       cov: 0.023
       corr: 0.017

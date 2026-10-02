@@ -1331,7 +1331,7 @@ class Comparison(Serializable):
             xs = np.atleast_1d(cond.quantile(levels))
             served = np.atleast_1d(cond.cdf(xs))  # built first, so the reference sees the refined inner inversion
             exact = cond.cdf._cdf_point(xs)
-            worst = max(worst, float(np.abs(served - exact).max()))
+            worst = float(np.maximum(worst, np.abs(served - exact).max()))
             n_built += 1
 
         diff = worst if n_built else float('inf')

@@ -376,6 +376,21 @@ class InferenceTestCase(TestCase):
         restored.run()
         self.assertTrue(np.isfinite(restored.loss_inferred))
 
+    def test_non_positive_runs_or_bootstraps_raise_value_error(self):
+        """
+        Regression: ``n_runs <= 0`` silently performed one optimization, and ``n_bootstraps <= 0`` returned an empty
+        bootstrap table with NaN means.
+        """
+        for kwargs in (dict(n_runs=0), dict(n_runs=-1), dict(n_bootstraps=0), dict(n_bootstraps=-2)):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                self.get_fast_inference(kwargs)
+
+        inf = self.get_fast_inference()
+        inf.run()
+
+        with self.assertRaises(ValueError):
+            inf.create_bootstrap(n_runs=0)
+
     def test_partial_x0_raises_value_error(self):
         """
         Regression for the scan-2 finding: an x0 that does not cover every bounds parameter must raise, rather than
