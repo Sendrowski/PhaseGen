@@ -32,6 +32,17 @@ class Demography:
     migration rates :math:`m_{ij}(t)`, resolved into a sequence of epochs on which both are constant. Within an epoch
     the coalescent generator :math:`\mathbf{S}` is therefore constant, and consecutive epochs differ only in
     :math:`N(t)` and :math:`m_{ij}(t)` (see :class:`~phasegen.demography.Epoch`).
+
+    The following example defines two demes connected by migration, the first of which has size 0.2 from time 0.5 on,
+    and plots the demography.
+
+    ::
+
+        demography = pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.5: 0.2}, 'pop_1': {0: 2}},
+            migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.1}
+        )
+        demography.plot(show=False)
     """
     #: Population names.
     pop_names: List[str]
@@ -624,6 +635,14 @@ class Epoch:
     both are constant over the epoch, the coalescent generator :math:`\mathbf{S}` is constant here, and coalescence
     rates scale inversely with :math:`N`: under the standard (Kingman) coalescent a state with :math:`i` lineages
     coalesces at rate :math:`\binom{i}{2}/N`.
+
+    The following example retrieves the population sizes of the epoch holding time 0.7.
+
+    ::
+
+        demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}})
+
+        sizes = demography.get_epoch(0.7).pop_sizes
     """
 
     #: Start time of the epoch.
@@ -830,6 +849,15 @@ class DiscreteDemographicEvent(DemographicEvent, ABC):
 class DiscreteRateChanges(DiscreteDemographicEvent):
     """
     Demographic event for discrete changes in population sizes and migration rates.
+
+    The following example reduces the size of ``pop_1`` to 0.2 at time 0.5 in a pair of demes connected by migration.
+
+    ::
+
+        demography = pg.Demography(events=[pg.DiscreteRateChanges(
+            pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1, 0.5: 0.2}},
+            migration_rates={('pop_0', 'pop_1'): {0: 0.5}, ('pop_1', 'pop_0'): {0: 0.5}}
+        )])
     """
 
     def __init__(
@@ -930,6 +958,12 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
 class PopSizeChanges(DiscreteRateChanges):
     """
     Demographic event for changes in population size.
+
+    The following example sets the size of ``pop_0`` to 0.2 at time 0.5 and to 2 at time 1.
+
+    ::
+
+        demography = pg.Demography(events=[pg.PopSizeChanges({'pop_0': {0: 1, 0.5: 0.2, 1: 2}})])
     """
 
     def __init__(self, pop_sizes: Dict[str, Dict[float, float]]) -> None:
@@ -944,6 +978,14 @@ class PopSizeChanges(DiscreteRateChanges):
 class PopSizeChange(PopSizeChanges):
     """
     Demographic event for a single change in population size.
+
+    The following example reduces the size of ``pop_0`` to 0.2 at time 0.5 and computes the mean tree height.
+
+    ::
+
+        demography = pg.Demography(events=[pg.PopSizeChange(pop='pop_0', time=0.5, size=0.2)])
+
+        height = pg.Coalescent(n=5, demography=demography).tree_height.mean
     """
 
     def __init__(self, pop: str, time: float, size: float) -> None:
@@ -960,6 +1002,15 @@ class PopSizeChange(PopSizeChanges):
 class MigrationRateChanges(DiscreteRateChanges):
     """
     Demographic event for changes in migration rates.
+
+    The following example lowers the migration rate from ``pop_0`` to ``pop_1`` from 0.5 to 0.1 at time 1, with a
+    constant rate of 0.5 in the other direction.
+
+    ::
+
+        demography = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, events=[
+            pg.MigrationRateChanges({('pop_0', 'pop_1'): {0: 0.5, 1: 0.1}, ('pop_1', 'pop_0'): {0: 0.5}})
+        ])
     """
 
     def __init__(self, rates: Dict[Tuple[str, str], Dict[float, float]]) -> None:
@@ -976,6 +1027,15 @@ class MigrationRateChanges(DiscreteRateChanges):
 class MigrationRateChange(MigrationRateChanges):
     """
     Demographic event for a single change in migration rate.
+
+    The following example connects two demes by a migration rate of 0.5 in each direction.
+
+    ::
+
+        demography = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, events=[
+            pg.MigrationRateChange(source='pop_0', dest='pop_1', time=0, rate=0.5),
+            pg.MigrationRateChange(source='pop_1', dest='pop_0', time=0, rate=0.5)
+        ])
     """
 
     def __init__(self, source: str, dest: str, time: float, rate: float) -> None:
@@ -993,6 +1053,15 @@ class MigrationRateChange(MigrationRateChanges):
 class SymmetricMigrationRateChanges(MigrationRateChanges):
     """
     Demographic event for changes in symmetric migration rates.
+
+    The following example connects three demes by a migration rate of 0.5 between every pair.
+
+    ::
+
+        demography = pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1, 'pop_2': 1},
+            events=[pg.SymmetricMigrationRateChanges(['pop_0', 'pop_1', 'pop_2'], 0.5)]
+        )
     """
 
     def __init__(self, pops: Iterable[str], rate: Dict[float, float] | float) -> None:
@@ -1014,11 +1083,19 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
 
 class PopulationSplit(DiscreteDemographicEvent):
     """
-    Demographic event for a population split (forward in time).
-    This corresponds to population merger backwards in time.
-    Since ``phasegen`` does not support deterministic lineage movement due to its inherent structure,
-    we can model a population split by specifying a large unidirectional migration rate from the derived
-    to the ancestral population.
+    Demographic event for a population split forward in time, a merger of populations backward in time. The split
+    is modelled as a large unidirectional migration rate from each derived population to the ancestral one, set
+    by ``multiplier``.
+
+    The following example merges ``pop_1`` into ``pop_0`` at time 0.5 backward in time and computes the fixation index.
+
+    ::
+
+        demography = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, events=[
+            pg.PopulationSplit(time=0.5, derived='pop_1', ancestral='pop_0')
+        ])
+
+        fst = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demography).fst
     """
 
     def __init__(
@@ -1135,6 +1212,15 @@ class DiscretizedDemographicEvent(DemographicEvent, ABC):
 class DiscretizedRateChange(DiscretizedDemographicEvent):
     """
     Demographic event for discretized rate changes of a single population or migration rate.
+
+    The following example discretizes an oscillating size trajectory of ``pop_0`` between times 0 and 2 into
+    piecewise-constant steps.
+
+    ::
+
+        demography = pg.Demography(events=[pg.DiscretizedRateChange(
+            trajectory=lambda t: 1 + 0.5 * np.sin(4 * t), start_time=0, end_time=2, pop='pop_0'
+        )])
     """
 
     def __init__(
@@ -1284,6 +1370,15 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 class DiscretizedRateChanges(DiscretizedDemographicEvent):
     """
     Demographic event for discretized rate changes of multiple populations or migration rates.
+
+    The following example discretizes a growing size trajectory of ``pop_0`` and a shrinking one of ``pop_1`` between
+    times 0 and 1.
+
+    ::
+
+        demography = pg.Demography(events=[pg.DiscretizedRateChanges(
+            trajectory={'pop_0': lambda t: 1 + t, 'pop_1': lambda t: 1 / (1 + t)}, start_time=0, end_time=1
+        )])
     """
 
     def __init__(
@@ -1401,6 +1496,15 @@ class ExponentialRateChanges(DiscretizedRateChanges):
     trajectory :math:`x(t) = x_0 \exp\!\big(-g\,(t - t_0)\big)`, with initial value :math:`x_0` at start time
     :math:`t_0` and growth rate :math:`g`, discretized into piecewise-constant steps (see
     :class:`~phasegen.demography.DiscretizedRateChanges`).
+
+    The following example lets the migration rates between two demes increase exponentially at rate 2 backward in time
+    until time 1.
+
+    ::
+
+        demography = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, events=[pg.ExponentialRateChanges(
+            initial_rate={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}, growth_rate=-2, start_time=0, end_time=1
+        )])
     """
 
     def __init__(
@@ -1449,6 +1553,15 @@ class ExponentialPopSizeChanges(ExponentialRateChanges):
     r"""
     Demographic event for exponential population size changes of multiple populations, following
     :math:`N(t) = N_0 \exp\!\big(-g\,(t - t_0)\big)` (see :class:`~phasegen.demography.ExponentialRateChanges`).
+
+    The following example lets ``pop_0`` grow exponentially at rate 2 forward in time from time 1 to the present, where
+    its size is 1.
+
+    ::
+
+        demography = pg.Demography(events=[pg.ExponentialPopSizeChanges(
+            initial_size={'pop_0': 1}, growth_rate=2, start_time=0, end_time=1
+        )])
     """
 
     def __init__(

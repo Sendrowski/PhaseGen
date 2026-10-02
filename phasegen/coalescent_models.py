@@ -142,6 +142,13 @@ class StandardCoalescent(CoalescentModel):
     :math:`a_i` lineages subtending :math:`i` samples has rate :math:`\binom{a_i}{2}`, and a cross-class merge of one
     :math:`i`-block with one :math:`j`-block has rate :math:`a_i a_j`. See :class:`msprime.StandardCoalescent`
     for more information.
+
+    The following example computes the mean site-frequency spectrum under the standard coalescent, the default model of
+    :class:`~phasegen.distributions.Coalescent`.
+
+    ::
+
+        sfs = pg.Coalescent(n=5, model=pg.StandardCoalescent()).sfs.mean
     """
 
     def _get_timescale(self, N: float) -> float:
@@ -295,6 +302,12 @@ class BetaCoalescent(MultipleMergerCoalescent):
     where :math:`B(\cdot, \cdot)` is the Euler beta function. Smaller :math:`\alpha` gives heavier-tailed offspring
     distributions and hence more frequent large mergers. The Kingman coalescent is recovered as
     :math:`\alpha \to 2`. See :class:`msprime.BetaCoalescent` for more information.
+
+    The following example computes the mean site-frequency spectrum under the Beta coalescent with :math:`\alpha = 1.5`.
+
+    ::
+
+        sfs = pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5)).sfs.mean
     """
 
     def __init__(self, alpha: float, scale_time: bool = True) -> None:
@@ -419,6 +432,13 @@ class DiracCoalescent(MultipleMergerCoalescent):
     where :math:`0 < \psi < 1` is the fraction of the population replaced in a large reproduction event and
     :math:`c > 0` is the rate of such events. The second term is :math:`c` times the binomial pmf
     :math:`\mathrm{Binom}(k;\, b, \psi)`. See :class:`msprime.DiracCoalescent` for more information.
+
+    The following example computes the mean site-frequency spectrum under the Dirac coalescent with :math:`\psi = 0.5`
+    and :math:`c = 1`.
+
+    ::
+
+        sfs = pg.Coalescent(n=5, model=pg.DiracCoalescent(psi=0.5, c=1)).sfs.mean
     """
 
     def __init__(self, psi: float, c: float, scale_time: bool = True) -> None:

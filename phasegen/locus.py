@@ -11,7 +11,16 @@ logger = logging.getLogger('phasegen')
 
 class LocusConfig:
     """
-    Class to hold the configuration of the number of loci and with how many independent loci to start.
+    Configuration of the number of loci, the recombination rate between them, and the number of lineages whose loci
+    are initially unlinked.
+
+    The following example computes the correlation of the tree heights at two loci with recombination rate 0.5.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=0.5))
+
+        corr = coal.tree_height.loci.corr
     """
 
     def __init__(

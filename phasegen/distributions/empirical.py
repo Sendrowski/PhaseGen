@@ -553,6 +553,17 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     """
     Empirical site-frequency spectrum of one deme, with the estimators of
     :class:`~phasegen.distributions.EmpiricalDistribution` applied per frequency class.
+
+    The following example estimates the mean spectrum of the branches residing in ``pop_0`` from 1000 sampled
+    trajectories.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        sfs_0 = coal.sfs.to_empirical(1000, seed=1).demes['pop_0'].mean
     """
 
     #: Whether the spectrum is folded. Static for backward compatibility.
@@ -693,6 +704,16 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` or by
     :class:`~phasegen.distributions.MsprimeCoalescent`. Its estimators are those of
     :class:`~phasegen.distributions.EmpiricalDistribution`.
+
+    The following example estimates the mean and variance of the tree height of two loci and the mean tree height
+    at the first locus from 1000 sampled trajectories.
+
+    ::
+
+        emp = pg.Coalescent(n=3, loci=2, recombination_rate=1).tree_height.to_empirical(1000, seed=1)
+
+        mean, var = emp.mean, emp.var
+        height_0 = emp.loci[0].mean
     """
     #: Whether the samples resolve the demes, so that :attr:`demes` is available.
     resolves_demes: bool = True
@@ -1005,6 +1026,15 @@ class EmpiricalJointDistribution:  # pragma: no cover
         :meth:`EmpiricalJointDistribution.conditional()
         <phasegen.distributions.EmpiricalJointDistribution.conditional>` averages over a window of conditioning
         values and is therefore only an approximate check on the exact conditional distribution.
+
+    The following example estimates the correlation of the branch lengths of the first two frequency classes from
+    1000 sampled trajectories.
+
+    ::
+
+        emp = pg.Coalescent(n=5).sfs.to_empirical(1000, seed=1)
+
+        corr = emp.joint_distribution(1, 2).corr
     """
 
     def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray) -> None:
@@ -1844,6 +1874,15 @@ class MsprimeCoalescent(AbstractCoalescent):
     computation. :meth:`MsprimeCoalescent.simulate() <phasegen.distributions.MsprimeCoalescent.simulate>` splits the
     replicates into batches simulated in parallel, each seeded from its own child of
     :class:`numpy.random.SeedSequence` spawned from :attr:`seed`, and the statistics use the estimators of :class:`~phasegen.distributions.EmpiricalDistribution`.
+
+    The following example estimates the mean tree height and site-frequency spectrum from 1000 simulated genealogies.
+
+    ::
+
+        ms = pg.distributions.MsprimeCoalescent(n=5, num_replicates=1000, parallelize=False, seed=1)
+
+        height = ms.tree_height.mean
+        sfs = ms.sfs.mean
     """
 
     def __init__(
@@ -2571,6 +2610,16 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     :attr:`seed`, so its draws do not depend on the order of access. The entries of one statistic, such as the bins
     of a spectrum, share their trajectories and can be paired. Different statistics come from independent
     trajectories and cannot.
+
+    The following example estimates the mean tree height and the 90% quantile of every bin of the site-frequency
+    spectrum from 1000 trajectories each.
+
+    ::
+
+        sampled = pg.distributions.SampledCoalescent(pg.Coalescent(n=5), n_samples=1000, seed=1)
+
+        height = sampled.tree_height.mean
+        q = sampled.sfs.quantile(0.9)
 
     .. versionadded:: 2.0
     """

@@ -1163,6 +1163,17 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
 
     The evaluation of spectrum-wide moments is described in
     :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+
+    The following example computes the mean joint spectrum of two lineages sampled in each of two demes connected
+    by migration.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.jsfs.mean
     """
     # per-bin (per descendant configuration) pdf/cdf/quantile -> joint-SFS aggregate flavours (the per-config loop
     # lives on these function objects)

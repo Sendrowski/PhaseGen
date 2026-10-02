@@ -41,6 +41,16 @@ class DistributionFunction:
     conditional variants. The methods by which they are evaluated are listed at
     :class:`~phasegen.distributions.CumulativeDistributionFunction`.
 
+    The following example evaluates the density of every bin of the site-frequency spectrum at 1 and draws the
+    density curves.
+
+    ::
+
+        pdf = pg.Coalescent(n=5).sfs.pdf
+
+        f = pdf(1.0)
+        pdf.plot(show=False)
+
     :param distribution: The distribution this function belongs to.
     """
     #: Kind of the function: ``'pdf'``, ``'cdf'`` or ``'quantile'``.
@@ -153,6 +163,15 @@ class DensityFunction(DistributionFunction):
 
     Calling ``pdf(x)`` returns the density at ``x``, for a scalar or an array, evaluated as listed at
     :class:`~phasegen.distributions.CumulativeDistributionFunction`.
+
+    The following example evaluates the density of the tree height on a grid and draws it.
+
+    ::
+
+        pdf = pg.Coalescent(n=5).tree_height.pdf
+
+        f = pdf(np.linspace(0.5, 4, 8))
+        pdf.plot(show=False)
     """
     kind = 'pdf'
 
@@ -165,6 +184,15 @@ class CumulativeDistributionFunction(DistributionFunction):
     :class:`~phasegen.distributions.TreeHeightDistribution` for the tree height, at
     :class:`~phasegen.distributions.RewardDistribution` for any other accumulated reward and at
     :class:`~phasegen.distributions.EmpiricalDistribution` for a sample.
+
+    The following example evaluates the CDF of the total branch length on a grid and draws it.
+
+    ::
+
+        cdf = pg.Coalescent(n=5).total_branch_length.cdf
+
+        p = cdf(np.linspace(0.5, 8, 16))
+        cdf.plot(show=False)
     """
     kind = 'cdf'
 
@@ -175,6 +203,12 @@ class QuantileFunction(DistributionFunction):
 
     Calling ``quantile(q)`` returns the quantile at ``q``, for a scalar or an array. An
     :class:`~phasegen.distributions.EmpiricalDistribution` uses the sample quantile.
+
+    The following example computes the 5%, 50% and 95% quantiles of the tree height.
+
+    ::
+
+        x = pg.Coalescent(n=5).tree_height.quantile([0.05, 0.5, 0.95])
 
     .. rubric:: Cumulative-hazard grid
 
@@ -993,6 +1027,16 @@ class JointDensity(_JointFunction, DensityFunction):
 
     the density averaged over one cell, which smooths the residual oscillation of the cosine expansion near the origin.
 
+    The following example evaluates the joint density of the tree height and the total branch length at
+    :math:`(1, 3)`.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+        f = joint.pdf(1.0, 3.0)
+
     .. rubric:: Implementation
 
     - The grid spans the cosine window :math:`[0, L_a] \times [0, L_b]` of
@@ -1042,6 +1086,15 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
 
     where :math:`g_b(x) = \mathbb{P}(R_a \le x,\ R_b = 0)` and :math:`g_a(y) = \mathbb{P}(R_a = 0,\ R_b \le y)` hold the
     mass on the axes, and :math:`C(x, y) = \mathbb{P}(0 < R_a \le x,\ 0 < R_b \le y)` is the continuous part.
+
+    The following example evaluates the joint CDF of the tree height and the total branch length at :math:`(1, 3)`.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+        p = joint.cdf(1.0, 3.0)
 
     .. rubric:: Continuous part
 
@@ -1143,16 +1196,46 @@ class _ConditionalCosTerms:
 
 
 class ConditionalDensity(_ConditionalCosTerms, _LSTDensityFunction):
-    """Density of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
+    """Density of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there.
+
+    The following example evaluates the density of the total branch length at 3 given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        f = cond.pdf(3.0)
+    """
 
 
 class ConditionalCDF(_ConditionalCosTerms, _LSTCumulativeDistributionFunction):
-    """CDF of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there."""
+    """CDF of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there.
+
+    The following example evaluates the CDF of the total branch length at 3 given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        p = cond.cdf(3.0)
+    """
 
 
 class ConditionalQuantileFunction(_ConditionalCosTerms, _LSTQuantileFunction):
     """Quantile function of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described
-    there."""
+    there.
+
+    The following example computes the median total branch length given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        x = cond.quantile(0.5)
+    """
 
 
 
@@ -1368,6 +1451,14 @@ class MarginalDistributions(Mapping, ABC):
 class MarginalLocusDistributions(MarginalDistributions):
     """
     Marginal locus distributions.
+
+    The following example computes the mean tree height at the first of two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        height_0 = coal.tree_height.loci[0].mean
     """
 
     def __init__(self, dist: 'PhaseTypeDistribution') -> None:
@@ -1505,6 +1596,16 @@ class MarginalLocusDistributions(MarginalDistributions):
 class MarginalDemeDistributions(MarginalDistributions):
     """
     Marginal deme distributions.
+
+    The following example computes the mean total length of the branches residing in ``pop_0``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        length_0 = coal.total_branch_length.demes['pop_0'].mean
     """
 
     def __init__(self, dist: 'PhaseTypeDistribution') -> None:

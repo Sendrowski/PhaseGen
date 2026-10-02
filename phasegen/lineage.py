@@ -14,6 +14,14 @@ logger = logging.getLogger('phasegen')
 class LineageConfig:
     """
     Class to hold the configuration for the number of lineages.
+
+    The following example samples two lineages in ``pop_0`` and one in ``pop_1``.
+
+    ::
+
+        coal = pg.Coalescent(n=pg.LineageConfig({'pop_0': 2, 'pop_1': 1}), demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
     """
 
     def __init__(self, n: int | Dict[str, int] | List[int] | np.ndarray) -> None:

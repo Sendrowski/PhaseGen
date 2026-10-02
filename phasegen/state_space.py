@@ -761,6 +761,15 @@ class LineageCountingStateSpace(StateSpace):
     their descendant composition. For a single population this gives states :math:`E = \{1, \dots, n\}` and hence
     :math:`|E| = n`. It underlies tree-height and total-branch-length statistics. Merger rates between lineage counts
     are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel` (per unit of the deme's timescale).
+
+    The following example retrieves the states and the intensity matrix of the lineage-counting state space of four
+    lineages.
+
+    ::
+
+        space = pg.Coalescent(n=4).lineage_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def _get_initial(self) -> 'State':
@@ -845,6 +854,15 @@ class BlockCountingStateSpace(StateSpace):
     :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are those of the
     :class:`~phasegen.coalescent_models.CoalescentModel`, evaluated by the numba state-space kernel. Resolving these
     branch classes lets the space distinguish tree topologies, so it underlies the statistics based on the SFS.
+
+    The following example retrieves the states and the intensity matrix of the block-counting state space of four
+    lineages.
+
+    ::
+
+        space = pg.Coalescent(n=4).block_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def __init__(
@@ -972,6 +990,16 @@ class JointBlockCountingStateSpace(StateSpace):
         (``n_blocks = prod(n_p + 1) - 1``) and grows the number of reachable states combinatorially, much faster
         than the single-population block-counting space. This state space is therefore only practical for small
         per-population sample sizes. Only one locus is supported.
+
+    The following example retrieves the number of states of the joint block-counting state space of two demes.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        k = coal.joint_block_counting_state_space.k
     """
 
     def __init__(
@@ -1103,6 +1131,15 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
     .. note::
         ``n_blocks = (n + 1)^2 - 1`` and the number of reachable states grows quickly, so this is only practical for
         small sample sizes.
+
+    The following example retrieves the states and the intensity matrix of the two-locus block-counting state space of
+    two lineages.
+
+    ::
+
+        space = pg.Coalescent(n=2, loci=2, recombination_rate=1).two_locus_block_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def __init__(

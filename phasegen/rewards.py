@@ -231,6 +231,17 @@ class JointSFSReward(JointBlockCountingReward):
     descendant vector :math:`\mathbf{c} = (k_0, \dots, k_{P-1})`, and the reward of a state :math:`i` is the number
     of lineages (across all demes of residence and loci) whose descendant vector equals :math:`\mathbf{c}`,
     :math:`r(i) = \#\{\text{lineages in } i \text{ with descendant vector } \mathbf{c}\}`.
+
+    The following example computes the mean length of the branches subtending one lineage of ``pop_0`` and none of
+    ``pop_1``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.moment(1, (pg.JointSFSReward((1, 0)),))
     """
 
     _resolves_residence = True
@@ -319,6 +330,14 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
     the given ``locus`` (i.e. whose two-locus descendant vector has component ``locus`` equal to ``count``),
     regardless of how many they subtend at the other locus. The two-locus SFS is obtained as the cross-moment
     :math:`\mathbb{E}[R_a R_b]` of two such rewards, one per locus.
+
+    The following example computes the covariance of the singleton branch lengths at two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        cov = coal.moment(2, (pg.TwoLocusSFSReward(locus=0, count=1), pg.TwoLocusSFSReward(locus=1, count=1)))
     """
 
     _resolves_residence = True
@@ -425,6 +444,12 @@ class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingR
     Reward for tree height: unit reward on transient states and zero on the absorbing set :math:`B`,
     :math:`r_\text{height}(i) = \mathbb{1}\{i \notin B\}`, so the accumulated reward is the time to absorption. Note
     that when using multiple loci, this will provide the height of the locus with the highest tree.
+
+    The following example computes the mean tree height.
+
+    ::
+
+        mean = pg.Coalescent(n=5).moment(1, (pg.TreeHeightReward(),))
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -460,6 +485,14 @@ class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCoun
     Reward based on tree height, unit reward per non-absorbing locus,
     :math:`r(i) = \sum_l \mathbb{1}\{\text{locus } l \text{ has } > 1 \text{ lineage in } i\}`. When using multiple
     loci, this provides the sum of the tree heights over all loci, regardless of whether they are linked or not.
+
+    The following example computes the mean sum of the tree heights at two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        mean = coal.moment(1, (pg.TotalTreeHeightReward(),))
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -490,10 +523,15 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointB
     r"""
     Reward for total branch length: the lineage count of a state,
     :math:`r_\text{length}(i) = (\#\text{ lineages in } i)` on transient states (zero on the absorbing set), so the
-    accumulated reward sums each lineage's duration. When using multiple loci, this provides the sum of the total
-    branch lengths over all loci, regardless of whether they are linked or not. Note that due to inherent limitation
-    to rewards, we cannot determine the total branch length of the tree with the largest total branch length as done
-    in :class:`TreeHeightReward`.
+    accumulated reward sums each lineage's duration. With several loci, the accumulated reward is the sum of the
+    per-locus total branch lengths, whether the loci are linked or not. The total branch length of the locus with the
+    longest tree, the counterpart of :class:`TreeHeightReward`, is not an accumulated reward.
+
+    The following example computes the variance of the total branch length.
+
+    ::
+
+        var = pg.Coalescent(n=5).moment(2, (pg.TotalBranchLengthReward(),) * 2)
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -626,6 +664,12 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
     samples, :math:`r_{\text{SFS},k}(i) = a_k(i)` with :math:`k = \text{index}` and :math:`a_k(i)` the number of
     :math:`k`-subtending blocks in state :math:`i`. The index lies in :math:`0, \dots, n`, and the monomorphic
     bins :math:`0` and :math:`n` have zero reward.
+
+    The following example computes the CDF at 1 of the total length of the branches subtending two of five lineages.
+
+    ::
+
+        p = pg.Coalescent(n=5).distribution(pg.UnfoldedSFSReward(2)).cdf(1.0)
     """
 
     def _block_sizes(self, n: int) -> List[int]:
@@ -647,6 +691,12 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
     :math:`n - \text{index}` samples, :math:`r(i) = a_\text{index}(i) + a_{n-\text{index}}(i)` (the two mirror
     classes summed, and a single class when they coincide). The index lies in :math:`0, \dots, n`, and the bins
     :math:`0` and :math:`\lfloor n/2 \rfloor + 1, \dots, n` have zero reward.
+
+    The following example computes the mean of the first bin of the folded site-frequency spectrum.
+
+    ::
+
+        mean = pg.Coalescent(n=5).moment(1, (pg.FoldedSFSReward(1),))
     """
 
     def _block_sizes(self, n: int) -> List[int]:
@@ -672,6 +722,12 @@ class FoldedSFSReward(SFSReward, BlockCountingReward):
 class StateReward(BlockCountingReward):
     """
     Reward for a specific state of the block-counting state space. This is useful for debugging or testing purposes.
+
+    The following example computes the mean time spent in the second state of the block-counting state space.
+
+    ::
+
+        mean = pg.Coalescent(n=4).moment(1, (pg.StateReward(1),))
     """
 
     def __init__(self, state: int) -> None:
@@ -712,6 +768,12 @@ class LineageReward(LineageCountingReward, BlockCountingReward, JointBlockCounti
     """
     Reward for a specific number of lineages present across all demes, on a single locus. It tracks, for example, the
     individual coalescence times.
+
+    The following example computes the mean time during which exactly three lineages remain.
+
+    ::
+
+        mean = pg.Coalescent(n=5).moment(1, (pg.LineageReward(3),))
     """
 
     def __init__(self, n: int) -> None:
@@ -766,6 +828,16 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
     with another reward through :class:`CombinedReward` restricts that reward to the deme, locus by locus, as
     :class:`RestrictedReward` does, and a :class:`SumReward` of several deme rewards restricts it to the union of
     those demes.
+
+    The following example computes the mean total length of the branches residing in ``pop_0``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.moment(1, (pg.CombinedReward([pg.TotalBranchLengthReward(), pg.DemeReward('pop_0')]),))
     """
 
     def __init__(self, pop: str) -> None:
@@ -815,6 +887,14 @@ class LocusReward(LineageCountingReward):
     Reward states in which the given locus is still segregating (an indicator that the locus holds more than one
     lineage). Combining this reward with another reward through :class:`CombinedReward` restricts that reward to the
     locus, as :class:`RestrictedReward` does.
+
+    The following example computes the mean total branch length at the first of two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        mean = coal.moment(1, (pg.CombinedReward([pg.TotalBranchLengthReward(), pg.LocusReward(0)]),))
     """
 
     def __init__(self, locus: int) -> None:
@@ -938,6 +1018,17 @@ class CompositeReward(Reward, ABC):
 class ProductReward(CompositeReward):
     r"""
     The elementwise product of multiple rewards, :math:`r(i) = \prod_j r_j(i)`.
+
+    The following example computes the mean total length of the branches residing in ``pop_1``, the product of the
+    number of lineages and the fraction of them in ``pop_1``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.moment(1, (pg.ProductReward([pg.TotalBranchLengthReward(), pg.DemeReward('pop_1')]),))
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -983,6 +1074,12 @@ class ProductReward(CompositeReward):
 class SumReward(CompositeReward):
     r"""
     The elementwise sum of multiple rewards, :math:`r(i) = \sum_j r_j(i)`.
+
+    The following example computes the mean total length of the branches subtending one or four of five lineages.
+
+    ::
+
+        mean = pg.Coalescent(n=5).moment(1, (pg.SumReward([pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(4)]),))
     """
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
@@ -1009,6 +1106,14 @@ class RestrictedReward(CompositeReward):
     A reward restricted to a locus, to a deme, or to both. The parts :math:`r_{l,d}` into which the reward resolves
     by locus :math:`l` and deme :math:`d` are summed over the other index, so that the restriction to locus
     :math:`l` is :math:`\sum_d r_{l,d}` and the restriction to deme :math:`d` is :math:`\sum_l r_{l,d}`.
+
+    The following example computes the mean total branch length at the first of two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        mean = coal.moment(1, (pg.RestrictedReward(pg.TotalBranchLengthReward(), locus=0),))
     """
 
     def __init__(self, reward: Reward, locus: int = None, pop: str = None) -> None:
@@ -1119,6 +1224,16 @@ class CombinedReward(ProductReward):
     :class:`SumReward` of :class:`DemeReward` members, or of :class:`LocusReward` members, restricts to the union of
     those demes or loci, as the sum of the single restrictions. A :class:`CombinedReward` member contributes its own
     members, so that nesting does not change the reward.
+
+    The following example computes the mean length of the singleton branches residing in ``pop_1``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        mean = coal.moment(1, (pg.CombinedReward([pg.UnfoldedSFSReward(1), pg.DemeReward('pop_1')]),))
     """
 
     #: The members as passed, with those of nested :class:`CombinedReward` members in their place
@@ -1184,6 +1299,14 @@ class CombinedReward(ProductReward):
 class CustomReward(Reward):
     """
     Custom reward based on a user-defined function.
+
+    The following example computes the mean time until two lineages remain.
+
+    ::
+
+        reward = pg.CustomReward(lambda s: (s.lineages.sum(axis=(1, 2, 3)) > 2).astype(float))
+
+        mean = pg.Coalescent(n=5).moment(1, (reward,))
     """
 
     def __init__(

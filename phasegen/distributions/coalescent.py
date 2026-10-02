@@ -252,7 +252,19 @@ class AbstractCoalescent(ABC):
 
 class Coalescent(AbstractCoalescent, Serializable):
     """
-    Coalescent distribution.
+    Coalescent process of a sample of lineages under a demography, a coalescent model and a locus configuration. Its
+    tree height, total branch length, site-frequency spectra and any other accumulated reward are phase-type
+    distributed.
+
+    The following example computes the mean tree height and site-frequency spectrum of five lineages in a population
+    whose size drops to 0.2 at time 0.5.
+
+    ::
+
+        coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}}))
+
+        height = coal.tree_height.mean
+        sfs = coal.sfs.mean
     """
 
     def __init__(

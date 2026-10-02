@@ -88,6 +88,17 @@ class RewardDistribution(CallableDistributionFunctions):
     coalescent with a start or end time, the mean and variance accumulate over that window, and the transform and the
     distribution functions raise :class:`NotImplementedError`.
 
+    The following example computes the CDF at 1 and the 90% quantile of the total length of the branches subtending
+    one or two of five lineages.
+
+    ::
+
+        coal = pg.Coalescent(n=5)
+        dist = coal.distribution(pg.SumReward([pg.UnfoldedSFSReward(1), pg.UnfoldedSFSReward(2)]))
+
+        p = dist.cdf(1.0)
+        q = dist.quantile(0.9)
+
     .. rubric:: Fourier-cosine expansion
 
     The reward is zero with probability :math:`p_0 = \lim_{s \to \infty} \varphi(s)`, for example when an SFS bin is
@@ -553,6 +564,17 @@ class JointRewardDistribution(CallableDistributionFunctions):
     Both rewards enter as one diagonal shift, so this is the transform of :meth:`RewardDistribution.lst()
     <phasegen.distributions.RewardDistribution.lst>` with :math:`s\,\mathbf{r}` replaced by
     :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b`, and several epochs are chained as described there.
+
+    The following example computes the correlation and the joint CDF at :math:`(1, 3)` of the tree height and the
+    total branch length.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+        corr = joint.corr
+        p = joint.cdf(1.0, 3.0)
 
     .. rubric:: Atoms and moments
 
@@ -1832,6 +1854,16 @@ class ConditionalRewardDistribution(RewardDistribution):
 
     where :math:`\mathcal{L}^{-1}_{s_c}` inverts the Laplace transform in :math:`s_c` and :math:`G(0) = f_c(v)`. The
     atom of :math:`R_c` at zero does not contribute at :math:`v > 0`.
+
+    The following example computes the mean and the CDF at 3 of the total branch length given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        mean = cond.mean
+        p = cond.cdf(3.0)
 
     .. rubric:: Inner inversion
 

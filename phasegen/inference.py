@@ -51,6 +51,17 @@ class Inference(Serializable):
     :math:`\mathrm{coal}(\theta)` the coalescent distribution returned by the ``coal`` callback, and :math:`y` the
     observation. The minimisation is performed with a gradient-based scipy optimizer (L-BFGS-B by default),
     restarted from several initial points.
+
+    The following example infers the population size of a single deme from an observed site-frequency spectrum.
+
+    ::
+
+        inf = pg.Inference(
+            bounds={'Ne': (0.1, 10)}, observation=pg.SFS([0, 8, 4, 3, 2, 0]),
+            coal=lambda Ne: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+            loss=lambda coal, obs: pg.PoissonLikelihood().compute(obs.polymorphic, coal.sfs.mean.polymorphic)
+        )
+        inf.run()
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
@@ -1137,6 +1148,14 @@ class WeightedLoss:  # pragma: no cover
         \sum_c L_c\, \frac{w_c / \bar{L}_c}{\sum_{c'} w_{c'} / \bar{L}_{c'}},
 
     so that each component contributes in proportion to its weight irrespective of its scale.
+
+    The following example combines two loss components, weighting the second twice as much as the first.
+
+    ::
+
+        loss = pg.inference.WeightedLoss({'sfs': 1, 'fst': 2})
+
+        total = loss.compute({'sfs': 0.3, 'fst': 0.01})
     """
 
     def __init__(self, weights: Dict[str, float], n_max: int | None = 100) -> None:

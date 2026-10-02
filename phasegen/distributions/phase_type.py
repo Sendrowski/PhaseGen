@@ -78,6 +78,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     Moments are evaluated by
     :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+
+    The following example computes the third central moment of the tree height and the covariance of the tree height
+    and the total branch length.
+
+    ::
+
+        coal = pg.Coalescent(n=5)
+
+        m3 = coal.tree_height.moment(3)
+        cov = coal.moment(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward()))
     """
 
     def __init__(
@@ -1019,6 +1029,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     :class:`~phasegen.distributions.PhaseTypeDistribution`. Its ``cdf``, ``pdf`` and ``quantile`` are evaluated by
     matrix exponentiation.
 
+    The following example computes the 90% quantile of the tree height and its CDF on a grid.
+
+    ::
+
+        height = pg.Coalescent(n=5).tree_height
+
+        q = height.quantile(0.9)
+        p = height.cdf(np.linspace(0, 4, 5))
+
     .. rubric:: Single epoch
 
     For a time-homogeneous process, :math:`\tau` is phase-type distributed with CDF and density
@@ -1562,6 +1581,15 @@ class TotalBranchLengthDistribution(PhaseTypeDistribution):
     <phasegen.distributions.Coalescent.total_branch_length>`. Its moments are those of
     :class:`~phasegen.distributions.PhaseTypeDistribution`, and its ``cdf``, ``pdf`` and ``quantile`` are those of
     the :class:`~phasegen.distributions.RewardDistribution` of the same reward.
+
+    The following example computes the mean and variance of the total branch length and its density at 2.
+
+    ::
+
+        length = pg.Coalescent(n=5).total_branch_length
+
+        mean, var = length.mean, length.var
+        f = length.pdf(2.0)
     """
 
     def __init__(
