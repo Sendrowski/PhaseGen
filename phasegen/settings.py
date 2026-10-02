@@ -66,9 +66,9 @@ class Settings(metaclass=_SettingsMeta):
     #: Matrix dimension at or above which a matrix exponential is applied to a vector by the sparse action algorithm
     #: and not formed densely. It is compared against the Van Loan dimension for moments (see
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), in closed form
-    #: only for stiff rates, against the number of states for the tree-height distribution functions, and against the
-    #: number of transient states for the multi-epoch mutational configurations. The result is unchanged. Set to 0 or
-    #: very large to force either path.
+    #: only for stiff rates, against the number of states for the tree-height distribution functions, and against
+    #: the number of count vectors times the number of transient states for the multi-epoch mutational
+    #: configurations. The result is unchanged. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
     #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see
@@ -81,7 +81,8 @@ class Settings(metaclass=_SettingsMeta):
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), whose
     #: finite-epoch matrix exponentials then also take the sparse action, except for stiff rates below
     #: :attr:`expm_action_min_dim`, the last-epoch solve of the Laplace transform and the multi-epoch mutational
-    #: configurations. The result is unchanged. Set to 0 to always use the sparse path, or very large to always use the
+    #: configurations, where it is compared against the number of count vectors times the number of transient
+    #: states. The result is unchanged. Set to 0 to always use the sparse path, or very large to always use the
     #: dense path.
     closed_form_sparse_min_states: int = 256
 

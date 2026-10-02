@@ -269,7 +269,15 @@ demography = pg.Demography(
     events=[pg.SymmetricMigrationRateChanges(['pop_0', 'pop_1'], 0.5)]
 )
 
-pg.Coalescent(n=init, demography=demography).tree_height.mean
+mixed = pg.Coalescent(n=init, demography=demography).tree_height.mean
+weighted = sum(w * pg.Coalescent(n=config, demography=demography).tree_height.mean for w, config in init)
+
+print(np.isclose(mixed, weighted))
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert np.isclose(mixed, weighted, rtol=1e-12)
 ```
 
 ```{code-cell} r
@@ -280,7 +288,17 @@ demography <- pg$Demography(
     events = list(pg$SymmetricMigrationRateChanges(c("pop_0", "pop_1"), 0.5))
 )
 
-pg$Coalescent(n = init, demography = demography)$tree_height$mean
+mixed <- pg$Coalescent(n = init, demography = demography)$tree_height$mean
+weighted <- sum(sapply(seq_along(init$configs), function(i) {
+    init$weights[i] * pg$Coalescent(n = init$configs[[i]], demography = demography)$tree_height$mean
+}))
+
+isTRUE(all.equal(mixed, weighted))
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(isTRUE(all.equal(mixed, weighted, tolerance = 1e-12)))
 ```
 
 +++

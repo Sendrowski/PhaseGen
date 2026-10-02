@@ -851,10 +851,12 @@ class MutationConfigMixin:
         :param theta: The mutation rate per unit of branch length.
         :param layout: The layout of the configurations, by default the layout of one bin per polymorphic frequency
             class of the spectrum.
-        :param order: ``'probability'`` yields the configurations in descending order of probability, so that
-            stopping at a target ``generated_mass`` yields the fewest configurations. ``'count'`` yields them in
-            ascending order of the total number of mutations, so that stopping after a given total yields every
-            configuration with at most that many mutations.
+        :param order: ``'probability'`` yields the configurations in descending order of probability, exactly so under
+            the neighbour condition described in :meth:`UnfoldedSFSDistribution.get_mutation_config()
+            <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, so that stopping at a target
+            ``generated_mass`` yields the fewest configurations. ``'count'`` yields them in ascending order of the total
+            number of mutations, so that stopping after a given total yields every configuration with at most that many
+            mutations.
         :return: An iterator over pairs of configuration and probability.
         :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``, or ``layout`` belongs to
             another spectrum.

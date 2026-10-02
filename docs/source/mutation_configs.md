@@ -48,7 +48,7 @@ do.call(rbind, reticulate::iterate(
 ```
 
 +++
-By default, the iterator yields the configurations in descending order of probability, and with ``order='count'`` in ascending order of the total number of mutations. It does not terminate, so we consume it until the yielded probability mass, {attr}`UnfoldedSFSDistribution.generated_mass <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>`, exceeds 0.8.
+By default, the iterator yields the configurations in descending order of probability, exactly so under the neighbour condition described in {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, and with ``order='count'`` in ascending order of the total number of mutations. It does not terminate, so we consume it until the yielded probability mass, {attr}`UnfoldedSFSDistribution.generated_mass <phasegen.distributions.UnfoldedSFSDistribution.generated_mass>`, exceeds 0.8.
 
 ```{code-cell} python
 it = coal.sfs.get_mutation_configs(theta=1)
@@ -101,29 +101,12 @@ stopifnot(p > 0, p < 1)
 ```
 
 +++
-## Layouts
-The iterator yields {class}`~phasegen.distributions.MutationConfig` objects, which compare equal to the plain tuple of their counts. Each carries the {class}`~phasegen.distributions.MutationLayout` that defines its bins. A bin merges one or more elementary frequency classes, listed in {attr}`MutationLayout.bins <phasegen.distributions.MutationLayout.bins>`, and {meth}`MutationConfig.to_array() <phasegen.distributions.MutationConfig.to_array>` places the counts at the positions of the classes in the spectrum array.
-
-```{code-cell} python
-config, p = next(coal.sfs.get_mutation_configs(theta=1))
-
-config.layout.bins, config.to_array()
-```
-
-```{code-cell} r
-# a configuration converts to an integer vector of its counts, so it is retrieved unconverted
-builtins <- reticulate::import_builtins(convert = FALSE)
-config <- reticulate::py_get_item(builtins$`next`(coal$sfs$get_mutation_configs(theta = 1)), 0L)
-
-list(config$layout$bins, reticulate::py_to_r(config$to_array()))
-```
-
-+++
-The iterator and {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>` accept any layout of the spectrum, and {meth}`MutationLayout.rebin() <phasegen.distributions.MutationLayout.rebin>` groups its classes into other bins. The folded layout of {meth}`UnfoldedSFSDistribution.mutation_layout() <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` merges the classes ``i`` and ``n - i``. It is the default layout of {attr}`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, whose configuration ``(2, 1)`` holds two singletons or tripletons and one doubleton.
+## Mutation layouts
+So far, a configuration counted the mutations in each frequency class of a single site-frequency spectrum. With several demes or loci, the mutations can be counted in several ways, for example by the deme in which they occur, by their numbers of descendants in each deme or by locus, and folded when the ancestral allele is unknown. A layout specifies the counts of interest. It groups the frequency classes of a spectrum into bins, and a configuration holds the number of mutations in each bin. Every spectrum provides its layouts through ``mutation_layout()``, and {meth}`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>` and the iterator accept any of them. The folded layout merges the classes ``i`` and ``n - i`` and is the default of {attr}`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`.
 
 ```{code-cell} python
 df = pd.DataFrame(islice(coal.fsfs.get_mutation_configs(theta=1), 30))
-      
+
 df.plot(kind='bar', x=0, legend=False, xlabel='config');
 ```
 
@@ -156,100 +139,26 @@ stopifnot(all(heights > 0), sum(heights) <= 1)
 ```
 
 +++
-With several demes, ``demes=True`` resolves each bin by the deme in which the mutation occurs. The bins are ordered by deme and then by frequency class.
+Counts by deme come from ``mutation_layout(demes=True)``, counts by the descendants in each deme from the joint spectrum {attr}`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>`, and counts by locus from the two-locus spectrum {attr}`Coalescent.sfs2 <phasegen.distributions.Coalescent.sfs2>`. {meth}`MutationLayout.rebin() <phasegen.distributions.MutationLayout.rebin>` groups the classes of any layout into other bins, here singletons against all other classes.
 
 ```{code-cell} python
-# two demes with asymmetric migration
-coal2 = pg.Coalescent(
-    n={'pop_0': 2, 'pop_1': 2},
-    demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 0.5}, 'pop_1': {0: 2}},
-        migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 0.2},
-    ),
-)
+layout = coal.sfs.mutation_layout().rebin([(1,), (2, 3)])
 
-layout = coal2.sfs.mutation_layout(demes=True)
-
-pd.DataFrame(islice(coal2.sfs.get_mutation_configs(theta=0.5, layout=layout), 6))
-```
-
-```{code-cell} python
-:tags: [remove-cell]
-assert layout.bins[0] == (('pop_0', 1),) and len(layout) == 6
-```
-
-```{code-cell} r
-# two demes with asymmetric migration
-coal2 <- pg$Coalescent(
-    n = list(pop_0 = 2L, pop_1 = 2L),
-    demography = pg$Demography(
-        pop_sizes = list(pop_0 = 0.5, pop_1 = 2),
-        events = c(
-            pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = 1),
-            pg$MigrationRateChange(source = "pop_1", dest = "pop_0", time = 0, rate = 0.2)
-        )
-    )
-)
-
-layout <- coal2$sfs$mutation_layout(demes = TRUE)
-
-do.call(rbind, reticulate::iterate(
-    pg$take_n(coal2$sfs$get_mutation_configs(theta = 0.5, layout = layout), 6L)
-))
-```
-
-+++
-The joint spectrum {attr}`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>` has one bin per polymorphic descendant vector, the numbers of descendants a mutated branch subtends in each deme. {meth}`JointSFSDistribution.mutation_layout(folded=True) <phasegen.distributions.JointSFSDistribution.mutation_layout>` merges each descendant vector with its complement. Descendant vectors that no genealogy carries together, such as ``(2, 1)`` and ``(1, 2)``, have probability zero.
-
-```{code-cell} python
-layout = coal2.jsfs.mutation_layout()
-
-layout.bins
-```
-
-```{code-cell} python
-pd.DataFrame(islice(coal2.jsfs.get_mutation_configs(theta=0.5), 6))
-```
-
-```{code-cell} python
-:tags: [remove-cell]
-assert coal2.jsfs.get_mutation_config(layout.config([1 if b[0] in ((2, 1), (1, 2)) else 0 for b in layout.bins]), 0.5) == 0
-```
-
-```{code-cell} r
-layout <- coal2$jsfs$mutation_layout()
-
-reticulate::py_get_attr(layout, "bins")
-```
-
-```{code-cell} r
-do.call(rbind, reticulate::iterate(
-    pg$take_n(coal2$jsfs$get_mutation_configs(theta = 0.5), 6L)
-))
-```
-
-+++
-The two-locus spectrum {attr}`Coalescent.sfs2 <phasegen.distributions.Coalescent.sfs2>` counts the mutations of both loci, with bins labelled ``(locus, i)``, and ``theta`` is the mutation rate per locus. {meth}`TwoLocusSFSDistribution.mutation_layout(loci=(0,)) <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>` counts the mutations of one locus, whose configuration probabilities equal those of a single-locus coalescent.
-
-```{code-cell} python
-coal3 = pg.Coalescent(n=3, loci=2, recombination_rate=1)
-
-pd.DataFrame(islice(coal3.sfs2.get_mutation_configs(theta=0.5), 6))
+pd.DataFrame(islice(coal.sfs.get_mutation_configs(theta=1, layout=layout), 6))
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
 import numpy as np
 
-one = coal3.sfs2.mutation_layout(loci=(0,))
-assert np.isclose(coal3.sfs2.get_mutation_config(one.config([1, 0]), 0.5),
-                  pg.Coalescent(n=3).sfs.get_mutation_config([1, 0], 0.5), rtol=1e-12)
+assert np.isclose(coal.sfs.get_mutation_config(layout.config([1, 1]), theta=1),
+                  sum(coal.sfs.get_mutation_config(c, theta=1) for c in [(1, 1, 0), (1, 0, 1)]), rtol=1e-12)
 ```
 
 ```{code-cell} r
-coal3 <- pg$Coalescent(n = 3L, loci = 2L, recombination_rate = 1)
+layout <- coal$sfs$mutation_layout()$rebin(list(list(1L), list(2L, 3L)))
 
 do.call(rbind, reticulate::iterate(
-    pg$take_n(coal3$sfs2$get_mutation_configs(theta = 0.5), 6L)
+    pg$take_n(coal$sfs$get_mutation_configs(theta = 1, layout = layout), 6L)
 ))
 ```

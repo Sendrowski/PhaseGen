@@ -25,7 +25,7 @@ The runtime of exact moments is governed by the size of the state space, which e
 
 Empirical estimation
 --------------------
-Where the exact computation becomes too costly, the statistics can instead be estimated from ``phasegen``'s own vectorised sampler (:meth:`~phasegen.distributions.Coalescent.to_empirical`). Its cost grows with the number of samples and the number of jumps per trajectory, while the state space is still constructed as for the exact computation (see :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`). The figure below shows the runtime for drawing 100,000 samples, on the same colour scale as above. Even the largest case, whose exact computation is the slowest shown above, is sampled considerably faster.
+Where the exact computation becomes too costly, the statistics can instead be estimated from ``phasegen``'s own vectorised sampler (:meth:`~phasegen.distributions.Coalescent.to_empirical`). Its cost grows with the number of samples and the number of jumps per trajectory, while the state space is still constructed as for the exact computation (see :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`). The figure below shows the runtime for drawing 100,000 samples, on the same colour scale as above. Sampling is considerably faster even for the largest case, which is the slowest to compute exactly in the figure above.
 
 .. image:: ../images/sampling_times.png
    :alt: Sampling times
