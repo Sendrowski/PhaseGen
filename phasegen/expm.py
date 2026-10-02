@@ -89,8 +89,9 @@ class SciPyExpmBackend(ExpmBackend):
     """
 
     #: Largest 1-norm passed to :func:`scipy.linalg.expm`. Its choice of the number of squarings overflows for 1-norms
-    #: above about 1e38, so a larger argument is scaled by a power of two below this bound and the result squared.
-    _max_norm: float = 1e30
+    #: above about 1e38, so a larger argument is scaled by a power of two below this bound and the result squared,
+    #: each squaring roughly doubling the relative error.
+    _max_norm: float = 1e36
 
     def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
         """

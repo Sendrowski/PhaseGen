@@ -2,6 +2,7 @@
 Test matrix exponentiation.
 """
 import importlib.util
+import math
 
 from testing import TestCase
 
@@ -43,16 +44,26 @@ class ExpmTestCase(TestCase):
 
     def test_scipy_backend_scales_a_large_norm(self):
         """
-        An upper-triangular generator of 1-norm 1e39 exponentiates to its exact limit, the zero matrix up to the
-        absorbing column, as for a scaled-down argument. Regression: scipy.linalg.expm chose 2^31 squarings and did not
-        return.
+        A sub-intensity generator of 1-norm 1e39 with one absorbing state exponentiates to its limit, in which all
+        mass sits in the absorbing state. A moderate argument takes the plain SciPy path unchanged. Regression:
+        scipy.linalg.expm chose 2^31 squarings and did not return.
         """
         a = np.triu(np.random.default_rng(1).random((8, 8)))
-        np.fill_diagonal(a, -a.sum(axis=1) + np.diag(a))
+        np.fill_diagonal(a, 0)
+        a[np.diag_indices(8)] = -a.sum(axis=1)
 
-        np.testing.assert_allclose(pg.SciPyExpmBackend().compute(a * 1e39), pg.SciPyExpmBackend().compute(a * 1e30),
-                                   atol=1e-300)
+        limit = np.zeros((8, 8))
+        limit[:, -1] = 1
+
+        np.testing.assert_allclose(pg.SciPyExpmBackend().compute(a * 1e39), limit, atol=1e-12)
         np.testing.assert_allclose(pg.SciPyExpmBackend().compute(a), scipy.linalg.expm(a), rtol=1e-14)
+
+        # a nilpotent argument exponentiates to its finite power series, which the ten squarings beyond the bound
+        # reproduce to about 1e-11
+        n = np.diag(np.ones(4), k=1) * 1e39
+        exact = sum(np.linalg.matrix_power(n, k) / math.factorial(k) for k in range(5))
+
+        np.testing.assert_allclose(pg.SciPyExpmBackend().compute(n), exact, rtol=1e-9)
 
     @pytest.mark.slow
     def test_expm_different_backends(self):
