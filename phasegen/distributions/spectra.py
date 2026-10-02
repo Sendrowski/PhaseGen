@@ -1810,6 +1810,15 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
 
     The evaluation of :attr:`mean` is described in
     :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+
+    The following example computes the two-locus spectrum of three lineages and the cross-locus correlation of its
+    bins.
+
+    ::
+
+        sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2
+
+        mean, corr = sfs2.mean, sfs2.corr
     """
 
     def __init__(
@@ -1908,21 +1917,141 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
     plot_cdf = bin = _no_univariate_distribution
     cdf = pdf = quantile = property(_no_univariate_distribution)
 
-    def _unsupported(self, *args, **kwargs) -> None:
+    def _unsupported(self, *args, **kwargs) -> NoReturn:
         """
-        Reject a member of :class:`~phasegen.distributions.PhaseTypeDistribution` that the two-locus spectrum does
-        not provide.
+        Not available for the two-locus spectrum, which provides the moments, the correlations, the joint
+        distribution of a pair of classes, samples and the empirical counterpart. The distribution of a single class at
+        one locus is that of the single-locus spectrum :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`.
 
         :raises NotImplementedError: Always.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} provides mean, corr, joint_distribution, sample, sample_per_locus and "
-            "to_empirical. Higher moments of a pair of frequency classes are available from joint_distribution(i, j), "
-            "and the per-locus marginals from the single-locus spectrum pg.Coalescent(...).sfs."
+            f"{type(self).__name__} provides moment, mean, var, std, m2, corr, accumulate, distribution, "
+            "joint_distribution, sample, sample_per_locus and to_empirical. The per-locus marginals are those of the "
+            "single-locus spectrum pg.Coalescent(...).sfs."
         )
 
-    moment = accumulate = plot_accumulation = distribution = _unsupported
-    var = std = m2 = loci = demes = property(_unsupported)
+    loci = demes = property(_unsupported)
+
+    def _bin_rewards(self, i: int, j: int) -> Tuple[Reward, Reward]:
+        """
+        The rewards of the locus-0 class ``i`` and the locus-1 class ``j``, combined with the reward of this spectrum.
+
+        :param i: The locus-0 frequency class.
+        :param j: The locus-1 frequency class.
+        :return: The two rewards.
+        """
+        return (
+            CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),
+            CombinedReward([self.reward, TwoLocusSFSReward(1, j)])
+        )
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        r"""
+        The :math:`k`-th moment of every polymorphic bin :math:`L^0_i L^1_j` of the two-locus spectrum, defined as in
+        :meth:`TwoLocusSFSDistribution.moment() <phasegen.distributions.TwoLocusSFSDistribution.moment>`, with the
+        branch lengths accumulated from the start time :math:`t_\mathrm{start}` to each end time
+        :math:`t_\mathrm{end}` in ``end_times``.
+
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
+        :param center: Whether to return the central moment.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the distribution.
+        :return: Array of shape ``(len(end_times), n + 1, n + 1)`` of the moments, symmetrized over the two loci.
+        :raises ValueError: If ``k`` is not a non-negative integer, or if the start time is negative.
+        """
+        k = _validate_order(k)
+        end_times = np.array(list(end_times), dtype=float)
+        n = self.lineage_config.n
+        out = np.zeros((len(end_times), n + 1, n + 1))
+
+        for i in self._get_indices():
+            for j in self._get_indices():
+                r0, r1 = self._bin_rewards(i, j)
+                raw = [np.ones(len(end_times))] + [
+                    np.asarray(PhaseTypeDistribution.accumulate(
+                        self, k=2 * m, end_times=end_times, rewards=(r0,) * m + (r1,) * m, center=False,
+                        start_time=start_time
+                    ), dtype=float)
+                    for m in range(1, k + 1)
+                ]
+                out[:, i, j] = sum(
+                    math.comb(k, m) * raw[m] * (-raw[1]) ** (k - m) for m in range(k + 1)
+                ) if center and k > 1 else raw[k]
+
+        return (out + out.transpose(0, 2, 1)) / 2
+
+    def _plot_accumulation_data(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> '_CurveData':
+        """
+        The accumulation of :meth:`TwoLocusSFSDistribution.accumulate()
+        <phasegen.distributions.TwoLocusSFSDistribution.accumulate>` that :meth:`plot_accumulation` draws, one curve
+        per pair of polymorphic classes with ``i <= j``.
+
+        :param k: The order of the moment.
+        :param end_times: Times at which to evaluate the moment. By default, :attr:`Settings.plot_n_grid` points up to
+            the :attr:`Settings.plot_endpoint_quantile` quantile of the tree height.
+        :param rewards: Must be ``None``, the rewards being those of the bins.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Unused, the moments of the products being symmetric in their factors.
+        :return: The curves, labelled by pair of classes.
+        :raises ValueError: If ``rewards`` is given.
+        """
+        from ..visualization import _CurveData
+
+        if rewards is not None:
+            raise ValueError("The two-locus spectrum accumulates the rewards of its bins and takes no other rewards.")
+
+        end_times = self._default_end_times() if end_times is None else np.asarray(list(end_times), dtype=float)
+        acc = self.accumulate(k, end_times, center=center)
+        pairs = [(i, j) for i in self._get_indices() for j in self._get_indices() if i <= j]
+
+        return _CurveData(
+            x=end_times,
+            y=np.array([acc[:, i, j] for i, j in pairs]),
+            labels=[f"({i}, {j})" for i, j in pairs],
+            xlabel='t',
+            ylabel='moment',
+            title="Two-locus SFS moment accumulation",
+            legend_title='bins'
+        )
+
+    def moment(self, k: int, center: bool = True) -> TwoLocusSFS:
+        r"""
+        The :math:`k`-th moment of every polymorphic bin :math:`Y_{ij} = L^0_i L^1_j` of the two-locus spectrum,
+        central by default, where :math:`L^0_i` is the branch length of frequency class :math:`i` at locus 0 and
+        :math:`L^1_j` that of class :math:`j` at locus 1. The raw moments are the cross-moments
+
+        .. math::
+            \mathbb{E}[Y_{ij}^m] = \mathbb{E}\big[(L^0_i)^m (L^1_j)^m\big]
+
+        of order :math:`2m` of the two rewards, evaluated as described in
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. The central
+        moment of order :math:`k \ge 2` is
+        :math:`\sum_{m=0}^{k} \binom{k}{m} \mathbb{E}[Y_{ij}^m] (-\mathbb{E}[Y_{ij}])^{k-m}`, and the first moment is
+        the mean. The result is symmetrized over the two loci, as :attr:`TwoLocusSFSDistribution.mean
+        <phasegen.distributions.TwoLocusSFSDistribution.mean>`.
+
+        :param k: The order :math:`k` of the moment.
+        :param center: Whether to return the central moment.
+        :return: A two-locus spectrum of :math:`k`-th moments.
+        :raises ValueError: If ``k`` is not a non-negative integer.
+        """
+        end_time = self.tree_height.end_time
+
+        return TwoLocusSFS(self.accumulate(k, [np.inf if end_time is None else end_time], center=center)[0])
 
     def _polymorphic_class(self, i: int) -> int:
         """
@@ -1954,11 +2083,7 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         """
         i, j = self._polymorphic_class(i), self._polymorphic_class(j)
 
-        jd = PhaseTypeDistribution.joint_distribution(
-            self,
-            CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),
-            CombinedReward([self.reward, TwoLocusSFSReward(1, j)])
-        )
+        jd = PhaseTypeDistribution.joint_distribution(self, *self._bin_rewards(i, j))
         jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
         return jd
 
@@ -1977,13 +2102,7 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
 
         results = [
-            PhaseTypeDistribution.moment(
-                self, k=2, permute=False, center=False,
-                rewards=(
-                    CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),
-                    CombinedReward([self.reward, TwoLocusSFSReward(1, j)])
-                )
-            )
+            PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=self._bin_rewards(i, j))
             for i, j in indices
         ]
 

@@ -472,15 +472,8 @@ def test_reward_state_space_guards():
 
 
 @pytest.mark.parametrize("member, call", [
-    ("var", lambda d: d.var),
-    ("std", lambda d: d.std),
-    ("m2", lambda d: d.m2),
     ("loci", lambda d: d.loci),
     ("demes", lambda d: d.demes),
-    ("moment", lambda d: d.moment(2)),
-    ("accumulate", lambda d: d.accumulate(1, [1.0])),
-    ("plot_accumulation", lambda d: d.plot_accumulation(show=False)),
-    ("distribution", lambda d: d.distribution()),
 ])
 def test_unsupported_members_raise_not_implemented(member, call):
     """The members of PhaseTypeDistribution that the two-locus spectrum does not provide raise NotImplementedError
@@ -488,8 +481,61 @@ def test_unsupported_members_raise_not_implemented(member, call):
     ValueError, or with a NotImplementedError naming an internal reward."""
     sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
 
-    with pytest.raises(NotImplementedError, match="provides mean, corr, joint_distribution"):
+    with pytest.raises(NotImplementedError, match="provides moment, mean, var"):
         call(sfs2)
+
+
+def test_moments_match_sampled_products():
+    """
+    The raw second and third moments of the products L^0_i L^1_j match those of sampled per-locus branch lengths
+    within four standard errors, and the variance, standard deviation and first moment are consistent with them.
+    """
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    a, b = sfs2.sample_per_locus(200000, seed=1)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+
+    for k in (2, 3):
+        est, se = (y ** k).mean(axis=0), (y ** k).std(axis=0) / np.sqrt(len(y))
+        exact = sfs2.moment(k, center=False).data[1:3, 1:3]
+        assert np.all(np.abs(exact - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+    np.testing.assert_allclose(sfs2.moment(1, center=False).data, sfs2.mean.data, rtol=1e-10)
+    np.testing.assert_allclose(sfs2.var.data, sfs2.m2.data - sfs2.mean.data ** 2, rtol=1e-8, atol=1e-12)
+    np.testing.assert_allclose(sfs2.std.data, np.sqrt(sfs2.var.data), rtol=1e-12)
+    np.testing.assert_allclose(sfs2.moment(1).data, sfs2.mean.data, rtol=1e-10)
+
+
+def test_accumulate_converges_to_moments_and_samples():
+    """
+    The accumulated moments of the products grow from zero and reach the moments to absorption, and the mean
+    accumulated up to a finite time matches the sampled products of the per-locus branch lengths accumulated up to
+    it.
+    """
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    sfs2 = coal.sfs2
+    acc = sfs2.accumulate(2, [0, 1.0, 200.0], center=False)
+
+    assert np.allclose(acc[0], 0)
+    np.testing.assert_allclose(acc[-1], sfs2.m2.data, rtol=1e-8)
+    np.testing.assert_allclose(sfs2.accumulate(2, [200.0])[0], sfs2.var.data, rtol=1e-6)
+
+    windowed = pg.Coalescent(n=3, loci=2, recombination_rate=1.0, end_time=1.0).sfs2
+    a, b = windowed.sample_per_locus(200000, seed=1)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+    est, se = y.mean(axis=0), y.std(axis=0) / np.sqrt(len(y))
+    exact = sfs2.accumulate(1, [1.0], center=False)[0, 1:3, 1:3]
+    assert np.all(np.abs(exact - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+
+def test_distribution_of_a_locus_reward_is_the_single_locus_bin():
+    """The distribution of one locus's class reward on the two-locus space is that of the single-locus SFS bin."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    sfs = pg.Coalescent(n=3).sfs
+
+    for i in (1, 2):
+        d = sfs2.distribution(pg.rewards.TwoLocusSFSReward(0, i))
+        np.testing.assert_allclose(d.mean, sfs.mean.data[i], rtol=1e-10)
+        np.testing.assert_allclose(d.cdf([0.5, 2.0]), sfs.bin(i).cdf([0.5, 2.0]), atol=1e-6)
 
 
 @pytest.mark.parametrize("i, j", [(0, 1), (1, 3), (1, -1), (1, 7), (1.5, 1)])
