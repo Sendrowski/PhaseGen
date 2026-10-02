@@ -279,6 +279,14 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
         """
         return self._layout_of(self._layout_lineages, self._layout_loci, folded, demes)
 
+    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
+        """
+        The axes of the spectrum arrays of the plain and the deme-resolved layouts.
+
+        :return: The axes of each kind of layout.
+        """
+        return ('class',), ('deme', 'class')
+
     @staticmethod
     def _layout_of(
             lineage_config: LineageConfig | InitialDistribution,

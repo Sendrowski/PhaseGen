@@ -121,20 +121,41 @@ class MutationLayout:
 
     def __eq__(self, other) -> bool:
         """
-        Whether the layouts have the same bins.
+        Whether the layouts have the same bins over the same spectrum, with the same lineages and loci.
 
         :param other: The other layout.
         :return: Whether they are equal.
         """
-        return isinstance(other, MutationLayout) and self.bins == other.bins
+        return isinstance(other, MutationLayout) and self._same_bins(other) and self._same_spectrum(other)
 
     def __hash__(self) -> int:
         """
-        Hash of the bins.
+        Hash of the bins and of the spectrum array.
 
         :return: The hash.
         """
-        return hash(self.bins)
+        return hash((self.bins, self.shape, self.axes))
+
+    def _same_bins(self, other: 'MutationLayout') -> bool:
+        """
+        Whether the other layout has the same bins over a spectrum array of the same shape and axes.
+
+        :param other: The other layout.
+        :return: Whether the bins agree.
+        """
+        return self.bins == other.bins and self.shape == other.shape and self.axes == other.axes
+
+    def _same_spectrum(self, other: 'MutationLayout') -> bool:
+        """
+        Whether the other layout records the same lineages and loci.
+
+        :param other: The other layout.
+        :return: Whether the lineages and loci agree.
+        """
+        def same(a, b) -> bool:
+            return type(a) is type(b) and a == b
+
+        return same(self.lineage_config, other.lineage_config) and same(self.locus_config, other.locus_config)
 
     def _describe(self) -> str:
         """
@@ -379,6 +400,25 @@ class MutationConfigMixin:
 
         return CombinedReward([self.reward, rewards[0] if len(rewards) == 1 else SumReward(rewards)])
 
+    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
+        """
+        The axes of the spectrum arrays of the layouts this spectrum provides.
+
+        :return: The axes of each kind of layout.
+        """
+        return self.mutation_layout().axes,
+
+    def _check_layout(self, layout: MutationLayout) -> None:
+        """
+        Reject a layout of another spectrum.
+
+        :param layout: The layout.
+        :raises ValueError: If the layout records other lineages or loci, or bins another kind of spectrum.
+        """
+        if layout.axes not in self._layout_axes() or not layout._same_spectrum(self.mutation_layout()):
+            raise ValueError(f"The layout {layout!r} does not belong to this spectrum, whose default layout is "
+                             f"{self.mutation_layout()!r}.")
+
     def _as_mutation_config(self, config: Sequence[int]) -> MutationConfig:
         """
         The configuration as a :class:`~phasegen.distributions.MutationConfig`, in the default layout unless it
@@ -386,9 +426,11 @@ class MutationConfigMixin:
 
         :param config: The configuration.
         :return: The configuration.
-        :raises ValueError: If ``config`` does not have one non-negative integer per bin.
+        :raises ValueError: If ``config`` does not have one non-negative integer per bin, or carries the layout of
+            another spectrum.
         """
         if isinstance(config, MutationConfig):
+            self._check_layout(config.layout)
             return config
 
         if np.isscalar(config):
@@ -814,13 +856,18 @@ class MutationConfigMixin:
             ascending order of the total number of mutations, so that stopping after a given total yields every
             configuration with at most that many mutations.
         :return: An iterator over pairs of configuration and probability.
-        :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``.
+        :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``, or ``layout`` belongs to
+            another spectrum.
         :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         if order not in ('probability', 'count'):
             raise ValueError(f"The order must be 'probability' or 'count', got {order!r}.")
 
-        layout = self.mutation_layout() if layout is None else layout
+        if layout is None:
+            layout = self.mutation_layout()
+        else:
+            self._check_layout(layout)
+
         J = len(layout)
 
         self._assert_absorbs()

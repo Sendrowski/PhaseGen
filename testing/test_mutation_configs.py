@@ -4,6 +4,7 @@ Tests for the mutational-configuration probabilities of the spectra (:class:`~ph
 counts simulated by :class:`~phasegen.distributions.MsprimeCoalescent`.
 """
 import itertools
+import math
 import pickle
 
 import jsonpickle
@@ -572,3 +573,40 @@ def test_layout_records_lineages_and_loci():
         pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)).sfs.mutation_layout()
     assert layout.lineage_config == mixture
     assert repr(layout).startswith("MutationLayout(n=[(0.25, {'pop_0': 2, 'pop_1': 1}), (0.75,")
+
+
+def test_foreign_layouts_are_rejected():
+    """A configuration or layout of another spectrum raises ValueError, while those of the spectrum itself pass."""
+    s4, s5 = pg.Coalescent(n=4).sfs, pg.Coalescent(n=5).sfs
+    jsfs = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)).jsfs
+
+    with pytest.raises(ValueError):
+        s4.get_mutation_config(s5.mutation_layout().config([0, 0, 0, 1]), theta=1)
+
+    with pytest.raises(ValueError):
+        next(s4.get_mutation_configs(theta=1, layout=s5.mutation_layout().rebin([(1,), (2,)])))
+
+    with pytest.raises(ValueError):
+        jsfs.get_mutation_config(s4.mutation_layout().config([1, 0, 0]), theta=1)
+
+    assert s4.mutation_layout().rebin([(1,), (2,)]) != s5.mutation_layout().rebin([(1,), (2,)])
+    assert s4.get_mutation_config(s4.mutation_layout().rebin([(1,), (2, 3)]).config([1, 0]), theta=1) > 0
+
+
+@pytest.mark.parametrize('name', ['sfs', 'fsfs', 'jsfs', 'sfs2'])
+def test_count_order_yields_every_configuration_once(name):
+    """The count order yields every configuration with at most three mutations exactly once, by ascending total."""
+    if name == 'sfs2':
+        dist = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    else:
+        dist = getattr(pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)), name)
+
+    J = len(dist.mutation_layout())
+    expected = math.comb(3 + J, J)  # configurations of J bins with total at most 3
+    configs = [c for c, _ in itertools.islice(dist.get_mutation_configs(theta=0.5, order='count'), expected)]
+
+    assert len(set(configs)) == expected
+    assert all(sum(c) <= 3 for c in configs)
+    assert [sum(c) for c in configs] == sorted(sum(c) for c in configs)

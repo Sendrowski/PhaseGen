@@ -1771,7 +1771,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSF
 
         if not isinstance(config, MutationConfig):
             config = layout.config((config,) if np.isscalar(config) else config)
-        elif config.layout != layout:
+        elif not config.layout._same_bins(layout):
             raise ValueError(f"The configuration must have the layout {layout}, got {config.layout}.")
 
         return frequencies.get(tuple(config), 0)
