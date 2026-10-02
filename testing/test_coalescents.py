@@ -2165,15 +2165,16 @@ def test_conditioning_check_looks_at_the_epoch_held_until_absorption(monkeypatch
 
 
 @pytest.mark.parametrize('n, expected', [
-    ({'a': 1, 'b': 1}, (1.6345752306153156, 5.290305689088646)),
-    ({'a': 2, 'b': 2}, (2.267200341207237, 6.591136138390849))
+    ({'a': 1, 'b': 1}, (1.634575250341490265, 5.2903057214446315199)),
+    ({'a': 2, 'b': 2}, (2.2672003781939281323, 6.5911361633084092669))
 ])
 @pytest.mark.parametrize('closed_form', [True, False])
 def test_conditioning_check_looks_at_every_finite_epoch(n, expected, closed_form, monkeypatch):
-    """A finite epoch whose rates span more than double precision over its duration raises on both moment paths,
-    the first as a later one, while a spread within it gives the reference moments. Regression: only the epoch held
-    until absorption was checked, and a first epoch with a pairwise coalescence rate of 1e18 gave a mean of 66.6 and
-    a negative variance for two lineages per deme."""
+    """A finite epoch whose rates span more than double precision over its duration raises on both moment paths, the
+    first as a later one, while a spread within it gives the reference moments, evaluated from the same rate
+    matrices with 80-digit mpmath matrix exponentials. Their rates span 1e15, which leaves a relative error of about
+    2e-8 in double precision. Regression: only the epoch held until absorption was checked, and a first epoch with a
+    pairwise coalescence rate of 1e18 gave a mean of 66.6 and a negative variance for two lineages per deme."""
     def coal(sizes):
         return pg.Coalescent(n=n, demography=pg.Demography(
             pop_sizes={'a': {0: 1}, 'b': sizes}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
@@ -2185,8 +2186,8 @@ def test_conditioning_check_looks_at_every_finite_epoch(n, expected, closed_form
             _ = coal(sizes).tree_height.mean
 
     th = coal({0: 1e-15, 1: 1.5}).tree_height
-    assert th.mean == pytest.approx(expected[0], rel=1e-10)
-    assert th.var == pytest.approx(expected[1], rel=1e-10)
+    assert th.mean == pytest.approx(expected[0], rel=1e-7)
+    assert th.var == pytest.approx(expected[1], rel=1e-7)
 
 
 def test_stability_warning_ignores_the_exit_rates_of_absorbing_states(caplog):
@@ -2236,8 +2237,7 @@ def test_sfs_mean_under_overflowing_growth_matches_stopped_growth():
             initial_size={'pop_0': 1}, growth_rate={'pop_0': 300}, start_time={'pop_0': 0},
             end_time={'pop_0': end_time})])).sfs
 
-    with pytest.raises(pg.ModelError):
-        _ = coal.sfs.mean
+    np.testing.assert_allclose(sfs(2).mean.data, sfs(0.4).mean.data, rtol=1e-12)
 
 
 def test_accumulate_from_beyond_absorption_raises():
