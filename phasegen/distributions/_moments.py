@@ -22,7 +22,7 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order
+from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_start_time
 
 if TYPE_CHECKING:
     from ..demography import Demography
@@ -373,8 +373,7 @@ class MomentEvaluator:
         if end_time is None:
             end_time = np.inf if self._tree_height.end_time is None else self._tree_height.end_time
 
-        if not start_time >= 0:
-            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+        _validate_start_time(start_time)
 
         if not end_time >= 0:
             raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")
@@ -688,8 +687,7 @@ class MomentEvaluator:
         if start_time is None:
             start_time = self._tree_height.start_time
 
-        if not start_time >= 0:
-            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+        _validate_start_time(start_time)
 
         if start_time > 0 and np.isinf(end_times).any():
             self._resolve_window(start_time, np.inf)
@@ -697,8 +695,7 @@ class MomentEvaluator:
         if rewards is None:
             rewards = [self.reward] * k
 
-        if k != len(rewards):
-            raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
+        _validate_reward_count(rewards, k)
 
         # center moments around the mean
         if center and k > 1:
@@ -1683,8 +1680,7 @@ class MomentEvaluator:
         if start_time is None:
             start_time = self._tree_height.start_time
 
-        if not start_time >= 0:
-            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+        _validate_start_time(start_time)
 
         if start_time > 0:
             return (

@@ -393,17 +393,7 @@ class Comparison(Serializable):
             ms_stat = [(config, ms.get_mutation_config(config)) for config, _ in ph_stat]
             return ph_stat, ms_stat
 
-        return self._get_stat(ph, stat), self._get_stat(ms, stat)
-
-    @staticmethod
-    def _get_stat(dist, stat: str):
-        """Fetch a named scalar / spectrum statistic. ``std`` is derived from ``var`` (as ``var ** 0.5``, the same
-        definition the analytic side uses) for operands that expose ``var`` but not ``std`` -- the empirical msprime /
-        sampler distributions -- so a ``std`` tolerance compares standard deviations instead of aborting with an
-        ``AttributeError`` deep in ``getattr``. Operands that do define ``std`` are returned unchanged."""
-        if stat == 'std' and not hasattr(dist, 'std'):
-            return dist.var ** 0.5
-        return getattr(dist, stat)
+        return getattr(ph, stat), getattr(ms, stat)
 
     def _diff_and_plot_mutation_configs(self, ph_stat, ms_stat, name: str) -> tuple:
         """Total-variation distance between the mutation-configuration probability distributions, with a deferred line
@@ -1050,9 +1040,9 @@ class Comparison(Serializable):
             sub_title = f"{title}: {i}: {stat}"
 
             if stat in ('mean', 'var', 'std'):
-                ph_arr = self._get_stat(ph, stat)
+                ph_arr = getattr(ph, stat)
                 ph_val = float(np.asarray(ph_arr.data if hasattr(ph_arr, 'data') else list(ph_arr)).ravel()[i])
-                ms_val = float(np.asarray(list(self._get_stat(ms, stat))).ravel()[i])
+                ms_val = float(np.asarray(list(getattr(ms, stat))).ravel()[i])
                 diff = float(self.rel_diff(np.array([ms_val]), np.array([ph_val])).max())
 
             elif stat in ('pdf', 'cdf', 'quantile'):

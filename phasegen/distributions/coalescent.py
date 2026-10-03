@@ -15,7 +15,7 @@ from ..rewards import Reward, TreeHeightReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order, _validate_reward
+from ._common import _make_hashable, _validate_order, _validate_reward, _validate_rewards
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
@@ -644,14 +644,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :raises ValueError: if a single :class:`~phasegen.rewards.Reward` is passed instead of a sequence.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
-        if isinstance(rewards, Reward):
-            raise ValueError(
-                f"rewards must be a sequence of {k} rewards, but a single {Reward.__name__} instance was given. "
-                f"Wrap it in a list, e.g. rewards=[reward]."
-            )
-
-        for i, reward in enumerate(rewards or []):
-            _validate_reward(reward, f"rewards[{i}]")
+        _validate_rewards(rewards, k)
 
         # an order of zero has no rewards, and its moment of one is taken on the tree-height distribution
         if not rewards:

@@ -1,6 +1,7 @@
 """Site-frequency-spectrum distributions (SFS, folded, joint, two-locus)."""
 
 import logging
+import itertools
 import math
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
@@ -16,7 +17,7 @@ from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order
+from ._common import _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
@@ -335,12 +336,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         :return: The frequency class as an integer.
         :raises ValueError: If ``i`` is not an integer from 0 to :math:`n`.
         """
-        n = self.lineage_config.n
-
-        if isinstance(i, bool) or not float(i).is_integer() or not 0 <= i <= n:
-            raise ValueError(f"The frequency class must be an integer from 0 to {n}, got {i}.")
-
-        return int(i)
+        return _frequency_class(i, self.lineage_config.n)
 
     def _polymorphic_bin(self, i: int) -> int:
         """
@@ -352,12 +348,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         """
         indices = self._get_indices()
 
-        if self._bin_index(i) not in indices:
-            raise ValueError(
-                f"The frequency class must be a polymorphic class from {indices[0]} to {indices[-1]}, got {i}."
-            )
-
-        return int(i)
+        return _polymorphic_class(self._bin_index(i), indices[0], indices[-1])
 
     def _bin_distribution(self, i: int) -> 'RewardDistribution':
         """The reward distribution of SFS bin ``i`` under this spectrum's reward, cached so the expensive cosine / LST
@@ -939,12 +930,26 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
+    def _tajima_n(self) -> int:
+        """Number of lineages."""
+        return self.lineage_config.n
+
+    def _tajima_mean(self) -> np.ndarray:
+        """Mean branch length of the bins ``i = 1 .. n - 1``, zero at the bins this spectrum does not hold."""
+        n = self.lineage_config.n
+        return np.asarray(self.mean.data)[1:n]
+
+    def _tajima_cov(self) -> np.ndarray:
+        """Covariance of the bins ``i, j = 1 .. n - 1``, zero at the bins this spectrum does not hold."""
+        n = self.lineage_config.n
+        return np.asarray(self.cov.data)[1:n, 1:n]
+
 
 class _TajimaSFSMixin:
     """
     Mixin providing the branch-length diversity estimators and Tajima's :math:`D` from the site-frequency
-    spectrum mean and covariance. Shared by the analytical :class:`UnfoldedSFSDistribution` and the
-    simulation-based empirical SFS distribution, so the same statistics can be computed from either source.
+    spectrum mean and covariance. Shared by the analytical unfolded and folded spectra and the simulation-based
+    empirical spectra, so the same statistics can be computed from either source.
     Subclasses supply the number of lineages and the mean and covariance of the polymorphic bins.
     """
 
@@ -1065,23 +1070,14 @@ class UnfoldedSFSDistribution(SFSDistribution, _TajimaSFSMixin):
         """
         return np.arange(1, self.lineage_config.n)
 
-    def _tajima_n(self) -> int:
-        return self.lineage_config.n
 
-    def _tajima_mean(self) -> np.ndarray:
-        n = self.lineage_config.n
-        return np.asarray(self.mean.data)[1:n]
-
-    def _tajima_cov(self) -> np.ndarray:
-        n = self.lineage_config.n
-        return np.asarray(self.cov.data)[1:n, 1:n]
-
-
-class FoldedSFSDistribution(SFSDistribution):
+class FoldedSFSDistribution(SFSDistribution, _TajimaSFSMixin):
     r"""
     Distribution of the folded site-frequency spectrum, whose bin :math:`i` is :math:`L_i + L_{n-i}` for
     :math:`i = 1, \dots, \lfloor n/2 \rfloor`, counted once where the two classes coincide, with :math:`L_i` the
-    total length of the branches subtending :math:`i` of the :math:`n` samples.
+    total length of the branches subtending :math:`i` of the :math:`n` samples. The weights of :attr:`theta_pi`,
+    :attr:`theta_w` and :attr:`tajimas_d` are symmetric in :math:`i` and :math:`n - i`, so the folded spectrum
+    determines them and they equal those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`.
 
     The following example computes the mean and correlation matrix of the folded spectrum.
 
@@ -1384,8 +1380,27 @@ class JointSFSDistribution(SpectrumDistribution):
             :math:`\mathbf{n}` holds the sample sizes.
         :return: The layout.
         """
-        full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
-        configs = self._get_configs()
+        return self._layout_of(self._layout_lineages, self._layout_loci, folded)
+
+    @staticmethod
+    def _layout_of(
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution,
+            folded: bool
+    ) -> MutationLayout:
+        """
+        The layout of :meth:`JointSFSDistribution.mutation_layout()
+        <phasegen.distributions.JointSFSDistribution.mutation_layout>` for given lineages and loci, with the
+        descendant vectors in the order of the block configurations of the joint state space.
+
+        :param lineage_config: The lineages.
+        :param locus_config: The loci.
+        :param folded: Whether to merge each descendant vector with its complement.
+        :return: The layout.
+        """
+        lineages = InitialDistribution._split(lineage_config)[0]
+        full = tuple(int(n_p) for n_p in lineages.lineages)
+        configs = [c for c in itertools.product(*[range(n_p + 1) for n_p in full]) if any(c) and c != full]
 
         if folded:
             groups = []
@@ -1399,10 +1414,10 @@ class JointSFSDistribution(SpectrumDistribution):
         return MutationLayout(
             groups,
             {c: c for c in configs},
-            self.shape,
-            tuple(self.lineage_config.pop_names),
-            self._layout_lineages,
-            self._layout_loci
+            tuple(n_p + 1 for n_p in full),
+            tuple(lineages.pop_names),
+            lineage_config,
+            locus_config
         )
 
     def sample(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> np.ndarray:
@@ -1450,7 +1465,8 @@ class JointSFSDistribution(SpectrumDistribution):
 
         cap = MsprimeCoalescent._jsfs_sample_cap
 
-        return EmpiricalJointSFSDistribution(moments=moments, samples=samples[:cap], n_samples=samples.shape[0])
+        return EmpiricalJointSFSDistribution(moments=moments, samples=samples[:cap], n_samples=samples.shape[0],
+                                             lineage_config=self._layout_lineages, locus_config=self._layout_loci)
 
     def moment(
             self,
@@ -1552,22 +1568,7 @@ class JointSFSDistribution(SpectrumDistribution):
         :return: The configuration as a tuple of integers.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        full = tuple(int(n_p) for n_p in self.lineage_config.lineages)
-        config = tuple(config)
-
-        if (
-                len(config) != len(full)
-                or any(isinstance(c, bool) or not float(c).is_integer() for c in config)
-                or not all(0 <= c <= n for c, n in zip(config, full))
-                or not any(config)
-                or tuple(int(c) for c in config) == full
-        ):
-            raise ValueError(
-                f"The descendant configuration must hold one integer count per population, each from 0 to its sample "
-                f"size {full}, and be neither all zero nor {full}, got {config}."
-            )
-
-        return tuple(int(c) for c in config)
+        return _descendant_config(config, tuple(int(n_p) for n_p in self.lineage_config.lineages))
 
     def bin(self, *config: int) -> 'RewardDistribution':
         """The distribution of the branch length of the joint SFS bin with the given descendant counts per population,
@@ -1939,13 +1940,33 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :return: The layout.
         :raises ValueError: If ``loci`` is empty, repeats a locus or holds a locus other than 0 and 1.
         """
+        return self._layout_of(self._layout_lineages, self._layout_loci, loci, folded)
+
+    @staticmethod
+    def _layout_of(
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution,
+            loci: Sequence[int],
+            folded: bool
+    ) -> MutationLayout:
+        """
+        The layout of :meth:`TwoLocusSFSDistribution.mutation_layout()
+        <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>` for given lineages and loci.
+
+        :param lineage_config: The lineages.
+        :param locus_config: The loci.
+        :param loci: The loci whose mutations are counted.
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i` of a locus into one bin.
+        :return: The layout.
+        :raises ValueError: If ``loci`` is empty, repeats a locus or holds a locus other than 0 and 1.
+        """
         loci = tuple(loci)
 
         if not loci or len(set(loci)) != len(loci) or not set(loci) <= {0, 1}:
             raise ValueError(f"The loci must be distinct entries of (0, 1), got {loci}.")
 
-        n = int(self.lineage_config.n)
-        indices = self._get_indices()
+        n = int(InitialDistribution._split(lineage_config)[0].n)
+        indices = list(range(1, n))
 
         if folded:
             groups = [(i,) if i == n - i else (i, n - i) for i in indices if i <= n - i]
@@ -1957,8 +1978,8 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
             {(locus, i): (locus, i) for locus in (0, 1) for i in indices},
             (2, n + 1),
             ('locus', 'class'),
-            self._layout_lineages,
-            self._layout_loci
+            lineage_config,
+            locus_config
         )
 
     def _no_univariate_distribution(self, *args, **kwargs) -> NoReturn:
@@ -2140,12 +2161,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :return: The frequency class as an integer.
         :raises ValueError: If ``i`` is not an integer from 1 to :math:`n - 1`.
         """
-        n = self.lineage_config.n
-
-        if isinstance(i, bool) or not float(i).is_integer() or not 1 <= i <= n - 1:
-            raise ValueError(f"The frequency class must be a polymorphic class from 1 to {n - 1}, got {i}.")
-
-        return int(i)
+        return _polymorphic_class(i, 1, self.lineage_config.n - 1)
 
     def joint(self, i: int, j: int) -> 'JointRewardDistribution':
         r"""
@@ -2285,7 +2301,8 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         """
         from .empirical import EmpiricalTwoLocusSFSDistribution
 
-        return EmpiricalTwoLocusSFSDistribution(*self.sample_per_locus(n_samples, seed=seed))
+        return EmpiricalTwoLocusSFSDistribution(*self.sample_per_locus(n_samples, seed=seed),
+                                                lineage_config=self._layout_lineages, locus_config=self._layout_loci)
 
     @cached_property
     def corr(self) -> TwoLocusSFS:

@@ -953,6 +953,18 @@ class _JointFunction:
         """The joint kind evaluated on the grid ``xs x ys`` (implemented per kind)."""
         raise NotImplementedError
 
+    def _axis_end(self, axis: str) -> float:
+        """
+        The end of a plotting axis, the marginal :attr:`Settings.plot_endpoint_quantile` quantile clipped to the
+        cosine window the representation was built on.
+
+        :param axis: The axis, ``'a'`` or ``'b'``.
+        :return: The end of the axis.
+        """
+        d = self._distribution
+
+        return min(d.marginal(axis).quantile(Settings.plot_endpoint_quantile), d._cos2d_window(axis))
+
     def _plot_data(self, n_points: int = None, surface: bool = False) -> '_SurfaceData':
         """
         The grid and values :meth:`plot` and :meth:`plot_surface` draw. Each axis runs from 0 to the marginal
@@ -975,10 +987,8 @@ class _JointFunction:
             else:
                 n_points = Settings.plot_joint_pdf_surface_n_grid if surface else Settings.plot_joint_pdf_n_grid
 
-        # the axes are clipped to the cosine window the representation was built on
-        q = Settings.plot_endpoint_quantile
-        xs = np.linspace(0, min(d.marginal('a').quantile(q), d._cos2d_window('a')), n_points)
-        ys = np.linspace(0, min(d.marginal('b').quantile(q), d._cos2d_window('b')), n_points)
+        xs = np.linspace(0, self._axis_end('a'), n_points)
+        ys = np.linspace(0, self._axis_end('b'), n_points)
         name = self.kind.upper()
 
         return _SurfaceData(

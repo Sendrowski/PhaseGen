@@ -125,25 +125,6 @@ class CurveStatRegressionTestCase(TestCase):
         self.assertEqual(masses[0], 0.0)
         self.assertEqual(masses[-1], 0.0)
 
-    def test_std_stat_on_empirical_operand_is_sqrt_var(self):
-        """The ``std`` statistic must work when an operand exposes ``var`` but not ``std`` (the empirical msprime /
-        sampler distributions). Pre-fix ``_get_stat`` did a bare ``getattr(dist, 'std')`` and aborted with
-        ``AttributeError``; post-fix it derives ``std = var ** 0.5`` for such an operand while returning ``std``
-        unchanged for operands (the analytic phasegen side) that define it."""
-        emp = EmpiricalDistribution(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
-        self.assertFalse(hasattr(emp, 'std'))  # the empirical operand has no std, only var
-        with self.assertRaises(AttributeError):
-            getattr(emp, 'std')  # pre-fix _get_stat did exactly this and crashed
-
-        std = Comparison._get_stat(emp, 'std')
-        self.assertEqual(std, emp.var ** 0.5)
-        self.assertAlmostEqual(std, np.sqrt(2.0))  # var of [1..5] is 2.0
-
-        # an operand that defines std (the analytic phasegen side) is returned unchanged
-        th = pg.Coalescent(n=4).tree_height
-        self.assertTrue(hasattr(th, 'std'))
-        self.assertEqual(float(Comparison._get_stat(th, 'std')), float(th.std))
-
 
 class WindowedConditionalConfigTestCase(TestCase):
     """The windowed-conditional CDF check reads its ``cdf_axes`` from the config; a value outside the axis labels

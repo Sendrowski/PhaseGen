@@ -19,7 +19,7 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import _validate_order, _validate_reward
+from ._common import _validate_order, _validate_reward, _validate_start_time
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -1143,8 +1143,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param end_time: Time when to end accumulation of moments. By default, or if infinite, the time until almost
             sure absorption.
         """
-        if not start_time >= 0:
-            raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+        _validate_start_time(start_time)
 
         if end_time is not None and not end_time >= 0:
             raise ValueError(f"End time must be greater than or equal to 0, got {end_time}.")

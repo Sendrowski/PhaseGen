@@ -4,25 +4,35 @@ PhaseGen's own trajectory sampler (:class:`SampledCoalescent`) -- together with 
 statistics from the sampled realisations.
 """
 
+import itertools
 import logging
 import math
-from ..caching import cached_property
-from typing import Generator, List, Callable, Tuple, Dict, Iterator, Optional, Sequence, Type, TYPE_CHECKING, Union
+from ..caching import cached_property, cache
+from typing import Generator, List, Callable, Tuple, Dict, Iterable, Iterator, NoReturn, Optional, Sequence, Type, \
+    TYPE_CHECKING, Union
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
 from ..demography import Demography
 from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
+from ..rewards import Reward, TreeHeightReward, TotalTreeHeightReward, TotalBranchLengthReward, SFSReward, \
+    TwoLocusSFSReward, SumReward, ProductReward, RestrictedReward, UnitReward, CombinedReward
 from ..settings import Settings
-from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
+from ..spectrum import AbstractSpectrum, SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..utils import parallelize
 
 from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, DistributionFunction, \
-    QuantileFunction
-from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, UnfoldedSFSDistribution
+    QuantileFunction, CallableDistributionFunctions, JointCDF, JointDensity
+from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, UnfoldedSFSDistribution, \
+    JointSFSDistribution, TwoLocusSFSDistribution
 from .mutation_configs import MutationConfig, MutationLayout
+from ._common import (
+    _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order, _validate_reward,
+    _validate_reward_count, _validate_rewards, _validate_start_time
+)
 from .coalescent import AbstractCoalescent, Coalescent
+from .phase_type import PhaseTypeDistribution
 
 if TYPE_CHECKING:
     import msprime
@@ -33,6 +43,10 @@ logger = logging.getLogger('phasegen')
 
 #: The largest Beta-coalescent alpha msprime accepts.
 _MSPRIME_BETA_ALPHA_MAX = 1.991
+
+#: The largest number of grid points on which the empirical joint CDF counts the replicates below each point
+#: directly. Larger grids bin all replicates against the grid.
+_JOINT_CDF_DIRECT_MAX = 16
 
 
 class _EmpiricalFunction:  # pragma: no cover
@@ -421,6 +435,22 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         """
         return np.var(self.samples, axis=0)
 
+    @property
+    def std(self) -> float | np.ndarray:
+        """
+        Sample standard deviation, the square root of :attr:`var`, per entry for a spectrum and of the type of
+        :attr:`var`. A variance that rounding leaves marginally below zero is read as zero.
+        """
+        var = self.var
+
+        if isinstance(var, AbstractSpectrum):
+            return type(var)(np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5)
+
+        if np.ndim(var) == 0:
+            return max(float(var), 0.0) ** 0.5
+
+        return np.maximum(np.asarray(var, dtype=float), 0.0) ** 0.5
+
     @cached_property
     def m2(self) -> float | np.ndarray:
         """
@@ -496,7 +526,135 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         return np.mean(samples ** k, axis=0)
 
 
-class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
+class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
+    """
+    The bins, their pairwise statistics and the estimators of Tajima's :math:`D` of an empirical site-frequency
+    spectrum, the sampled counterparts of those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`. The
+    statistics are read from :attr:`mean`, :attr:`cov` and :attr:`corr`, and the bins from the samples.
+    """
+
+    #: Whether the spectrum is folded.
+    _folded: bool = False
+
+    def _tajima_n(self) -> int:
+        """Number of lineages, from the mean, which is retained when the samples are dropped."""
+        return len(np.asarray(self.mean.data)) - 1
+
+    def _tajima_mean(self) -> np.ndarray:
+        """Mean branch length of the bins ``i = 1 .. n - 1``, zero at the bins this spectrum does not hold."""
+        return np.asarray(self.mean.data)[1:self._tajima_n()]
+
+    def _tajima_cov(self) -> np.ndarray:
+        """Covariance of the bins ``i, j = 1 .. n - 1``, zero at the bins this spectrum does not hold."""
+        n = self._tajima_n()
+        return np.asarray(self.cov.data)[1:n, 1:n]
+
+    def _polymorphic_bins(self) -> range:
+        """
+        The polymorphic frequency classes, ``1, ..., n // 2`` for a folded spectrum and ``1, ..., n - 1`` otherwise.
+
+        :return: The frequency classes.
+        """
+        n = self._tajima_n()
+
+        return range(1, n // 2 + 1) if self._folded else range(1, n)
+
+    def _polymorphic_bin(self, i: int) -> int:
+        """
+        Validate a polymorphic frequency class, as ``SFSDistribution._polymorphic_bin``.
+
+        :param i: The frequency class.
+        :return: The frequency class as an integer.
+        :raises ValueError: If ``i`` is not one of the polymorphic classes of this spectrum.
+        """
+        indices = self._polymorphic_bins()
+
+        return _polymorphic_class(_frequency_class(i, self._tajima_n()), indices[0], indices[-1])
+
+    def _bin_samples(self, i: int) -> np.ndarray:
+        """
+        The per-replicate branch lengths of a polymorphic frequency class.
+
+        :param i: The frequency class.
+        :return: The branch lengths.
+        :raises ValueError: If ``i`` is not a polymorphic class, or the samples have been dropped.
+        """
+        i = self._polymorphic_bin(i)
+
+        if self.samples is None:
+            raise ValueError("The per-replicate samples have been dropped, and the bins need them.")
+
+        return np.asarray(self.samples)[:, i]
+
+    def get_cov(self, i: int, j: int) -> float:
+        """
+        The sample covariance between the branch lengths of the frequency classes ``i`` and ``j``, the sampled
+        counterpart of :meth:`UnfoldedSFSDistribution.get_cov()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_cov>`, an entry of :attr:`cov`.
+
+        :param i: The first frequency class.
+        :param j: The second frequency class.
+        :return: The covariance, zero if a class is not polymorphic in this spectrum.
+        :raises ValueError: If ``i`` or ``j`` is not an integer from 0 to :math:`n`.
+        """
+        n = self._tajima_n()
+        i, j = _frequency_class(i, n), _frequency_class(j, n)
+
+        if i not in self._polymorphic_bins() or j not in self._polymorphic_bins():
+            return 0
+
+        return float(np.asarray(self.cov.data)[i, j])
+
+    def get_corr(self, i: int, j: int) -> float:
+        """
+        The sample correlation between the branch lengths of the frequency classes ``i`` and ``j``, the sampled
+        counterpart of :meth:`UnfoldedSFSDistribution.get_corr()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_corr>`, an entry of :attr:`corr`.
+
+        :param i: The first frequency class.
+        :param j: The second frequency class.
+        :return: The correlation coefficient, zero if a class is not polymorphic in this spectrum or has no variance.
+        :raises ValueError: If ``i`` or ``j`` is not an integer from 0 to :math:`n`.
+        """
+        n = self._tajima_n()
+        i, j = _frequency_class(i, n), _frequency_class(j, n)
+
+        if i not in self._polymorphic_bins() or j not in self._polymorphic_bins():
+            return 0
+
+        return float(np.asarray(self.corr.data)[i, j])
+
+    def bin(self, i: int) -> EmpiricalDistribution:
+        r"""
+        The empirical distribution of the branch length :math:`L_i` of frequency class ``i``, the sampled counterpart
+        of :meth:`UnfoldedSFSDistribution.bin() <phasegen.distributions.UnfoldedSFSDistribution.bin>`, whose
+        estimators are those of the per-bin ``cdf``, ``pdf`` and ``quantile`` of this spectrum.
+
+        :param i: The frequency class.
+        :return: The empirical distribution of :math:`L_i`.
+        :raises ValueError: If ``i`` is not a polymorphic frequency class of this spectrum, or the samples have been
+            dropped.
+        """
+        return EmpiricalDistribution(self._bin_samples(i))
+
+    def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
+        """
+        The empirical joint distribution of the branch lengths of the frequency classes ``i`` and ``j``, the sampled
+        counterpart of :meth:`UnfoldedSFSDistribution.joint() <phasegen.distributions.UnfoldedSFSDistribution.joint>`.
+
+        :param i: The first frequency class.
+        :param j: The second frequency class.
+        :return: The empirical joint distribution of :math:`(L_i, L_j)`.
+        :raises ValueError: If ``i`` or ``j`` is not a polymorphic frequency class of this spectrum, or the samples
+            have been dropped.
+        """
+        jd = EmpiricalJointDistribution(self._bin_samples(i), self._bin_samples(j))
+        jd.label = f"SFS bins ({int(i)}, {int(j)})"
+
+        return jd
+
+
+class EmpiricalSFSDistribution(_EmpiricalSFSMixin, EmpiricalDistribution):  # pragma: no cover
     """
     Empirical site-frequency spectrum of one deme, with the estimators of
     :class:`~phasegen.distributions.EmpiricalDistribution` applied per frequency class.
@@ -527,15 +685,10 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
 
         self.folded = folded
 
-    def _polymorphic_bins(self) -> range:
-        """
-        The polymorphic frequency classes, ``1, ..., n // 2`` for a folded spectrum and ``1, ..., n - 1`` otherwise.
-
-        :return: The frequency classes.
-        """
-        n = self.samples.shape[1] - 1
-
-        return range(1, n // 2 + 1) if self.folded else range(1, n)
+    @property
+    def _folded(self) -> bool:
+        """Whether the spectrum is folded."""
+        return self.folded
 
     @cached_property
     def mean(self) -> SFS:
@@ -590,6 +743,37 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
     #: Static for backward compatibility.
     _count_frequencies: Optional[Dict[Tuple[int, ...], float]] = None
 
+    #: The lineages the replicates start from, recorded by :meth:`mutation_layout`. Static for backward compatibility.
+    _layout_lineages: LineageConfig | InitialDistribution | None = None
+
+    #: The loci the replicates start from, recorded by :meth:`mutation_layout`. Static for backward compatibility.
+    _layout_loci: LocusConfig | InitialDistribution | None = None
+
+    #: Relative frequency yielded by the most recently started configuration iterator of ``get_mutation_configs()``.
+    generated_mass: float = 0
+
+    def get_mutation_configs(self, layout: MutationLayout = None) -> Iterator[Tuple[MutationConfig, float]]:
+        """
+        Unending iterator over the mutational configurations and their relative frequencies among the simulated
+        replicates, in ascending order of the total number of mutations, the sampled counterpart of
+        :meth:`JointSFSDistribution.get_mutation_configs()
+        <phasegen.distributions.JointSFSDistribution.get_mutation_configs>` with ``order='count'``. The frequencies
+        yielded so far sum to :attr:`generated_mass`.
+
+        :param layout: The layout of the configurations, by default that of ``mutation_layout()``.
+        :return: An iterator over pairs of configuration and relative frequency.
+        :raises ValueError: If the spectrum carries no mutation counts.
+        """
+        layout = self.mutation_layout() if layout is None else layout
+
+        self.generated_mass = 0
+
+        for k in itertools.count():
+            for config in layout.configs(k):
+                p = self.get_mutation_config(config)
+                self.generated_mass += p
+                yield config, p
+
     def _mutation_entries(self) -> List[tuple]:
         """
         The polymorphic entries of the spectrum, in the order of the stored counts.
@@ -616,16 +800,21 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
 
         return self._count_frequencies
 
-    def get_mutation_config(self, config: MutationConfig) -> float:
+    def get_mutation_config(self, config: Union[MutationConfig, Sequence[int], int]) -> float:
         """
         Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
 
-        :param config: The configuration, whose layout bins entries of this spectrum.
+        :param config: The configuration, whose layout bins entries of this spectrum, or one mutation count per bin of
+            the default layout, a single count for one bin.
         :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
-        :raises ValueError: If the spectrum carries no mutation counts.
+        :raises ValueError: If the spectrum carries no mutation counts, or ``config`` does not have one non-negative
+            integer per bin of the default layout.
         """
+        if not isinstance(config, MutationConfig):
+            config = self.mutation_layout().config((config,) if np.isscalar(config) else config)
+
         layout = config.layout
         cache = self.__dict__.setdefault('_binned_frequencies', {})
 
@@ -693,7 +882,9 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
             moments: np.ndarray,
             samples: np.ndarray = None,
             n_samples: int = None,
-            mutation_counts: np.ndarray = None
+            mutation_counts: np.ndarray = None,
+            lineage_config: LineageConfig | InitialDistribution = None,
+            locus_config: LocusConfig | InitialDistribution = None
     ) -> None:
         """
         Initialize the distribution from the raw moments and, optionally, per-replicate samples.
@@ -706,6 +897,10 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
             of ``samples``, and must be given when ``samples`` is a capped subset.
         :param mutation_counts: Optional per-replicate mutation counts, of shape ``(N, n_0 + 1, ...)``, from which
             :meth:`get_mutation_config` takes the configuration frequencies.
+        :param lineage_config: The lineages the replicates start from, recorded by :meth:`mutation_layout`. By default,
+            ``n_p`` lineages in each deme ``pop_p``, with ``n_p + 1`` the extent of axis ``p`` of the moments.
+        :param locus_config: The loci the replicates start from, recorded by :meth:`mutation_layout`. By default, one
+            locus.
         """
         moments = np.asarray(moments)
 
@@ -727,6 +922,12 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
         #: Per-replicate mutation counts, ``None`` once dropped.
         self._mutation_counts = mutation_counts
 
+        #: The lineages the replicates start from.
+        self._layout_lineages = lineage_config
+
+        #: The loci the replicates start from.
+        self._layout_loci = locus_config
+
     def _mutation_entries(self) -> List[Tuple[int, ...]]:
         """
         The polymorphic descendant vectors.
@@ -734,6 +935,101 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
         :return: The descendant vectors.
         """
         return self._polymorphic_bins()
+
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the joint SFS array, ``(n_0 + 1, ..., n_{P-1} + 1)``, as :attr:`JointSFSDistribution.shape
+        <phasegen.distributions.JointSFSDistribution.shape>`.
+        """
+        return tuple(int(s) for s in self._moments.shape[1:])
+
+    def mutation_layout(self, folded: bool = False) -> MutationLayout:
+        r"""
+        The layout of the mutational configurations, that of :meth:`JointSFSDistribution.mutation_layout()
+        <phasegen.distributions.JointSFSDistribution.mutation_layout>`.
+
+        :param folded: Whether to merge each descendant vector :math:`\mathbf{c}` with its complement.
+        :return: The layout.
+        """
+        lineages = self._layout_lineages
+        loci = LocusConfig() if self._layout_loci is None else self._layout_loci
+
+        if lineages is None:
+            lineages = LineageConfig({f'pop_{p}': s - 1 for p, s in enumerate(self.shape)})
+
+        return JointSFSDistribution._layout_of(lineages, loci, folded)
+
+    def _bin_config(self, config: Sequence[int]) -> Tuple[int, ...]:
+        """
+        Validate the descendant configuration of a polymorphic joint SFS bin, as
+        ``JointSFSDistribution._bin_config``.
+
+        :param config: The descendant configuration, one count per population.
+        :return: The configuration as a tuple of integers.
+        :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        return _descendant_config(config, tuple(s - 1 for s in self.shape))
+
+    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+        """
+        The sample covariance between the branch lengths of two descendant configurations, the sampled counterpart of
+        :meth:`JointSFSDistribution.get_cov() <phasegen.distributions.JointSFSDistribution.get_cov>`, an entry of
+        :attr:`cov`.
+
+        :param config_a: The first descendant configuration.
+        :param config_b: The second descendant configuration.
+        :return: The covariance.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        return float(np.asarray(self.cov)[self._bin_config(config_a) + self._bin_config(config_b)])
+
+    def bin(self, *config: int) -> EmpiricalDistribution:
+        """
+        The empirical distribution of the branch length of the joint SFS bin with the given descendant counts per
+        population, the sampled counterpart of :meth:`JointSFSDistribution.bin()
+        <phasegen.distributions.JointSFSDistribution.bin>`, from the stored samples.
+
+        :param config: The descendant configuration, one count per population.
+        :return: The empirical distribution of the bin's branch length.
+        :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin, or the
+            per-replicate samples have been dropped.
+        """
+        config = self._bin_config(config)
+
+        if self.samples is None:
+            raise ValueError("The per-replicate samples have been dropped, and the bins need them.")
+
+        return EmpiricalDistribution(self.samples[(slice(None),) + config])
+
+    @property
+    def demes(self) -> NoReturn:
+        """
+        Not available, as the simulation does not record in which deme the branch of a descendant configuration
+        resides.
+
+        :raises NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            "The empirical joint SFS records the branch length of each descendant configuration over all demes, not "
+            "the deme the branch resides in, so it has no per-deme marginals."
+        )
+
+    @property
+    def loci(self) -> Dict[int, 'EmpiricalJointSFSDistribution']:
+        """
+        The empirical joint spectrum of each locus, keyed by locus index, with the covariance and correlation of each
+        descendant configuration across the loci as ``cov`` and ``corr``, the sampled counterpart of
+        :attr:`JointSFSDistribution.loci <phasegen.distributions.JointSFSDistribution.loci>`. The joint spectrum has
+        one locus, whose spectrum is this one.
+        """
+        loci = _LocusContainer({0: self})
+        loci.cov = np.asarray(self.var.data, dtype=float)[None, None]
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            loci.corr = loci.cov / loci.cov
+
+        return loci
 
     def _polymorphic_bins(self) -> List[Tuple[int, ...]]:
         """
@@ -847,14 +1143,21 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
         :param config_a: The first descendant vector.
         :param config_b: The second descendant vector.
         :return: The empirical joint distribution.
-        :raises ValueError: If the per-replicate samples have been dropped.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin, or
+            the per-replicate samples have been dropped.
         """
+        config_a, config_b = self._bin_config(config_a), self._bin_config(config_b)
+
         if self.samples is None:
             raise ValueError("The per-replicate samples have been dropped, and the joint distribution needs them.")
 
-        return EmpiricalJointDistribution(
-            self.samples[(slice(None),) + tuple(config_a)], self.samples[(slice(None),) + tuple(config_b)]
+        jd = EmpiricalJointDistribution(
+            self.samples[(slice(None),) + config_a], self.samples[(slice(None),) + config_b]
         )
+        jd.label = f"jSFS bins {config_a} x {config_b}"
+
+        return jd
+
 
 class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: no cover
     r"""
@@ -894,7 +1197,14 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
     #: Static for backward compatibility.
     _n_lineages: Optional[int] = None
 
-    def __init__(self, left: np.ndarray, right: np.ndarray, mutation_counts: np.ndarray = None) -> None:
+    def __init__(
+            self,
+            left: np.ndarray,
+            right: np.ndarray,
+            mutation_counts: np.ndarray = None,
+            lineage_config: LineageConfig | InitialDistribution = None,
+            locus_config: LocusConfig | InitialDistribution = None
+    ) -> None:
         """
         Initialize the distribution from the per-replicate branch lengths of the two loci.
 
@@ -902,6 +1212,10 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
         :param right: Locus-1 SFS branch lengths, of shape ``(N, n + 1)``.
         :param mutation_counts: Optional per-replicate mutation counts of the two loci, of shape ``(N, 2, n + 1)``,
             from which :meth:`get_mutation_config` takes the configuration frequencies.
+        :param lineage_config: The lineages the replicates start from, recorded by :meth:`mutation_layout`. By default,
+            ``n`` lineages in one deme.
+        :param locus_config: The loci the replicates start from, recorded by :meth:`mutation_layout`. By default, two
+            loci.
         """
         left, right = np.asarray(left, dtype=float), np.asarray(right, dtype=float)
 
@@ -920,6 +1234,12 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
         #: Per-replicate mutation counts, ``None`` once dropped.
         self._mutation_counts = mutation_counts
 
+        #: The lineages the replicates start from.
+        self._layout_lineages = lineage_config
+
+        #: The loci the replicates start from.
+        self._layout_loci = locus_config
+
     def _mutation_entries(self) -> List[Tuple[int, int]]:
         """
         The pairs ``(locus, i)`` of polymorphic classes.
@@ -927,6 +1247,49 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
         :return: The pairs.
         """
         return [(locus, i) for locus in (0, 1) for i in range(1, self._n_lineages)]
+
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the two-locus SFS array, ``(n + 1, n + 1)``, as :attr:`TwoLocusSFSDistribution.shape
+        <phasegen.distributions.TwoLocusSFSDistribution.shape>`.
+        """
+        n = len(np.asarray(self.mean.data)) - 1 if self._n_lineages is None else self._n_lineages
+
+        return n + 1, n + 1
+
+    def mutation_layout(self, loci: Sequence[int] = (0, 1), folded: bool = False) -> MutationLayout:
+        """
+        The layout of the mutational configurations of the two loci, that of
+        :meth:`TwoLocusSFSDistribution.mutation_layout()
+        <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>`.
+
+        :param loci: The loci whose mutations are counted.
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i` of a locus into one bin.
+        :return: The layout.
+        :raises ValueError: If ``loci`` is empty, repeats a locus or holds a locus other than 0 and 1.
+        """
+        lineages = LineageConfig(self.shape[0] - 1) if self._layout_lineages is None else self._layout_lineages
+        locus_config = LocusConfig(n=2) if self._layout_loci is None else self._layout_loci
+
+        return TwoLocusSFSDistribution._layout_of(lineages, locus_config, loci, folded)
+
+    cdf = pdf = quantile = property(TwoLocusSFSDistribution._no_univariate_distribution)
+    plot_cdf = bin = TwoLocusSFSDistribution._no_univariate_distribution
+
+    def _no_marginals(self, *args, **kwargs) -> NoReturn:
+        """
+        Not available for the two-locus spectrum, as for :class:`~phasegen.distributions.TwoLocusSFSDistribution`.
+        The per-locus marginals are those of the single-locus spectrum.
+
+        :raises NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} has no per-locus or per-deme marginals. The per-locus marginals are those of the "
+            "single-locus spectrum, such as the empirical sfs of a single-locus coalescent."
+        )
+
+    loci = demes = property(_no_marginals)
 
     def _polymorphic_bins(self) -> List[Tuple[int, int]]:
         """
@@ -1020,12 +1383,19 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
         :param i: The locus-0 frequency class.
         :param j: The locus-1 frequency class.
         :return: The empirical joint distribution.
-        :raises ValueError: If the per-replicate samples have been dropped.
+        :raises ValueError: If ``i`` or ``j`` is not a polymorphic class from 1 to :math:`n - 1`, or the per-replicate
+            samples have been dropped.
         """
+        n = self.shape[0] - 1
+        i, j = _polymorphic_class(i, 1, n - 1), _polymorphic_class(j, 1, n - 1)
+
         if self._left is None:
             raise ValueError("The per-replicate samples have been dropped, and the joint distribution needs them.")
 
-        return EmpiricalJointDistribution(self._left[:, i], self._right[:, j])
+        jd = EmpiricalJointDistribution(self._left[:, i], self._right[:, j])
+        jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
+
+        return jd
 
     def _drop(self) -> None:
         """Drop the per-replicate samples, retaining the moment statistics and their block standard errors."""
@@ -1112,6 +1482,63 @@ class DictContainer(dict):  # pragma: no cover
         return np.atleast_2d(self.corr)[self._index(d1), self._index(d2)]
 
 
+class _DemeContainer(DictContainer):  # pragma: no cover
+    """
+    The empirical marginal distributions of the demes, keyed by deme name, the sampled counterpart of
+    :class:`~phasegen.distributions.MarginalDemeDistributions`.
+    """
+
+    @property
+    def demes(self) -> dict:
+        """
+        The empirical distribution of each deme, keyed by population name.
+        """
+        return dict(self)
+
+
+class _LocusContainer(DictContainer):  # pragma: no cover
+    """
+    The empirical marginal distributions of the loci, keyed by locus index, the sampled counterpart of
+    :class:`~phasegen.distributions.MarginalLocusDistributions`.
+    """
+
+    @property
+    def loci(self) -> dict:
+        """
+        The empirical distribution of each locus, keyed by locus index.
+        """
+        return dict(self)
+
+    def joint(self, locus1: int, locus2: int) -> 'EmpiricalJointDistribution':
+        """
+        The empirical joint distribution of the totals at ``locus1`` and at ``locus2``, the sampled counterpart of
+        :meth:`MarginalLocusDistributions.joint() <phasegen.distributions.MarginalLocusDistributions.joint>`.
+
+        :param locus1: The first locus.
+        :param locus2: The second locus.
+        :return: The empirical joint distribution across the two loci.
+        :raises ValueError: If either locus does not exist, or the samples have been dropped.
+        :raises NotImplementedError: If the marginals are spectra, whose joint distribution is taken per pair of
+            frequency classes, as by :meth:`EmpiricalTwoLocusSFSDistribution.joint()
+            <phasegen.distributions.EmpiricalTwoLocusSFSDistribution.joint>`.
+        """
+        locus1, locus2 = int(locus1), int(locus2)
+
+        if locus1 not in self or locus2 not in self:
+            raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
+
+        a, b = self[locus1].samples, self[locus2].samples
+
+        if a is None or b is None:
+            raise ValueError("The per-replicate samples have been dropped, and the joint distribution needs them.")
+
+        if np.ndim(a) != 1:
+            raise NotImplementedError("The joint distribution across loci is defined for a scalar total. For a "
+                                      "spectrum, use the joint distribution of a pair of frequency classes.")
+
+        return EmpiricalJointDistribution(a, b)
+
+
 class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     """
     Empirical distribution of an accumulated reward with per-deme and per-locus breakdowns, built by
@@ -1139,6 +1566,10 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     #: Cached windowed-conditional ground truth of the locus pairs, see ``_cache_windowed_conditional``. Declared at
     #: class level for payloads serialized without it.
     _loci_windowed_conditional: list = []
+
+    #: Accumulation over time of the rewards of the simulated genealogies, set by :class:`MsprimeCoalescent` and
+    #: ``None`` otherwise. Static for backward compatibility.
+    _accumulator: Optional['_EmpiricalAccumulation'] = None
 
     def __init__(
             self,
@@ -1283,7 +1714,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
                 "for the tree height, the maximum over loci. Use total_branch_length.demes, or a single locus."
             )
 
-        demes = DictContainer(
+        demes = _DemeContainer(
             {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
         )
 
@@ -1324,7 +1755,7 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         :return: Dictionary of distributions.
         """
-        loci = DictContainer(
+        loci = _LocusContainer(
             {i: EmpiricalDistribution(self._samples[i].sum(axis=0)) for i in range(self._samples.shape[0])}
         )
 
@@ -1341,13 +1772,8 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         """Cache the ground truth of ``EmpiricalPhaseTypeSFSDistribution._cache_joint_surface`` per locus pair."""
         self._loci_joint_surface = []
         for l1, l2 in pairs:
-            a, b = self._locus_samples(l1), self._locus_samples(l2)
-            n = len(a)
-            xs = np.linspace(0.0, float(np.quantile(a, q_max)), n_grid)
-            ys = np.linspace(0.0, float(np.quantile(b, q_max)), n_grid)
-            cdf = ((a[:, None] <= xs[None, :]).astype(float).T @ (b[:, None] <= ys[None, :]).astype(float)) / n
-            pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
-            self._loci_joint_surface.append((int(l1), int(l2), xs, ys, cdf, pdf))
+            joint = EmpiricalJointDistribution(self._locus_samples(l1), self._locus_samples(l2))
+            self._loci_joint_surface.append((int(l1), int(l2)) + joint._surface(n_grid, q_max))
 
     def _cache_windowed_conditional(self, specs: List[tuple], loci: bool = False, n_grid: int = 500,
                                     q_max: float = 0.999) -> None:
@@ -1390,6 +1816,71 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         setattr(self, '_loci_windowed_conditional' if loci else '_windowed_conditional', cached)
 
+    def _require_accumulator(self) -> '_EmpiricalAccumulation':
+        """
+        :return: The accumulation over time of the simulated genealogies.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
+        """
+        if self._accumulator is None:
+            raise NotImplementedError(
+                "The accumulation over time requires the genealogies simulated by MsprimeCoalescent, which this "
+                "distribution does not hold."
+            )
+
+        return self._accumulator
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        The :math:`k`-th sample moment accumulated from the start time to each end time, as described in
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`, by default of
+        the reward of this distribution. A spectrum returns one column per site-frequency count, as
+        :meth:`UnfoldedSFSDistribution.accumulate() <phasegen.distributions.UnfoldedSFSDistribution.accumulate>`
+        does.
+
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution. The sample moment does not depend on
+            the order of the rewards.
+        :param start_time: The start time. By default, 0.
+        :return: The moment at each end time.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies, or a reward is not
+            one they record.
+        """
+        return self._require_accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
+
+    def _plot_accumulation_data(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> '_CurveData':
+        """
+        The accumulation of a moment over time that :meth:`plot_accumulation` draws, one curve per polymorphic bin
+        for a spectrum.
+
+        :param k: The order of the moment.
+        :param end_times: Times at which to evaluate the moment.
+        :param rewards: Sequence of k rewards. By default, the reward of the distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Accepted for the signature of the exact distribution.
+        :return: The curves.
+        """
+        return self._require_accumulator()._plot_accumulation_data(k, end_times, rewards, center, permute)
+
+    plot_accumulation = PhaseTypeDistribution.plot_accumulation
+
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
     """
@@ -1429,12 +1920,122 @@ class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
         return float((swx2 * (w * y).sum() - swx * (w * x * y).sum()) / det)
 
 
-class EmpiricalJointDistribution:  # pragma: no cover
+class _EmpiricalJointCDF(JointCDF):  # pragma: no cover
+    r"""
+    The empirical joint CDF of :class:`~phasegen.distributions.EmpiricalJointDistribution`, the fraction of
+    replicates with :math:`R_a \le x` and :math:`R_b \le y`, NaN at a NaN threshold, drawn as
+    :class:`~phasegen.distributions.JointCDF` is.
+    """
+
+    def _axis_end(self, axis: str) -> float:
+        """
+        The end of a plotting axis, the :attr:`Settings.plot_endpoint_quantile` sample quantile of the marginal.
+
+        :param axis: The axis, ``'a'`` or ``'b'``.
+        :return: The end of the axis.
+        """
+        return float(self._distribution.marginal(axis).quantile(Settings.plot_endpoint_quantile))
+
+    def _grid_values(self, xs, ys) -> np.ndarray:
+        d = self._distribution
+        xs, ys = np.asarray(xs, dtype=float).ravel(), np.asarray(ys, dtype=float).ravel()
+
+        if xs.size * ys.size <= _JOINT_CDF_DIRECT_MAX:
+            counts = np.array([[np.count_nonzero((d._a <= x) & (d._b <= y)) for y in ys] for x in xs])
+            cdf = counts.reshape(xs.size, ys.size) / len(d._a)
+        else:
+            ux, ix = np.unique(xs, return_inverse=True)
+            uy, iy = np.unique(ys, return_inverse=True)
+
+            # replicate m has R_a <= ux[j] exactly for j >= ja[m], so the cumulated counts over (ja, jb) give the CDF
+            ja = np.searchsorted(ux, d._a, side='left')
+            jb = np.searchsorted(uy, d._b, side='left')
+            shape = (len(ux) + 1, len(uy) + 1)
+            counts = np.bincount(ja * shape[1] + jb, minlength=shape[0] * shape[1]).reshape(shape)
+            cdf = (counts.cumsum(axis=0).cumsum(axis=1)[:-1, :-1] / len(d._a))[np.ix_(ix.ravel(), iy.ravel())]
+
+        cdf[np.isnan(xs)] = np.nan
+        cdf[:, np.isnan(ys)] = np.nan
+
+        return cdf
+
+
+class _EmpiricalJointDensity(JointDensity):  # pragma: no cover
+    """
+    The cell-average density of :class:`~phasegen.distributions.EmpiricalJointDistribution` described there, drawn as
+    :class:`~phasegen.distributions.JointDensity` is, with the cells at their centres.
+    """
+
+    def __call__(self, x, y) -> np.ndarray:
+        r"""
+        Evaluate the cell-average density :math:`\hat f_{jl}` on the cells of the outer grid of the arguments.
+
+        :param x: Left cell edges :math:`x_j` along :math:`R_a`, a 1D array of at least two increasing points.
+        :param y: Left cell edges :math:`y_l` along :math:`R_b`, a 1D array of at least two increasing points.
+        :return: An array of shape ``(len(x), len(y))``.
+        :raises ValueError: If a grid has fewer than two points or is not increasing.
+        """
+        return self._grid_values(np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float))
+
+    _axis_end = _EmpiricalJointCDF._axis_end
+
+    def _grid_values(self, xs, ys) -> np.ndarray:
+        d = self._distribution
+        edges = []
+
+        for grid in (np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)):
+            if grid.size < 2 or np.any(np.diff(grid) <= 0):
+                raise ValueError("The empirical joint density is a cell average, so it needs increasing grids of at "
+                                 "least two points.")
+            edges.append(np.append(grid, 2 * grid[-1] - grid[-2]))
+
+        positive = (d._a > 0) & (d._b > 0)
+        counts, _, _ = np.histogram2d(d._a[positive], d._b[positive], bins=edges)
+
+        return counts / len(d._a) / np.outer(np.diff(edges[0]), np.diff(edges[1]))
+
+    def _plot_data(self, n_points: int = None, surface: bool = False) -> '_SurfaceData':
+        """
+        The cells and their densities that :meth:`plot` and :meth:`plot_surface` draw, at the cell centres. By
+        default, the number of cells per axis is the fourth root of the sample size, between 10 and the default number
+        of points of :class:`~phasegen.distributions.JointDensity`.
+
+        :param n_points: Number of cells per axis, ``None`` for the default.
+        :param surface: Whether the default resolution is that of a surface rather than a heatmap.
+        :return: The grid and the values on it.
+        """
+        if n_points is None:
+            n_max = Settings.plot_joint_pdf_surface_n_grid if surface else Settings.plot_joint_pdf_n_grid
+            n_points = int(np.clip(len(self._distribution._a) ** 0.25, 10, max(n_max, 10)))
+
+        data = super()._plot_data(n_points, surface)
+        data.x = data.x + (data.x[1] - data.x[0]) / 2
+        data.y = data.y + (data.y[1] - data.y[0]) / 2
+
+        return data
+
+
+class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no cover
     r"""
     Empirical joint distribution of two accumulated rewards :math:`R_a` and :math:`R_b` from paired realisations, the
-    sampled counterpart of :class:`~phasegen.distributions.JointRewardDistribution`. Its marginals, joint CDF,
-    covariance and correlation are the sample estimators of :class:`~phasegen.distributions.EmpiricalDistribution`,
-    with the normalisation :math:`1 / N` for :math:`N` replicates.
+    sampled counterpart of :class:`~phasegen.distributions.JointRewardDistribution`, with :math:`R_{am}` and
+    :math:`R_{bm}` the rewards of replicate :math:`m = 1, \dots, N`. Its marginals, covariance and correlation are the
+    sample estimators of :class:`~phasegen.distributions.EmpiricalDistribution`, with the normalisation :math:`1 / N`.
+    The joint :attr:`cdf` and :attr:`pdf` are plotted as those of
+    :class:`~phasegen.distributions.JointRewardDistribution`, and a joint distribution has no quantile function.
+
+    - :attr:`cdf`: the fraction of replicates with :math:`R_{am} \le x` and :math:`R_{bm} \le y`.
+    - :attr:`pdf`: for grids :math:`x_0 < x_1 < \dots` and :math:`y_0 < y_1 < \dots` of left cell edges, with the
+      last cell as wide as the one before, the fraction of replicates in each cell divided by its area,
+
+      .. math::
+
+          \hat f_{jl} = \frac{\#\{m : R_{am}, R_{bm} > 0,\ x_j \le R_{am} < x_{j+1},\ y_l \le R_{bm} < y_{l+1}\}}
+          {N\, (x_{j+1} - x_j)\, (y_{l+1} - y_l)}.
+
+      Replicates with a zero reward lie on an axis, which has no density, and are counted in :math:`N` only, so the
+      cells carry the mass :math:`\mathbb{P}(R_a > 0,\ R_b > 0)`. By default, the plots coarsen the cells with the
+      sample size, to the fourth root of :math:`N` per axis and at least 10.
 
     .. warning::
         :meth:`EmpiricalJointDistribution.conditional()
@@ -1450,6 +2051,12 @@ class EmpiricalJointDistribution:  # pragma: no cover
 
         corr = emp.joint(1, 2).corr
     """
+    _cdf_function = _EmpiricalJointCDF
+    _pdf_function = _EmpiricalJointDensity
+    _quantile_function = None
+
+    #: Static for backward compatibility.
+    label: Optional[str] = None
 
     def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray) -> None:
         """
@@ -1459,6 +2066,9 @@ class EmpiricalJointDistribution:  # pragma: no cover
         #: Per-replicate realisations of the two rewards.
         self._a = np.asarray(samples_a, dtype=float)
         self._b = np.asarray(samples_b, dtype=float)
+
+        #: Optional human-readable label used in plot titles, such as ``"SFS bins (1, 2)"``.
+        self.label: Optional[str] = None
 
     def marginal(self, which: str = 'a') -> EmpiricalDistribution:
         """
@@ -1536,15 +2146,53 @@ class EmpiricalJointDistribution:  # pragma: no cover
 
         return float(empty.mean()), EmpiricalDistribution(other[empty])
 
-    def cdf(self, x: float, y: float) -> float:
+    def window_average(self, statistic, on: str, value: float, half_width: float,
+                       n_nodes: int = None) -> 'float | np.ndarray':
         r"""
-        The empirical joint CDF, the fraction of replicates with :math:`R_a \le x` and :math:`R_b \le y`.
+        A statistic of the replicates whose conditioning reward :math:`R_c` lies in the window :math:`W` from
+        ``value - half_width`` to ``value + half_width``, the sampled counterpart of
+        :meth:`JointRewardDistribution.window_average()
+        <phasegen.distributions.JointRewardDistribution.window_average>`. ``statistic`` is applied to the
+        :class:`~phasegen.distributions.EmpiricalDistribution` of the other reward over these replicates, whose
+        estimators therefore estimate the averages over :math:`W` weighted by the density of :math:`R_c`, the mean
+        being the plain mean over the window.
 
-        :param x: Threshold for :math:`R_a`.
-        :param y: Threshold for :math:`R_b`.
-        :return: The empirical joint probability.
+        :param statistic: Callable taking an :class:`~phasegen.distributions.EmpiricalDistribution` and returning a
+            scalar or a 1D array, for example ``lambda c: c.mean`` or ``lambda c: c.cdf(ys)``.
+        :param on: The conditioning reward, ``'a'`` or ``'b'``.
+        :param value: Centre of the window.
+        :param half_width: Half-width of the window, in units of the conditioning reward, positive.
+        :param n_nodes: Unused, the average being over the replicates.
+        :return: The window average, a float for a scalar statistic and an array of the statistic's shape otherwise.
+        :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``half_width`` is not positive and finite, if
+            ``value`` is not finite, if the window reaches zero, where the conditioning reward may have an atom, or if
+            no replicate falls in the window.
         """
-        return float(((self._a <= x) & (self._b <= y)).mean())
+        if on not in ('a', 'b'):
+            raise ValueError("`on` must be 'a' or 'b'.")
+        if not 0 < half_width < np.inf:
+            raise ValueError(f"The half-width of the conditioning window must be positive and finite, got "
+                             f"{half_width:g}.")
+        if not np.isfinite(value):
+            raise ValueError(f"The centre of the conditioning window must be finite, got {value:g}.")
+
+        lo, hi = value - half_width, value + half_width
+
+        if lo <= 0.0:
+            raise ValueError(
+                f"The conditioning window [{lo:g}, {hi:g}] reaches 0, where R_{on} has an atom. Narrow the window or "
+                f"condition further from the origin."
+            )
+
+        cond, other = (self._a, self._b) if on == 'a' else (self._b, self._a)
+        mask = np.abs(cond - value) <= half_width
+
+        if not mask.any():
+            raise ValueError(f"No replicate falls in the conditioning window [{lo:g}, {hi:g}].")
+
+        average = np.asarray(statistic(EmpiricalDistribution(other[mask])), dtype=float)
+
+        return float(average) if average.ndim == 0 else average
 
     @property
     def mean(self) -> np.ndarray:
@@ -1578,7 +2226,7 @@ class EmpiricalJointDistribution:  # pragma: no cover
         """
         xs = np.linspace(0.0, float(np.quantile(self._a, q_max)), n_grid)
         ys = np.linspace(0.0, float(np.quantile(self._b, q_max)), n_grid)
-        cdf = (self._a[:, None] <= xs).astype(float).T @ (self._b[:, None] <= ys).astype(float) / len(self._a)
+        cdf = self.cdf._grid_values(xs, ys)
         pdf = np.gradient(np.gradient(cdf, xs, axis=0), ys, axis=1)
 
         return xs, ys, cdf, pdf
@@ -1595,7 +2243,7 @@ class EmpiricalJointDistribution:  # pragma: no cover
         return float(np.corrcoef(self._a, self._b)[0, 1])
 
 
-class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaSFSMixin):  # pragma: no cover
+class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDistribution):  # pragma: no cover
     """
     Empirical site-frequency spectrum with a per-deme breakdown, built by
     :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>` or
@@ -1617,27 +2265,8 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
     #: Static for backward compatibility.
     _layout_loci: LocusConfig | InitialDistribution | None = None
 
-    def _tajima_n(self) -> int:
-        # derive n from the (serialized) mean vector so this works on fixtures restored without ``n``
-        return len(np.asarray(self.mean)) - 1
-
-    def _polymorphic_bins(self) -> range:
-        """
-        The polymorphic frequency classes, ``1, ..., n // 2`` for a folded spectrum and ``1, ..., n - 1`` otherwise.
-
-        :return: The frequency classes.
-        """
-        n = self.samples.shape[1] - 1
-
-        return range(1, n // 2 + 1) if self._folded else range(1, n)
-
-    def _tajima_mean(self) -> np.ndarray:
-        n = self._tajima_n()
-        return np.asarray(self.mean)[1:n]
-
-    def _tajima_cov(self) -> np.ndarray:
-        n = self._tajima_n()
-        return np.asarray(self.cov)[1:n, 1:n]
+    #: Static for backward compatibility.
+    generated_mass: float = 0
 
     def __init__(
             self,
@@ -1792,25 +2421,6 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
         s = np.asarray(self.samples)
         return s[:, i], s[:, j]
 
-    def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
-        """
-        The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
-        samples, the sampled counterpart of
-        :meth:`UnfoldedSFSDistribution.joint()
-        <phasegen.distributions.UnfoldedSFSDistribution.joint>`, exposing the same
-        :meth:`~EmpiricalJointDistribution.marginal` and :meth:`~EmpiricalJointDistribution.conditional`
-        slices for a sanity check against the exact joint.
-
-        :param i: First frequency class.
-        :param j: Second frequency class.
-        :return: The empirical joint reward distribution of ``(L_i, L_j)``.
-        :raises ValueError: If the per-replicate samples have been dropped.
-        """
-        if self.samples is None:
-            raise ValueError("The per-replicate samples have been dropped; joint needs them.")
-        s = np.asarray(self.samples)
-        return EmpiricalJointDistribution(s[:, i], s[:, j])
-
     @cached_property
     def demes(self) -> Dict[str, EmpiricalDistribution]:
         """
@@ -1824,7 +2434,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
 
         data = self._samples.sum(axis=0)
 
-        return DictContainer._of_spectra(
+        return _DemeContainer._of_spectra(
             {pop: EmpiricalSFSDistribution(data[i], folded=self._folded) for i, pop in enumerate(self.pops)}, data
         )
 
@@ -1838,7 +2448,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
         """
         data = self._samples.sum(axis=1)
 
-        return DictContainer._of_spectra(
+        return _LocusContainer._of_spectra(
             {i: EmpiricalSFSDistribution(data[i], folded=self._folded) for i in range(data.shape[0])}, data
         )
 
@@ -1982,6 +2592,28 @@ class _ReplicateStatistic:  # pragma: no cover
         """Update from the whole replicate ``i`` (the tree sequence ``ts``), with ``seed`` the replicate's msprime
         seed."""
 
+    @staticmethod
+    def _locus_migrations(j: int, ts, ctx: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        The migrations of the lineages at locus ``j``, the unit interval ``[j, j + 1)``, in time order. A tree may span
+        several loci, whose lineages migrate independently, so the migrations taken are those covering the locus
+        midpoint. The migration table of the replicate is read once and kept in ``ctx``.
+
+        :param j: The locus.
+        :param ts: The tree sequence of the replicate.
+        :param ctx: The shared per-replicate data.
+        :return: The times, nodes, source and destination populations of the migrations.
+        """
+        if 'migrations' not in ctx:
+            ctx['migrations'] = ts.tables.migrations
+
+        migrations = ctx['migrations']
+        point = j + 0.5
+        hit = np.flatnonzero((migrations.left <= point) & (migrations.right > point))
+        hit = hit[np.argsort(migrations.time[hit], kind='stable')]
+
+        return migrations.time[hit], migrations.node[hit], migrations.source[hit], migrations.dest[hit]
+
 
 class _TreeStatistics(_ReplicateStatistic):  # pragma: no cover
     """Tree height, total branch length and SFS read directly from each tree: the root time, the tree's total branch
@@ -2026,17 +2658,8 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
     def process_tree(self, i, j, tree, ts, ctx) -> None:
         axis = self._axis
 
-        # the coalescences of this tree and the migrations of its lineages at locus ``j``, the unit interval
-        # ``[j, j + 1)``, in time order. A tree may span several loci, whose lineages migrate independently, so the
-        # migrations taken are those covering the locus midpoint
-        point = j + 0.5
-        migrations = ts.tables.migrations
-        in_tree = (migrations.left <= point) & (migrations.right > point)
-        order = np.argsort(migrations.time[in_tree], kind='stable')
-        m_time = migrations.time[in_tree][order]
-        m_node = migrations.node[in_tree][order]
-        m_source = migrations.source[in_tree][order]
-        m_dest = migrations.dest[in_tree][order]
+        # the coalescences of this tree and the migrations of its lineages at locus ``j``, in time order
+        m_time, m_node, m_source, m_dest = self._locus_migrations(j, ts, ctx)
 
         coalescences = sorted((u for u in tree.nodes() if tree.num_children(u) > 0), key=tree.time)
 
@@ -2176,6 +2799,517 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
                 self.by_deme[int(x), self._axis[pop], i, leaves[k]] += 1
 
 
+class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
+    """
+    The lineages of each tree through time, from which ``_Trajectories`` reads rewards accumulated over a time
+    window. A lineage contributes one row per deme it resides in, holding the time interval of its residence, its
+    number of leaves and the deme. Each interval between consecutive events of a tree that holds more than one
+    lineage contributes one row per occupied deme, holding the share of the lineages residing in it. The demes are
+    read from the recorded migrations when ``axis`` is given, and all lineages are placed in deme 0 otherwise. The
+    lineages of a tree that ``end_time`` stops before its root extend to ``end_time``.
+    """
+
+    def __init__(self, n_pops: int, end_time: float = None, axis: np.ndarray = None) -> None:
+        """
+        :param n_pops: Number of demes.
+        :param end_time: Time at which the simulation ends, ``None`` for absorption.
+        :param axis: Deme axis of each msprime population id, ``None`` without migration recording.
+        """
+        self._n_pops = n_pops
+        self._end_time = np.inf if end_time is None else float(end_time)
+        self._axis = axis
+
+        #: Per tree, rows ``(replicate, locus, deme, start, end, leaves)`` of the lineages.
+        self._lineages: List[np.ndarray] = []
+
+        #: Per tree, rows ``(replicate, locus, deme, start, end, share)`` of the intervals between events.
+        self._shares: List[np.ndarray] = []
+
+    def process_tree(self, i, j, tree, ts, ctx) -> None:
+        axis = self._axis
+
+        # the migrations of each lineage at locus j, in time order
+        moves = {}
+        if axis is not None:
+            for time, node, _, dest in zip(*self._locus_migrations(j, ts, ctx)):
+                moves.setdefault(int(node), []).append((float(time), int(axis[dest])))
+
+        unfinished = tree.num_roots > 1
+        rows = []
+
+        for u in tree.nodes():
+            parent = tree.parent(u)
+
+            # a single root carries no branch
+            if parent == -1 and not unfinished:
+                continue
+
+            start = tree.time(u)
+            end = tree.time(parent) if parent != -1 else self._end_time
+            leaves = tree.get_num_leaves(u)
+            deme = 0 if axis is None else int(axis[tree.population(u)])
+
+            for time, dest in moves.get(u, ()):
+                rows.append((i, j, deme, start, time, leaves))
+                start, deme = time, dest
+
+            rows.append((i, j, deme, start, end, leaves))
+
+        lineages = np.array(rows, dtype=float).reshape(-1, 6)
+        self._lineages.append(lineages)
+
+        # the number of lineages per deme between consecutive events
+        starts, ends, demes = lineages[:, 3], lineages[:, 4], lineages[:, 2].astype(int)
+        grid = np.unique(np.concatenate([starts, ends]))
+        counts = np.zeros((grid.size, self._n_pops))
+        np.add.at(counts, (np.searchsorted(grid, starts), demes), 1)
+        np.add.at(counts, (np.searchsorted(grid, ends), demes), -1)
+        counts = np.cumsum(counts, axis=0)[:-1]
+        total = counts.sum(axis=1)
+
+        k, d = np.nonzero((counts > 0) & (total[:, None] > 1))
+        self._shares.append(np.column_stack([
+            np.full(k.size, i), np.full(k.size, j), d, grid[k], grid[k + 1], counts[k, d] / total[k]
+        ]))
+
+    def records(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        :return: The rows of the lineages and of the intervals between events.
+        """
+        return (np.concatenate(self._lineages) if self._lineages else np.zeros((0, 6)),
+                np.concatenate(self._shares) if self._shares else np.zeros((0, 6)))
+
+
+class _Trajectories:  # pragma: no cover
+    r"""
+    Rewards accumulated over a time window by the replicates of :class:`MsprimeCoalescent`, read from the rows that
+    ``_TrajectoryStatistics`` records. A row holds a time interval :math:`[a, b]` and a weight :math:`w`, the share
+    of the lineages in its deme for the tree height and one for the branch lengths. Replicate :math:`m` accumulates
+    over the window :math:`[s, t]` the reward
+
+    .. math::
+
+        R_m(s, t) = \sum_{\text{rows of } m} w \max\{0, \min(b, t) - \max(a, s)\},
+
+    the sum running over the rows that the reward selects by locus, deme and number of leaves. The tree height of
+    several loci is the largest of the per-locus heights.
+    """
+
+    #: The rewards that are read from the simulated genealogies, for error messages.
+    _supported = (
+        "TreeHeightReward, TotalTreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, FoldedSFSReward and "
+        "TwoLocusSFSReward, their restrictions to a locus or a deme by RestrictedReward or CombinedReward, and sums "
+        "of them by SumReward"
+    )
+
+    def __init__(
+            self,
+            lineages: np.ndarray,
+            shares: np.ndarray,
+            n_replicates: int,
+            n_loci: int,
+            n: int,
+            pops: List[str],
+            resolves_demes: bool
+    ) -> None:
+        """
+        :param lineages: Rows ``(replicate, locus, deme, start, end, leaves)`` of the lineages.
+        :param shares: Rows ``(replicate, locus, deme, start, end, share)`` of the intervals between events.
+        :param n_replicates: Number of replicates.
+        :param n_loci: Number of loci.
+        :param n: Number of sampled lineages.
+        :param pops: Population names, in the order of the deme axis.
+        :param resolves_demes: Whether the rows resolve the demes.
+        """
+        self._lineages = lineages
+        self._shares = shares
+        self.n_replicates = n_replicates
+        self.n_loci = n_loci
+        self.n = n
+        self.pops = pops
+        self.resolves_demes = resolves_demes
+
+    def _terms(self, reward: Reward) -> List[Tuple[str, Optional[int], Optional[int], Optional[Tuple[int, ...]]]]:
+        """
+        The terms whose sum is the accumulated reward, each ``(kind, locus, deme, leaves)``, where ``kind`` is
+        ``'height'`` for the lineage shares, ``'length'`` for the lineages and ``'max_height'`` for the largest
+        per-locus height, and ``None`` selects all loci, demes or leaf counts.
+
+        :param reward: The reward.
+        :return: The terms.
+        :raises ValueError: If a locus, deme or frequency class does not exist, or the demes are not resolved.
+        :raises NotImplementedError: If the reward is not read from the simulated genealogies.
+        """
+        if isinstance(reward, TreeHeightReward):
+            return [('max_height' if self.n_loci > 1 else 'height', None, None, None)]
+
+        if isinstance(reward, TotalTreeHeightReward):
+            return [('height', None, None, None)]
+
+        if isinstance(reward, TotalBranchLengthReward):
+            return [('length', None, None, None)]
+
+        if isinstance(reward, SFSReward):
+            return [('length', None, None, tuple(reward._block_sizes(self.n)))]
+
+        if isinstance(reward, TwoLocusSFSReward):
+            _polymorphic_class(reward.count, 1, self.n - 1)
+            self._check_locus(reward.locus)
+
+            return [('length', reward.locus, None, (reward.count,))]
+
+        if isinstance(reward, SumReward):
+            return [term for r in reward.rewards for term in self._terms(r)]
+
+        # a product reward, combined rewards among them, is read when a single factor differs from the unit reward
+        if isinstance(reward, ProductReward):
+            factors = [r for r in reward.rewards if not isinstance(r, UnitReward)]
+
+            if len(factors) == 1:
+                return self._terms(factors[0])
+
+        if isinstance(reward, RestrictedReward):
+            terms = self._terms(reward.rewards[0])
+
+            if reward.locus is not None:
+                self._check_locus(reward.locus)
+                terms = [('height' if kind == 'max_height' else kind, reward.locus, deme, leaves)
+                         for kind, locus, deme, leaves in terms if locus in (None, reward.locus)]
+
+            if reward.pop is not None:
+                deme = self._deme(reward.pop)
+
+                if any(kind == 'max_height' for kind, *_ in terms):
+                    raise NotImplementedError(
+                        f"TreeHeightReward does not decompose additively over the {self.n_loci} loci, so the "
+                        f"restriction to a deme is ill-posed. Restrict to a single locus as well, or use a reward "
+                        f"that is additive over loci such as TotalTreeHeightReward or TotalBranchLengthReward."
+                    )
+
+                terms = [(kind, locus, deme, leaves) for kind, locus, d, leaves in terms if d in (None, deme)]
+
+            return terms
+
+        raise NotImplementedError(
+            f"{type(reward).__name__} is not read from the simulated genealogies. Supported are {self._supported}."
+        )
+
+    def _check_locus(self, locus: int) -> None:
+        """
+        :param locus: The locus index.
+        :raises ValueError: If the locus does not exist.
+        """
+        if not 0 <= locus < self.n_loci:
+            raise ValueError(f"Locus {locus} does not exist.")
+
+    def _deme(self, pop: str) -> int:
+        """
+        :param pop: The population name.
+        :return: The deme index of the population.
+        :raises ValueError: If the population does not exist or the demes are not resolved.
+        """
+        if pop not in self.pops:
+            raise ValueError(f"Population {pop} does not exist.")
+
+        if not self.resolves_demes:
+            raise ValueError(
+                "Per-deme statistics of MsprimeCoalescent require the migration history. "
+                "Simulate with record_migration=True."
+            )
+
+        return self.pops.index(pop)
+
+    def _term(
+            self,
+            kind: str,
+            locus: Optional[int],
+            deme: Optional[int],
+            leaves: Optional[Tuple[int, ...]],
+            start_time: float,
+            end_times: np.ndarray
+    ) -> np.ndarray:
+        """
+        The accumulation of one term, see ``_terms``.
+
+        :param kind: ``'height'``, ``'length'`` or ``'max_height'``.
+        :param locus: The locus, ``None`` for all.
+        :param deme: The deme, ``None`` for all.
+        :param leaves: The numbers of leaves, ``None`` for all.
+        :param start_time: The start time of the window.
+        :param end_times: The end times of the window.
+        :return: The accumulation of shape ``(len(end_times), n_replicates)``.
+        """
+        if kind == 'max_height':
+            return np.max([self._term('height', l, deme, None, start_time, end_times) for l in range(self.n_loci)],
+                          axis=0)
+
+        rows = self._shares if kind == 'height' else self._lineages
+        mask = np.ones(len(rows), dtype=bool)
+
+        if locus is not None:
+            mask &= rows[:, 1] == locus
+
+        if deme is not None:
+            mask &= rows[:, 2] == deme
+
+        if leaves is not None:
+            mask &= np.isin(rows[:, 5], leaves)
+
+        rows = rows[mask]
+        replicates = rows[:, 0].astype(int)
+        weights = rows[:, 5] if kind == 'height' else np.ones(len(rows))
+        lower = np.maximum(rows[:, 3], start_time)
+
+        out = np.empty((len(end_times), self.n_replicates))
+        for e, t in enumerate(end_times):
+            overlap = np.clip(np.minimum(rows[:, 4], t) - lower, 0, None)
+            out[e] = np.bincount(replicates, weights=weights * overlap, minlength=self.n_replicates)
+
+        return out
+
+    def accumulated(self, reward: Reward, start_time: float, end_times: np.ndarray) -> np.ndarray:
+        """
+        The reward accumulated by each replicate from the start time to each end time.
+
+        :param reward: The reward.
+        :param start_time: The start time.
+        :param end_times: The end times.
+        :return: The accumulated reward of shape ``(len(end_times), n_replicates)``.
+        :raises ValueError: If a locus, deme or frequency class does not exist, or the demes are not resolved.
+        :raises NotImplementedError: If the reward is not read from the simulated genealogies.
+        """
+        out = np.zeros((len(end_times), self.n_replicates))
+
+        for term in self._terms(reward):
+            out += self._term(*term, start_time, end_times)
+
+        return out
+
+
+class _EmpiricalAccumulation:  # pragma: no cover
+    """
+    Sample moments of rewards accumulated by the replicates of :class:`MsprimeCoalescent` over a time window, with
+    the ``accumulate`` and ``plot_accumulation`` interface and the plotting code of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. ``reward`` is the default reward of every factor.
+    """
+
+    _reward_names = staticmethod(PhaseTypeDistribution._reward_names)
+
+    _plot_accumulation_data = PhaseTypeDistribution._plot_accumulation_data
+
+    plot_accumulation = PhaseTypeDistribution.plot_accumulation
+
+    def __init__(self, coalescent: 'MsprimeCoalescent', reward: Reward) -> None:
+        """
+        :param coalescent: The coalescent whose replicates accumulate the rewards.
+        :param reward: The default reward.
+        """
+        self._coalescent = coalescent
+        self.reward = reward
+
+    @staticmethod
+    def _rewards(k: int, rewards: Optional[Sequence[Reward]], default: Reward) -> Tuple[Reward, ...]:
+        """
+        Validate the rewards of a moment of order ``k``.
+
+        :param k: The order of the moment.
+        :param rewards: Sequence of ``k`` rewards, ``None`` for the default reward for each factor.
+        :param default: The default reward.
+        :return: The rewards.
+        :raises ValueError: If a single reward is passed or the number of rewards differs from ``k``.
+        :raises TypeError: If an entry is not a :class:`~phasegen.rewards.Reward`.
+        """
+        _validate_rewards(rewards, k)
+        rewards = (default,) * k if rewards is None else tuple(rewards)
+        _validate_reward_count(rewards, k)
+
+        return rewards
+
+    @staticmethod
+    def _moment(values: List[np.ndarray], center: bool, size: int) -> np.ndarray:
+        r"""
+        The sample cross-moment :math:`\frac{1}{N} \sum_{m=1}^N \prod_{i=1}^k (R_{i,m} - \hat\mu_i)` of
+        :math:`k` rewards over :math:`N` replicates, with :math:`\hat\mu_i` the sample mean of reward :math:`i` for
+        a central moment (``center`` and :math:`k \ge 2`) and zero otherwise.
+
+        :param values: The realisations :math:`R_{i,m}` of each reward, of shape ``(size, N)``.
+        :param center: Whether to center the moment.
+        :param size: The number of moments, one for order zero.
+        :return: The moments, of shape ``(size,)``.
+        """
+        if not values:
+            return np.ones(size)
+
+        if center and len(values) > 1:
+            values = [v - v.mean(axis=1, keepdims=True) for v in values]
+
+        return np.mean(np.prod(values, axis=0), axis=1)
+
+    @property
+    def _end_time(self) -> float:
+        """The end time of the coalescent, infinite for absorption."""
+        return np.inf if self._coalescent.end_time is None else self._coalescent.end_time
+
+    def _estimate(self, rewards: Tuple[Reward, ...], start_time: float, end_times: np.ndarray, center: bool) -> np.ndarray:
+        """
+        :param rewards: The rewards.
+        :param start_time: The start time.
+        :param end_times: The end times.
+        :param center: Whether to center the moment.
+        :return: The sample moment at each end time.
+        :raises ValueError: If the start time is negative, or an end time exceeds the end time of the coalescent, at
+            which the simulation stops.
+        """
+        _validate_start_time(start_time)
+
+        if np.any(end_times > self._end_time):
+            raise ValueError(
+                f"The end times must not exceed the end time of the coalescent ({self._end_time:g}), at which the "
+                f"simulation stops, got {np.max(end_times):g}."
+            )
+
+        if not rewards:
+            return np.ones(len(end_times))
+
+        records = self._coalescent._trajectory_records()
+        values = {r: records.accumulated(r, start_time, end_times) for r in set(rewards)}
+
+        return self._moment([values[r] for r in rewards], center, len(end_times))
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        See :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+
+        :param k: The order of the moment.
+        :param end_times: The end times.
+        :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time, by default 0.
+        :return: The moment at each end time.
+        """
+        k = _validate_order(k)
+        rewards = self._rewards(k, rewards, self.reward)
+        end_times = np.asarray(list(end_times), dtype=float)
+
+        return self._estimate(rewards, 0.0 if start_time is None else start_time, end_times, center)
+
+    def moment(
+            self,
+            k: int = 1,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float:
+        """
+        See :meth:`MsprimeCoalescent.moment() <phasegen.distributions.MsprimeCoalescent.moment>`.
+
+        :param k: The order of the moment.
+        :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
+        :param start_time: The start time, by default 0.
+        :param end_time: The end time, by default the end time of the coalescent.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :return: The moment.
+        """
+        k = _validate_order(k)
+        rewards = self._rewards(k, rewards, self.reward)
+        end = self._end_time if end_time is None else end_time
+
+        return float(self._estimate(rewards, 0.0 if start_time is None else start_time, np.array([end]), center)[0])
+
+    def samples(self, reward: Reward) -> np.ndarray:
+        """
+        :param reward: The reward.
+        :return: The reward accumulated by each replicate from time 0 to the end time of the coalescent.
+        """
+        return self._coalescent._trajectory_records().accumulated(reward, 0.0, np.array([self._end_time]))[0]
+
+    def _default_end_times(self) -> np.ndarray:
+        """
+        Default times of moment accumulation plots: :attr:`Settings.plot_n_grid` points up to the
+        :attr:`Settings.plot_endpoint_quantile` quantile of the sampled tree height, or up to the end time of the
+        coalescent if it is finite.
+
+        :return: The times.
+        """
+        if self._coalescent.end_time is not None:
+            end = self._coalescent.end_time
+        else:
+            end = float(np.quantile(self.samples(TreeHeightReward()), Settings.plot_endpoint_quantile))
+
+        return np.linspace(0, end, Settings.plot_n_grid)
+
+
+class _EmpiricalSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
+    """
+    The accumulation of every bin of a site-frequency spectrum, with the ``accumulate`` interface and the plotting
+    code of :class:`~phasegen.distributions.SFSDistribution`. The bins are those of ``sfs_dist``.
+    """
+
+    _plot_accumulation_data = SFSDistribution._plot_accumulation_data
+
+    def __init__(self, coalescent: 'MsprimeCoalescent', sfs_dist: Type[SFSDistribution]) -> None:
+        """
+        :param coalescent: The coalescent whose replicates accumulate the rewards.
+        :param sfs_dist: The exact spectrum class whose bins are accumulated.
+        """
+        super().__init__(coalescent, UnitReward())
+
+        self._sfs_dist = sfs_dist
+        self.lineage_config = coalescent.lineage_config
+
+    def _get_indices(self) -> np.ndarray:
+        """The polymorphic bins of the spectrum."""
+        return self._sfs_dist._get_indices(self)
+
+    def _get_sfs_reward(self, i: int) -> SFSReward:
+        """The reward of bin ``i``."""
+        return self._sfs_dist._get_sfs_reward(self, i)
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        The moment of every bin, each reward combined with the reward of the bin.
+
+        :param k: The order of the moment.
+        :param end_times: The end times.
+        :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time, by default 0.
+        :return: Array of shape ``(len(end_times), n + 1)``, one column per site-frequency count.
+        """
+        k = _validate_order(k)
+        rewards = self._rewards(k, rewards, self.reward)
+        end_times = np.asarray(list(end_times), dtype=float)
+        start_time = 0.0 if start_time is None else start_time
+
+        out = np.zeros((len(end_times), self.lineage_config.n + 1))
+        for i in self._get_indices():
+            bin_rewards = tuple(CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards)
+            out[:, i] = self._estimate(bin_rewards, start_time, end_times, center)
+
+        return out
+
+
 def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
     """
     The initial state of a two-locus simulation in which ``n_unlinked`` of the sampled lineages start unlinked
@@ -2239,6 +3373,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         height = ms.tree_height.mean
         sfs = ms.sfs.mean
     """
+
+    #: Lineage trajectories of the replicates, simulated on first use by ``_trajectory_records``. Static for
+    #: backward compatibility.
+    _trajectories: Optional[_Trajectories] = None
 
     def __init__(
             self,
@@ -2475,6 +3613,15 @@ class MsprimeCoalescent(AbstractCoalescent):
         if self.heights is not None:
             return
 
+        self._simulate(main=True, trajectories=False)
+
+    def _simulate(self, main: bool, trajectories: bool) -> None:
+        """
+        Simulate the replicates, from the seeds of :meth:`simulate`, and store the requested statistics.
+
+        :param main: Whether to store the statistics of :meth:`simulate`.
+        :param trajectories: Whether to store the lineage trajectories of ``_trajectory_records``.
+        """
         # number of replicates for one thread
         num_replicates = self.num_replicates // self.n_threads
         demography = self.demography.to_msprime()
@@ -2531,16 +3678,20 @@ class MsprimeCoalescent(AbstractCoalescent):
             # the per-statistic accumulators this scenario needs; the tree-height / total-branch-length / SFS triple
             # is recorded either directly from each tree or, with migration recording, from the migration history
             n_loci = self.locus_config.n
-            tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, axis)
-                          if self.record_migration
-                          else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
+            tree_stats = None
+            if main:
+                tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, axis)
+                              if self.record_migration
+                              else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
             jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)
-                          if compute_jsfs else None)
+                          if main and compute_jsfs else None)
             mutation_stats = (_MutationStatistics(n_loci, n_pops, num_replicates, sample_size, self.mutation_rate,
                                                   jsfs_shape=jsfs_shape if compute_jsfs else None,
                                                   axis=axis if self.record_migration else None)
-                              if self.simulate_mutations else None)
-            stats = [s for s in (tree_stats, jsfs_stats, mutation_stats) if s is not None]
+                              if main and self.simulate_mutations else None)
+            trajectory_stats = (_TrajectoryStatistics(n_pops, end_time, axis if self.record_migration else None)
+                                if trajectories else None)
+            stats = [s for s in (tree_stats, jsfs_stats, mutation_stats, trajectory_stats) if s is not None]
 
             # iterate over the tree sequences once, feeding every statistic
             ts: tskit.TreeSequence
@@ -2548,7 +3699,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
                 # map each sample to the index of its sampling population (deme of origin) for the joint SFS
                 ctx = {}
-                if compute_jsfs:
+                if main and compute_jsfs:
                     ctx['pop_of_leaf'] = {
                         u: name_to_index[ts.population(ts.node(u).population).metadata['name']]
                         for u in ts.samples()
@@ -2561,6 +3712,11 @@ class MsprimeCoalescent(AbstractCoalescent):
 
                 for stat in stats:
                     stat.process_replicate(i, ts, ctx, replicate_seeds[i])
+
+            records = trajectory_stats.records() if trajectories else None
+
+            if not main:
+                return dict(trajectories=records)
 
             # the mutations / jSFS arrays default to zeros / None when not requested (kept in the return layout for
             # the cross-thread aggregation in ``simulate``)
@@ -2575,7 +3731,8 @@ class MsprimeCoalescent(AbstractCoalescent):
                 jsfs=jsfs_acc,
                 jsfs_samples=jsfs_samples,
                 jsfs_mutations=mutation_stats.joint if mutation_stats is not None else None,
-                deme_mutations=mutation_stats.by_deme if mutation_stats is not None else None
+                deme_mutations=mutation_stats.by_deme if mutation_stats is not None else None,
+                trajectories=records
             )
 
         # parallelize over threads
@@ -2588,6 +3745,27 @@ class MsprimeCoalescent(AbstractCoalescent):
             desc="Simulating trees",
             dtype=object
         )
+
+        # combine the lineage trajectories across threads, numbering the replicates of each thread after those of
+        # the previous ones
+        if trajectories:
+            lineages, shares = [], []
+            for b, batch in enumerate(batches):
+                for rows, combined in zip(batch['trajectories'], (lineages, shares)):
+                    combined.append(rows + np.array([b * num_replicates, 0, 0, 0, 0, 0]))
+
+            self._trajectories = _Trajectories(
+                lineages=np.concatenate(lineages),
+                shares=np.concatenate(shares),
+                n_replicates=n_total,
+                n_loci=self.locus_config.n,
+                n=sample_size,
+                pops=self.lineage_config.pop_names,
+                resolves_demes=self._resolves_demes
+            )
+
+        if not main:
+            return
 
         # combine the per-replicate statistics across threads
         res = np.hstack([b['main'] for b in batches])
@@ -2679,10 +3857,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.jsfs_moments = None
         self.jsfs_samples = None
 
-        self.tree_height._drop()
-        self.total_branch_length._drop()
-        self.sfs._drop()
-        self.fsfs._drop()
+        self._trajectories = None
+
+        for dist in (self.tree_height, self.total_branch_length, self.sfs, self.fsfs):
+            dist._drop()
+            dist._accumulator = None
 
         # caused problems when serializing
         self.demography = None
@@ -2701,12 +3880,15 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeDistribution(
+        dist = EmpiricalPhaseTypeDistribution(
             self.heights,
             pops=self.lineage_config.pop_names,
             locus_agg=lambda x: x.max(axis=0),
             resolves_demes=self._resolves_demes
         )
+        dist._accumulator = _EmpiricalAccumulation(self, TreeHeightReward())
+
+        return dist
 
     @cached_property
     def total_branch_length(self) -> EmpiricalPhaseTypeDistribution:
@@ -2715,8 +3897,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.lineage_config.pop_names,
+        dist = EmpiricalPhaseTypeDistribution(self.total_branch_lengths, pops=self.lineage_config.pop_names,
                                               resolves_demes=self._resolves_demes)
+        dist._accumulator = _EmpiricalAccumulation(self, TotalBranchLengthReward())
+
+        return dist
 
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
@@ -2725,7 +3910,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         self.simulate()
 
-        return EmpiricalPhaseTypeSFSDistribution(
+        dist = EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=self.sfs_lengths,
             mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
@@ -2734,6 +3919,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
             locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
+        dist._accumulator = _EmpiricalSFSAccumulation(self, UnfoldedSFSDistribution)
+
+        return dist
 
     @cached_property
     def fsfs(self) -> EmpiricalPhaseTypeSFSDistribution:
@@ -2754,7 +3942,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         mutations[:mid] += mutations[-mid:][::-1]
         mutations = mutations[1:self.lineage_config.n // 2 + 1]
 
-        return EmpiricalPhaseTypeSFSDistribution(
+        dist = EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=lengths.T,
             mutations=mutations.T if self.simulate_mutations else None,
             pops=self.lineage_config.pop_names,
@@ -2763,6 +3951,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
             locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
+        dist._accumulator = _EmpiricalSFSAccumulation(self, FoldedSFSDistribution)
+
+        return dist
 
     #: Highest moment order computed for the empirical joint SFS ground truth.
     _jsfs_max_order: int = 3
@@ -2790,8 +3981,14 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         self.simulate()
 
-        return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples,
-                                             n_samples=self.n_total, mutation_counts=self.jsfs_mutations)
+        return EmpiricalJointSFSDistribution(
+            moments=self.jsfs_moments,
+            samples=self.jsfs_samples,
+            n_samples=self.n_total,
+            mutation_counts=self.jsfs_mutations,
+            lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
+            locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
+        )
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
@@ -2814,7 +4011,13 @@ class MsprimeCoalescent(AbstractCoalescent):
         # the mutation counts of a locus summed over the demes they occur in, of shape (N, 2, n + 1)
         counts = None if self.mutations is None else np.moveaxis(self.mutations.sum(axis=1), 1, 0)
 
-        return EmpiricalTwoLocusSFSDistribution(lengths[0], lengths[1], mutation_counts=counts)
+        return EmpiricalTwoLocusSFSDistribution(
+            lengths[0],
+            lengths[1],
+            mutation_counts=counts,
+            lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
+            locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
+        )
 
     @cached_property
     def fst(self) -> float:
@@ -2932,6 +4135,189 @@ class MsprimeCoalescent(AbstractCoalescent):
         t = self._pairwise_coalescence_time
         return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
 
+    def _trajectory_records(self) -> _Trajectories:
+        """
+        The lineage trajectories of the replicates, recorded on first use. They are simulated together with the
+        statistics of :meth:`simulate` while those are not yet held, and otherwise from the same seeds, which give
+        the same genealogies for a fixed :attr:`seed`.
+
+        :return: The trajectories.
+        """
+        if self._trajectories is None:
+            self._simulate(main=self.heights is None, trajectories=True)
+
+        return self._trajectories
+
+    def _accumulator(self) -> _EmpiricalAccumulation:
+        """
+        :return: The accumulation of rewards over time, with the tree-height reward by default.
+        """
+        return _EmpiricalAccumulation(self, TreeHeightReward())
+
+    @_make_hashable
+    @cache
+    def joint(self, reward_a: Reward, reward_b: Reward) -> EmpiricalJointDistribution:
+        """
+        Joint distribution of two rewards accumulated by each replicate until the end time of the coalescent, the
+        sampled counterpart of :meth:`Coalescent.joint() <phasegen.distributions.Coalescent.joint>`, cached per pair
+        of rewards. The rewards are those of :meth:`MsprimeCoalescent.accumulate()
+        <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The joint distribution.
+        :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        """
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
+
+        accumulator = self._accumulator()
+
+        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b))
+
+    @_make_hashable
+    @cache
+    def moment(
+            self,
+            k: int = 1,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float:
+        """
+        The :math:`k`-th sample moment of the rewards accumulated from the start time to the end time, as described
+        in :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`, the sampled
+        counterpart of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`.
+
+        :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param start_time: The start time :math:`s`. By default, 0.
+        :param end_time: The end time :math:`t`. By default, the end time of the coalescent, or absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of :meth:`Coalescent.moment()
+            <phasegen.distributions.Coalescent.moment>`. The sample moment does not depend on the order of the
+            rewards.
+        :return: The :math:`k`-th moment.
+        :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
+            time is negative, or the end time exceeds that of the coalescent.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        """
+        return self._accumulator().moment(k, rewards, start_time, end_time, center, permute)
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        r"""
+        The :math:`k`-th sample moment of the rewards accumulated from the start time :math:`s` to each end time
+        :math:`t` in ``end_times``, the sampled counterpart of :meth:`Coalescent.accumulate()
+        <phasegen.distributions.Coalescent.accumulate>`. Replicate :math:`m` of the :math:`N` replicates accumulates
+        the reward
+
+        .. math::
+
+            R_{i,m}(s, t) = \int_s^t r_{i,m}(u)\, \mathrm{d}u,
+
+        where :math:`r_{i,m}(u)` is the rate of reward :math:`i` in the genealogy of replicate :math:`m` at time
+        :math:`u`. For the tree height it is one while more than one lineage remains, for the total branch length the
+        number of lineages, and for SFS bin :math:`j` the number of lineages subtending :math:`j` samples. The
+        moment is
+
+        .. math::
+
+            \frac{1}{N} \sum_{m=1}^{N} \prod_{i=1}^{k} \big(R_{i,m}(s, t) - \hat\mu_i\big),
+
+        with :math:`\hat\mu_i` the sample mean of :math:`R_{i,m}(s, t)` for a central moment (``center`` and
+        :math:`k \ge 2`) and zero otherwise.
+
+        The rewards read from the genealogies are :class:`~phasegen.rewards.TreeHeightReward`,
+        :class:`~phasegen.rewards.TotalTreeHeightReward`, :class:`~phasegen.rewards.TotalBranchLengthReward`,
+        :class:`~phasegen.rewards.UnfoldedSFSReward`, :class:`~phasegen.rewards.FoldedSFSReward` and
+        :class:`~phasegen.rewards.TwoLocusSFSReward`, their restrictions to a locus or a deme by
+        :class:`~phasegen.rewards.RestrictedReward` or :class:`~phasegen.rewards.CombinedReward`, and sums of them
+        by :class:`~phasegen.rewards.SumReward`. A restriction to a deme of several demes requires
+        ``record_migration``. The lineage trajectories are recorded by a simulation on first use, see
+        :meth:`simulate`.
+
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t` at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of :meth:`Coalescent.accumulate()
+            <phasegen.distributions.Coalescent.accumulate>`. The sample moment does not depend on the order of the
+            rewards.
+        :param start_time: The start time :math:`s`. By default, 0.
+        :return: The moment at each end time.
+        :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
+            time is negative, an end time exceeds that of the coalescent, or a reward refers to a locus, deme or
+            frequency class that does not exist.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        """
+        return self._accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
+
+    def plot_accumulation(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            ax: 'plt.Axes' = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None
+    ) -> 'plt.Axes':
+        """
+        Plot the accumulation of the sample moments of :meth:`MsprimeCoalescent.accumulate()
+        <phasegen.distributions.MsprimeCoalescent.accumulate>`, as :meth:`Coalescent.plot_accumulation()
+        <phasegen.distributions.Coalescent.plot_accumulation>` does.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to the
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the sampled tree height, or up to
+            the end time of the coalescent if it is finite.
+        :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Accepted for the signature of :meth:`Coalescent.plot_accumulation()
+            <phasegen.distributions.Coalescent.plot_accumulation>`.
+        :param ax: Axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        :raises ValueError: if ``k`` is not a non-negative integer, or if ``rewards`` is a single
+            :class:`~phasegen.rewards.Reward` and not a sequence.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        """
+        return self._accumulator().plot_accumulation(
+            k=k,
+            end_times=end_times,
+            rewards=rewards,
+            center=center,
+            permute=permute,
+            ax=ax,
+            show=show,
+            file=file,
+            clear=clear,
+            label=label,
+            title=title
+        )
+
     def to_phasegen(self) -> Coalescent:
         """
         Convert to native phasegen coalescent.
@@ -2974,7 +4360,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
 
     #: Per-statistic spawn keys so each distribution is sampled reproducibly and independently of access order.
-    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5)
+    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5, joint=6, moment=7)
 
     def __init__(
             self,
@@ -3015,6 +4401,86 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         seed = None if self.seed is None else np.random.default_rng(
             np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],)))
         return getattr(self._coalescent, name).to_empirical(self.n_samples, seed=seed)
+
+    def _sample_rewards(self, rewards: Tuple[Reward, ...], name: str) -> np.ndarray:
+        """
+        Sample the rewards from shared trajectories of the wrapped coalescent, on the smallest state space
+        supporting all of them, seeded reproducibly.
+
+        :param rewards: The rewards.
+        :param name: The key of the spawned seed in ``_spawn_keys``.
+        :return: The samples, of shape ``(n_samples, len(rewards))``.
+        """
+        seed = None if self.seed is None else np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],))
+        dist = self._coalescent._get_dist(len(rewards), list(rewards))
+
+        return dist._sample(self.n_samples, rewards=list(rewards), rng=np.random.default_rng(seed))
+
+    @_make_hashable
+    @cache
+    def joint(self, reward_a: Reward, reward_b: Reward) -> EmpiricalJointDistribution:
+        """
+        Joint distribution of two accumulated rewards sampled from shared trajectories, the sampled counterpart of
+        :meth:`Coalescent.joint() <phasegen.distributions.Coalescent.joint>`, cached per pair of rewards.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The joint distribution.
+        :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
+        """
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
+
+        samples = self._sample_rewards((reward_a, reward_b), 'joint')
+
+        return EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
+
+    @_make_hashable
+    @cache
+    def moment(
+            self,
+            k: int = 1,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float:
+        """
+        The :math:`k`-th sample moment of rewards sampled from shared trajectories, the sampled counterpart of
+        :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`. The estimator is that of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`. The
+        trajectories accumulate the rewards over the window of the wrapped coalescent.
+
+        :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param start_time: The start time, which must be that of the wrapped coalescent.
+        :param end_time: The end time, which must be that of the wrapped coalescent.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of :meth:`Coalescent.moment()
+            <phasegen.distributions.Coalescent.moment>`. The sample moment does not depend on the order of the
+            rewards.
+        :return: The :math:`k`-th moment.
+        :raises ValueError: if ``k`` is not a non-negative integer or the number of rewards differs from it.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if the start or end time differs from that of the wrapped coalescent.
+        """
+        k = _validate_order(k)
+        rewards = _EmpiricalAccumulation._rewards(k, rewards, TreeHeightReward())
+        window = (self._coalescent.start_time, self._coalescent.end_time)
+
+        if (start_time not in (None, window[0])) or (end_time not in (None, window[1])):
+            raise NotImplementedError(
+                f"SampledCoalescent samples the rewards accumulated over the window of the wrapped coalescent, from "
+                f"start_time={window[0]} to end_time={window[1]}."
+            )
+
+        if k == 0:
+            return 1.0
+
+        samples = self._sample_rewards(rewards, 'moment')
+
+        return float(_EmpiricalAccumulation._moment([s[None, :] for s in samples.T], center, 1)[0])
 
     @cached_property
     def tree_height(self) -> EmpiricalPhaseTypeDistribution:

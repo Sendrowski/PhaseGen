@@ -2,7 +2,7 @@
 import functools
 
 import numpy as np
-from typing import Callable
+from typing import Callable, Sequence, Tuple
 
 from ..rewards import Reward
 
@@ -69,3 +69,102 @@ def _validate_reward(reward: Reward, name: str = 'reward') -> None:
     if not isinstance(reward, Reward):
         got = 'a sequence' if isinstance(reward, (list, tuple)) else type(reward).__name__
         raise TypeError(f"{name} must be a single {Reward.__name__}, but got {got}.")
+
+
+def _validate_rewards(rewards: Sequence[Reward] | None, k: int) -> None:
+    """
+    Check that the rewards of a moment of order ``k`` are a sequence of rewards.
+
+    :param rewards: The rewards, ``None`` for the default rewards.
+    :param k: The order of the moment.
+    :raises ValueError: if a single :class:`~phasegen.rewards.Reward` is passed instead of a sequence.
+    :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+    """
+    if isinstance(rewards, Reward):
+        raise ValueError(
+            f"rewards must be a sequence of {k} rewards, but a single {Reward.__name__} instance was given. "
+            f"Wrap it in a list, e.g. rewards=[reward]."
+        )
+
+    for i, reward in enumerate(rewards or []):
+        _validate_reward(reward, f"rewards[{i}]")
+
+
+def _validate_reward_count(rewards: Sequence[Reward], k: int) -> None:
+    """
+    Check that a moment of order ``k`` has ``k`` rewards.
+
+    :param rewards: The rewards.
+    :param k: The order of the moment.
+    :raises ValueError: if the number of rewards differs from ``k``.
+    """
+    if len(rewards) != k:
+        raise ValueError(f"Number of specified rewards for moment of order {k} must be {k}.")
+
+
+def _validate_start_time(start_time: float) -> None:
+    """
+    Check that a start time is non-negative.
+
+    :param start_time: The start time.
+    :raises ValueError: if ``start_time`` is negative or NaN.
+    """
+    if not start_time >= 0:
+        raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+
+
+def _frequency_class(i: 'int | float', n: int) -> int:
+    """
+    Validate a frequency class of a spectrum array.
+
+    :param i: The frequency class, an integer from 0 to ``n``.
+    :param n: The number of lineages.
+    :return: The frequency class as an integer.
+    :raises ValueError: if ``i`` is not an integer from 0 to ``n``.
+    """
+    if isinstance(i, bool) or not float(i).is_integer() or not 0 <= i <= n:
+        raise ValueError(f"The frequency class must be an integer from 0 to {n}, got {i}.")
+
+    return int(i)
+
+
+def _polymorphic_class(i: 'int | float', first: int, last: int) -> int:
+    """
+    Validate a polymorphic frequency class.
+
+    :param i: The frequency class, an integer from ``first`` to ``last``.
+    :param first: The first polymorphic class.
+    :param last: The last polymorphic class.
+    :return: The frequency class as an integer.
+    :raises ValueError: if ``i`` is not an integer from ``first`` to ``last``.
+    """
+    if isinstance(i, bool) or not float(i).is_integer() or not first <= i <= last:
+        raise ValueError(f"The frequency class must be a polymorphic class from {first} to {last}, got {i}.")
+
+    return int(i)
+
+
+def _descendant_config(config: Sequence[int], full: Tuple[int, ...]) -> Tuple[int, ...]:
+    """
+    Validate the descendant configuration of a polymorphic joint SFS bin.
+
+    :param config: The descendant configuration, one count per population.
+    :param full: The sample size of each population.
+    :return: The configuration as a tuple of integers.
+    :raises ValueError: if ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
+    """
+    config = tuple(config)
+
+    if (
+            len(config) != len(full)
+            or any(isinstance(c, bool) or not float(c).is_integer() for c in config)
+            or not all(0 <= c <= n for c, n in zip(config, full))
+            or not any(config)
+            or tuple(int(c) for c in config) == full
+    ):
+        raise ValueError(
+            f"The descendant configuration must hold one integer count per population, each from 0 to its sample "
+            f"size {full}, and be neither all zero nor {full}, got {config}."
+        )
+
+    return tuple(int(c) for c in config)
