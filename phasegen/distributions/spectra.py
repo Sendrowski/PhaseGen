@@ -19,7 +19,7 @@ from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountin
 from ._common import _make_hashable, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
-from .mutation_configs import MutationLayout, MutationConfigMixin
+from .mutation_configs import MutationLayout, SpectrumDistribution
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
@@ -176,7 +176,7 @@ class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
                                          show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
+class SFSDistribution(SpectrumDistribution, ABC):
     r"""
     Base class for site-frequency spectrum distributions. Bin :math:`i` accumulates the total branch length
     :math:`L_i` subtending :math:`i` of the :math:`n` samples. The spectrum mean is the vector of expected bin branch
@@ -1275,7 +1275,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunct
                                          file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
+class JointSFSDistribution(SpectrumDistribution):
     r"""
     Joint (multi-population) site-frequency spectrum distribution.
 
@@ -1860,7 +1860,7 @@ class JointSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         return out
 
 
-class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
+class TwoLocusSFSDistribution(SpectrumDistribution):
     r"""
     Two-locus site-frequency spectrum under recombination. Entry :math:`(i, j)` of the (symmetrized) mean is the
     second cross-moment :math:`\mathbb{E}[L^0_i\, L^1_j]`, the expected product of the branch length subtending

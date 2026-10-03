@@ -4,7 +4,8 @@ under the infinite-sites model on any state space whose rewards count the branch
 """
 import heapq
 import itertools
-from typing import Dict, Hashable, Iterator, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union
+from abc import ABC
+from typing import Dict, Hashable, Iterator, Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import scipy.sparse as sp
@@ -16,9 +17,7 @@ from ..locus import LocusConfig
 from ..rewards import CombinedReward, Reward, SumReward, TreeHeightReward
 from ..settings import Settings
 from ..state_space import StateSpace
-
-if TYPE_CHECKING:
-    from .phase_type import PhaseTypeDistribution
+from .phase_type import PhaseTypeDistribution
 
 expm = Backend.expm
 
@@ -341,10 +340,11 @@ class MutationConfig(tuple):
         return out
 
 
-class MutationConfigMixin:
+class SpectrumDistribution(PhaseTypeDistribution, ABC):
     r"""
-    Probabilities of mutational configurations for a phase-type distribution whose reward vectors
-    :math:`\mathbf{r}_j` count the branches of the bins :math:`j` of a :class:`~phasegen.distributions.MutationLayout`.
+    Base class for the spectra, phase-type distributions whose reward vectors :math:`\mathbf{r}_j` count the branches
+    of the bins :math:`j` of a :class:`~phasegen.distributions.MutationLayout`, with the probabilities of their
+    mutational configurations.
     Given the genealogy, the count :math:`Y_j` of bin :math:`j` is Poisson with mean :math:`\theta \ell_j`, where
     :math:`\ell_j` is the reward accumulated to absorption, and
 
@@ -360,7 +360,7 @@ class MutationConfigMixin:
     #: Probability mass yielded by the most recently started configuration iterator.
     generated_mass: float = 0
 
-    def _mutation_class_reward(self: 'PhaseTypeDistribution', label: Hashable) -> Reward:
+    def _mutation_class_reward(self, label: Hashable) -> Reward:
         """
         The reward of an elementary frequency class.
 
@@ -378,18 +378,18 @@ class MutationConfigMixin:
         raise NotImplementedError
 
     @property
-    def _layout_lineages(self: 'PhaseTypeDistribution') -> LineageConfig | InitialDistribution:
+    def _layout_lineages(self) -> LineageConfig | InitialDistribution:
         """The lineages the coalescent starts from, as recorded by the layouts."""
         dist = self.state_space.lineage_distribution
         return self.lineage_config if dist is None else dist
 
     @property
-    def _layout_loci(self: 'PhaseTypeDistribution') -> LocusConfig | InitialDistribution:
+    def _layout_loci(self) -> LocusConfig | InitialDistribution:
         """The loci the coalescent starts from, as recorded by the layouts."""
         dist = self.state_space.locus_distribution
         return self.locus_config if dist is None else dist
 
-    def _bin_reward(self: 'PhaseTypeDistribution', b: Tuple[Hashable, ...]) -> Reward:
+    def _bin_reward(self, b: Tuple[Hashable, ...]) -> Reward:
         """
         The reward of a bin, the sum of its class rewards times the reward of this distribution.
 
@@ -438,7 +438,7 @@ class MutationConfigMixin:
 
         return MutationConfig(config, self.mutation_layout())
 
-    def _assert_no_window(self: 'PhaseTypeDistribution') -> None:
+    def _assert_no_window(self) -> None:
         """Guard the mutational-configuration path against a bounded accumulation window. The configuration
         probabilities are computed to absorption and take no ``start_time`` / ``end_time``.
 
@@ -454,7 +454,7 @@ class MutationConfigMixin:
             )
 
     def get_mutation_config(
-            self: 'PhaseTypeDistribution',
+            self,
             config: Union[MutationConfig, Sequence[int], int],
             theta: float
     ) -> float:
@@ -588,7 +588,7 @@ class MutationConfigMixin:
 
         return self._get_mutation_config_homogeneous(config, theta)
 
-    def _mutation_rewards(self: 'PhaseTypeDistribution', layout: MutationLayout) -> Tuple[np.ndarray, ...]:
+    def _mutation_rewards(self, layout: MutationLayout) -> Tuple[np.ndarray, ...]:
         """
         The transient-state mask, the transient initial distribution and the transient bin rewards, cached per layout.
 
@@ -608,7 +608,7 @@ class MutationConfigMixin:
 
         return non_absorbing, alpha, R
 
-    def _get_resolvent(self: 'PhaseTypeDistribution', layout: MutationLayout, theta: float) -> Tuple:
+    def _get_resolvent(self, layout: MutationLayout, theta: float) -> Tuple:
         r"""
         Single-epoch resolvent :math:`\mathbf{U} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}`,
         the scaled bin rewards :math:`\theta \mathbf{r}_j` and the absorption vector :math:`\mathbf{g}`, with the
@@ -642,7 +642,7 @@ class MutationConfigMixin:
 
         return resolvent
 
-    def _get_mutation_config_homogeneous(self: 'PhaseTypeDistribution', config: MutationConfig, theta: float) -> float:
+    def _get_mutation_config_homogeneous(self, config: MutationConfig, theta: float) -> float:
         r"""
         Single-epoch configuration probability :math:`\mathbf{x}_\mathbf{m} \mathbf{g}`, with
         :math:`\mathbf{x}_\mathbf{0} = \boldsymbol{\alpha}_T` and
@@ -682,7 +682,7 @@ class MutationConfigMixin:
 
         return float(x_of(target) @ g)
 
-    def _mutation_epoch_data(self: 'PhaseTypeDistribution', layout: MutationLayout) -> Tuple:
+    def _mutation_epoch_data(self, layout: MutationLayout) -> Tuple:
         """
         Configuration-independent inputs of ``_get_mutation_config_inhomogeneous``, cached per layout.
 
@@ -742,7 +742,7 @@ class MutationConfigMixin:
             reach = expanded
 
     def _get_mutation_config_inhomogeneous(
-            self: 'PhaseTypeDistribution',
+            self,
             config: MutationConfig,
             theta: float
     ) -> float:
@@ -835,7 +835,7 @@ class MutationConfigMixin:
         return probs[tuple(config)]
 
     def get_mutation_configs(
-            self: 'PhaseTypeDistribution',
+            self,
             theta: float,
             layout: MutationLayout = None,
             order: Literal['probability', 'count'] = 'probability'
