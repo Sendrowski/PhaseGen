@@ -3818,32 +3818,55 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         return np.linspace(0, float(np.max(dist.samples)), 100)
 
-    def _touch(self, **kwargs: dict) -> None:
-        """
-        Touch cached properties.
+    #: Names of the distributions that :meth:`_touch` persists.
+    _distributions: Tuple[str, ...] = ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2')
 
-        :param kwargs: Additional keyword arguments.
+    def _touch(self, dists: Iterable[str] = None) -> None:
         """
+        Simulate and persist the named distributions, so that their cached statistics survive :meth:`_drop` and are
+        serialized. The tree height and total branch length of two loci also persist their cross-locus joint surface.
+
+        :param dists: Names among :attr:`_distributions`. By default, every one the scenario defines: the joint SFS
+            needs several demes, one locus and one lineage configuration, the two-locus SFS two loci.
+        """
+        if dists is not None:
+            dists = list(dists)
+            unknown = [name for name in dists if name not in self._distributions]
+            if unknown:
+                raise ValueError(f"Unknown distributions {unknown}, expected names among {self._distributions}.")
+
         self.simulate()
 
-        # force-persist the statistics: _touch/_drop is the serialization contract and must hold even under
-        # Settings.cache = False, where the getter would otherwise rebuild them without storing
-        for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
-            dist = self.__dict__[name] = getattr(self, name)
-            dist._touch(self._get_cached_times(dist))
+        if dists is None:
+            dists = [name for name in self._distributions if name not in ('jsfs', 'sfs2')]
 
-        # cache the cross-locus joint surface ground truth (per-locus tree height / total branch length at the two
-        # loci, separated by recombination) for two-locus scenarios, so it is serialized with the comparison and
-        # survives the subsequent _drop(). The single pair (0, 1) over a full grid. The within-tree (single-locus and
-        # multi-population) joint surfaces are cached separately by ``Comparison.cache_ground_truth`` from the
-        # configured pairwise surface pairs.
-        if self.locus_config.n == 2:
-            for dist in (self.tree_height, self.total_branch_length):
-                dist._cache_loci_joint_surface([(0, 1)])  # full-grid cross-locus surface ground truth
+            if self.lineage_config.n_pops > 1 and self.locus_config.n == 1 and (
+                    self.lineage_distribution is None
+                    or all(c == self.lineage_config for c in self.lineage_distribution.configs)
+            ):
+                dists.append('jsfs')
+
+            if self.locus_config.n == 2:
+                dists.append('sfs2')
+
+        for name in dists:
+            # force-persist the statistics: _touch/_drop is the serialization contract and must hold even under
+            # Settings.cache = False, where the getter would otherwise rebuild them without storing
+            dist = self.__dict__[name] = getattr(self, name)
+
+            if name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
+                dist._touch(self._get_cached_times(dist))
+
+            # the cross-locus joint surface ground truth (per-locus value at the two loci, separated by
+            # recombination), the single pair (0, 1) over a full grid. The within-tree (single-locus and
+            # multi-population) joint surfaces are cached separately by ``Comparison.cache_ground_truth`` from the
+            # configured pairwise surface pairs.
+            if name in ('tree_height', 'total_branch_length') and self.locus_config.n == 2:
+                dist._cache_loci_joint_surface([(0, 1)])
 
     def _drop(self) -> None:
         """
-        Drop simulated data.
+        Drop the simulated data and the per-replicate samples of the persisted distributions.
         """
         self.heights = None
         self.total_branch_lengths = None
@@ -3859,9 +3882,12 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         self._trajectories = None
 
-        for dist in (self.tree_height, self.total_branch_length, self.sfs, self.fsfs):
-            dist._drop()
-            dist._accumulator = None
+        for name in self._distributions:
+            if name in self.__dict__:
+                self.__dict__[name]._drop()
+
+                if name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
+                    self.__dict__[name]._accumulator = None
 
         # caused problems when serializing
         self.demography = None

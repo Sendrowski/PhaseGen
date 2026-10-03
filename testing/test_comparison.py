@@ -15,6 +15,7 @@ from testing import TestCase
 
 import phasegen as pg
 from phasegen.comparison import Comparison
+from phasegen.distributions import MsprimeCoalescent
 from phasegen.distributions.empirical import EmpiricalDistribution
 
 
@@ -504,3 +505,67 @@ class PairwiseKeysTestCase(TestCase):
         with self.assertRaises(ValueError) as ctx:
             c._compare_loci_pairwise(ph=None, ms=None, sub={'cdf': 0.1, 'pfd': 0.1}, title='t', name='n')
         self.assertIn('pfd', str(ctx.exception))
+
+
+class SpectrumGroundTruthTestCase(TestCase):
+    """The msprime ground truth of the compared distributions, and only theirs, survives the fixture round trip of
+    ``scripts/create_comparison.py``."""
+
+    @staticmethod
+    def _round_trip(c: Comparison) -> Comparison:
+        """
+        Cache the ground truth, drop the simulated data and restore the comparison from its serialization, as
+        ``scripts/create_comparison.py`` does.
+
+        :param c: The comparison.
+        :return: The restored comparison.
+        """
+        import os
+        import tempfile
+
+        c.cache_ground_truth()
+        c.ms._drop()
+        c.__dict__.pop('ph', None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            file = os.path.join(tmp, 'c.json')
+            c.to_file(file)
+            restored = Comparison.from_file(file)
+
+        restored.visualize = False
+        return restored
+
+    def test_jsfs_is_cached_and_compared(self):
+        """The joint SFS is cached without its samples where compared, and the uncompared distributions are not cached.
+        Regression: the msprime joint SFS was neither cached nor dropped, so only a dedicated script could build its
+        fixture, and every fixture cached all of the tree height, total branch length and SFS."""
+        kwargs = dict(n={'pop_0': 2, 'pop_1': 2}, pop_sizes={'pop_0': {0: 1}, 'pop_1': {0: 1.5}},
+                      migration_rates={('pop_0', 'pop_1'): {0: 0.75}, ('pop_1', 'pop_0'): {0: 0.75}},
+                      num_replicates=2000, seed=0, parallelize=False)
+
+        c = self._round_trip(Comparison(**kwargs, comparisons={'tolerance': {'jsfs': {'mean': 1, 'var': 1}}}))
+        self.assertIsNone(c.ms.__dict__['jsfs'].samples)
+        self.assertFalse({'tree_height', 'total_branch_length', 'sfs', 'fsfs'} & set(c.ms.__dict__))
+        c.compare()
+        self.assertEqual(c.n_assertions, 2)
+
+        c = self._round_trip(Comparison(**kwargs, comparisons={'tolerance': {'tree_height': {'mean': 1}}}))
+        self.assertEqual({'tree_height'}, set(MsprimeCoalescent._distributions) & set(c.ms.__dict__))
+
+    def test_sfs2_is_cached_and_compared(self):
+        """The two-locus SFS is cached without its samples where compared, and the uncompared distributions are not
+        cached."""
+        kwargs = dict(n=3, n_loci=2, recombination_rate=1, pop_sizes={'pop_0': {0: 1}}, num_replicates=2000, seed=0,
+                      parallelize=False)
+
+        c = self._round_trip(Comparison(**kwargs, comparisons={'tolerance': {'sfs2': {'mean': 1, 'var': 1}}}))
+        self.assertIsNone(c.ms.__dict__['sfs2'].samples)
+        self.assertFalse({'tree_height', 'total_branch_length', 'sfs', 'fsfs'} & set(c.ms.__dict__))
+        c.compare()
+        self.assertEqual(c.n_assertions, 2)
+
+        c = self._round_trip(Comparison(**kwargs, comparisons={'tolerance': {'tree_height': {'mean': 1}}}))
+        self.assertEqual({'tree_height'}, set(MsprimeCoalescent._distributions) & set(c.ms.__dict__))
+        self.assertEqual(len(c.ms.tree_height._loci_joint_surface), 1)
+        c.compare()
+        self.assertEqual(c.n_assertions, 1)

@@ -1800,17 +1800,18 @@ class Comparison(Serializable):
         return out
 
     def cache_ground_truth(self) -> None:
-        """Cache the ground truth needed by the configured comparisons: the standard per-statistic caches of the
-        msprime and sampler operands, any full-grid pairwise surface grids, and the atom-conditional ground truth. The
-        msprime operand is cached for the top-level ``tolerance`` stats and the sampler for the nested ``empirical``
-        sub-spec, each only if its stats are present, so a config validates against msprime, the sampler, or both.
-        Call before the operands' simulated data is freed so the grids are serialized with the comparison."""
+        """Cache the ground truth needed by the configured comparisons: the per-statistic caches of the msprime
+        distributions named in the top-level ``tolerance`` stats and of the sampler, any full-grid pairwise surface
+        grids, the atom- and windowed-conditional ground truth, and the coalescent-level statistics. The msprime
+        operand is cached for the top-level ``tolerance`` stats and the ``statistics`` block, the sampler for the
+        nested ``empirical`` sub-spec, each only if present, so a config validates against msprime, the sampler, or
+        both. Call before the operands' simulated data is freed so the grids are serialized with the comparison."""
         tol = self._expand_keys(self.comparisons.get('tolerance', {}))
         empirical_spec = tol.get('empirical')
         msprime_spec = {k: v for k, v in tol.items() if k != 'empirical'}
 
         if msprime_spec or self.comparisons.get('statistics'):
-            self.ms._touch()
+            self.ms._touch([name for name in MsprimeCoalescent._distributions if name in msprime_spec])
 
             # the coalescent-level scalar statistics (F_ST, the Patterson f-statistics) are evaluated straight off the
             # simulated data and the demography, both of which ``MsprimeCoalescent._drop``

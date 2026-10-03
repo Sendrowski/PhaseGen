@@ -100,34 +100,6 @@ rule update_tolerances:
     script:
         "scripts/update_tolerances.py"
 
-# create joint-SFS comparisons (the jsfs-specific caching that create_comparison cannot handle)
-rule create_jsfs_comparison:
-    input:
-        "resources/configs/{config}_jsfs.yaml"
-    output:
-        "results/comparisons/serialized/{config}_jsfs.json"
-    conda:
-        "envs/dev.yaml"
-    script:
-        "scripts/generate_jsfs_fixtures.py"
-
-# prefer the jsfs-specific rule for *_jsfs fixtures (both rules match the same output)
-ruleorder: create_jsfs_comparison > create_comparison
-
-# create two-locus-SFS comparisons (the sfs2-specific caching that create_comparison cannot handle)
-rule create_2locus_comparison:
-    input:
-        "resources/configs/{config}_2_locus_sfs.yaml"
-    output:
-        "results/comparisons/serialized/{config}_2_locus_sfs.json"
-    conda:
-        "envs/dev.yaml"
-    script:
-        "scripts/generate_2locus_fixtures.py"
-
-# prefer the two-locus-specific rule for *_2_locus_sfs fixtures (both rules match the same output)
-ruleorder: create_2locus_comparison > create_comparison
-
 def get_scan_fixtures(w):
     """
     Serialized fixtures for the non-slow scenario suite (the single source of truth is

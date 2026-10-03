@@ -5,14 +5,15 @@ data) does not require re-running the 1e6-replicate simulation.
 
 It aborts (pointing to ``create_comparison``) when a full regeneration is genuinely needed: a changed
 ground-truth-defining parameter (``n``, ``pop_sizes``, model, ``end_time``, ...), a newly requested pairwise
-*surface* pair (msprime or sampler), atom-conditional pair or coalescent-level statistic whose ground truth was never
-cached, or windowed-conditional windows other than the cached ones.
+*surface* pair (msprime or sampler), compared distribution, atom-conditional pair or coalescent-level statistic whose
+ground truth was never cached, or windowed-conditional windows other than the cached ones.
 """
 
 __author__ = "Janek Sendrowski"
 __contact__ = "sendrowski.janek@gmail.com"
 
 from phasegen.comparison import Comparison
+from phasegen.distributions import MsprimeCoalescent
 
 import os
 
@@ -60,6 +61,11 @@ def require_cached(what: str, missing: list) -> None:
     if missing:
         raise ValueError(f"{what} {missing} are not cached in {fixture}. Run the create_comparison rule to cache them.")
 
+
+# the msprime operand caches only the distributions it compares
+cached = getattr(old.__dict__.get('ms'), '__dict__', {})
+require_cached("Distributions", [name for name in MsprimeCoalescent._distributions
+                                 if name in new._expand_keys(msprime_spec) and name not in cached])
 
 # every requested pairwise *surface* pair must already have a cached empirical grid (_touch caches the per-statistic
 # and pointwise-pairwise data for all bins, so only the explicit surface pairs can be genuinely missing), on the
