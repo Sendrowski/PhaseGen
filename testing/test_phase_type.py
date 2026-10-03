@@ -14,19 +14,19 @@ from phasegen.distributions import TreeHeightDistribution
 
 def _exact_quantile(th: TreeHeightDistribution, q: float) -> float:
     """
-    The level ``q`` inverted by root finding on the exact cumulative hazard of the propagated state distribution,
+    The level ``q`` inverted by root finding on the exact negative log-survival of the propagated state distribution,
     read off the absorbed mass below a CDF of one half and off the surviving mass above.
     """
     e = np.asarray(th._e, dtype=float)
 
-    def hazard(x: float) -> float:
+    def log_survival(x: float) -> float:
         w = th._sweep_to(np.asarray(th.state_space.alpha, dtype=float), 0.0, x, th.demography.get_epoch(0))
         cdf, survival = w @ (1 - e) / w.sum(), w @ e / w.sum()
         return -np.log1p(-cdf) if cdf <= 0.5 else -np.log(survival)
 
     log_t_max = np.log(th.t_max)
 
-    return float(np.exp(brentq(lambda lx: hazard(np.exp(lx)) + np.log1p(-q), log_t_max - 50, log_t_max,
+    return float(np.exp(brentq(lambda lx: log_survival(np.exp(lx)) + np.log1p(-q), log_t_max - 50, log_t_max,
                                xtol=1e-15, rtol=1e-15)))
 
 
@@ -37,8 +37,8 @@ def _exact_quantile(th: TreeHeightDistribution, q: float) -> float:
 def test_tree_height_quantile_matches_exact_inversion(pop_sizes):
     """
     The quantile inverts the exact CDF to a relative error of 1e-8 from the lower to the upper tail, across a
-    bottleneck and across epoch boundaries. The fixed grid of 8192 nodes interpolated linearly in the cumulative hazard
-    was off by up to 2e-5.
+    bottleneck and across epoch boundaries. The fixed grid of 8192 nodes interpolated linearly in the negative
+    log-survival was off by up to 2e-5.
     """
     th = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).tree_height
     levels = np.array([1e-12, 1e-6, 1e-3, 0.05, 0.3, 0.5, 0.7, 0.95, 0.999, 1 - 1e-9, 1 - 1e-12])
@@ -57,7 +57,7 @@ def test_tree_height_quantile_grid_is_error_controlled():
 
     assert len(th.quantile._cdf_grid()[0]) < 2000
 
-    # an exponential tree height has a linear cumulative hazard, which a single segment interpolates exactly
+    # an exponential tree height has a linear negative log-survival, which a single segment interpolates exactly
     assert len(pg.Coalescent(n=2).tree_height.quantile._cdf_grid()[0]) == 3
 
 

@@ -1593,8 +1593,8 @@ def test_density_is_continuous_at_the_tail_join(monkeypatch):
     The tail is anchored at the fit's value at the cut. Here the fit of the total branch length at n = 4 is moved
     left by 0.2, which puts it 2.1e-3 above the de Hoog CDF at the cut. A tail made of the raw de Hoog values puts
     that difference into its first segment, and the density falls to 0.60 of its value below the cut. Shifting the
-    de Hoog hazard onto the anchor over a band above the cut keeps the density within about ten percent across the
-    join.
+    de Hoog negative log-survival onto the anchor over a band above the cut keeps the density within about ten percent
+    across the join.
     """
     from phasegen.distributions.base import _LSTFunction
     build = _LSTFunction._build_cos_cdf_grid
@@ -1889,12 +1889,13 @@ def test_proportional_rewards_are_singular():
 
 
 def test_density_integrates_to_the_cdf_increments_near_a_jump():
-    """The density of a reward distribution was the hazard slope from ``np.gradient``, interpolated between the grid's
-    nodes, which mixes the slopes of neighbouring segments. Next to a near-discontinuity, where a flat stretch of nodes
-    meets a steep one, it put far more mass into a segment than the CDF rises there (total branch length of a
-    2-epoch rapid decline, ``n = 2``: 0.59 against 0.006 on one segment), and roundoff-level changes to the
-    transform, such as the sparse instead of the dense LU, halved or doubled the scenario's pdf metric. The density
-    must integrate to the CDF increment on every segment of the grid, under either solver."""
+    """The density of a reward distribution was the slope of the negative log-survival from ``np.gradient``,
+    interpolated between the grid's nodes, which mixes the slopes of neighbouring segments. Next to a
+    near-discontinuity, where a flat stretch of nodes meets a steep one, it put far more mass into a segment than the
+    CDF rises there (total branch length of a 2-epoch rapid decline, ``n = 2``: 0.59 against 0.006 on one segment), and
+    roundoff-level changes to the transform, such as the sparse instead of the dense LU, halved or doubled the
+    scenario's pdf metric. The density must integrate to the CDF increment on every segment of the grid, under either
+    solver."""
     demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.001}})
     x_max = 2.1
     gl_x, gl_w = np.polynomial.legendre.leggauss(64)
@@ -2720,13 +2721,13 @@ def test_atoms_are_exact(pop_sizes):
 
 
 def test_quantile_below_the_atom_is_the_first_node():
-    """Levels at or below the probability at the first node map to that node, also when the hazard starts with a run
-    of equal values. Regression: the end of that run was returned, a positive quantile at level 0."""
+    """Levels at or below the probability at the first node map to that node, also when the negative log-survival starts
+    with a run of equal values. Regression: the end of that run was returned, a positive quantile at level 0."""
     f = pg.Coalescent(n=4).total_branch_length.distribution().quantile
-    nodes, hazard = np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 1.0])
+    nodes, log_survival = np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 1.0])
 
-    np.testing.assert_array_equal(f._interp_quantile(np.array([0.0]), nodes, hazard), [0.0])
-    assert f._interp_quantile(np.array([0.5]), nodes, hazard)[0] == pytest.approx(2.0 - np.log1p(-0.5))
+    np.testing.assert_array_equal(f._interp_quantile(np.array([0.0]), nodes, log_survival), [0.0])
+    assert f._interp_quantile(np.array([0.5]), nodes, log_survival)[0] == pytest.approx(2.0 - np.log1p(-0.5))
 
 
 def test_reward_pdf_at_nan_is_nan_and_leaves_the_grid_alone():

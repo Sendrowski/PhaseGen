@@ -17,7 +17,7 @@ seed: 42
 comparisons:
   tolerance:
     # validate PhaseGen's own trajectory sampler here too: this scenario's rates sit far from unity, and the
-    # hazard-budget sampler must be scale-free (it draws H / lambda, which carries no absolute time scale).
+    # exit-threshold sampler must be scale-free (it draws H / lambda, which carries no absolute time scale).
     empirical:
       tree_height:
         mean: 0.009

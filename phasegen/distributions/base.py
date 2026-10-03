@@ -228,9 +228,9 @@ class QuantileFunction(DistributionFunction):
 
         x = pg.Coalescent(n=5).tree_height.quantile([0.05, 0.5, 0.95])
 
-    .. rubric:: Cumulative-hazard grid
+    .. rubric:: Log-survival grid
 
-    The analytic distributions carry the cumulative hazard :math:`H(x) = -\log(1 - F(x))` on a grid of nodes and
+    The analytic distributions carry the negative log-survival :math:`H(x) = -\log(1 - F(x))` on a grid of nodes and
     interpolate it, which is exact for an exponential tail. With :math:`\hat H` the interpolant,
 
     .. math::
@@ -295,9 +295,9 @@ class QuantileFunction(DistributionFunction):
 
 # --- the shared CDF representation ----------------------------------------------------------------------------------
 
-class _HazardGrid:
+class _LogSurvivalGrid:
     """
-    The cumulative-hazard grid described at ``QuantileFunction``. ``_interp_cdf``, ``_interp_quantile`` and
+    The log-survival grid described at ``QuantileFunction``. ``_interp_cdf``, ``_interp_quantile`` and
     ``_interp_pdf`` read it, and the subclasses ``_LSTFunction`` and ``_ExpmFunction`` supply the nodes through
     ``_cdf_grid``.
     """
@@ -323,56 +323,56 @@ class _HazardGrid:
 
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """
-        The grid: its nodes and the cumulative hazard on them, both ascending.
+        The grid: its nodes and the negative log-survival on them, both ascending.
 
         :param x_max: Largest point the caller will evaluate.
         :param q_max: Largest probability level the caller will invert.
-        :return: The nodes and the cumulative hazard on them.
+        :return: The nodes and the negative log-survival on them.
         """
         raise NotImplementedError
 
     @staticmethod
-    def _hazard(cdf: 'np.ndarray | float') -> np.ndarray:
-        r"""The cumulative hazard :math:`H = -\log(1 - F)`, the coordinate the grid is interpolated in. Capped, so a
+    def _log_survival(cdf: 'np.ndarray | float') -> np.ndarray:
+        r"""The negative log-survival :math:`H = -\log(1 - F)`, the coordinate the grid is interpolated in. Capped, so a
         CDF that has saturated at 1 (as the cosine fit does at the end of its window) does not take it to infinity."""
         return -np.log1p(-np.minimum(np.asarray(cdf, dtype=float), 1.0 - 1e-16))
 
-    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
         r"""
-        The CDF between the grid's nodes: :math:`F(x) = 1 - e^{-H(x)}`, with the cumulative hazard ``H`` interpolated
-        linearly in ``x``. A chord in ``F`` out in the tail would instead join the nodes underneath a concave curve,
-        biasing the far-tail quantile 1e-3 long.
+        The CDF between the grid's nodes: :math:`F(x) = 1 - e^{-H(x)}`, with the negative log-survival ``H``
+        interpolated linearly in ``x``. A chord in ``F`` out in the tail would instead join the nodes underneath a
+        concave curve, biasing the far-tail quantile 1e-3 long.
 
         :param t: Points to evaluate at.
         :param nodes: The grid's nodes.
-        :param hazard: The cumulative hazard on them.
+        :param log_survival: The negative log-survival on them.
         :return: The CDF at ``t``.
         """
         # below the support (t < nodes[0] = 0) the CDF is 0, not the clamped first-node value np.interp would return
-        return -np.expm1(-np.interp(t, nodes, hazard, left=0.0))
+        return -np.expm1(-np.interp(t, nodes, log_survival, left=0.0))
 
-    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
         r"""The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
         other way. Levels at or below the atom :math:`\mathbb{P}(R = 0)` land on the first node, which is 0.
 
         :param q: Probability levels.
         :param nodes: The grid's nodes.
-        :param hazard: The cumulative hazard on them.
+        :param log_survival: The negative log-survival on them.
         :return: The quantiles at ``q``.
         """
-        hq = self._hazard(q)
+        hq = self._log_survival(q)
 
-        return np.where(hq <= hazard[0], nodes[0], np.interp(hq, hazard, nodes))
+        return np.where(hq <= log_survival[0], nodes[0], np.interp(hq, log_survival, nodes))
 
-    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, hazard: np.ndarray) -> np.ndarray:
+    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
         r"""The derivative of :meth:`_interp_cdf`'s map: on the segment :math:`[x_i, x_{i+1})` holding ``t``,
         :math:`f = e^{-H(x)}\,(H_{i+1} - H_i)/(x_{i+1} - x_i)`, so integrating the density over any segment gives
-        exactly the CDF increment there. Non-negative since the hazard is non-decreasing, zero outside the nodes and NaN
+        exactly the CDF increment there. Non-negative since ``H`` is non-decreasing, zero outside the nodes and NaN
         at NaN.
 
         :param t: Points to evaluate at.
         :param nodes: The grid's nodes.
-        :param hazard: The cumulative hazard on them.
+        :param log_survival: The negative log-survival on them.
         :return: The density at ``t``.
         """
         t = np.asarray(t, dtype=float)
@@ -382,18 +382,18 @@ class _HazardGrid:
             return np.where(np.isnan(t), np.nan, 0.0)
 
         widths = np.diff(nodes)
-        slopes = np.divide(np.diff(hazard), widths, out=np.zeros_like(widths), where=widths > 0)
+        slopes = np.divide(np.diff(log_survival), widths, out=np.zeros_like(widths), where=widths > 0)
 
         # segment holding t, with the last node closing the last segment
         i = np.clip(np.searchsorted(nodes, t, side='right') - 1, 0, len(widths) - 1)
         inside = ((t >= nodes[0]) & (t <= nodes[-1])) | np.isnan(t)
 
-        return np.where(inside, np.exp(-np.interp(t, nodes, hazard, left=0.0)) * slopes[i], 0.0)
+        return np.where(inside, np.exp(-np.interp(t, nodes, log_survival, left=0.0)) * slopes[i], 0.0)
 
 
 # --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
 
-class _LSTFunction(_HazardGrid):
+class _LSTFunction(_LogSurvivalGrid):
     """
     The inversion of an accumulated-reward transform, described at ``RewardDistribution``, for the function objects
     of a ``RewardDistribution`` and its conditional subclasses. The transform and its scales come from
@@ -426,8 +426,8 @@ class _LSTFunction(_HazardGrid):
         """The number of cosine terms of the locating pass, a third of the second pass."""
         return max(self._cos_terms // 3, 2)
 
-    #: Step :math:`\eta_H` of the exact nodes in cumulative hazard.
-    _hazard_step: float = 0.25
+    #: Step :math:`\eta_H` of the exact nodes in negative log-survival.
+    _log_survival_step: float = 0.25
 
     #: Step :math:`\eta_F` of the exact nodes in probability, which resolves the body when the tail level is low.
     _cdf_step: float = 0.01
@@ -644,8 +644,8 @@ class _LSTFunction(_HazardGrid):
 
     def _exact_step(self, nodes: list) -> float:
         """
-        The step to the next exact node: the increment in probability, the finer of ``_hazard_step`` in cumulative
-        hazard and ``_cdf_step``, divided by the local density, and at most a local limit. For the first step the
+        The step to the next exact node: the increment in probability, the finer of ``_log_survival_step`` in negative
+        log-survival and ``_cdf_step``, divided by the local density, and at most a local limit. For the first step the
         density is the slope of the cosine grid at the anchor and the limit is the distance along that grid to the
         incremented level. Afterwards the density is the secant of the last two nodes, raised to the local slope of the
         cosine grid while the node lies inside the fit's window, and the limit is ``_step_growth`` times the last step.
@@ -656,7 +656,7 @@ class _LSTFunction(_HazardGrid):
         :return: The step to the next node.
         """
         x, cdf = nodes[-1]
-        increment = min(self._hazard_step * (1.0 - cdf), self._cdf_step)
+        increment = min(self._log_survival_step * (1.0 - cdf), self._cdf_step)
 
         if len(nodes) == 1:
             xs, cs = self._cos_cdf_grid
@@ -686,12 +686,12 @@ class _LSTFunction(_HazardGrid):
         ``_tail_target``, or a query level above it, or earlier where the CDF saturates at 1 or, past that level,
         stops rising.
 
-        The anchor carries the fit's cumulative hazard :math:`H_c` at ``x_cut``, where the de Hoog hazard is
-        :math:`H_d(x_\mathrm{cut})`. Every later node carries the de Hoog hazard :math:`H_d(x)` shifted by
+        The anchor carries the fit's negative log-survival :math:`H_c` at ``x_cut``, where the de Hoog value is
+        :math:`H_d(x_\mathrm{cut})`. Every later node carries the de Hoog value :math:`H_d(x)` shifted by
         :math:`\Delta = H_c - H_d(x_\mathrm{cut})` times :math:`\max(0, 1 - (H_d(x) - H_d(x_\mathrm{cut})) / h)`,
         with the band :math:`h = |\Delta| / \epsilon` and :math:`\epsilon` = ``_join_density_tol``. The tail joins the
         fit without a step, its density departs by at most a factor :math:`1 \pm \epsilon` from the de Hoog density,
-        and it is the de Hoog CDF from :math:`h` above the anchor's hazard. Where the grid is exact throughout, the
+        and it is the de Hoog CDF from :math:`h` above the anchor's value. Where the grid is exact throughout, the
         anchor carries the de Hoog value and :math:`\Delta = 0`.
 
         :param x_cut: Where the CDF reaches the cut.
@@ -712,8 +712,8 @@ class _LSTFunction(_HazardGrid):
             return nodes  # the query stays in the fit's half, so the expensive nodes are left unbuilt
 
         x_anchor, cdf_anchor = nodes[0]
-        hazard_anchor = float(self._hazard(self._cdf_point(x_anchor)))
-        shift = float(self._hazard(cdf_anchor)) - hazard_anchor
+        log_survival_anchor = float(self._log_survival(self._cdf_point(x_anchor)))
+        shift = float(self._log_survival(cdf_anchor)) - log_survival_anchor
         if not np.isfinite(shift):
             shift = 0.0
         band = abs(shift) / self._join_density_tol
@@ -737,9 +737,9 @@ class _LSTFunction(_HazardGrid):
 
             cdf_next = self._cdf_point(x_next)
             if shift != 0.0:
-                hazard = float(self._hazard(cdf_next))
-                hazard += shift * max(0.0, 1.0 - (hazard - hazard_anchor) / band)
-                cdf_next = -np.expm1(-hazard)
+                log_survival = float(self._log_survival(cdf_next))
+                log_survival += shift * max(0.0, 1.0 - (log_survival - log_survival_anchor) / band)
+                cdf_next = -np.expm1(-log_survival)
             nodes.append((x_next, cdf_next))
 
         return nodes
@@ -752,14 +752,14 @@ class _LSTFunction(_HazardGrid):
 
         :param x_max: Largest point the caller will evaluate.
         :param q_max: Largest probability level the caller will invert.
-        :return: The nodes and the cumulative hazard on them, both ascending.
+        :return: The nodes and the negative log-survival on them, both ascending.
         """
         xs, cdf = self._cos_cdf_grid
         cut = Settings.dehoog_tail_quantile
         cut = 1.0 if cut is None else float(np.clip(cut, 0.0, 1.0))
 
         # the fit's own nodes, up to the cut. The saturated ones carry no information -- the fit force-normalises to 1
-        # at the end of its window -- and would pin the hazard at its cap, so they go whatever the cut is.
+        # at the end of its window -- and would pin ``H`` at its cap, so they go whatever the cut is.
         keep = (cdf < cut) & (cdf < 1.0 - 1e-12)
         nodes, values = xs[keep], cdf[keep]
 
@@ -776,7 +776,7 @@ class _LSTFunction(_HazardGrid):
 
         order = np.argsort(nodes, kind='stable')
 
-        return nodes[order], np.maximum.accumulate(self._hazard(values[order]))
+        return nodes[order], np.maximum.accumulate(self._log_survival(values[order]))
 
 
 class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):

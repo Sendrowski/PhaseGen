@@ -21,7 +21,7 @@ from ..state_space import LineageCountingStateSpace, StateSpace
 
 from ._common import _validate_order, _validate_reward
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
-    MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _HazardGrid, \
+    MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
 from ._moments import MomentEvaluator, _MAX_RATE_SPREAD
 
@@ -390,20 +390,20 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         The exit rate :math:`\lambda_i(x) = -(\mathbf{S}_i)_{xx}` of state :math:`x` changes at the epoch boundaries,
         so the holding time is no longer a single exponential draw. On entering :math:`x` at time :math:`u_0`, a
-        trajectory draws a hazard budget :math:`H \sim \mathrm{Exp}(1)`. Its holding time :math:`D` in :math:`x` is the
-        time until the cumulative hazard reaches this budget,
+        trajectory draws an exit threshold :math:`E \sim \mathrm{Exp}(1)`. Its holding time :math:`D` in :math:`x` is
+        the time until the integrated exit rate reaches this threshold,
 
         .. math::
 
-            \int_{u_0}^{u_0 + D} \lambda_{i(u)}(x)\, \mathrm{d}u = H,
+            \int_{u_0}^{u_0 + D} \lambda_{i(u)}(x)\, \mathrm{d}u = E,
 
-        with :math:`i(u)` the epoch containing time :math:`u`. Since the cumulative hazard at exit is
+        with :math:`i(u)` the epoch containing time :math:`u`. Since the integrated exit rate at exit is
         :math:`\mathrm{Exp}(1)`-distributed, this samples :math:`D` from its survival function
         :math:`P(D > d) = \exp(-\int_{u_0}^{u_0 + d} \lambda_{i(u)}(x)\, \mathrm{d}u)`. At time :math:`u` in epoch
-        :math:`i`, the trajectory leaves at :math:`u + H / \lambda_i(x)` if this lies before the epoch end
-        :math:`t_i`. Otherwise it advances to :math:`t_i`, the spent hazard :math:`\lambda_i(x)(t_i - u)` is subtracted
-        from :math:`H`, and the remainder is carried into epoch :math:`i + 1`. The jump follows the probabilities of
-        the epoch in which it occurs, and the next state draws a new budget. Only time within
+        :math:`i`, the trajectory leaves at :math:`u + E / \lambda_i(x)` if this lies before the epoch end :math:`t_i`.
+        Otherwise it advances to :math:`t_i`, the integrated rate :math:`\lambda_i(x)(t_i - u)` is subtracted from
+        :math:`E`, and the remainder is carried into epoch :math:`i + 1`. The jump follows the probabilities of the
+        epoch in which it occurs, and the next state draws a new threshold. Only time within
         :math:`[t_\mathrm{start}, t_\mathrm{end}]` contributes to :math:`R`. A transient state with zero exit rate in
         the last epoch is never left, which gives an infinite sample for :math:`t_\mathrm{end} = \infty`.
 
@@ -583,7 +583,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         state = rng.choice(k, size=n_samples, p=alpha)
         t = np.zeros(n_samples)
         e = np.zeros(n_samples, dtype=int)
-        H = rng.exponential(size=n_samples)  # remaining hazard budget ~ Exp(1)
+        H = rng.exponential(size=n_samples)  # remaining exit threshold ~ Exp(1)
         mass = np.zeros((n_samples, n_rewards))
         states_visited = np.zeros(k) if record_visits else None
         if record_visits:
@@ -652,7 +652,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 if record_visits:
                     np.add.at(states_visited, nxt, 1)
 
-                # resample the hazard budget for survivors; absorbed walkers leave the ensemble
+                # resample the exit threshold for survivors; absorbed walkers leave the ensemble
                 H[a] = rng.exponential(size=a.size)
                 active[a[absorbing[nxt]]] = False
 
@@ -764,17 +764,17 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return Visualization.plot_curves(ax=ax, data=data, file=file, show=show, clear=clear, label=label, title=title)
 
 
-class _ExpmFunction(_HazardGrid):
+class _ExpmFunction(_LogSurvivalGrid):
     """
     Grid of the tree-height quantile, described at ``TreeHeightDistribution``. The cdf and pdf evaluate
     ``TreeHeightDistribution._sweep`` pointwise and do not read the grid.
     """
     #: Tolerance :math:`\epsilon` of the bisection, about the largest relative error of a quantile and of its
-    #: cumulative hazard.
+    #: negative log-survival.
     _quantile_tol: float = 1e-8
 
-    #: Cumulative hazard up to which a segment is accepted without test.
-    _min_hazard: float = float(np.finfo(float).eps)
+    #: Negative log-survival up to which a segment is accepted without test.
+    _min_log_survival: float = float(np.finfo(float).eps)
 
     #: Largest number of bisections of an epoch.
     _max_depth: int = 64
@@ -787,7 +787,7 @@ class _ExpmFunction(_HazardGrid):
         """
         Build the grid by bisecting each epoch below ``t_max``, as described at ``TreeHeightDistribution``.
 
-        :return: The nodes, the cumulative hazard on them, and the hazard rate at the left and at the right end of
+        :return: The nodes, the negative log-survival on them, and its slope at the left and at the right end of
             each segment between them.
         """
         d = self._distribution
@@ -795,14 +795,14 @@ class _ExpmFunction(_HazardGrid):
         e = np.asarray(d._e, dtype=float)
         eps = float(np.finfo(float).eps)
 
-        # the largest cumulative hazard a level below 1 maps to
-        h_top = float(self._hazard(1.0))
+        # the largest negative log-survival a level below 1 maps to
+        h_top = float(self._log_survival(1.0))
 
         epochs = itertools.takewhile(lambda ep: ep.start_time < t_max, d.demography.epochs)
         bounds = [float(ep.start_time) for ep in epochs] + [t_max]
 
         w = np.asarray(d.state_space.alpha, dtype=float)
-        nodes, hazard, left, right = [0.0], [float(self._hazard(d._cum(w)))], [], []
+        nodes, log_survival, left, right = [0.0], [float(self._log_survival(d._cum(w)))], [], []
 
         for a, b in zip(bounds[:-1], bounds[1:]):
             epoch = d.demography.get_epoch(a)
@@ -825,7 +825,7 @@ class _ExpmFunction(_HazardGrid):
                 return v @ propagators[tau]
 
             def point(x: float, v: np.ndarray) -> tuple:
-                """The time, row vector, cumulative hazard and hazard rate at ``x``."""
+                """The time, row vector, negative log-survival and its slope at ``x``."""
                 absorbed, surviving, flux = (v @ reads).tolist()
                 total = absorbed + surviving
 
@@ -846,14 +846,14 @@ class _ExpmFunction(_HazardGrid):
                 width, depth, hi = stack.pop()
                 mid = point(lo[0] + width / 2, advance(lo[1], width / 2))
 
-                # the cubic Hermite interpolant at the midpoint against the exact value, relative to the hazard there
-                # and to the hazard a relative error of the quantile moves, above the rounding of the hazard
+                # the cubic Hermite interpolant at the midpoint against the exact value, relative to H there
+                # and to the change in H a relative error of the quantile causes, above the rounding of H
                 cubic = (lo[2] + hi[2]) / 2 + width * (lo[3] - hi[3]) / 8
                 tol = self._quantile_tol * min(mid[2], mid[0] * mid[3]) + 8 * eps * lo[2]
 
-                if hi[2] <= self._min_hazard or abs(cubic - mid[2]) <= tol or depth >= self._max_depth:
+                if hi[2] <= self._min_log_survival or abs(cubic - mid[2]) <= tol or depth >= self._max_depth:
                     nodes += [mid[0], hi[0]]
-                    hazard += [mid[2], hi[2]]
+                    log_survival += [mid[2], hi[2]]
                     left += [lo[3], mid[3]]
                     right += [mid[3], hi[3]]
                     lo = hi
@@ -869,13 +869,13 @@ class _ExpmFunction(_HazardGrid):
 
             w = lo[1]
 
-        return np.array(nodes), np.maximum.accumulate(hazard), np.array(left), np.array(right)
+        return np.array(nodes), np.maximum.accumulate(log_survival), np.array(left), np.array(right)
 
     def _interp_quantile(
-            self, q: np.ndarray, nodes: np.ndarray, hazard: np.ndarray, left: np.ndarray, right: np.ndarray
+            self, q: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray, left: np.ndarray, right: np.ndarray
     ) -> np.ndarray:
         r"""
-        The quantile from the cubic Hermite interpolant of the cumulative hazard. On the segment
+        The quantile from the cubic Hermite interpolant of the negative log-survival. On the segment
         :math:`[x_i, x_{i+1}]` of width :math:`\Delta_i`, with :math:`s = (x - x_i) / \Delta_i \in [0, 1]`,
 
         .. math::
@@ -883,35 +883,35 @@ class _ExpmFunction(_HazardGrid):
             \hat H(x) = h_{00}(s) H_i + h_{10}(s) \Delta_i \lambda_i^+ + h_{01}(s) H_{i+1}
                 + h_{11}(s) \Delta_i \lambda_{i+1}^-,
 
-        with :math:`h_{00}, h_{10}, h_{01}, h_{11}` the cubic Hermite basis, :math:`H_i` the cumulative hazard at
-        :math:`x_i` and :math:`\lambda_i^+`, :math:`\lambda_{i+1}^-` the hazard rates at the ends of the segment, taken
+        with :math:`h_{00}, h_{10}, h_{01}, h_{11}` the cubic Hermite basis, :math:`H_i` the negative log-survival at
+        :math:`x_i` and :math:`\lambda_i^+`, :math:`\lambda_{i+1}^-` its slopes at the ends of the segment, taken
         within it. The level :math:`H = -\log(1 - q)` is solved for :math:`s` by Newton's method, safeguarded by
-        bisection. Levels at or below the hazard at the first node return the first node, and levels above the last
+        bisection. Levels at or below :math:`H` at the first node return the first node, and levels above the last
         node return the last node.
 
         :param q: Probability levels.
         :param nodes: The grid's nodes.
-        :param hazard: The cumulative hazard on them.
-        :param left: The hazard rate at the left end of each segment.
-        :param right: The hazard rate at the right end of each segment.
+        :param log_survival: The negative log-survival on them.
+        :param left: Its slope at the left end of each segment.
+        :param right: Its slope at the right end of each segment.
         :return: The quantiles at ``q``.
         """
-        hq = self._hazard(q)
-        j = np.searchsorted(hazard, hq, side='left')
+        hq = self._log_survival(q)
+        j = np.searchsorted(log_survival, hq, side='left')
         out = nodes[np.minimum(j, len(nodes) - 1)].astype(float)
 
         inner = (j > 0) & (j < len(nodes))
-        inner[inner] = hazard[j[inner]] > hq[inner]
+        inner[inner] = log_survival[j[inner]] > hq[inner]
         i = j[inner] - 1
 
         x0, width = nodes[i], nodes[i + 1] - nodes[i]
-        h0, h1 = hazard[i], hazard[i + 1]
+        h0, h1 = log_survival[i], log_survival[i + 1]
         m0, m1 = width * left[i], width * right[i]
         target = hq[inner]
 
         lo, hi = np.zeros_like(target), np.ones_like(target)
 
-        # a segment ending in an infinite hazard, where the surviving mass underflows, is solved by bisection
+        # a segment ending in an infinite H, where the surviving mass underflows, is solved by bisection
         with np.errstate(divide='ignore', invalid='ignore'):
             s = (target - h0) / (h1 - h0)
 
@@ -1077,16 +1077,15 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
       densely by the active matrix-exponential backend below :attr:`Settings.expm_action_min_dim
       <phasegen.settings.Settings.expm_action_min_dim>` states, and is otherwise applied as a sparse action (Al-Mohy
       and Higham, 2011).
-    - The quantile is read from the cumulative-hazard grid of :class:`~phasegen.distributions.QuantileFunction` on
+    - The quantile is read from the log-survival grid of :class:`~phasegen.distributions.QuantileFunction` on
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
-      <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact cumulative hazard
-      :math:`H` and hazard rate :math:`H' = f / (1 - F)`, the latter taken within the epoch of each adjacent segment,
-      and the epoch boundaries are nodes. Each epoch is bisected until, at the midpoint :math:`x` of every segment,
-      the cubic Hermite interpolant departs from the exact :math:`H` by at most
-      :math:`\epsilon \min\{H(x), x H'(x)\}`, which bounds the relative errors of the quantile and of its cumulative
-      hazard by about :math:`\epsilon`, with :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A
-      segment whose cumulative hazard stays below the double-precision resolution is not bisected, and the level 1
-      returns :math:`t_\mathrm{max}`.
+      <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact negative log-survival
+      :math:`H` and its slope :math:`H' = f / (1 - F)`, the latter taken within the epoch of each adjacent segment, and
+      the epoch boundaries are nodes. Each epoch is bisected until, at the midpoint :math:`x` of every segment, the
+      cubic Hermite interpolant departs from the exact :math:`H` by at most :math:`\epsilon \min\{H(x), x H'(x)\}`,
+      which bounds the relative errors of the quantile and of its negative log-survival by about :math:`\epsilon`, with
+      :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A segment whose negative log-survival stays
+      below the double-precision resolution is not bisected, and the level 1 returns :math:`t_\mathrm{max}`.
     - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 
     .. rubric:: References

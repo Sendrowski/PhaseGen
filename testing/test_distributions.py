@@ -198,7 +198,8 @@ class DistributionTestCase(TestCase):
         """
         The tree-height quantile must invert the exact CDF in the lower tail and return 0 at level 0. The grid gave a
         full segment to the region where the CDF cancelled to zero and spread only a few hundred uniform nodes over the
-        whole body below a cumulative hazard of 1, so the quantile at 1e-6 was 7% low and the quantile at 0 was 1e-5.
+        whole body below a negative log-survival of 1, so the quantile at 1e-6 was 7% low and the quantile at 0
+        was 1e-5.
         """
         from scipy.optimize import brentq
 
@@ -212,7 +213,7 @@ class DistributionTestCase(TestCase):
 
     def test_quantile(self):
         """
-        The quantile is the inverse of the CDF. It reads the hazard grid, whose nodes are exact matrix-exponential
+        The quantile is the inverse of the CDF. It reads the log-survival grid, whose nodes are exact matrix-exponential
         CDF values, so the round trip is limited by the interpolation between them rather than by a bisection
         tolerance (which is what it used to be, and had to be passed in).
         """

@@ -148,9 +148,9 @@ class RewardDistribution(CallableDistributionFunctions):
     - The window is chosen in two passes. A first expansion over several standard deviations of :math:`R` locates the
       support, and the second window ends where the first expansion comes close to 1. The window width is what the
       expansion resolves, no feature narrower than :math:`\beta / K`.
-    - The ``cdf``, ``pdf`` and ``quantile`` are read from one cumulative-hazard grid, described at
+    - The ``cdf``, ``pdf`` and ``quantile`` are read from one log-survival grid, described at
       :class:`~phasegen.distributions.QuantileFunction`, of expansion nodes below the tail level and de Hoog nodes
-      above it. Just above the tail level, the de Hoog nodes are shifted in cumulative hazard to meet the expansion
+      above it. Just above the tail level, the de Hoog nodes are shifted in negative log-survival to meet the expansion
       without a step. The de Hoog nodes are computed only when a query reaches the tail, and they are kept.
     - The atom :math:`p_0 = \varphi(\infty)` is evaluated exactly, as described at :meth:`RewardDistribution.lst()
       <phasegen.distributions.RewardDistribution.lst>`.

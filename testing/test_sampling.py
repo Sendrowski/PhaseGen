@@ -314,8 +314,8 @@ def test_sampled_and_msprime_agree_across_epochs():
     """The sampler against msprime under a **time-inhomogeneous** demography -- the one place its epoch handling can
     be wrong without anything else noticing.
 
-    Within an epoch the sampler takes ``H / lambda`` from an ``Exp(1)`` hazard budget; at a boundary it advances the
-    walker to the boundary, consumes ``lambda * duration`` of the budget, and carries the remainder into the next
+    Within an epoch the sampler takes ``H / lambda`` from an ``Exp(1)`` exit threshold; at a boundary it advances the
+    walker to the boundary, subtracts ``lambda * duration`` from the threshold, and carries the remainder into the next
     epoch. Nothing else validates that carry-over against an *independent* implementation: the scenario suite's
     ``tolerance.empirical`` blocks compare the sampler against PhaseGen's own analytics, which share its epoch grid, so
     a bug in the grid would agree with itself.
@@ -334,7 +334,7 @@ def test_sampled_and_msprime_agree_across_epochs():
 def test_sampler_is_scale_equivariant():
     """Rescaling every population size by ``c`` rescales every sampled time by exactly ``c``.
 
-    The sampler draws ``H / lambda`` from a hazard budget, which carries no absolute time scale, so this must hold to
+    The sampler draws ``H / lambda`` from an exit threshold, which carries no absolute time scale, so this must hold to
     the last digit rather than merely within Monte-Carlo error -- and the same seed gives the same trajectories, so the
     sampled means are compared as an identity, not a statistic. Worth pinning: an absolute constant slipped into a
     scale-free computation is a recurring failure here (the atom probe once tested ``phi(1e8)`` rather than
@@ -360,8 +360,8 @@ def test_sampled_and_msprime_agree_across_a_zero_rate_epoch():
     """The sampler against msprime when an epoch has **no migration at all**, so the demes are isolated until they
     reconnect.
 
-    This is the ``lambda = 0`` branch of the hazard budget: a walker in a state it cannot leave consumes no hazard and
-    simply waits out the epoch, accruing reward. Getting that wrong (consuming budget, or dividing by a zero rate)
+    This is the ``lambda = 0`` branch of the exit threshold: a walker in a state it cannot leave consumes none of it and
+    simply waits out the epoch, accruing reward. Getting that wrong (spending the threshold, or dividing by a zero rate)
     would be invisible to a time-homogeneous test, and the isolated phase forces the two demes' lineages to survive it
     before they can ever coalesce with one another.
     """
