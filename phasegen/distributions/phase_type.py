@@ -388,15 +388,22 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         .. rubric:: Several epochs
 
-        On entering a state at time :math:`u_0`, a trajectory draws a hazard budget :math:`H \sim \mathrm{Exp}(1)`
-        and leaves when the rates of the epochs it passes through have used it up,
+        The exit rate :math:`\lambda_i(x) = -(\mathbf{S}_i)_{xx}` of state :math:`x` changes at the epoch boundaries,
+        so the holding time is no longer a single exponential draw. On entering :math:`x` at time :math:`u_0`, a
+        trajectory draws a hazard budget :math:`H \sim \mathrm{Exp}(1)`. Its holding time :math:`D` in :math:`x` is the
+        time until the cumulative hazard reaches this budget,
 
         .. math::
 
             \int_{u_0}^{u_0 + D} \lambda_{i(u)}(x)\, \mathrm{d}u = H,
 
-        with :math:`i(u)` the epoch containing :math:`u`. The unused budget is carried across epoch boundaries, and a
-        jump follows the probabilities of the epoch in which it occurs. Only time within
+        with :math:`i(u)` the epoch containing time :math:`u`. Since the cumulative hazard at exit is
+        :math:`\mathrm{Exp}(1)`-distributed, this samples :math:`D` from its survival function
+        :math:`P(D > d) = \exp(-\int_{u_0}^{u_0 + d} \lambda_{i(u)}(x)\, \mathrm{d}u)`. At time :math:`u` in epoch
+        :math:`i`, the trajectory leaves at :math:`u + H / \lambda_i(x)` if this lies before the epoch end
+        :math:`t_i`. Otherwise it advances to :math:`t_i`, the spent hazard :math:`\lambda_i(x)(t_i - u)` is subtracted
+        from :math:`H`, and the remainder is carried into epoch :math:`i + 1`. The jump follows the probabilities of
+        the epoch in which it occurs, and the next state draws a new budget. Only time within
         :math:`[t_\mathrm{start}, t_\mathrm{end}]` contributes to :math:`R`. A transient state with zero exit rate in
         the last epoch is never left, which gives an infinite sample for :math:`t_\mathrm{end} = \infty`.
 
