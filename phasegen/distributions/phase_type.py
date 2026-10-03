@@ -183,7 +183,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return RewardDistribution(self, reward)
 
-    def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
+    def joint(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
         Joint distribution of two accumulated rewards, as a :class:`~phasegen.distributions.JointRewardDistribution`.
 

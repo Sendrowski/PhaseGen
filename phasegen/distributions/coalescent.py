@@ -667,7 +667,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     def _select_state_space(self, rewards: Iterable[Reward]) -> StateSpace:
         """
         Select the smallest state space jointly compatible with the given rewards -- the reward-compatibility wiring
-        shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint_distribution` (all via
+        shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint` (all via
         :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
         every reward must also support it). Otherwise the lineage-counting space is used if all rewards support it,
         then the two-locus block-counting space if all rewards support it and there are two loci and one deme, then
@@ -723,7 +723,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @_make_hashable
     @cache
-    def joint_distribution(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
+    def joint(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
         """
         Joint distribution of two accumulated rewards, as a :class:`~phasegen.distributions.JointRewardDistribution`,
         on the smallest state space supporting both rewards and cached per pair of rewards.
@@ -738,7 +738,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         _validate_reward(reward_a, "reward_a")
         _validate_reward(reward_b, "reward_b")
 
-        return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint_distribution(reward_a, reward_b)
+        return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint(reward_a, reward_b)
 
     @_make_hashable
     @cache

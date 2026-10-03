@@ -651,7 +651,7 @@ class DistributionTestCase(TestCase):
 
                 self.assertLess(abs(deme.get_mutation_config(config, theta) - weights.mean()), 4 * se)
 
-    def test_sfs_joint_distribution_restricted_by_spectrum_reward(self):
+    def test_sfs_joint_restricted_by_spectrum_reward(self):
         """
         The joint distribution of two bins of a deme view must carry the view's reward, so its marginal means and
         covariance equal the view's bin means and covariance. It used the bare bin rewards and so described the full
@@ -664,7 +664,7 @@ class DistributionTestCase(TestCase):
         )
         deme = coal.sfs.demes['pop_0']
 
-        jd = deme.joint_distribution(1, 2)
+        jd = deme.joint(1, 2)
 
         np.testing.assert_allclose(jd.mean, np.asarray(deme.mean.data)[[1, 2]], rtol=1e-10)
         self.assertAlmostEqual(jd.cov, deme.cov.data[1, 2], places=10)
@@ -701,7 +701,7 @@ class DistributionTestCase(TestCase):
                 dist.bin(i)
 
         with self.assertRaises(ValueError):
-            coal.fsfs.joint_distribution(1, 3)
+            coal.fsfs.joint(1, 3)
 
         for i, j in [(1.5, 1), (1, 5), (-1, 1)]:
             with self.assertRaises(ValueError):
@@ -942,7 +942,7 @@ def test_dropped_cache_rebuilds_rate_matrix_as_fresh(round_trip):
     first = fresh.demography.get_epoch(0)
     fresh.block_counting_state_space.update_epoch(first)
     S_fresh = np.array(fresh.block_counting_state_space.S, copy=True)
-    std_fresh = fresh.sfs.joint_distribution(1, 2).marginal('a').std
+    std_fresh = fresh.sfs.joint(1, 2).marginal('a').std
 
     coal = build()
     _ = coal.sfs.mean
@@ -957,7 +957,7 @@ def test_dropped_cache_rebuilds_rate_matrix_as_fresh(round_trip):
 
     coal.block_counting_state_space.update_epoch(first)
     np.testing.assert_array_equal(coal.block_counting_state_space.S, S_fresh)
-    assert coal.sfs.joint_distribution(1, 2).marginal('a').std == std_fresh
+    assert coal.sfs.joint(1, 2).marginal('a').std == std_fresh
 
 
 def test_stability_warning_for_fast_migration_hiding_slow_coalescence(caplog):

@@ -1060,7 +1060,7 @@ class JointDensity(_JointFunction, DensityFunction):
     ::
 
         coal = pg.Coalescent(n=4)
-        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+        joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
 
         f = joint.pdf(1.0, 3.0)
 
@@ -1119,7 +1119,7 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     ::
 
         coal = pg.Coalescent(n=4)
-        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+        joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
 
         p = joint.cdf(1.0, 3.0)
 
@@ -1230,7 +1230,7 @@ class ConditionalDensity(_ConditionalCosTerms, _LSTDensityFunction):
     ::
 
         coal = pg.Coalescent(n=4)
-        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
 
         f = cond.pdf(3.0)
     """
@@ -1244,7 +1244,7 @@ class ConditionalCDF(_ConditionalCosTerms, _LSTCumulativeDistributionFunction):
     ::
 
         coal = pg.Coalescent(n=4)
-        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
 
         p = cond.cdf(3.0)
     """
@@ -1259,7 +1259,7 @@ class ConditionalQuantileFunction(_ConditionalCosTerms, _LSTQuantileFunction):
     ::
 
         coal = pg.Coalescent(n=4)
-        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
 
         x = cond.quantile(0.5)
     """
@@ -1606,7 +1606,7 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         return np.array([[self.get_corr(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
-    def joint_distribution(self, locus1: int, locus2: int) -> 'JointRewardDistribution':
+    def joint(self, locus1: int, locus2: int) -> 'JointRewardDistribution':
         """
         Joint distribution of the distribution's reward accumulated at ``locus1`` and at ``locus2``, the pair behind
         :meth:`MarginalLocusDistributions.get_cov() <phasegen.distributions.MarginalLocusDistributions.get_cov>`, as a
@@ -1622,7 +1622,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
 
-        return self.dist.joint_distribution(
+        return self.dist.joint(
             RestrictedReward(self.dist.reward, locus=locus1),
             RestrictedReward(self.dist.reward, locus=locus2)
         )

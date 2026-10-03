@@ -976,7 +976,7 @@ class Comparison(Serializable):
                 # cached ground truth.
                 for key, subtol in sub.items():
                     pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
-                    self._compare_conditional(ph.joint_distribution(*pair), pair, subtol, title, name, ms=ms)
+                    self._compare_conditional(ph.joint(*pair), pair, subtol, title, name, ms=ms)
 
             elif stat == 'pairwise':
 
@@ -1014,7 +1014,7 @@ class Comparison(Serializable):
         Compare the cross-locus joint distribution (the per-locus tree height / total branch length at the two loci,
         separated by recombination) against the msprime ground truth, as a **full-grid surface** over the single locus
         pair ``(0, 1)`` -- the same machinery as the SFS/jSFS/two-locus surfaces (:meth:`_compare_pairwise_surface`),
-        routed through ``ph.loci.joint_distribution`` and the cached ``ms._loci_joint_surface``. The ``cdf`` / ``pdf``
+        routed through ``ph.loci.joint`` and the cached ``ms._loci_joint_surface``. The ``cdf`` / ``pdf``
         tolerances are asserted over the grid. A ``conditional`` sub-block runs the conditional self-consistency checks
         of :meth:`_compare_conditional` on the same pair. A key other than ``cdf``, ``pdf`` and ``conditional`` raises a
         ``ValueError``.
@@ -1026,10 +1026,10 @@ class Comparison(Serializable):
         tols = {k: v for k, v in sub.items() if k in ('cdf', 'pdf')}
         if tols:
             self._compare_pairwise_surface(ph=ph, ms=ms, pair=(0, 1), tols=tols, title=title, name=name,
-                                           joint_fn=lambda a, b: ph.loci.joint_distribution(a, b),
+                                           joint_fn=lambda a, b: ph.loci.joint(a, b),
                                            surface_attr='_loci_joint_surface', stat_label='loci_pairwise')
         if 'conditional' in sub:
-            self._compare_conditional(ph.loci.joint_distribution(0, 1), (0, 1), sub['conditional'], title, name,
+            self._compare_conditional(ph.loci.joint(0, 1), (0, 1), sub['conditional'], title, name,
                                       ms=ms, loci=True)
 
     def _compare_sfs_bin(self, ph, ms, i: int, tols: dict, title: str, name: str) -> None:
@@ -1396,7 +1396,7 @@ class Comparison(Serializable):
                                   joint_fn=None, surface_attr: str = '_joint_surface', stat_label: str = None) -> None:
         """
         Full-grid comparison of the within-tree joint distribution of one bin pair ``(i, j)``: the analytic
-        ``joint_distribution(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
+        ``joint(i, j)`` versus the cached empirical joint CDF / density over a 2D grid. For each of
         ``cdf`` and ``pdf`` requested in ``tols`` it asserts the worst element-wise difference over the grid and (when
         visualizing) draws three surfaces side by side -- phasegen, msprime and their element-wise difference.
 
@@ -1409,7 +1409,7 @@ class Comparison(Serializable):
                              f"pair {pair}.")
 
         i, j = pair
-        jd = joint_fn(i, j) if joint_fn is not None else ph.joint_distribution(i, j)
+        jd = joint_fn(i, j) if joint_fn is not None else ph.joint(i, j)
 
         entry = next((e for e in getattr(ms, surface_attr, []) if (e[0], e[1]) == (i, j)), None)
         if entry is None:
@@ -1740,7 +1740,7 @@ class Comparison(Serializable):
             if loci:
                 block = self._loci_conditional(data)
                 if 'windowed' in block:
-                    specs = self._windows_of(getattr(self.ph, dist).loci.joint_distribution(0, 1), (0, 1),
+                    specs = self._windows_of(getattr(self.ph, dist).loci.joint(0, 1), (0, 1),
                                              block['windowed'])
             else:
                 conditional = data.get('conditional') if isinstance(data, dict) else None
@@ -1748,7 +1748,7 @@ class Comparison(Serializable):
                     if not isinstance(sub, dict) or 'windowed' not in sub:
                         continue
                     pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
-                    specs += self._windows_of(getattr(self.ph, dist).joint_distribution(*pair), pair,
+                    specs += self._windows_of(getattr(self.ph, dist).joint(*pair), pair,
                                               sub['windowed'])
 
             if specs:

@@ -261,7 +261,7 @@ stopifnot(mean1 == mean2, mean1 < pg$Coalescent(n = 10L)$tree_height$mean)
 +++
 ## Distributions of custom rewards
 
-Each reward above was summarised by its moments, but any reward also has a full distribution. {meth}`~phasegen.distributions.Coalescent.distribution` returns the 1D law of a reward, with its `pdf`, `cdf` and `quantile`, and {meth}`~phasegen.distributions.Coalescent.joint_distribution` the joint law of two, reaching combinations with no dedicated accessor. See {doc}`Distribution functions <distribution_functions>` for these objects in general.
+Each reward above was summarised by its moments, but any reward also has a full distribution. {meth}`~phasegen.distributions.Coalescent.distribution` returns the 1D law of a reward, with its `pdf`, `cdf` and `quantile`, and {meth}`~phasegen.distributions.Coalescent.joint` the joint law of two, reaching combinations with no dedicated accessor. See {doc}`Distribution functions <distribution_functions>` for these objects in general.
 
 ```{code-cell} python
 king = pg.Coalescent(n=8)
@@ -310,7 +310,7 @@ matplotlib.rcParams.update({'figure.subplot.left': 0, 'figure.subplot.right': 1,
 :tags: [full-width]
 import matplotlib.pyplot as plt
 
-joint = king.joint_distribution(pg.TreeHeightReward(), pg.UnfoldedSFSReward(1))
+joint = king.joint(pg.TreeHeightReward(), pg.UnfoldedSFSReward(1))
 print(f"correlation = {joint.corr:.3f}")
 
 _, axs = plt.subplots(ncols=2, figsize=(7, 3.4), subplot_kw={'projection': '3d'})
@@ -335,7 +335,7 @@ options(repr.plot.width = 7, repr.plot.height = 3.4)
 
 ```{code-cell} r
 :tags: [full-width]
-joint <- king$joint_distribution(pg$TreeHeightReward(), pg$UnfoldedSFSReward(1L))
+joint <- king$joint(pg$TreeHeightReward(), pg$UnfoldedSFSReward(1L))
 cat(sprintf("correlation = %.3f\n", joint$corr))
 
 par(mfrow = c(1, 2))

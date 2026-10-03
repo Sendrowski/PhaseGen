@@ -160,10 +160,10 @@ def test_moment_paths_sparse_matches_dense(label, make, get):
 # strongly-connected-component reordering rather than the acyclic single-deme path.
 JOINT_INVERSION_CASES = [
     ("sfs within-tree joint (1,2) n=6 multi-epoch",
-     lambda: pg.Coalescent(n=6, demography=_two_epoch_single()).sfs.joint_distribution(1, 2)),
+     lambda: pg.Coalescent(n=6, demography=_two_epoch_single()).sfs.joint(1, 2)),
     ("sfs2 two-locus joint (1,2) n=4 r=1 multi-epoch",
      lambda: pg.Coalescent(n=4, loci=2, recombination_rate=1.0,
-                           demography=_two_epoch_single()).sfs2.joint_distribution(1, 2)),
+                           demography=_two_epoch_single()).sfs2.joint(1, 2)),
 ]
 
 

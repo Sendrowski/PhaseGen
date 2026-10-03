@@ -665,7 +665,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         d.label = f"SFS bin {int(i)}"
         return d
 
-    def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
+    def joint(self, i: int, j: int) -> 'JointRewardDistribution':
         r"""
         Joint distribution of the branch lengths :math:`L_i` and :math:`L_j` of frequency classes :math:`i` and
         :math:`j` within one genealogy, as a :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards
@@ -679,7 +679,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         """
         i, j = self._polymorphic_bin(i), self._polymorphic_bin(j)
 
-        jd = super().joint_distribution(
+        jd = super().joint(
             CombinedReward([self.reward, self._get_sfs_reward(i)]),
             CombinedReward([self.reward, self._get_sfs_reward(j)])
         )
@@ -1584,7 +1584,7 @@ class JointSFSDistribution(SpectrumDistribution):
         d.label = f"jSFS bin {config}"
         return d
 
-    def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'JointRewardDistribution':
+    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'JointRewardDistribution':
         """
         Joint distribution of the branch lengths of two joint SFS bins within one genealogy, as a
         :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards are combined with the reward of this
@@ -1597,7 +1597,7 @@ class JointSFSDistribution(SpectrumDistribution):
         """
         config_a, config_b = self._bin_config(config_a), self._bin_config(config_b)
 
-        jd = super().joint_distribution(
+        jd = super().joint(
             CombinedReward([self.reward, JointSFSReward(config_a)]),
             CombinedReward([self.reward, JointSFSReward(config_b)])
         )
@@ -1989,7 +1989,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         """
         raise NotImplementedError(
             f"{type(self).__name__} provides moment, mean, var, std, m2, corr, accumulate, distribution, "
-            "joint_distribution, sample, sample_per_locus and to_empirical. The per-locus marginals are those of the "
+            "joint, sample, sample_per_locus and to_empirical. The per-locus marginals are those of the "
             "single-locus spectrum pg.Coalescent(...).sfs."
         )
 
@@ -2147,7 +2147,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         return int(i)
 
-    def joint_distribution(self, i: int, j: int) -> 'JointRewardDistribution':
+    def joint(self, i: int, j: int) -> 'JointRewardDistribution':
         r"""
         Joint distribution of the branch length :math:`L^0_i` of frequency class :math:`i` at locus 0 and the branch
         length :math:`L^1_j` of frequency class :math:`j` at locus 1, as a
@@ -2162,7 +2162,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         """
         i, j = self._polymorphic_class(i), self._polymorphic_class(j)
 
-        jd = PhaseTypeDistribution.joint_distribution(self, *self._bin_rewards(i, j))
+        jd = PhaseTypeDistribution.joint(self, *self._bin_rewards(i, j))
         jd.label = f"locus-0 bin {i} x locus-1 bin {j}"
         return jd
 

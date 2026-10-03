@@ -274,7 +274,7 @@ def test_joint_cdf_plot_grid_honours_diagonal_reduction():
     exactly. Pre-fix, ``_grid_values`` built the 2D cosine box expansion of the diagonal-singular measure instead, so
     the grid disagreed with ``__call__`` (max abs error ~0.009) and was not constant along ``min(x, y)``.
     """
-    d = pg.Coalescent(n=3).joint_distribution(pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())
+    d = pg.Coalescent(n=3).joint(pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())
     assert d._ratio == 1.0
 
     xs = np.array([1.0, 2.0, 3.0])
@@ -455,7 +455,7 @@ def test_jsfs_demes_cov(two_pop_coalescent):
     np.testing.assert_allclose(corr[0, 1][finite], expected[finite], rtol=1e-8, atol=1e-12)
 
 
-def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescent):
+def test_jsfs_joint_restricted_by_spectrum_reward(two_pop_coalescent):
     """
     The joint distribution of two bins of a deme view must carry the view's reward, so its marginal means and
     covariance equal those of the view. It used the bare bin rewards and so described the full joint spectrum.
@@ -463,7 +463,7 @@ def test_jsfs_joint_distribution_restricted_by_spectrum_reward(two_pop_coalescen
     view = two_pop_coalescent.jsfs.demes['pop_0']
     a, b = (1, 0), (0, 1)
 
-    jd = view.joint_distribution(a, b)
+    jd = view.joint(a, b)
 
     np.testing.assert_allclose(jd.mean, [view.mean.data[a], view.mean.data[b]], rtol=1e-10)
     np.testing.assert_allclose(jd.cov, view.get_cov(a, b), rtol=1e-8)
@@ -479,7 +479,7 @@ def test_jsfs_invalid_config_raises_value_error(two_pop_coalescent, config):
     for call in (
             lambda: jsfs.bin(*config),
             lambda: jsfs.get_cov(config, (1, 0)),
-            lambda: jsfs.joint_distribution(config, (1, 0)),
+            lambda: jsfs.joint(config, (1, 0)),
             lambda: jsfs.cdf._plot_data(configs=[config], t=[1.0])
     ):
         with pytest.raises(ValueError, match='descendant configuration'):

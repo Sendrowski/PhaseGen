@@ -385,10 +385,10 @@ def test_sfs_bin_distributions_vs_msprime():
 
 
 @pytest.mark.slow
-def test_joint_distribution_cross_moment_and_cdf_vs_msprime():
+def test_joint_cross_moment_and_cdf_vs_msprime():
     """Ground truth via the scenario infrastructure: the joint reward distribution's cross-moment ``E[L_i L_j]``
     and joint CDF match a fresh msprime simulation, compared through the empirical joint distribution of the
-    sampled SFS (``EmpiricalPhaseTypeSFSDistribution.joint_distribution``)."""
+    sampled SFS (``EmpiricalPhaseTypeSFSDistribution.joint``)."""
     from phasegen.comparison import Comparison
 
     c = Comparison(n=6, num_replicates=200000, pop_sizes={'pop_0': {0: 1.0}},
@@ -396,14 +396,14 @@ def test_joint_distribution_cross_moment_and_cdf_vs_msprime():
     ph, ms = c.ph, c.ms
 
     for i, j in [(1, 2), (2, 3), (1, 4), (3, 3)]:
-        jd = ph.sfs.joint_distribution(i, j)
-        empirical_cross = ms.sfs.joint_distribution(i, j).moment(1, 1)
+        jd = ph.sfs.joint(i, j)
+        empirical_cross = ms.sfs.joint(i, j).moment(1, 1)
         assert abs(jd.moment(1, 1) - empirical_cross) < 0.03 * empirical_cross + 0.01  # E[L_i L_j]
 
         for qa, qb in [(0.4, 0.6), (0.7, 0.5)]:
             x = float(jd.marginal('a').quantile(qa))
             y = float(jd.marginal('b').quantile(qb))
-            assert abs(jd.cdf(x, y) - ms.sfs.joint_distribution(i, j).cdf(x, y)) < 0.02  # P(L_i <= x, L_j <= y)
+            assert abs(jd.cdf(x, y) - ms.sfs.joint(i, j).cdf(x, y)) < 0.02  # P(L_i <= x, L_j <= y)
 
 
 @pytest.mark.slow
@@ -456,14 +456,14 @@ def test_joint_reward_distribution_within_tree():
     cov = np.asarray(coal.sfs.cov.data)
     mean = np.asarray(coal.sfs.mean.data)
     for i, j in [(1, 1), (1, 2), (2, 3)]:
-        jd = coal.sfs.joint_distribution(i, j)
+        jd = coal.sfs.joint(i, j)
         assert jd.moment(1, 1) == pytest.approx(cov[i, j] + mean[i] * mean[j], abs=1e-9)  # E[L_i L_j]
         assert jd.marginal('a')._cumulants()[0] == pytest.approx(mean[i], abs=1e-7)        # E[L_i]
         assert jd.lst(0.6, 0.0) == pytest.approx(jd.marginal('a').lst(0.6), abs=1e-12)     # combined-shift consistency
         assert jd.cov == pytest.approx(cov[i, j], abs=1e-8)
 
 
-def test_joint_distribution_2d_density_and_cdf():
+def test_joint_2d_density_and_cdf():
     """The 2D joint density recovers the cross-moment and integrates to the continuous mass; the joint CDF
     saturates to 1 and starts at the joint atom; plotting runs. Validated on a no-atom pair (tight) and an
     atom-bearing pair (the continuous-continuous part)."""
@@ -471,7 +471,7 @@ def test_joint_distribution_2d_density_and_cdf():
     matplotlib.use('Agg')
 
     # no-atom pair: every tree has external (singleton) branches, so L_1 > 0 a.s.
-    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 1)
+    jd = pg.Coalescent(n=6).sfs.joint(1, 1)
     st = jd._cos2d
 
     # the fast cosine box underlies the dense CDF *plot* grid; it is bounded, monotone, and saturates to 1
@@ -490,7 +490,7 @@ def test_joint_distribution_2d_density_and_cdf():
 
     # atom-bearing pair: bin 3 of n=6 is empty with positive probability; its atom is recovered exactly, and the
     # cross-moment is read off the density (the product kills the boundary)
-    jd2 = pg.Coalescent(n=6).sfs.joint_distribution(2, 3)
+    jd2 = pg.Coalescent(n=6).sfs.joint(2, 3)
     assert jd2._atoms['b0'] > 0.05
     assert jd2.cdf(jd2._cos2d['ba'] * 5, 1e-9) == pytest.approx(jd2._atoms['b0'], abs=3e-3)  # P(L_3 = 0)
     x2 = np.linspace(0, jd2._cos2d['ba'], 220)
@@ -512,7 +512,7 @@ def test_joint_plot_surface():
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=6).sfs.joint(1, 2)
     for fn in (jd.pdf, jd.cdf):
         ax = fn.plot_surface(show=False)
         assert ax.name == '3d'
@@ -528,18 +528,18 @@ def test_joint_reward_distribution_two_locus():
     mean = np.asarray(sfs2.mean.data)
     corr = np.asarray(sfs2.corr.data)
     for i, j in [(1, 1), (1, 2), (2, 2)]:
-        jd = sfs2.joint_distribution(i, j)
+        jd = sfs2.joint(i, j)
         assert jd.moment(1, 1) == pytest.approx(mean[i, j], abs=1e-8)
         assert jd.corr == pytest.approx(corr[i, j], rel=1e-4)
 
 
-def test_self_pair_joint_distribution_reduces_to_marginal():
+def test_self_pair_joint_reduces_to_marginal():
     """A bin paired with itself is degenerate on the diagonal (``L_a = L_b`` a.s.): the joint CDF equals the
     marginal CDF at ``min(x, y)`` exactly -- including the atom at 0 -- and the 2D density is singular (raises)."""
     coal = pg.Coalescent(n=6)
     # an atom-free bin (singletons, L_1 > 0 a.s.) and an atom-bearing bin (bin 3 is empty with positive probability)
     for i in (1, 3):
-        jd = coal.sfs.joint_distribution(i, i)
+        jd = coal.sfs.joint(i, i)
         assert jd._ratio == 1.0
         m = jd.marginal('a')
         for x, y in [(0.5, 1.3), (1.3, 0.5), (0.9, 0.9), (2.0, 0.2)]:
@@ -551,11 +551,11 @@ def test_self_pair_joint_distribution_reduces_to_marginal():
             jd.pdf(1.0, 1.0)
 
     # the atom-bearing self-pair actually carries mass at 0
-    assert coal.sfs.joint_distribution(3, 3)._atoms['both0'] > 0.05
+    assert coal.sfs.joint(3, 3)._atoms['both0'] > 0.05
 
 
-def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
-    """``JointSFSDistribution.joint_distribution`` is the within-tree bivariate object behind the multi-population
+def test_jsfs_joint_recovers_marginals_and_cross_moment():
+    """``JointSFSDistribution.joint`` is the within-tree bivariate object behind the multi-population
     SFS cross-moment: its marginals match the joint SFS mean, its ``(1, 1)`` moment is a positive cross-moment, and
     a config paired with itself is the singular diagonal."""
     dem = pg.Demography(
@@ -566,12 +566,12 @@ def test_jsfs_joint_distribution_recovers_marginals_and_cross_moment():
     mean = np.asarray(jsfs.mean.data)
 
     ca, cb = (1, 0), (0, 1)
-    jd = jsfs.joint_distribution(ca, cb)
+    jd = jsfs.joint(ca, cb)
     assert jd.marginal('a')._cumulants()[0] == pytest.approx(mean[ca], rel=1e-6)
     assert jd.marginal('b')._cumulants()[0] == pytest.approx(mean[cb], rel=1e-6)
     assert jd.moment(1, 1) > 0
     assert -1.0 <= jd.corr <= 1.0
-    assert jsfs.joint_distribution(ca, ca)._ratio == 1.0
+    assert jsfs.joint(ca, ca)._ratio == 1.0
 
 
 def test_bin_returns_callable_plottable_1d_distribution():
@@ -634,7 +634,7 @@ def test_conditional_distribution():
     matplotlib.use('Agg')
     from phasegen.distributions.base import DistributionFunction
 
-    jd = pg.Coalescent(n=6).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=6).sfs.joint(1, 2)
     ma, mb = jd.marginal('a'), jd.marginal('b')
 
     # a proper 1D distribution (the nested-inversion conditional is a RewardDistribution): CDF monotone 0 -> 1,
@@ -658,7 +658,7 @@ def test_conditional_distribution():
 
     # a self-pair conditional is a point mass at ``value`` -> not representable, raises
     with pytest.raises(NotImplementedError):
-        pg.Coalescent(n=6).sfs.joint_distribution(2, 2).conditional('a', 1.0)
+        pg.Coalescent(n=6).sfs.joint(2, 2).conditional('a', 1.0)
 
 
 @pytest.mark.parametrize("i, j, value", [(1, 2, 1.0), (2, 4, 0.5)])
@@ -668,7 +668,7 @@ def test_conditional_support_window_covers_distribution(i, j, value):
     near the mean (e.g. ``cdf(b) ~ 0.67``), truncating the distribution -- which made the cosine curve fabricate
     reaching 1 and the high quantiles wrong. The window must now span (almost) the whole support, the curve must match
     the exact de Hoog at an interior point, and the high quantile must round-trip."""
-    jd = pg.Coalescent(n=6).sfs.joint_distribution(i, j)
+    jd = pg.Coalescent(n=6).sfs.joint(i, j)
     c = jd.conditional('a', value)
 
     b = c._range(12.0)
@@ -696,7 +696,7 @@ def test_conditional_law_of_total_expectation(scenario):
     """``JointRewardDistribution.check_total_expectation`` recovers ``E[R_other] = E[E[R_other|R_on]]`` for both
     conditioning axes, across single-epoch / time-inhomogeneous / multiple-merger regimes. Exercises the runtime guard
     (which logs a warning past its tolerance) and asserts the conditional means integrate back to the marginal mean."""
-    jd = _CONDITIONAL_SCENARIOS[scenario]().sfs.joint_distribution(1, 2)
+    jd = _CONDITIONAL_SCENARIOS[scenario]().sfs.joint(1, 2)
     rel = jd.check_total_expectation(n_points=8, tol=0.1)
     assert rel and max(rel.values()) < 0.1
 
@@ -745,7 +745,7 @@ def test_nonmonotone_detector_catches_a_cumulative_sag(caplog):
 
 def test_clean_distribution_emits_no_inversion_warning(caplog):
     """A well-behaved distribution's CDF/PDF curves route through the detectors without false-positive warnings."""
-    marg = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).marginal('a')
+    marg = pg.Coalescent(n=4).sfs.joint(1, 2).marginal('a')
     grid = np.linspace(0.0, marg._range(8.0), 50)
     caplog.clear()
     marg.cdf(grid)
@@ -994,7 +994,7 @@ def test_distribution_functions_are_callable_and_plottable():
     coal.tree_height.quantile.plot(show=False)
 
     # 2D joint: callable (x, y) + heatmap plot
-    jd = coal.sfs.joint_distribution(1, 2)
+    jd = coal.sfs.joint(1, 2)
     assert isinstance(jd.cdf, DistributionFunction)
     jd.pdf.plot(show=False)
 
@@ -1076,7 +1076,7 @@ def test_negative_reward_raises():
 
 
 def test_coalescent_distribution_accessors():
-    """``Coalescent.distribution(reward)`` / ``joint_distribution(ra, rb)`` are cached accessors returning the 1D /
+    """``Coalescent.distribution(reward)`` / ``joint(ra, rb)`` are cached accessors returning the 1D /
     2D accumulated-reward distribution objects, with the state space inferred from the rewards (as for ``moment``)."""
     from phasegen.rewards import TreeHeightReward
     from phasegen.state_space import LineageCountingStateSpace, BlockCountingStateSpace
@@ -1097,8 +1097,8 @@ def test_coalescent_distribution_accessors():
 
     # 2D: a singleton joint -- houses the marginal means, the cross-moments / cov / corr and the joint cdf / pdf;
     # SFS rewards route to the block-counting state space
-    j = c.joint_distribution(UnfoldedSFSReward(1), UnfoldedSFSReward(2))
-    assert c.joint_distribution(UnfoldedSFSReward(1), UnfoldedSFSReward(2)) is not None
+    j = c.joint(UnfoldedSFSReward(1), UnfoldedSFSReward(2))
+    assert c.joint(UnfoldedSFSReward(1), UnfoldedSFSReward(2)) is not None
     assert isinstance(j._host.state_space, BlockCountingStateSpace)
     assert np.shape(j.mean) == (2,)
     assert j.mean[0] == pytest.approx(c.moment(1, rewards=[UnfoldedSFSReward(1)], center=False))
@@ -1115,7 +1115,7 @@ def test_conditional_on_atom_is_scale_invariant(scale):
     """
     def dimensionless(s: float) -> float:
         demography = pg.Demography(pop_sizes={'pop_0': {0: 1.0 * s, 1.0 * s: 5.0 * s}})
-        joint = pg.Coalescent(n=5, demography=demography).sfs.joint_distribution(4, 1)
+        joint = pg.Coalescent(n=5, demography=demography).sfs.joint(4, 1)
 
         # P(R_4 = 0) = 0.5 for n = 5, so the atom conditional is a real path, not a corner case
         assert float(joint._atoms['a0']) == pytest.approx(0.5, abs=1e-6)
@@ -1145,7 +1145,7 @@ def test_atom_conditional_matches_the_sampler_exactly(label, coal):
     exercised there.
     """
     coal = coal()
-    jd = coal.sfs.joint_distribution(4, 1)  # P(R_4 = 0) is substantial for n = 5
+    jd = coal.sfs.joint(4, 1)  # P(R_4 = 0) is substantial for n = 5
     cond = jd.conditional('a', 0.0)
 
     samples = np.asarray(coal.sfs.sample(500_000))
@@ -1174,7 +1174,7 @@ def test_atom_conditional_refuses_the_derivative_identity():
     """The derivative identity normalises by the conditioning marginal's *continuous* density, which at 0 is not the
     atom's mass, so it does not describe the atom conditional. It must refuse rather than quietly divide by whatever
     the density inverts to there."""
-    jd = pg.Coalescent(n=5).sfs.joint_distribution(4, 1)
+    jd = pg.Coalescent(n=5).sfs.joint(4, 1)
     cond = jd.conditional('a', 0.0)
 
     with pytest.raises(NotImplementedError, match='atom'):
@@ -1214,7 +1214,7 @@ def test_conditional_moments_live_on_the_conditional():
     """The conditional's mean has two independent routes -- the central difference of its own (nested) transform, and
     the derivative identity on the joint transform, which the mean reports -- and they must agree. Both are reached
     from the conditional itself."""
-    jd = pg.Coalescent(n=5).sfs.joint_distribution(4, 1)
+    jd = pg.Coalescent(n=5).sfs.joint(4, 1)
     v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
     cond = jd.conditional('a', v)
 
@@ -1229,7 +1229,7 @@ def test_conditional_variance_uses_the_mean_it_reports():
     ``mean`` and ``moment(1)`` reported the cumulant of the nested transform, so ``var`` differed from
     ``moment(2) - moment(1) ** 2`` by the gap between the two first-moment routes. The invariant must hold on a value
     and on the atom."""
-    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint(4, 1)
     v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
 
     for cond in (jd.conditional('a', v), jd.conditional('a', 0.0)):
@@ -1241,7 +1241,7 @@ def test_conditional_moments_share_one_ladder(monkeypatch):
     """``ConditionalRewardDistribution.mean``, ``var`` and ``moment(2)`` each ran the moment ladder from scratch,
     evaluating the joint Taylor coefficients three times and repeating any warning, and ``moment`` and
     ``JointRewardDistribution.lst_taylor`` rejected an integral float order, which is how R passes every order."""
-    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint(4, 1)
     v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
     cond = jd.conditional('a', v)
 
@@ -1267,7 +1267,7 @@ def test_conditional_moments_share_one_ladder(monkeypatch):
 def test_check_conditional_moments_compares_against_the_reported_mean():
     """``JointRewardDistribution.check_conditional_moments`` took its reference from an order-1 ladder, which can stop
     at a different truncation than the order-2 ladder the conditional's mean is read from."""
-    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint_distribution(4, 1)
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint(4, 1)
     jd.check_conditional_moments(quantiles=[0.5])
     _, exact, _, _ = jd.conditional_moment_curves['a']
 
@@ -1277,10 +1277,10 @@ def test_check_conditional_moments_compares_against_the_reported_mean():
 
 def test_joint_cdf_vanishes_below_the_origin():
     """``JointCDF`` integrated the cosine box at negative thresholds, whose antiderivatives are negative there, so
-    ``pg.Coalescent(n=4).sfs.joint_distribution(1, 2).cdf(-1.0, 1.0)`` returned -0.147. For identical rewards the
+    ``pg.Coalescent(n=4).sfs.joint(1, 2).cdf(-1.0, 1.0)`` returned -0.147. For identical rewards the
     reduced CDF returned the atom ``P(R = 0)`` at every threshold at or below zero. The CDF is zero wherever either
     threshold is negative, on both paths, and the density is zero there too."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
     grid = np.asarray(jd.cdf([-1.0, -1e-9, 0.5, 2.0], [-0.5, 0.5, 2.0]))
 
     assert np.all(grid[:2, :] == 0.0)
@@ -1289,7 +1289,7 @@ def test_joint_cdf_vanishes_below_the_origin():
     assert np.all(np.asarray(jd.pdf([-1.0, 0.5], [-1.0, 0.5]))[0, :] == 0.0)
 
     # identical rewards, with a substantial atom P(R_3 = 0) for n = 5
-    diag = pg.Coalescent(n=5).sfs.joint_distribution(3, 3)
+    diag = pg.Coalescent(n=5).sfs.joint(3, 3)
     assert diag._atoms['both0'] > 0.05
     assert diag.cdf(-1.0, 1.0) == 0.0
     assert diag.cdf(1.0, -1.0) == 0.0
@@ -1299,7 +1299,7 @@ def test_joint_cdf_vanishes_below_the_origin():
 def test_joint_marginal_rejects_unknown_reward():
     """``JointRewardDistribution.marginal`` returned the marginal of ``R_b`` for any argument other than ``'a'``, so
     ``marginal('c')`` succeeded silently, unlike ``conditional`` and the empirical ``marginal``."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
 
     with pytest.raises(ValueError):
         jd.marginal('c')
@@ -1307,10 +1307,10 @@ def test_joint_marginal_rejects_unknown_reward():
     assert jd.marginal('b').mean == pytest.approx(jd.mean[1])
 
 
-def test_joint_distribution_members_honour_the_cache_setting():
+def test_joint_members_honour_the_cache_setting():
     """``reward.py`` used ``functools.cached_property``, which stores every value, so ``Settings.cache = False`` did not
     stop the joint's atoms, cosine coefficients or the conditional variance from being memoised."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
 
     prev = Settings.cache
     Settings.cache = False
@@ -1328,11 +1328,11 @@ def test_joint_distribution_members_honour_the_cache_setting():
 
 @pytest.mark.parametrize('window', [dict(start_time=0.5), dict(end_time=0.5)])
 def test_joint_and_conditional_distribution_functions_raise_on_a_windowed_coalescent(window):
-    """The joint transform ignored the accumulation window, so ``Coalescent(n=4, end_time=0.5).sfs.joint_distribution(1,
+    """The joint transform ignored the accumulation window, so ``Coalescent(n=4, end_time=0.5).sfs.joint(1,
     2)`` returned the to-absorption CDF, density and conditionals next to windowed mixed moments. Every transform,
     distribution function and conditional of a joint raises on a windowed coalescent, while the moments keep the
     window."""
-    jd = pg.Coalescent(n=4, **window).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4, **window).sfs.joint(1, 2)
 
     for call in (lambda: jd.lst(0.1, 0.2), lambda: jd.lst_batch([0.1], [0.2]), lambda: jd.lst_taylor(0.1),
                  lambda: jd.cdf(1.0, 1.0), lambda: jd.pdf(1.0, 1.0), lambda: jd.conditional('a', 1.0),
@@ -1340,13 +1340,13 @@ def test_joint_and_conditional_distribution_functions_raise_on_a_windowed_coales
         with pytest.raises(NotImplementedError):
             call()
 
-    assert jd.moment(1, 1) < pg.Coalescent(n=4).sfs.joint_distribution(1, 2).moment(1, 1)
+    assert jd.moment(1, 1) < pg.Coalescent(n=4).sfs.joint(1, 2).moment(1, 1)
 
 
 def _refusing_joint(threshold_level: float):
     """A joint distribution whose conditionals refuse, with ``ValueError``, every conditioning value above the given
     level of the continuous part of the conditioning reward, standing in for values below inversion resolution."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
     build = jd.conditional
 
     thresholds = {}
@@ -1400,7 +1400,7 @@ def test_window_average_has_the_shape_of_the_statistic():
     """``JointRewardDistribution.window_average`` wrapped every statistic in ``np.atleast_1d``, so a scalar statistic
     such as the conditional mean came back as a length-one array and callers had to index ``[0]``. A scalar statistic
     returns a float, an array-valued one an array of its shape."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
     ys = np.array([0.5, 1.0, 2.0])
 
     mean = jd.window_average(lambda c: c.mean, 'a', 1.0, 0.05, n_nodes=2)
@@ -1415,7 +1415,7 @@ def test_window_average_requires_a_positive_half_width():
     """``JointRewardDistribution.window_average`` takes the window explicitly and refuses a non-positive half-width.
     Regression: its defaults value=0 and half_width=0 always raised, and half_width=0 built n_nodes identical
     conditionals."""
-    jd = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=4).sfs.joint(1, 2)
 
     with pytest.raises(TypeError):
         jd.window_average(lambda c: c.mean)
@@ -1441,7 +1441,7 @@ def _round_trip_cases() -> list:
     ]
 
     # a conditional: its lst is a nested inversion, so it exercises the same tail rule on a far noisier transform
-    joint = pg.Coalescent(n=4, demography=expansion).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=4, demography=expansion).sfs.joint(1, 2)
     v = float(joint.marginal('a').quantile(0.5))
     cases.append(('R_2 | R_1 = median', joint.conditional('a', v)))
 
@@ -1719,7 +1719,7 @@ def test_dehoog_inversion_of_a_vanishing_transform_is_zero_without_warnings():
     from phasegen.distributions.reward import _dehoog_invert
 
     coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
-    joint = coal.sfs.joint_distribution(1, 2)
+    joint = coal.sfs.joint(1, 2)
 
     with warnings.catch_warnings():
         warnings.simplefilter('error', RuntimeWarning)
@@ -1778,7 +1778,7 @@ def test_window_and_corr_use_exact_moments_with_a_slow_ancient_epoch(ne_ancestra
     assert c1 == pytest.approx(rd.mean, rel=1e-6)
     assert c2 == pytest.approx(rd.var, rel=1e-3)
 
-    j = coal.sfs.joint_distribution(1, 2)
+    j = coal.sfs.joint(1, 2)
     exact = j.cov / np.sqrt(j.marginal('a').var * j.marginal('b').var)
     assert j.corr == pytest.approx(exact, rel=1e-12)
     assert 0.8 < j.corr < 0.9
@@ -1845,7 +1845,7 @@ def test_exact_node_march_stays_local(monkeypatch):
 def test_joint_density_accepts_unsorted_and_repeated_points():
     """The joint density evaluated its spline on the caller's points, which must be strictly increasing, so an
     unsorted query such as ``pdf([2, 1], [1, 0.5])`` raised ``ValueError``."""
-    j = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    j = pg.Coalescent(n=4).sfs.joint(1, 2)
     xs, ys = np.array([1.0, 2.0]), np.array([0.5, 1.0])
     ref = j.pdf(xs, ys)
 
@@ -1858,12 +1858,12 @@ def test_conditioning_on_a_zero_probability_atom_raises():
     positive density at 0, so conditioning on ``L_2 = 0`` for ``n = 4`` (every tree has a cherry) or on ``L_2 = 0`` for
     ``n = 3`` built a conditional on an event of probability zero."""
     with pytest.raises(ValueError, match='zero probability'):
-        pg.Coalescent(n=4).sfs.joint_distribution(2, 3).conditional('a', 0.0)
+        pg.Coalescent(n=4).sfs.joint(2, 3).conditional('a', 0.0)
     with pytest.raises(ValueError, match='zero probability'):
-        pg.Coalescent(n=3).sfs.joint_distribution(1, 2).conditional('b', 0.0)
+        pg.Coalescent(n=3).sfs.joint(1, 2).conditional('b', 0.0)
 
     # a real atom still conditions: P(L_3 = 0) = 1/3 for n = 4
-    assert pg.Coalescent(n=4).sfs.joint_distribution(2, 3).conditional('b', 0.0).mean > 0
+    assert pg.Coalescent(n=4).sfs.joint(2, 3).conditional('b', 0.0).mean > 0
 
 
 def test_proportional_rewards_are_singular():
@@ -1874,7 +1874,7 @@ def test_proportional_rewards_are_singular():
     """
     from phasegen.rewards import TreeHeightReward, TotalBranchLengthReward
 
-    j = pg.Coalescent(n=2).joint_distribution(TotalBranchLengthReward(), TreeHeightReward())
+    j = pg.Coalescent(n=2).joint(TotalBranchLengthReward(), TreeHeightReward())
     assert j._ratio == pytest.approx(2.0)
 
     with pytest.raises(NotImplementedError):
@@ -1925,7 +1925,7 @@ def test_joint_cdf_surface_stays_within_the_unit_interval():
     the plotted surface of the bottleneck example in the User Guide and made R's ``persp`` warn that the surface
     extends beyond its box. The joint CDF must lie within ``[0, 1]`` everywhere."""
     coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
-    z = np.asarray(coal.sfs.joint_distribution(1, 2).cdf._plot_data(surface=True).z)
+    z = np.asarray(coal.sfs.joint(1, 2).cdf._plot_data(surface=True).z)
 
     assert z.min() >= 0.0 and z.max() <= 1.0
 
@@ -1937,7 +1937,7 @@ def test_joint_density_does_not_depend_on_the_other_points_of_the_query():
     call and 0.0162 when ``(100, 300)`` did, against a mixed central difference of the CDF of 0.3185."""
     from phasegen.rewards import TreeHeightReward, TotalBranchLengthReward
 
-    j = pg.Coalescent(n=4).joint_distribution(TreeHeightReward(), TotalBranchLengthReward())
+    j = pg.Coalescent(n=4).joint(TreeHeightReward(), TotalBranchLengthReward())
 
     alone = float(j.pdf(1.0, 3.0))
     xs, ys = np.array([0.5, 1.0, 3.0, 100.0]), np.array([2.0, 3.0, 8.0, 300.0])
@@ -2106,7 +2106,7 @@ def test_conditional_on_linked_loci_carries_the_diagonal_atom():
     biased by 35 to 49% everywhere and spiked at the value, and no atom was reported. Reference values from 400,000
     sampled trajectories: an atom of 0.2467 +- 0.0035 at v = 1.3, and quantiles 0.843, 1.299 and 1.967 at 0.2, 0.5
     and 0.8."""
-    joint = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
+    joint = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint(0, 1)
     v = 1.3
     cond = joint.conditional('a', v)
 
@@ -2129,7 +2129,7 @@ def test_line_atom_conditional_expands_its_continuous_part_on_its_own_window():
     atom. Regression: the continuous part was expanded on that window, serving a CDF 200 standard errors from the
     sampler. Reference values from 2e8 sampled trajectories, conditioning within 2% of v: 1.18e-4 +- 0.9e-5 at v / 2
     and 0.99717 +- 4.5e-5 at 2 v."""
-    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.01)).tree_height.loci.joint_distribution(
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.01)).tree_height.loci.joint(
         0, 1)
     v = float(joint.marginal('a').quantile(0.2))
     cond = joint.conditional('a', v)
@@ -2150,7 +2150,7 @@ def test_line_atom_masses_follow_the_refined_inner_truncation():
     joint = pg.Coalescent(
         n=2, loci=pg.LocusConfig(n=2, recombination_rate=0.5),
         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 3, 1: 0.5}})
-    ).tree_height.loci.joint_distribution(0, 1)
+    ).tree_height.loci.joint(0, 1)
     v = float(joint.marginal('a').quantile(0.5))
     cond = joint.conditional('a', v)
 
@@ -2170,7 +2170,7 @@ def test_conditional_carries_the_atom_of_a_sloped_line():
     as continuous. Reference values from 400,000 sampled trajectories, conditioning within 2% of the median of R_b:
     an atom of 0.0553 +- 0.0026, and quantiles 1.428, 1.663 and 1.838 at 0.2, 0.5 and 0.8."""
     coal = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
-    joint = coal.joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    joint = coal.joint(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
 
     assert joint._lines == pytest.approx((1 / 3,))
 
@@ -2190,7 +2190,7 @@ def test_joint_near_origin_check_probes_the_continuous_part(caplog):
     """The near-origin check of the joint cosine expansion probes above the atom of the conditioning reward. Regression:
     with P(R_a = 0) >= 0.4 all probes sat at 0, where the check returned P(R_a = 0, R_b = 0) (0.133 for Kingman n = 6
     bins 5 and 3) and warned, while the real gap is about 2e-4."""
-    joint = pg.Coalescent(n=6).sfs.joint_distribution(5, 3)
+    joint = pg.Coalescent(n=6).sfs.joint(5, 3)
 
     with caplog.at_level('WARNING'):
         assert joint._cos2d_wiggle_check < 0.01
@@ -2202,7 +2202,7 @@ def test_joint_cosine_expansion_follows_the_term_count():
     """Changing Settings.cos_terms_2d on a live joint distribution rebuilds its expansion. Regression: the first
     expansion was cached, so the 16-term values were served after switching to 128 terms."""
     def joint():
-        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}})).sfs.joint_distribution(1, 2)
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}})).sfs.joint(1, 2)
 
     x, y = np.array([0.5, 1.5]), np.array([0.3, 1.0])
 
@@ -2223,13 +2223,13 @@ def test_joint_window_leaving_out_mass_warns(caplog, monkeypatch):
     monkeypatch.setattr(reward, '_COS2D_TAIL_WARN', 5e-3)
 
     with caplog.at_level('WARNING'):
-        pg.Coalescent(n=12).sfs.joint_distribution(1, 11).cdf(1.0, 1.0)
+        pg.Coalescent(n=12).sfs.joint(1, 11).cdf(1.0, 1.0)
 
     assert any('leaves out a mass' in r.getMessage() and 'R_b' in r.getMessage() for r in caplog.records)
 
     caplog.clear()
     with caplog.at_level('WARNING'):
-        pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(
+        pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint(
             0, 1).cdf(1.0, 1.0)
 
     assert not [r for r in caplog.records if 'leaves out a mass' in r.getMessage()]
@@ -2241,7 +2241,7 @@ def _locus_jump_joint():
     return pg.Coalescent(
         n=2, loci=pg.LocusConfig(n=2, recombination_rate=1),
         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
-    ).tree_height.loci.joint_distribution(0, 1)
+    ).tree_height.loci.joint(0, 1)
 
 
 def test_conditioning_across_an_epoch_jump(caplog):
@@ -2286,7 +2286,7 @@ def test_epoch_jump_requires_initial_mass_on_the_positive_states():
     the initial state, so its density is continuous at the epoch time 0.5, and the tree height at one of two linked
     loci is positive on the initial state and jumps there."""
     demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.1}})
-    sfs = pg.Coalescent(n=3, demography=demography).sfs.joint_distribution(1, 2)
+    sfs = pg.Coalescent(n=3, demography=demography).sfs.joint(1, 2)
 
     assert sfs._density_jumps('b')[0].size == 0
     marginal = sfs.marginal('b')
@@ -2299,12 +2299,12 @@ def test_epoch_jump_requires_initial_mass_on_the_positive_states():
 
 @pytest.mark.parametrize('label, joint, jump, height', [
     ('Beta singletons', lambda d: pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5), demography=d)
-     .sfs.joint_distribution(1, 2), 1.5, 0.02950655),
+     .sfs.joint(1, 2), 1.5, 0.02950655),
     ('Dirac singletons', lambda d: pg.Coalescent(n=3, model=pg.DiracCoalescent(psi=0.7, c=5), demography=d)
-     .sfs.joint_distribution(1, 2), 1.5, 0.43121633),
-    ('Kingman singletons', lambda d: pg.Coalescent(n=3, demography=d).sfs.joint_distribution(1, 2), None, None),
+     .sfs.joint(1, 2), 1.5, 0.43121633),
+    ('Kingman singletons', lambda d: pg.Coalescent(n=3, demography=d).sfs.joint(1, 2), None, None),
     ('two-locus total tree height', lambda d: pg.Coalescent(
-        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1.0), demography=d).joint_distribution(
+        n=2, loci=pg.LocusConfig(n=2, recombination_rate=1.0), demography=d).joint(
         pg.rewards.TotalTreeHeightReward(), pg.rewards.TreeHeightReward()), 1.0, 0.55138603),
 ])
 def test_epoch_jump_of_a_reward_with_several_rates(label, joint, jump, height):
@@ -2337,7 +2337,7 @@ def test_moments_next_to_a_jump_start_at_the_calibrated_truncation():
     density settles."""
     joint = pg.Coalescent(
         n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.01, 1: 1}})
-    ).joint_distribution(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    ).joint(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
 
     assert joint.conditional('a', 0.303).mean == pytest.approx(1.1455, abs=4 * 0.00024)
 
@@ -2369,7 +2369,7 @@ def test_unresolved_marginal_density_warns(caplog):
     without a warning."""
     from phasegen.distributions.reward import _EULER_N0_MAX
 
-    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.001}})).joint_distribution(
+    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 1: 0.001}})).joint(
         pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
 
     with caplog.at_level('WARNING'):
@@ -2388,7 +2388,7 @@ def test_truncation_warning_reports_the_estimated_error(caplog):
     expansion is unresolved and still warns."""
     joint = pg.Coalescent(
         n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}})
-    ).sfs.joint_distribution(1, 2)
+    ).sfs.joint(1, 2)
 
     with caplog.at_level('WARNING'):
         joint.conditional('a', 0.5).cdf(1.0)
@@ -2400,7 +2400,7 @@ def test_truncation_warning_reports_the_estimated_error(caplog):
     with caplog.at_level('WARNING'):
         pg.Coalescent(
             n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}})
-        ).sfs.joint_distribution(1, 2).conditional('a', 0.5).cdf(1.0)
+        ).sfs.joint(1, 2).conditional('a', 0.5).cdf(1.0)
 
     assert any('estimated truncation error' in r.getMessage() for r in caplog.records)
 
@@ -2415,7 +2415,7 @@ def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
     median a change of three ulps stops the refinement at the truncation 120, at which the expansion ends just below
     the cutoff."""
     def loci():
-        return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)
+        return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint(0, 1)
 
     def warned(joint, value):
         caplog.clear()
@@ -2423,7 +2423,7 @@ def test_line_atom_conditional_warns_above_the_inner_cutoff(caplog):
             joint.conditional('a', value).cdf(1.0)
         return any('inner inversion resolves the atom' in r.getMessage() for r in caplog.records)
 
-    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5)).joint_distribution(
+    beta = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5)).joint(
         pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
     assert not warned(beta, 1.0)
 
@@ -2437,13 +2437,13 @@ def _bottleneck_joint():
     """The joint of the first two SFS bins under the extreme bottleneck of ``3_epoch_extreme_bottleneck_n_5``."""
     return pg.Coalescent(
         n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.01, 1: 1}})
-    ).sfs.joint_distribution(1, 2)
+    ).sfs.joint(1, 2)
 
 
 @pytest.mark.parametrize('label, joint', [
-    ('sfs', lambda: pg.Coalescent(n=4).sfs.joint_distribution(1, 2)),
+    ('sfs', lambda: pg.Coalescent(n=4).sfs.joint(1, 2)),
     ('linked loci', lambda: pg.Coalescent(
-        n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint_distribution(0, 1)),
+        n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0)).tree_height.loci.joint(0, 1)),
 ])
 def test_inner_truncation_error_estimate_needs_no_extra_transform_evaluations(label, joint):
     """The coarser truncation of the refinement weights the nodes of the finer one, so it equals the Euler inversion
@@ -2487,7 +2487,7 @@ def test_batched_conditional_transform_matches_the_transform_per_argument(label,
     from phasegen.distributions import reward
 
     cond = make(pg.Coalescent(n=4, demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint_distribution(2, 3))
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint(2, 3))
     s = np.array([0.3, -0.7j, 1.5 - 2j, 0.0, np.inf], dtype=complex)
     single = np.array([cond.lst(x) for x in s])
 
@@ -2500,7 +2500,7 @@ def test_batched_conditional_transform_matches_the_transform_per_argument(label,
 def test_unresolved_inner_truncation_warns(caplog):
     """The refinement warns when the CDF of the locating pass still moves by more than its bar at the largest
     truncation tried."""
-    cond = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).conditional('a', 0.5)
+    cond = pg.Coalescent(n=4).sfs.joint(1, 2).conditional('a', 0.5)
     cond.cdf._cos_truncation_tol = 0.0
 
     with caplog.at_level('WARNING'):
@@ -2513,7 +2513,7 @@ def test_unresolved_inner_truncation_warning_follows_check_inversions(caplog):
     """``Settings.check_inversions = False`` silences the warning of an unresolved inner inversion, as it does every
     other inversion check. Regression: it was logged regardless."""
     Settings.check_inversions = False
-    cond = pg.Coalescent(n=4).sfs.joint_distribution(1, 2).conditional('a', 0.5)
+    cond = pg.Coalescent(n=4).sfs.joint(1, 2).conditional('a', 0.5)
     cond.cdf._cos_truncation_tol = 0.0
 
     with caplog.at_level('WARNING'):
@@ -2565,13 +2565,13 @@ def test_quantile_passes_nan_through():
 def test_joint_axis_terms_follow_live_cos_terms():
     """The axis terms of the joint CDF are rebuilt with the term count of a changed ``Settings.cos_terms``, as the
     marginal is. Regression: they kept the term count of their first evaluation."""
-    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=4).sfs.joint(1, 2)
     Settings.cos_terms = 48
     joint.cdf(0.5, 0.5)
     assert len(joint._cos_axis_coeffs['a']['w']) == 48
 
     Settings.cos_terms = 96
-    fresh = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    fresh = pg.Coalescent(n=4).sfs.joint(1, 2)
     assert len(joint._cos_axis_coeffs['a']['w']) == 96
     assert float(joint.cdf(0.5, 0.5)) == pytest.approx(float(fresh.cdf(0.5, 0.5)), abs=1e-12)
 
@@ -2579,7 +2579,7 @@ def test_joint_axis_terms_follow_live_cos_terms():
 def test_joint_2d_expansion_survives_a_change_of_the_1d_terms():
     """The 2D coefficients and the density grid depend on ``Settings.cos_terms_2d`` only, so a change of
     ``Settings.cos_terms`` keeps them and rebuilds the axis terms. Regression: every cosine value was discarded."""
-    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=4).sfs.joint(1, 2)
     joint.pdf(0.5, 0.5)
     cos2d, grid, axis = joint._cos2d, joint._density_grid, joint._cos_axis_coeffs
 
@@ -2597,7 +2597,7 @@ def test_joint_axis_expansion_reports_truncation(caplog):
     """The axis terms of the joint CDF run the truncation check of the marginal CDF, and span the atom
     ``P(R_a = 0, R_b = 0)`` at 0 to the axis mass at the window end. Regression: an unresolved axis term was not
     reported."""
-    joint = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs.joint_distribution(2, 3)
+    joint = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs.joint(2, 3)
     joint.cdf(0.5, 0.5)
     assert not any('axis g_' in r.getMessage() for r in caplog.records)
 
@@ -2609,7 +2609,7 @@ def test_joint_axis_expansion_reports_truncation(caplog):
         assert joint._cos_axis(which, np.array([2 * b]))[0] == pytest.approx(total, abs=1e-3)
 
     Settings.cos_terms = 8
-    pg.Coalescent(n=5).sfs.joint_distribution(1, 3).cdf(0.5, 0.5)
+    pg.Coalescent(n=5).sfs.joint(1, 3).cdf(0.5, 0.5)
     assert any('axis g_b (truncation)' in r.getMessage() for r in caplog.records)
 
 
@@ -2618,12 +2618,12 @@ def test_joint_moment_rejects_invalid_orders(orders):
     """The orders of a cross-moment are validated as those of every other moment. Regression: orders summing to zero
     returned 1 and others raised internal errors."""
     with pytest.raises((ValueError, TypeError), match='order k'):
-        pg.Coalescent(n=4).sfs.joint_distribution(1, 2).moment(*orders)
+        pg.Coalescent(n=4).sfs.joint(1, 2).moment(*orders)
 
 
 def test_joint_moment_accepts_integral_float_orders():
     """An integral float order is accepted, as by ``_validate_order``, and the orders 0 and 0 give 1."""
-    joint = pg.Coalescent(n=4).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=4).sfs.joint(1, 2)
 
     assert joint.moment(2.0, 1.0) == joint.moment(2, 1)
     assert joint.moment(0, 0) == 1.0
@@ -2641,13 +2641,13 @@ def test_conditional_rejects_non_finite_arguments(call):
     """A NaN or infinite conditioning value or half-width raises ValueError. Regression: NaN values and an infinite
     window centre failed with LinAlgError in the inversion."""
     with pytest.raises(ValueError, match='finite'):
-        call(pg.Coalescent(n=4).sfs.joint_distribution(1, 2))
+        call(pg.Coalescent(n=4).sfs.joint(1, 2))
 
 
 def _dirac_five_epoch_joint():
     """The SFS joint of bins 1 and 2 of a Dirac coalescent of 10 lineages over five epochs."""
     return pg.Coalescent(n=10, model=pg.DiracCoalescent(psi=0.7, c=5), demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 2, 1.1: 0.3, 3.5: 0.5, 4.2: 8, 7.5: 2.3}})).sfs.joint_distribution(1, 2)
+        pop_sizes={'pop_0': {0: 2, 1.1: 0.3, 3.5: 0.5, 4.2: 8, 7.5: 2.3}})).sfs.joint(1, 2)
 
 
 def test_joint_atom_matches_zero_reward_restriction():
@@ -2679,7 +2679,7 @@ def test_joint_atom_matches_zero_reward_restriction():
 def test_joint_grid_matches_pointwise_transform(pop_sizes):
     """The grid of the joint transform, evaluated batched along its longer axis over several epochs and by one QZ
     decomposition per node over one, equals the pointwise transform, at infinite arguments included."""
-    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).sfs.joint(1, 2)
     sa = np.array([-0.5j, 0.3, -2j, np.inf])
     sb = np.array([-1j, 1j, 0.0, 0.7, -3j, np.inf])
 
@@ -2712,7 +2712,7 @@ def test_atoms_are_exact(pop_sizes):
     is a caterpillar, with probability 1/3 whatever the demography. Regression: the atoms were transforms at a large
     finite argument, which left ``P(L_2 = 0)`` of order 1e-8."""
     coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes}))
-    joint = coal.sfs.joint_distribution(2, 3)
+    joint = coal.sfs.joint(2, 3)
 
     assert coal.sfs.bin(2).lst(np.inf) == 0.0
     assert joint._atoms['a0'] == 0.0 and joint._atoms['both0'] == 0.0
@@ -2819,7 +2819,7 @@ def test_spectrum_cdf_is_one_at_bins_that_are_zero_almost_surely():
 
 def test_line_atom_density_rejects_unknown_keywords():
     """The density of a line-atom conditional raises TypeError on an unknown keyword. Regression: it was ignored."""
-    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1)).tree_height.loci.joint_distribution(
+    joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1)).tree_height.loci.joint(
         0, 1)
 
     with pytest.raises(TypeError):
@@ -2831,7 +2831,7 @@ def test_multi_epoch_conditional_mean_follows_the_derivative_identity():
     by de Hoog in 135-digit arithmetic at degree 70 (a sampler of 1.6e9 replicates gives 0.80330 +- 0.00036).
     Regression: it was the central difference of the transform at the calibration truncation, 0.26% off."""
     joint = pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
+        pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint(0, 1)
 
     cond = joint.conditional('a', 0.5)
 
@@ -2848,7 +2848,7 @@ def test_multi_epoch_conditional_mean_is_stable_in_the_conditioning_value(sizes,
     arithmetic at degree 70. Regression: the identity was inverted by de Hoog in float64, whose quotient-difference
     recurrence amplified roundoff, so the mean swung between 7.735 and 7.990 over four ulp at v = 4.38, and was 0.9%
     off at v = 0.54."""
-    joint = pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': sizes})).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': sizes})).sfs.joint(1, 2)
     eps = np.finfo(float).eps
 
     means = [joint.conditional('a', v * (1 + k * eps)).mean for k in (-1, 0, 1, 4)]
@@ -2879,7 +2879,7 @@ def test_conditional_moments_converge_across_epoch_jumps(caplog, monkeypatch):
 
     def joint():
         return pg.Coalescent(n=2, loci=pg.LocusConfig(n=2, recombination_rate=1), demography=pg.Demography(
-            pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint_distribution(0, 1)
+            pop_sizes={'pop_0': {0: 2, 0.1: 0.3, 0.4: 1.3}})).tree_height.loci.joint(0, 1)
 
     mean = joint().conditional('a', 0.5).mean
     monkeypatch.setattr(reward, '_MOMENT_N0_MAX', 120)
@@ -2897,7 +2897,7 @@ def test_batched_taylor_coefficients_match_single_points(sparse):
     if sparse:
         Settings.closed_form_sparse_min_states = 1
     joint = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.2, 0.3: 10, 1: 0.8}})).sfs \
-        .joint_distribution(1, 2)
+        .joint(1, 2)
     s = np.array([0.3, 1.0 + 2.0j, 5.0 - 7.0j])
 
     batch = joint._lst_taylor_batch(s, 'b', 2)
@@ -2944,7 +2944,7 @@ def test_tail_march_ends_where_the_cdf_stops_rising(monkeypatch):
 
 
 def _bottleneck_moments_joint(pop_sizes: dict):
-    return pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).joint_distribution(
+    return pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': pop_sizes})).joint(
         pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
 
 
@@ -3005,7 +3005,7 @@ def test_lst_taylor_validates_its_arguments():
     """``JointRewardDistribution.lst_taylor`` raises for an axis other than ``'a'`` and ``'b'`` and for a negative order,
     as ``JointRewardDistribution.conditional`` does for the axis. Regression: ``on='c'`` returned the coefficients of
     ``on='b'`` and ``order=-1`` raised ZeroDivisionError."""
-    joint = pg.Coalescent(n=3).sfs.joint_distribution(1, 2)
+    joint = pg.Coalescent(n=3).sfs.joint(1, 2)
 
     with pytest.raises(ValueError, match='on'):
         joint.lst_taylor(0.5, on='c')

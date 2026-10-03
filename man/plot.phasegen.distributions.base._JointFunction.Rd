@@ -24,7 +24,7 @@ Plot a joint density or joint CDF as a heatmap
 \examples{
 \dontrun{
 pg <- load_phasegen()
-joint <- pg$Coalescent(n = 8L)$sfs$joint_distribution(1L, 2L)
+joint <- pg$Coalescent(n = 8L)$sfs$joint(1L, 2L)
 plot(joint$pdf, title = "Joint density")
 }
 

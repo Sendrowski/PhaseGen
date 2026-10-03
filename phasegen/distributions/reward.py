@@ -549,7 +549,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     r"""
     Joint distribution of two rewards :math:`R_a` and :math:`R_b` accumulated until absorption, with the notation of
     :class:`~phasegen.distributions.PhaseTypeDistribution`. It is returned by
-    :meth:`PhaseTypeDistribution.joint_distribution() <phasegen.distributions.PhaseTypeDistribution.joint_distribution>`
+    :meth:`PhaseTypeDistribution.joint() <phasegen.distributions.PhaseTypeDistribution.joint>`
     and the accessors built on it.
 
     The distribution is determined by the bivariate Laplace-Stieltjes transform
@@ -571,7 +571,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
     ::
 
         coal = pg.Coalescent(n=4)
-        joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+        joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
 
         corr = joint.corr
         p = joint.cdf(1.0, 3.0)
@@ -1860,7 +1860,7 @@ class ConditionalRewardDistribution(RewardDistribution):
     ::
 
         coal = pg.Coalescent(n=4)
-        cond = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
 
         mean = cond.mean
         p = cond.cdf(3.0)

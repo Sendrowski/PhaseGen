@@ -43,12 +43,12 @@ _SINGLE_LOCUS_STATS = [
     lambda c: c.tree_height.pdf(_T),
     lambda c: [f(c.distribution(pg.TotalBranchLengthReward()).lst(s))
                for s in (0.3, 1 + 2j) for f in (np.real, np.imag)],
-    lambda c: np.real(c.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).lst(0.5, 0.2)),
+    lambda c: np.real(c.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).lst(0.5, 0.2)),
     lambda c: c.sfs.mean.data,
     lambda c: c.sfs.moment(2, center=False).data,
     lambda c: c.fsfs.mean.data,
     lambda c: c.sfs.get_mutation_config([1, 0, 0], theta=1),
-    lambda c: c.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).moment(1, 1),
+    lambda c: c.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).moment(1, 1),
 ]
 
 

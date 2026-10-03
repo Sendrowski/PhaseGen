@@ -303,12 +303,12 @@ stopifnot(isTRUE(all.equal(mixed, weighted, tolerance = 1e-12)))
 
 +++
 ## Joint distributions
-Any two rewards also have a joint distribution, obtained from {meth}`Coalescent.joint_distribution() <phasegen.distributions.Coalescent.joint_distribution>`. Returning to the Kingman coalescent with 10 lineages, the tree height and the total branch length are strongly positively correlated, since a tall tree also tends to have long branches overall.
+Any two rewards also have a joint distribution, obtained from {meth}`Coalescent.joint() <phasegen.distributions.Coalescent.joint>`. Returning to the Kingman coalescent with 10 lineages, the tree height and the total branch length are strongly positively correlated, since a tall tree also tends to have long branches overall.
 
 ```{code-cell} python
 coal = pg.Coalescent(n=10)
 
-joint = coal.joint_distribution(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
 
 joint.corr
 ```
@@ -322,7 +322,7 @@ assert joint.corr > 0.9
 ```{code-cell} r
 coal <- pg$Coalescent(n = 10)
 
-joint <- coal$joint_distribution(pg$TreeHeightReward(), pg$TotalBranchLengthReward())
+joint <- coal$joint(pg$TreeHeightReward(), pg$TotalBranchLengthReward())
 
 joint$corr
 ```

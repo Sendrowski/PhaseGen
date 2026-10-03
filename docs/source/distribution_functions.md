@@ -115,10 +115,10 @@ The `quantile` is the inverse of the `cdf`. Thus `quantile(0.5)` is the median, 
 +++
 ## Joint distributions
 
-Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint_distribution <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf`, computed as described at {class}`JointDensity <phasegen.distributions.JointDensity>` and {class}`JointCDF <phasegen.distributions.JointCDF>` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
+Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint <phasegen.distributions.UnfoldedSFSDistribution.joint>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf`, computed as described at {class}`JointDensity <phasegen.distributions.JointDensity>` and {class}`JointCDF <phasegen.distributions.JointCDF>` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
 
 ```{code-cell} python
-joint = coal.sfs.joint_distribution(1, 2)  # singleton and doubleton branch lengths
+joint = coal.sfs.joint(1, 2)  # singleton and doubleton branch lengths
 
 print(f"P(R_a <= 1.5, R_b <= 0.5) = {joint.cdf(1.5, 0.5):.3f}")
 print(f"means (E[R_a], E[R_b])    = {joint.mean.round(3)}")
@@ -134,7 +134,7 @@ assert np.allclose(joint.mean, coal.sfs.mean.data[1:3])
 ```
 
 ```{code-cell} r
-joint <- coal$sfs$joint_distribution(1L, 2L)  # singleton and doubleton branch lengths
+joint <- coal$sfs$joint(1L, 2L)  # singleton and doubleton branch lengths
 
 cat(sprintf("P(R_a <= 1.5, R_b <= 0.5) = %.3f\n", joint$cdf(1.5, 0.5)))
 cat("means (E[R_a], E[R_b])    =", paste(round(joint$mean, 3), collapse = " "), "\n")
@@ -268,10 +268,10 @@ p
 +++
 ## Checking against the sampler
 
-Every one of these objects has an empirical counterpart from {meth}`PhaseTypeDistribution.to_empirical <phasegen.distributions.PhaseTypeDistribution.to_empirical>` (see {doc}`Empirical distributions <empirical_distributions>`), drawn from the same model by Monte Carlo, with the empirical {meth}`EmpiricalPhaseTypeSFSDistribution.joint_distribution <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint_distribution>` exposing the matching {meth}`EmpiricalJointDistribution.marginal <phasegen.distributions.EmpiricalJointDistribution.marginal>` and {meth}`EmpiricalJointDistribution.conditional <phasegen.distributions.EmpiricalJointDistribution.conditional>`. This independently validates the exact results, which is valuable because the Laplace-transform inversion can lose precision for extreme demographies. The sampled conditional is only approximate, since it is estimated by restricting the unconditioned sample to a narrow window around the conditioning value rather than drawn from the conditional law directly, but it is close enough to confirm the exact densities that coincide with it below.
+Every one of these objects has an empirical counterpart from {meth}`PhaseTypeDistribution.to_empirical <phasegen.distributions.PhaseTypeDistribution.to_empirical>` (see {doc}`Empirical distributions <empirical_distributions>`), drawn from the same model by Monte Carlo, with the empirical {meth}`EmpiricalPhaseTypeSFSDistribution.joint <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint>` exposing the matching {meth}`EmpiricalJointDistribution.marginal <phasegen.distributions.EmpiricalJointDistribution.marginal>` and {meth}`EmpiricalJointDistribution.conditional <phasegen.distributions.EmpiricalJointDistribution.conditional>`. This independently validates the exact results, which is valuable because the Laplace-transform inversion can lose precision for extreme demographies. The sampled conditional is only approximate, since it is estimated by restricting the unconditioned sample to a narrow window around the conditioning value rather than drawn from the conditional law directly, but it is close enough to confirm the exact densities that coincide with it below.
 
 ```{code-cell} python
-emp = coal.sfs.to_empirical(1_000_000, seed=42).joint_distribution(1, 2)
+emp = coal.sfs.to_empirical(1_000_000, seed=42).joint(1, 2)
 print(f"correlation:  exact {joint.corr:+.3f}   sampled {emp.corr:+.3f}")
 
 _, ax = plt.subplots()
@@ -287,7 +287,7 @@ assert abs(emp.corr - joint.corr) < 0.01
 ```
 
 ```{code-cell} r
-emp <- coal$sfs$to_empirical(1000000L, seed = 42L)$joint_distribution(1L, 2L)
+emp <- coal$sfs$to_empirical(1000000L, seed = 42L)$joint(1L, 2L)
 cat(sprintf("correlation:  exact %+.3f   sampled %+.3f\n", joint$corr, emp$corr))
 
 p <- NULL

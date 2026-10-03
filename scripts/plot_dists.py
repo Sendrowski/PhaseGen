@@ -26,7 +26,7 @@ pg.Coalescent(
     n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
         pop_sizes={0: 1, 1: 2}, migration_rates={('pop_0', 'pop_1'): 1}
     )
-).jsfs.joint_distribution((0, 3), (3, 0)).pdf.plot()
+).jsfs.joint((0, 3), (3, 0)).pdf.plot()
 
 # batched (shared two-point occupation)
 print('n = 20, 1 epoch, 2-SFS')

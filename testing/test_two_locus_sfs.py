@@ -539,13 +539,13 @@ def test_distribution_of_a_locus_reward_is_the_single_locus_bin():
 
 
 @pytest.mark.parametrize("i, j", [(0, 1), (1, 3), (1, -1), (1, 7), (1.5, 1)])
-def test_joint_distribution_rejects_a_bin_outside_the_polymorphic_classes(i, j):
+def test_joint_rejects_a_bin_outside_the_polymorphic_classes(i, j):
     """Regression: an out-of-range frequency class returned the joint distribution of a reward that is zero
     everywhere, or raised an unrelated absorbing-state error for the monomorphic classes 0 and n."""
     sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
 
     with pytest.raises(ValueError, match="polymorphic class from 1 to 2"):
-        sfs2.joint_distribution(i, j)
+        sfs2.joint(i, j)
 
 
 @pytest.mark.parametrize("count", [0, 3, 4, -1])
@@ -579,7 +579,7 @@ def test_tree_height_on_two_locus_space_matches_lineage_counting(name, model, r)
 
 @pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
 def test_tree_height_combines_with_two_locus_sfs_reward(name, model):
-    """Coalescent.moment and joint_distribution accept TreeHeightReward and UnitReward together with a
+    """Coalescent.moment and joint accept TreeHeightReward and UnitReward together with a
     TwoLocusSFSReward. At r = 0 both loci share one tree, so E[T L^0_i] equals the single-locus cross-moment of the
     tree height and the SFS bin, computed on the single-locus block-counting space. Regression: the rewards did not
     declare support for the two-locus space, so the mix was rejected."""
@@ -592,7 +592,7 @@ def test_tree_height_combines_with_two_locus_sfs_reward(name, model):
         ref = single.moment(2, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(i)], center=False)
 
         assert cross == pytest.approx(ref, rel=1e-10)
-        assert coal.joint_distribution(pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)).moment(1, 1) == \
+        assert coal.joint(pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)).moment(1, 1) == \
                pytest.approx(ref, rel=1e-10)
 
     unit = coal.moment(2, [pg.CombinedReward([UnitReward(), pg.TwoLocusSFSReward(0, 1)]),
@@ -687,7 +687,7 @@ def _two_sfs_demography(n, r):
 
 
 @pytest.mark.slow
-def test_two_locus_joint_distribution_vs_msprime():
+def test_two_locus_joint_vs_msprime():
     """Ground truth via the scenario infrastructure: the two-locus joint reward distribution's cross-moment
     ``E[L^0_i L^1_j]`` (the 2-SFS entry) and joint CDF match a fresh msprime simulation, compared through the
     empirical two-locus cross-moment / joint-CDF tracking. Exercises the cross-locus dependence at ``r = 0.5``."""
@@ -698,17 +698,17 @@ def test_two_locus_joint_distribution_vs_msprime():
     ms2, ph = c.ms.sfs2, c.ph
 
     for i, j in [(1, 1), (1, 2), (2, 2), (2, 3)]:
-        jd = ph.sfs2.joint_distribution(i, j)
-        empirical_cross = ms2.joint_distribution(i, j).moment(1, 1)
+        jd = ph.sfs2.joint(i, j)
+        empirical_cross = ms2.joint(i, j).moment(1, 1)
         assert abs(jd.moment(1, 1) - empirical_cross) < 0.04 * empirical_cross + 0.01
 
         for qa, qb in [(0.5, 0.6), (0.7, 0.4)]:
             x = float(jd.marginal('a').quantile(qa))
             y = float(jd.marginal('b').quantile(qb))
-            assert abs(jd.cdf(x, y) - ms2.joint_distribution(i, j).cdf(x, y)) < 0.02
+            assert abs(jd.cdf(x, y) - ms2.joint(i, j).cdf(x, y)) < 0.02
 
 
-def test_two_locus_joint_distribution_restricted_by_spectrum_reward():
+def test_two_locus_joint_restricted_by_spectrum_reward():
     """
     The joint distribution of the two locus bins must carry the reward of the spectrum. It used the bare locus
     rewards, so a constant reward of 2 left the means unchanged instead of doubling them.
@@ -721,7 +721,7 @@ def test_two_locus_joint_distribution_restricted_by_spectrum_reward():
         reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
     )
 
-    np.testing.assert_allclose(scaled.joint_distribution(1, 2).mean, 2 * sfs2.joint_distribution(1, 2).mean, rtol=1e-10)
+    np.testing.assert_allclose(scaled.joint(1, 2).mean, 2 * sfs2.joint(1, 2).mean, rtol=1e-10)
 
 
 @pytest.mark.slow

@@ -393,10 +393,10 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     def _cache_joint_surface(self, pairs: Sequence[tuple], n_grid: int = 25, q_max: float = 0.95) -> None:
         """
         Cache the empirical joint CDF and density surface of each pair of entries of a spectrum that provides
-        ``joint_distribution``, for the full-grid surface comparison, as
+        ``joint``, for the full-grid surface comparison, as
         ``self._joint_surface = [(a, b, xs, ys, cdf_grid, pdf_grid), ...]``, serialized with the comparison.
 
-        :param pairs: The pairs ``(a, b)`` of entries, as ``joint_distribution`` takes them.
+        :param pairs: The pairs ``(a, b)`` of entries, as ``joint`` takes them.
         :param n_grid: Number of grid points per axis.
         :param q_max: Quantile of each entry up to which its axis extends.
         """
@@ -404,7 +404,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
             return tuple(int(c) for c in k) if isinstance(k, (tuple, list)) else int(k)
 
         self._joint_surface = [
-            (key(a), key(b)) + self.joint_distribution(a, b)._surface(n_grid, q_max) for a, b in pairs
+            (key(a), key(b)) + self.joint(a, b)._surface(n_grid, q_max) for a, b in pairs
         ]
 
     @cached_property
@@ -838,11 +838,11 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
             if name in self._standard_errors:
                 self._standard_errors[name] = self._standard_errors[name] * scale
 
-    def joint_distribution(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
+    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of the descendant vectors ``config_a`` and
-        ``config_b``, the sampled counterpart of :meth:`JointSFSDistribution.joint_distribution()
-        <phasegen.distributions.JointSFSDistribution.joint_distribution>`.
+        ``config_b``, the sampled counterpart of :meth:`JointSFSDistribution.joint()
+        <phasegen.distributions.JointSFSDistribution.joint>`.
 
         :param config_a: The first descendant vector.
         :param config_b: The second descendant vector.
@@ -1011,11 +1011,11 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
         with np.errstate(divide='ignore', invalid='ignore'):
             return TwoLocusSFS(np.nan_to_num(cov / np.outer(a.std(axis=0), b.std(axis=0))))
 
-    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
+    def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of :math:`L^0_i` and :math:`L^1_j`, the sampled counterpart of
-        :meth:`TwoLocusSFSDistribution.joint_distribution()
-        <phasegen.distributions.TwoLocusSFSDistribution.joint_distribution>`.
+        :meth:`TwoLocusSFSDistribution.joint()
+        <phasegen.distributions.TwoLocusSFSDistribution.joint>`.
 
         :param i: The locus-0 frequency class.
         :param j: The locus-1 frequency class.
@@ -1448,7 +1448,7 @@ class EmpiricalJointDistribution:  # pragma: no cover
 
         emp = pg.Coalescent(n=5).sfs.to_empirical(1000, seed=1)
 
-        corr = emp.joint_distribution(1, 2).corr
+        corr = emp.joint(1, 2).corr
     """
 
     def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray) -> None:
@@ -1792,12 +1792,12 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
         s = np.asarray(self.samples)
         return s[:, i], s[:, j]
 
-    def joint_distribution(self, i: int, j: int) -> 'EmpiricalJointDistribution':
+    def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of bins ``i`` and ``j``, from the per-replicate
         samples, the sampled counterpart of
-        :meth:`UnfoldedSFSDistribution.joint_distribution()
-        <phasegen.distributions.UnfoldedSFSDistribution.joint_distribution>`, exposing the same
+        :meth:`UnfoldedSFSDistribution.joint()
+        <phasegen.distributions.UnfoldedSFSDistribution.joint>`, exposing the same
         :meth:`~EmpiricalJointDistribution.marginal` and :meth:`~EmpiricalJointDistribution.conditional`
         slices for a sanity check against the exact joint.
 
@@ -1807,7 +1807,7 @@ class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaS
         :raises ValueError: If the per-replicate samples have been dropped.
         """
         if self.samples is None:
-            raise ValueError("The per-replicate samples have been dropped; joint_distribution needs them.")
+            raise ValueError("The per-replicate samples have been dropped; joint needs them.")
         s = np.asarray(self.samples)
         return EmpiricalJointDistribution(s[:, i], s[:, j])
 

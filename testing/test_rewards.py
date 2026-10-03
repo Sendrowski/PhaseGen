@@ -780,7 +780,7 @@ def test_deme_and_locus_rewards_name_an_unknown_deme_or_locus():
 
 
 def test_distribution_rejects_a_sequence_of_rewards():
-    """Coalescent.distribution, Coalescent.joint_distribution and their PhaseTypeDistribution counterparts take single
+    """Coalescent.distribution, Coalescent.joint and their PhaseTypeDistribution counterparts take single
     rewards and raise a TypeError naming the argument for a list. Regression: the list reached the state-space
     selection and raised an AttributeError, the PhaseTypeDistribution path accepted it and raised an AttributeError
     at the first evaluation, and the message of the Coalescent path named a tuple for a list."""
@@ -791,7 +791,7 @@ def test_distribution_rejects_a_sequence_of_rewards():
             dist.distribution([pg.TreeHeightReward()])
 
         with pytest.raises(TypeError, match='reward_b must be a single Reward, but got a sequence'):
-            dist.joint_distribution(pg.TreeHeightReward(), [pg.TotalBranchLengthReward()])
+            dist.joint(pg.TreeHeightReward(), [pg.TotalBranchLengthReward()])
 
     with pytest.raises(TypeError, match='reward must be a single Reward, but got str'):
         coal.total_branch_length.distribution('tree_height')

@@ -53,7 +53,7 @@ class ConditionalMsprimeTestCase(TestCase):
         for i, j in self.PAIRS:
             li = self.samples[:, i]
             h = self.WINDOW * float(li.std())
-            jd = self.coalescent.sfs.joint_distribution(i, j)
+            jd = self.coalescent.sfs.joint(i, j)
 
             for q in self.QUANTILES:
                 x = float(np.quantile(li[li > 0], q))

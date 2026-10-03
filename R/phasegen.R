@@ -703,7 +703,7 @@ joint_data <- function(x, n_points, surface) {
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' joint <- pg$Coalescent(n = 8L)$sfs$joint_distribution(1L, 2L)
+#' joint <- pg$Coalescent(n = 8L)$sfs$joint(1L, 2L)
 #' plot(joint$pdf, title = "Joint density")
 #' }
 #'
@@ -736,7 +736,7 @@ plot.phasegen.distributions.base._JointFunction <- function(x, n_points = NULL, 
 #' @examples
 #' \dontrun{
 #' pg <- load_phasegen()
-#' joint <- pg$Coalescent(n = 8L)$sfs$joint_distribution(1L, 2L)
+#' joint <- pg$Coalescent(n = 8L)$sfs$joint(1L, 2L)
 #' persp(joint$pdf, title = "Joint density")
 #' persp(joint$cdf, title = "Joint CDF")
 #' }

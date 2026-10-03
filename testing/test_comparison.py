@@ -214,7 +214,7 @@ class DehoogConditionalTestCase(TestCase):
         """A ``dehoog`` block compares the conditional CDF with the de Hoog inversion of its transform and asserts the
         largest difference against ``cdf``, and rejects a key that is neither ``cdf`` nor one of its options."""
         c = Comparison(n=4, pop_sizes={'pop_0': {0: 1}}, comparisons={'tolerance': {}})
-        jd = c.ph.sfs.joint_distribution(1, 2)
+        jd = c.ph.sfs.joint(1, 2)
         opts = {'quantiles': [0.5], 'axes': ['b']}
 
         with self.assertLogs('phasegen', level='INFO') as logs:
@@ -236,11 +236,11 @@ class DehoogConditionalTestCase(TestCase):
         c = Comparison(n=4, pop_sizes={'pop_0': {0: 1}}, comparisons={'tolerance': {}})
         tols = {'cdf': 2.5e-3, 'quantiles': [0.5], 'axes': ['a']}
 
-        c._compare_dehoog_conditional(c.ph.sfs.joint_distribution(1, 2), (1, 2), tols, 't')
+        c._compare_dehoog_conditional(c.ph.sfs.joint(1, 2), (1, 2), tols, 't')
 
         pg.Settings.cos_terms = 16
         with self.assertRaises(AssertionError):
-            c._compare_dehoog_conditional(c.ph.sfs.joint_distribution(1, 2), (1, 2), tols, 't')
+            c._compare_dehoog_conditional(c.ph.sfs.joint(1, 2), (1, 2), tols, 't')
 
 
 class _NaNJD:

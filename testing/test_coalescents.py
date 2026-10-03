@@ -784,7 +784,7 @@ class CoalescentTestCase(TestCase):
         ``_grid_values`` directly and drew a surface for a law with no 2D density. A non-diagonal pair still plots."""
         c = pg.Coalescent(n=5)
 
-        diagonal = c.total_branch_length.joint_distribution(
+        diagonal = c.total_branch_length.joint(
             pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward()
         )
         self.assertEqual(diagonal._ratio, 1.0)
@@ -793,7 +793,7 @@ class CoalescentTestCase(TestCase):
         with self.assertRaises(NotImplementedError):
             diagonal.pdf(1.0, 2.0)
 
-        off_diagonal = c.sfs.joint_distribution(1, 2)
+        off_diagonal = c.sfs.joint(1, 2)
         self.assertIsNone(off_diagonal._ratio)
         off_diagonal.pdf.plot(show=False)  # must not raise
 

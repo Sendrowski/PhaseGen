@@ -105,7 +105,7 @@ def test_to_empirical_sfs2_cross_moment():
     """The empirical two-locus cross-moment reproduces the analytic two-locus SFS entry."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
     e = sfs2.to_empirical(N_SAMPLES, seed=SEED)
-    assert e.joint_distribution(1, 1).moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
+    assert e.joint(1, 1).moment(1, 1) == pytest.approx(np.asarray(sfs2.mean.data)[1, 1], rel=0.05)
 
 
 def test_empirical_joint_marginal_conditional_match_analytic():
@@ -113,8 +113,8 @@ def test_empirical_joint_marginal_conditional_match_analytic():
     :class:`~phasegen.distributions.JointRewardDistribution` ones — the sanity check
     :class:`~phasegen.distributions.EmpiricalJointDistribution` enables."""
     coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.25: 0.08, 0.7: 1.0}}))
-    ana = coal.sfs.joint_distribution(1, 2)
-    emp = coal.sfs.to_empirical(200000, seed=SEED).joint_distribution(1, 2)
+    ana = coal.sfs.joint(1, 2)
+    emp = coal.sfs.to_empirical(200000, seed=SEED).joint(1, 2)
 
     assert emp.corr == pytest.approx(ana.corr, abs=0.03)
     np.testing.assert_allclose(emp.mean, ana.mean, rtol=0.03)

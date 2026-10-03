@@ -136,7 +136,7 @@ def test_joint_plot_data_resolution_from_settings_and_drawn_values():
     Settings.plot_joint_pdf_n_grid = 9
     Settings.plot_joint_pdf_surface_n_grid = 7
     Settings.plot_joint_cdf_n_grid = 5
-    jd = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=5).sfs.joint(1, 2)
 
     assert jd.pdf._plot_data().z.shape == (9, 9)
     assert jd.pdf._plot_data(surface=True).z.shape == (7, 7)
@@ -335,7 +335,7 @@ def test_joint_plots_draw_on_one_fresh_axes():
     Regression: repeated heatmaps stacked meshes and colorbars on one axes, every surface opened a figure that was
     never closed, and a 2D ``ax`` raised."""
     Settings.plot_joint_cdf_n_grid = 5
-    jd = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
+    jd = pg.Coalescent(n=5).sfs.joint(1, 2)
     plt.close('all')
 
     for _ in range(2):
@@ -357,7 +357,7 @@ def test_proportional_joint_plot_skips_the_2d_expansion():
     """The plotting grid of a pair with one reward a multiple of the other takes the window ends without building the
     2D cosine expansion, which its CDF does not use and its density refuses."""
     Settings.plot_joint_cdf_n_grid = 5
-    jd = pg.Coalescent(n=5).sfs.joint_distribution(1, 1)
+    jd = pg.Coalescent(n=5).sfs.joint(1, 1)
     assert jd._ratio == 1.0
 
     data = jd.cdf._plot_data()
@@ -367,7 +367,7 @@ def test_proportional_joint_plot_skips_the_2d_expansion():
     assert Settings.cache and 'cos2d' not in jd.__dict__.get('_cos_cache', {})
     assert data.x[-1] <= jd._cos2d_window('a')
 
-    other = pg.Coalescent(n=5).sfs.joint_distribution(1, 2)
+    other = pg.Coalescent(n=5).sfs.joint(1, 2)
     assert (other._cos2d_window('a'), other._cos2d_window('b')) == (other._cos2d['ba'], other._cos2d['bb'])
     assert 'cos2d' in other.__dict__['_cos_cache']
     plt.close('all')
@@ -379,7 +379,7 @@ def test_plots_without_ax_leave_other_figures_alone():
     onto a 3D axes and a curve plot raised TypeError from ``Axes3D.fill_between``."""
     coal = pg.Coalescent(n=4)
     Settings.plot_joint_cdf_n_grid = 5
-    jd = coal.sfs.joint_distribution(1, 2)
+    jd = coal.sfs.joint(1, 2)
     inf = pg.Inference(
         x0=dict(m=0.5),
         bounds=dict(m=(0.1, 1)),
