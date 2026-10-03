@@ -661,10 +661,11 @@ class CoalescentTestCase(TestCase):
             pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.0}},
             migration_rates={('pop_0', 'pop_1'): 1.0, ('pop_1', 'pop_0'): 1.0}
         )
-        sfs = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=dem).sfs
+        coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=dem)
+        sfs = coal.sfs
         deme = sfs.demes['pop_0']
 
-        t = np.linspace(0, float(deme.tree_height.quantile(0.9999)), 2000)
+        t = np.linspace(0, float(coal.tree_height.quantile(0.9999)), 2000)
         mean_from_cdf = np.trapezoid(1 - np.asarray(deme.cdf(t)), t, axis=0)
         deme_mean = np.asarray(deme.mean.data, dtype=float)
         full_mean = np.asarray(sfs.mean.data, dtype=float)

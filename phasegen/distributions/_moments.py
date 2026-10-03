@@ -66,7 +66,7 @@ class MomentEvaluator:
 
     # attributes provided by the host PhaseTypeDistribution this mixin is mixed into
     state_space: 'StateSpace'
-    tree_height: 'TreeHeightDistribution'
+    _tree_height: 'TreeHeightDistribution'
     demography: 'Demography'
     reward: Reward
     lineage_config: 'LineageConfig'
@@ -368,10 +368,10 @@ class MomentEvaluator:
             sure absorption.
         """
         if start_time is None:
-            start_time = self.tree_height.start_time
+            start_time = self._tree_height.start_time
 
         if end_time is None:
-            end_time = np.inf if self.tree_height.end_time is None else self.tree_height.end_time
+            end_time = np.inf if self._tree_height.end_time is None else self._tree_height.end_time
 
         if not start_time >= 0:
             raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
@@ -686,7 +686,7 @@ class MomentEvaluator:
         end_times = tuple(end_times)
 
         if start_time is None:
-            start_time = self.tree_height.start_time
+            start_time = self._tree_height.start_time
 
         if not start_time >= 0:
             raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
@@ -796,7 +796,7 @@ class MomentEvaluator:
         # Create a custom reward that returns the weights.
         weighted_reward = CustomReward(lambda _: weights)
 
-        return self.tree_height._accumulate(
+        return self._tree_height._accumulate(
             k=k, end_times=end_times, rewards=(weighted_reward,), start_time=start_time
         )
 
@@ -815,7 +815,7 @@ class MomentEvaluator:
         if weights is not None:
             self._logger.debug(
                 "flattening block-counting onto the lineage-counting state space (%d states) via the closed-form "
-                "Kingman block-size weights", self.tree_height.state_space.k
+                "Kingman block-size weights", self._tree_height.state_space.k
             )
         else:
             # fall back to weighting by the per-lineage state probabilities of the block-counting space
@@ -826,7 +826,7 @@ class MomentEvaluator:
                 weights[n - s.lineages.sum()] += probs[i] * r[i]
             self._logger.debug(
                 "flattening block-counting state space (%d states) onto the lineage-counting state space (%d states)",
-                len(self.state_space.states), self.tree_height.state_space.k
+                len(self.state_space.states), self._tree_height.state_space.k
             )
 
         return weights
@@ -1096,10 +1096,10 @@ class MomentEvaluator:
 
         :return: The time of almost sure absorption.
         """
-        if self.tree_height.end_time is None:
-            return self.tree_height.t_max
+        if self._tree_height.end_time is None:
+            return self._tree_height.t_max
 
-        return self.tree_height._get_absorption_time()
+        return self._tree_height._get_absorption_time()
 
     def _get_epochs_until_unbounded(self, k: int = 1) -> List[Epoch]:
         """
@@ -1116,7 +1116,7 @@ class MomentEvaluator:
         """
         # the epochs depend only on the tree height, which fixes the demography and the absorption time, and on the
         # order, while the closed form queries them once per moment and an SFS evaluates many bins
-        th = self.tree_height
+        th = self._tree_height
         memo = th.__dict__.get('_epochs_cache')
         if not isinstance(memo, dict):
             memo = th.__dict__['_epochs_cache'] = {}
@@ -1200,8 +1200,8 @@ class MomentEvaluator:
                 prefix = list(epochs)
 
             if epoch.start_time >= t_absorption and survival is None:
-                survival = self.tree_height._survival(t_absorption)
-                scale = self.tree_height._get_absorption_scale()
+                survival = self._tree_height._survival(t_absorption)
+                scale = self._tree_height._get_absorption_scale()
 
             # an epoch reached after absorption is almost sure stands in for every epoch after it, so it may only be
             # held where the reward that substitution misplaces is negligible under its own rates and under those of
@@ -1681,7 +1681,7 @@ class MomentEvaluator:
             raise ValueError("Negative end times are not allowed.")
 
         if start_time is None:
-            start_time = self.tree_height.start_time
+            start_time = self._tree_height.start_time
 
         if not start_time >= 0:
             raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
@@ -1854,16 +1854,16 @@ class MomentEvaluator:
         :return: ``(m, solve, idx_t)`` with ``m = alpha (-T)^{-1}`` and ``solve`` applying ``(-T)^{-1}``, over the
             transient states ``idx_t``, or ``None`` when not applicable (caller falls back).
         """
-        if not (Settings.closed_form_last_epoch and self.tree_height.end_time is None):
+        if not (Settings.closed_form_last_epoch and self._tree_height.end_time is None):
             return None
 
-        if self.tree_height.start_time > 0:
+        if self._tree_height.start_time > 0:
             # the two-point occupation is a double integral over ``s < u``; the windowed (start_time > 0) version is
             # not the full one minus a box, so the batched covariance cannot subtract it the way the mean does. Fall
             # back to the per-pair path, which accumulates each pair over ``[start_time, absorption]`` directly.
             self._logger.debug(
                 "two-point occupation: start_time=%.3g > 0; using per-pair covariance (windowed two-point occupation "
-                "not batched)", self.tree_height.start_time
+                "not batched)", self._tree_height.start_time
             )
             return None
 

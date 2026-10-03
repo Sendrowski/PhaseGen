@@ -445,7 +445,7 @@ class MutationConfigMixin:
         :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
         """
         if self._windowed:
-            start, end = self.tree_height.start_time, self.tree_height.end_time
+            start, end = self._tree_height.start_time, self._tree_height.end_time
             raise NotImplementedError(
                 "get_mutation_config / get_mutation_configs are not implemented for a bounded accumulation window "
                 f"(start_time={start}, end_time={end}): the mutational-configuration probabilities are computed over "

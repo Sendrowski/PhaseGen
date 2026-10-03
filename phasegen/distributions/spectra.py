@@ -424,7 +424,7 @@ class SFSDistribution(MutationConfigMixin, PhaseTypeDistribution, ABC):
                 rewards == (self.reward,) and
                 not (flatten and effective_start > 0)
         ):
-            occupation = (self.tree_height if flatten else self)._occupation_times()
+            occupation = (self._tree_height if flatten else self)._occupation_times()
             if occupation is not None:
                 m, idx_t = occupation
                 if effective_start > 0:
@@ -2128,7 +2128,7 @@ class TwoLocusSFSDistribution(MutationConfigMixin, PhaseTypeDistribution):
         :return: A two-locus spectrum of :math:`k`-th moments.
         :raises ValueError: If ``k`` is not a non-negative integer.
         """
-        end_time = self.tree_height.end_time
+        end_time = self._tree_height.end_time
 
         return TwoLocusSFS(self.accumulate(k, [np.inf if end_time is None else end_time], center=center)[0])
 

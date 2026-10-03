@@ -1544,7 +1544,7 @@ class MarginalLocusDistributions(MarginalDistributions):
         for locus in range(self.dist.locus_config.n):
             loci[locus] = cls(
                 state_space=self.dist.state_space,
-                tree_height=self.dist.tree_height,
+                tree_height=self.dist._tree_height,
                 demography=self.dist.demography,
                 reward=RestrictedReward(self.dist.reward, locus=locus)
             )
@@ -1691,7 +1691,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         for pop in self.dist.lineage_config.pop_names:
             demes[pop] = cls(
                 state_space=self.dist.state_space,
-                tree_height=self.dist.tree_height,
+                tree_height=self.dist._tree_height,
                 demography=self.dist.demography,
                 reward=RestrictedReward(self.dist.reward, pop=pop)
             )

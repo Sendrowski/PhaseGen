@@ -716,7 +716,7 @@ def test_two_locus_joint_distribution_restricted_by_spectrum_reward():
     sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2
     scaled = pg.distributions.TwoLocusSFSDistribution(
         state_space=sfs2.state_space,
-        tree_height=sfs2.tree_height,
+        tree_height=sfs2._tree_height,
         demography=sfs2.demography,
         reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
     )

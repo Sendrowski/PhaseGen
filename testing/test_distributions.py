@@ -632,7 +632,7 @@ class DistributionTestCase(TestCase):
 
             scaled = pg.distributions.UnfoldedSFSDistribution(
                 state_space=sfs.state_space,
-                tree_height=sfs.tree_height,
+                tree_height=sfs._tree_height,
                 demography=sfs.demography,
                 reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
             )

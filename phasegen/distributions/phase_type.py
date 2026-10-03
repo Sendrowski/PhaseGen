@@ -129,7 +129,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         self.demography: Demography = demography
 
         #: The :class:`~phasegen.distributions.TreeHeightDistribution`.
-        self.tree_height: TreeHeightDistribution = tree_height
+        self._tree_height: TreeHeightDistribution = tree_height
 
     @cached_property
     def mean(self) -> float | SFS:
@@ -204,10 +204,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     @property
     def _windowed(self) -> bool:
         """Whether the coalescent accumulates over a bounded window, ``start_time > 0`` or a finite ``end_time``. The
-        window is stored on ``tree_height`` and bounds the moments and the sampler only."""
-        end = self.tree_height.end_time
+        window is stored on ``_tree_height`` and bounds the moments and the sampler only."""
+        end = self._tree_height.end_time
 
-        return self.tree_height.start_time > 0 or (end is not None and end < np.inf)
+        return self._tree_height.start_time > 0 or (end is not None and end < np.inf)
 
     def _assert_not_windowed(self) -> None:
         """
@@ -218,7 +218,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :raises NotImplementedError: If ``start_time > 0`` or ``end_time`` is finite.
         """
         if self._windowed:
-            start, end = self.tree_height.start_time, self.tree_height.end_time
+            start, end = self._tree_height.start_time, self._tree_height.end_time
             raise NotImplementedError(
                 "pdf, cdf and quantile are not implemented for a coalescent with a bounded accumulation window "
                 f"(start_time={start}, end_time={end}). The window applies to the moments and the sampler, while the "
@@ -539,8 +539,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         # accumulation window [t_a, t_b): reward accrues only for time within it (default [0, inf), i.e. to
         # absorption, in which case the clips below are no-ops)
-        t_a = self.tree_height.start_time
-        t_b = self.tree_height.end_time if self.tree_height.end_time is not None else np.inf
+        t_a = self._tree_height.start_time
+        t_b = self._tree_height.end_time if self._tree_height.end_time is not None else np.inf
 
         # materialize the per-epoch generators once: exit rates and a sparse cumulative jump distribution. States,
         # rewards, absorption and the initial distribution are epoch-invariant, so only the rates differ across
@@ -665,15 +665,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     def _default_end_times(self) -> np.ndarray:
         """
         Default times of moment accumulation plots: :attr:`Settings.plot_n_grid` points up to the
-        :attr:`Settings.plot_endpoint_quantile` quantile of the tree height, or up to ``tree_height.t_max`` on a
+        :attr:`Settings.plot_endpoint_quantile` quantile of the tree height, or up to ``_tree_height.t_max`` on a
         windowed coalescent, whose tree height has no quantile function.
 
         :return: The times.
         """
         if self._windowed:
-            end = self.tree_height.t_max
+            end = self._tree_height.t_max
         else:
-            end = self.tree_height.quantile(Settings.plot_endpoint_quantile)
+            end = self._tree_height.quantile(Settings.plot_endpoint_quantile)
 
         return np.linspace(0, end, Settings.plot_n_grid)
 
