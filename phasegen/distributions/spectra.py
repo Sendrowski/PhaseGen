@@ -940,7 +940,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         return self.get_cov(i, j) / (np.sqrt(self.get_cov(i, i)) * np.sqrt(self.get_cov(j, j)))
 
 
-class TajimaSFSMixin:
+class _TajimaSFSMixin:
     """
     Mixin providing the branch-length diversity estimators and Tajima's :math:`D` from the site-frequency
     spectrum mean and covariance. Shared by the analytical :class:`UnfoldedSFSDistribution` and the
@@ -1033,7 +1033,7 @@ class TajimaSFSMixin:
         return float(num / np.sqrt(var))
 
 
-class UnfoldedSFSDistribution(SFSDistribution, TajimaSFSMixin):
+class UnfoldedSFSDistribution(SFSDistribution, _TajimaSFSMixin):
     r"""
     Distribution of the unfolded site-frequency spectrum, whose bin :math:`i` is the total length :math:`L_i` of the
     branches subtending :math:`i` of the :math:`n` samples, for :math:`i = 1, \dots, n - 1`.

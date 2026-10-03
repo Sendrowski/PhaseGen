@@ -20,7 +20,7 @@ from ..utils import parallelize
 
 from .base import DensityAwareDistribution, CumulativeDistributionFunction, DensityFunction, DistributionFunction, \
     QuantileFunction
-from .spectra import FoldedSFSDistribution, SFSDistribution, TajimaSFSMixin, UnfoldedSFSDistribution
+from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, UnfoldedSFSDistribution
 from .mutation_configs import MutationConfig, MutationLayout
 from .coalescent import AbstractCoalescent, Coalescent
 
@@ -576,11 +576,12 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         return TwoSFS(super().corr)
 
 
-class _EmpiricalMutationConfigMixin:  # pragma: no cover
+class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
     """
-    Relative frequencies of mutational configurations among simulated replicates, from per-replicate mutation counts
-    in the array shape of the spectrum. The frequencies are kept over the spectrum's polymorphic entries, so a
-    configuration of any layout that bins those entries is looked up by summing the counts of its bins.
+    Base class for the empirical joint and two-locus spectra. It holds the relative frequencies of mutational
+    configurations among simulated replicates, from per-replicate mutation counts in the array shape of the spectrum.
+    The frequencies are kept over the spectrum's polymorphic entries, so a configuration of any layout that bins those
+    entries is looked up by summing the counts of its bins.
     """
 
     #: Static for backward compatibility.
@@ -650,7 +651,7 @@ class _EmpiricalMutationConfigMixin:  # pragma: no cover
         super()._drop()
 
 
-class EmpiricalJointSFSDistribution(_EmpiricalMutationConfigMixin, EmpiricalDistribution):  # pragma: no cover
+class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: no cover
     r"""
     Empirical joint site-frequency spectrum, built by
     :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
@@ -855,7 +856,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalMutationConfigMixin, EmpiricalDist
             self.samples[(slice(None),) + tuple(config_a)], self.samples[(slice(None),) + tuple(config_b)]
         )
 
-class EmpiricalTwoLocusSFSDistribution(_EmpiricalMutationConfigMixin, EmpiricalDistribution):  # pragma: no cover
+class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: no cover
     r"""
     Empirical two-locus site-frequency spectrum, built by
     :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
@@ -1594,7 +1595,7 @@ class EmpiricalJointDistribution:  # pragma: no cover
         return float(np.corrcoef(self._a, self._b)[0, 1])
 
 
-class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, TajimaSFSMixin):  # pragma: no cover
+class EmpiricalPhaseTypeSFSDistribution(EmpiricalPhaseTypeDistribution, _TajimaSFSMixin):  # pragma: no cover
     """
     Empirical site-frequency spectrum with a per-deme breakdown, built by
     :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>` or

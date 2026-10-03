@@ -36,7 +36,6 @@ from .reward import (
 )
 from .spectra import (
     SFSDistribution,
-    TajimaSFSMixin,
     UnfoldedSFSDistribution,
     FoldedSFSDistribution,
     JointSFSDistribution,
@@ -58,6 +57,7 @@ from .coalescent import (
     Coalescent,
 )
 from .empirical import (
+    EmpiricalSpectrumDistribution,
     EmpiricalJointSFSDistribution,
     EmpiricalDistribution,
     EmpiricalSFSDistribution,
@@ -96,7 +96,6 @@ __all__ = [
     "ConditionalRewardDistribution",
     "JointRewardDistribution",
     "SFSDistribution",
-    "TajimaSFSMixin",
     "UnfoldedSFSDistribution",
     "FoldedSFSDistribution",
     "JointSFSDistribution",
