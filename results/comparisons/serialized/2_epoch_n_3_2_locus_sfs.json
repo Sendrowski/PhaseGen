@@ -15,6 +15,7 @@
     "comparisons": {
         "tolerance": {
             "sfs2": {
+                "mutation_configs": 0.0047,
                 "pairwise": {
                     "[(1, 2), (2, 2)]": {
                         "cdf": 0.0045,
@@ -41,9 +42,9 @@
     "n_unlinked": 0,
     "num_replicates": 200000,
     "n_samples": null,
-    "mutation_rate": null,
+    "mutation_rate": 0.2,
     "record_migration": false,
-    "simulate_mutations": false,
+    "simulate_mutations": true,
     "mass_threshold": 0.9,
     "end_time": null,
     "n_threads": 1,
@@ -131,11 +132,11 @@
         "jsfs_samples": null,
         "n_total": 200000,
         "num_replicates": 200000,
-        "mutation_rate": null,
+        "mutation_rate": 0.2,
         "n_threads": 1,
         "parallelize": false,
         "record_migration": false,
-        "simulate_mutations": false,
+        "simulate_mutations": true,
         "seed": 44,
         "sfs2": {
             "py/object": "phasegen.distributions.empirical.EmpiricalTwoLocusSFSDistribution",
@@ -306,6 +307,7 @@
                     "dtype": "float64"
                 }
             },
+            "_n_lineages": 3,
             "_left": null,
             "_right": null,
             "_joint_surface": [
@@ -3170,6 +3172,7 @@
                     ]
                 }
             ],
+            "_mutation_counts": null,
             "mean": {
                 "py/object": "sfsutils.spectrum.TwoLocusSFS",
                 "n": 4,
@@ -3808,6 +3811,1358 @@
                         ]
                     ],
                     "dtype": "float64"
+                }
+            },
+            "_count_frequencies": {
+                "json://{\"py/tuple\": [0, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.419105
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.04854
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00488
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000395
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 5]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 0, 6]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.113855
+                },
+                "json://{\"py/tuple\": [0, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.016685
+                },
+                "json://{\"py/tuple\": [0, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001955
+                },
+                "json://{\"py/tuple\": [0, 0, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00018
+                },
+                "json://{\"py/tuple\": [0, 0, 1, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.02193
+                },
+                "json://{\"py/tuple\": [0, 0, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.003505
+                },
+                "json://{\"py/tuple\": [0, 0, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00049
+                },
+                "json://{\"py/tuple\": [0, 0, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 7e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 2, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 0, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.003575
+                },
+                "json://{\"py/tuple\": [0, 0, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000675
+                },
+                "json://{\"py/tuple\": [0, 0, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 3, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 3, 5]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 0, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000495
+                },
+                "json://{\"py/tuple\": [0, 0, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8.5e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 4, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 5, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5.5e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 5, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 0, 5, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 0, 6, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 0, 6, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.04924
+                },
+                "json://{\"py/tuple\": [0, 1, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.007915
+                },
+                "json://{\"py/tuple\": [0, 1, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000815
+                },
+                "json://{\"py/tuple\": [0, 1, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000105
+                },
+                "json://{\"py/tuple\": [0, 1, 0, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.014095
+                },
+                "json://{\"py/tuple\": [0, 1, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.002555
+                },
+                "json://{\"py/tuple\": [0, 1, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00029
+                },
+                "json://{\"py/tuple\": [0, 1, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6.5e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.002835
+                },
+                "json://{\"py/tuple\": [0, 1, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000655
+                },
+                "json://{\"py/tuple\": [0, 1, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000555
+                },
+                "json://{\"py/tuple\": [0, 1, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 7.5e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 3, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 1, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6.5e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [0, 1, 5, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.005045
+                },
+                "json://{\"py/tuple\": [0, 2, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000855
+                },
+                "json://{\"py/tuple\": [0, 2, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000125
+                },
+                "json://{\"py/tuple\": [0, 2, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 0, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 2, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001585
+                },
+                "json://{\"py/tuple\": [0, 2, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00027
+                },
+                "json://{\"py/tuple\": [0, 2, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 2, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.0003
+                },
+                "json://{\"py/tuple\": [0, 2, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 2, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 2, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [0, 2, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 3, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000445
+                },
+                "json://{\"py/tuple\": [0, 3, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8.5e-05
+                },
+                "json://{\"py/tuple\": [0, 3, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [0, 3, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000125
+                },
+                "json://{\"py/tuple\": [0, 3, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [0, 3, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 3, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [0, 3, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 4, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [0, 4, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [0, 4, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [0, 4, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.11273
+                },
+                "json://{\"py/tuple\": [1, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.01469
+                },
+                "json://{\"py/tuple\": [1, 0, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001515
+                },
+                "json://{\"py/tuple\": [1, 0, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000175
+                },
+                "json://{\"py/tuple\": [1, 0, 0, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.03897
+                },
+                "json://{\"py/tuple\": [1, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00576
+                },
+                "json://{\"py/tuple\": [1, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000755
+                },
+                "json://{\"py/tuple\": [1, 0, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6.5e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 1, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00838
+                },
+                "json://{\"py/tuple\": [1, 0, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00156
+                },
+                "json://{\"py/tuple\": [1, 0, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00015
+                },
+                "json://{\"py/tuple\": [1, 0, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3.5e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.0015
+                },
+                "json://{\"py/tuple\": [1, 0, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000275
+                },
+                "json://{\"py/tuple\": [1, 0, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6.5e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 3, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 0, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00023
+                },
+                "json://{\"py/tuple\": [1, 0, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 4, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 0, 5, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.017225
+                },
+                "json://{\"py/tuple\": [1, 1, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.002625
+                },
+                "json://{\"py/tuple\": [1, 1, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00034
+                },
+                "json://{\"py/tuple\": [1, 1, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00565
+                },
+                "json://{\"py/tuple\": [1, 1, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00125
+                },
+                "json://{\"py/tuple\": [1, 1, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000165
+                },
+                "json://{\"py/tuple\": [1, 1, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 1, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001245
+                },
+                "json://{\"py/tuple\": [1, 1, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00027
+                },
+                "json://{\"py/tuple\": [1, 1, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 1, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00021
+                },
+                "json://{\"py/tuple\": [1, 1, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [1, 1, 5, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 2, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001915
+                },
+                "json://{\"py/tuple\": [1, 2, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000395
+                },
+                "json://{\"py/tuple\": [1, 2, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000685
+                },
+                "json://{\"py/tuple\": [1, 2, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00018
+                },
+                "json://{\"py/tuple\": [1, 2, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000165
+                },
+                "json://{\"py/tuple\": [1, 2, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 2, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 2, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 2, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 3, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00029
+                },
+                "json://{\"py/tuple\": [1, 3, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [1, 3, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 3, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 9.5e-05
+                },
+                "json://{\"py/tuple\": [1, 3, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 3, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 3, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 3, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 3, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 3, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 4, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [1, 4, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [1, 4, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [1, 5, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.02132
+                },
+                "json://{\"py/tuple\": [2, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00294
+                },
+                "json://{\"py/tuple\": [2, 0, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000375
+                },
+                "json://{\"py/tuple\": [2, 0, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [2, 0, 0, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.008555
+                },
+                "json://{\"py/tuple\": [2, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00138
+                },
+                "json://{\"py/tuple\": [2, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00011
+                },
+                "json://{\"py/tuple\": [2, 0, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [2, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.002155
+                },
+                "json://{\"py/tuple\": [2, 0, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000365
+                },
+                "json://{\"py/tuple\": [2, 0, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [2, 0, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00042
+                },
+                "json://{\"py/tuple\": [2, 0, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 7e-05
+                },
+                "json://{\"py/tuple\": [2, 0, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 0, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6.5e-05
+                },
+                "json://{\"py/tuple\": [2, 0, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 0, 5, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00372
+                },
+                "json://{\"py/tuple\": [2, 1, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000605
+                },
+                "json://{\"py/tuple\": [2, 1, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5.5e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.0014
+                },
+                "json://{\"py/tuple\": [2, 1, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000225
+                },
+                "json://{\"py/tuple\": [2, 1, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00024
+                },
+                "json://{\"py/tuple\": [2, 1, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 6e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [2, 1, 5, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 2, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000435
+                },
+                "json://{\"py/tuple\": [2, 2, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 9.5e-05
+                },
+                "json://{\"py/tuple\": [2, 2, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 2, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00019
+                },
+                "json://{\"py/tuple\": [2, 2, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-05
+                },
+                "json://{\"py/tuple\": [2, 2, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 2, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [2, 2, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 2, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 2, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [2, 2, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 3, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8e-05
+                },
+                "json://{\"py/tuple\": [2, 3, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [2, 3, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [2, 3, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 3, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [2, 3, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [2, 4, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.003445
+                },
+                "json://{\"py/tuple\": [3, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00056
+                },
+                "json://{\"py/tuple\": [3, 0, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 7.5e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 0, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.001535
+                },
+                "json://{\"py/tuple\": [3, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00024
+                },
+                "json://{\"py/tuple\": [3, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 1, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00048
+                },
+                "json://{\"py/tuple\": [3, 0, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5.5e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 0, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.0001
+                },
+                "json://{\"py/tuple\": [3, 0, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 3, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 0, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [3, 0, 4, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 0, 5, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00066
+                },
+                "json://{\"py/tuple\": [3, 1, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00011
+                },
+                "json://{\"py/tuple\": [3, 1, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [3, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00024
+                },
+                "json://{\"py/tuple\": [3, 1, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [3, 1, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [3, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [3, 1, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [3, 1, 2, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 1, 4, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 2, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00012
+                },
+                "json://{\"py/tuple\": [3, 2, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [3, 2, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [3, 2, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 2, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [3, 2, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 2, 3, 3]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 3, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 3, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 3, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 3, 3, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [3, 4, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.00055
+                },
+                "json://{\"py/tuple\": [4, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 8e-05
+                },
+                "json://{\"py/tuple\": [4, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 0.000215
+                },
+                "json://{\"py/tuple\": [4, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2.5e-05
+                },
+                "json://{\"py/tuple\": [4, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [4, 0, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 0, 2, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 0, 2, 4]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 0, 3, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [4, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 7.5e-05
+                },
+                "json://{\"py/tuple\": [4, 1, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [4, 1, 0, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [4, 1, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [4, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [4, 2, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [4, 2, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 4.5e-05
+                },
+                "json://{\"py/tuple\": [5, 0, 0, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 3e-05
+                },
+                "json://{\"py/tuple\": [5, 0, 1, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 0, 1, 2]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 0, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1.5e-05
+                },
+                "json://{\"py/tuple\": [5, 1, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 2e-05
+                },
+                "json://{\"py/tuple\": [5, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 1, 2, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 1, 2, 1]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [5, 3, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [6, 0, 0, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [6, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 1e-05
+                },
+                "json://{\"py/tuple\": [6, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [7, 0, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
+                },
+                "json://{\"py/tuple\": [7, 1, 1, 0]}": {
+                    "py/object": "numpy.float64",
+                    "dtype": "float64",
+                    "value": 5e-06
                 }
             }
         }

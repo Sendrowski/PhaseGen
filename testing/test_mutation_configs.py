@@ -20,6 +20,10 @@ MIGRATION = {('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 0.2}
 #: Population sizes of the two-deme scenarios with one and with two epochs.
 TWO_DEME_SIZES = ({'pop_0': {0: 0.5}, 'pop_1': {0: 2}}, {'pop_0': {0: 0.5, 0.4: 1.5}, 'pop_1': {0: 2}})
 
+#: Two-deme population sizes whose second epoch changes the configuration probabilities beyond the sampling error of
+#: a few thousand replicates.
+SHARP_TWO_DEME_SIZES = {'pop_0': {0: 0.5, 0.3: 3}, 'pop_1': {0: 2, 0.3: 0.3}}
+
 #: Single-deme demographies with one and with two epochs.
 ONE_DEME = (None, pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}}))
 
@@ -260,18 +264,23 @@ def _check_two_locus(dem, theta: float, num_replicates: int, parallelize: bool, 
         _assert_matches(sfs2, layout, _frequencies(layout, counts), theta, ms.n_total, n_top)
 
 
-def test_joint_and_deme_configs_match_msprime():
+@pytest.mark.parametrize('sizes', [TWO_DEME_SIZES[0], SHARP_TWO_DEME_SIZES])
+def test_joint_and_deme_configs_match_msprime(sizes):
     """
-    The joint, folded joint and deme-resolved configuration probabilities of a two-deme sample agree with msprime
-    within four standard errors.
+    The joint, folded joint and deme-resolved configuration probabilities of a two-deme sample with migration agree
+    with msprime within four standard errors, over one and two epochs.
     """
-    coal, ms, n = _two_deme_msprime({'pop_0': 2, 'pop_1': 2}, TWO_DEME_SIZES[0], 0.5, 4000, False, 3)
+    coal, ms, n = _two_deme_msprime({'pop_0': 2, 'pop_1': 2}, sizes, 0.5, 4000, False, 3)
     _check_two_deme(coal, ms, 0.5, n, 6)
 
 
-def test_two_locus_configs_match_msprime():
-    """The two-locus and folded two-locus configuration probabilities agree with msprime within four standard errors."""
-    _check_two_locus(None, 0.5, 4000, False, 4, 6)
+@pytest.mark.parametrize('dem', ONE_DEME)
+def test_two_locus_configs_match_msprime(dem):
+    """
+    The two-locus and folded two-locus configuration probabilities agree with msprime within four standard errors,
+    over one and two epochs.
+    """
+    _check_two_locus(dem, 0.5, 4000, False, 4, 6)
 
 
 @pytest.mark.slow
@@ -610,3 +619,57 @@ def test_count_order_yields_every_configuration_once(name):
     assert len(set(configs)) == expected
     assert all(sum(c) <= 3 for c in configs)
     assert [sum(c) for c in configs] == sorted(sum(c) for c in configs)
+
+
+@pytest.mark.parametrize('name', ['sfs', 'fsfs', 'jsfs', 'sfs2'])
+def test_zero_theta_puts_all_mass_on_the_empty_configuration(name):
+    """
+    Without mutation, every spectrum over two epochs gives probability 1 to the empty configuration and 0 to any
+    other, and the descending iterator yields the empty configuration alone with the full mass.
+    """
+    if name == 'sfs2':
+        dist = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0), demography=ONE_DEME[1]).sfs2
+    else:
+        dist = getattr(pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes=TWO_DEME_SIZES[1], migration_rates=MIGRATION)), name)
+
+    layout = dist.mutation_layout()
+    J = len(layout)
+
+    assert dist.get_mutation_config(layout.config((0,) * J), theta=0) == pytest.approx(1, abs=1e-14)
+    assert dist.get_mutation_config(layout.config((1,) + (0,) * (J - 1)), theta=0) == pytest.approx(0, abs=1e-14)
+    assert list(dist.get_mutation_configs(theta=0)) == [(layout.config((0,) * J), 1.0)]
+    assert dist.generated_mass == 1
+
+
+@pytest.mark.parametrize('dem', ONE_DEME)
+def test_two_locus_without_recombination_thins_one_genealogy(dem):
+    """
+    Without recombination both loci share one genealogy, so the mutations of each bin are those of the single-locus
+    spectrum at twice the mutation rate, each placed on either locus with probability one half:
+    ``P(m0, m1; theta) = P(m0 + m1; 2 theta) * prod_j C(m0_j + m1_j, m0_j) / 2^(m0_j + m1_j)``.
+    """
+    sfs = pg.Coalescent(n=3, demography=dem).sfs
+    sfs2 = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=0), demography=dem).sfs2
+    layout = sfs2.mutation_layout()
+
+    for m0, m1 in itertools.product([(0, 0), (1, 0), (1, 1), (2, 0)], [(0, 0), (0, 1), (1, 1)]):
+        m = tuple(a + b for a, b in zip(m0, m1))
+        ref = sfs.get_mutation_config(m, 1.0) * np.prod([math.comb(k, a) / 2 ** k for k, a in zip(m, m0)])
+        np.testing.assert_allclose(sfs2.get_mutation_config(layout.config(m0 + m1), 0.5), ref, rtol=1e-12)
+
+
+@pytest.mark.parametrize('dem', ONE_DEME)
+def test_two_locus_with_free_recombination_factorises(dem):
+    """
+    As the recombination rate grows the loci become independent, and the two-locus probabilities approach the
+    product of the single-locus ones, with an error that falls like the inverse recombination rate (about 4e-5 at
+    ``r = 1e4``).
+    """
+    sfs = pg.Coalescent(n=3, demography=dem).sfs
+    sfs2 = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1e4), demography=dem).sfs2
+    layout = sfs2.mutation_layout()
+
+    for m0, m1 in [((0, 0), (0, 0)), ((1, 0), (0, 1)), ((2, 1), (1, 0))]:
+        ref = sfs.get_mutation_config(m0, 0.5) * sfs.get_mutation_config(m1, 0.5)
+        np.testing.assert_allclose(sfs2.get_mutation_config(layout.config(m0 + m1), 0.5), ref, rtol=2e-4)

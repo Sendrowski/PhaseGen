@@ -59,13 +59,15 @@ if msprime_spec:
     for dist, pairs in c._pairwise_surface_pairs(msprime_spec).items():
         getattr(c.ms, dist)._cache_joint_surface(pairs)
     c.ms.jsfs._drop()
-    for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples', 'demography'):
+    for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'jsfs_samples',
+                 'jsfs_mutations', 'deme_mutations', 'demography'):
         setattr(c.ms, attr, None)
 
-    # verify the analytical joint SFS agrees with the cached truth within the configured tolerances (the 'joint' and
-    # 'pairwise' stats are not ``.data`` spectra -- validated at test time via Comparison.compare_stat -- so skip)
+    # verify the analytical joint SFS agrees with the cached truth within the configured tolerances (the 'joint',
+    # 'pairwise' and 'mutation_configs' stats are not ``.data`` spectra -- validated at test time via
+    # Comparison.compare_stat -- so skip)
     for stat, tol_ in msprime_spec.get('jsfs', {}).items():
-        if stat in ('joint', 'pairwise'):
+        if stat in ('joint', 'pairwise', 'mutation_configs'):
             continue
         diff = Comparison.rel_diff(np.array(get_stat(c.ms.jsfs, stat)), np.array(get_stat(c.ph.jsfs, stat))).max()
         print(f'{stat:>5}: rel_diff.max={diff:.4f} tol={tol_} [{"ok" if diff <= tol_ else "FAIL"}]', flush=True)

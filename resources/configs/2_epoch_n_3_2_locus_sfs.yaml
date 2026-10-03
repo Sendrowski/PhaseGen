@@ -9,9 +9,12 @@ pop_sizes:
     0: 1
     1.0: 0.5
 model: standard
+simulate_mutations: true
+mutation_rate: 0.2
 comparisons:
   tolerance:
     sfs2:
+      mutation_configs: 0.0047
       pairwise:
         '[(1, 2), (2, 2)]':
           cdf: 0.0045

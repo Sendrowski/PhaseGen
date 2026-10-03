@@ -41,10 +41,11 @@ c.ms.sfs2._drop()
 for attr in ('heights', 'total_branch_lengths', 'sfs_lengths', 'mutations', 'jsfs_moments', 'demography'):
     setattr(c.ms, attr, None)
 
-# verify the analytical two-locus SFS agrees with the cached truth within the configured tolerances (the 'joint' and
-# 'pairwise' stats are not ``.data`` spectra -- they are validated at test time via Comparison.compare_stat -- so skip)
+# verify the analytical two-locus SFS agrees with the cached truth within the configured tolerances (the 'joint',
+# 'pairwise' and 'mutation_configs' stats are not ``.data`` spectra -- they are validated at test time via
+# Comparison.compare_stat -- so skip)
 for stat, tol in c.comparisons['tolerance']['sfs2'].items():
-    if stat in ('joint', 'pairwise'):
+    if stat in ('joint', 'pairwise', 'mutation_configs'):
         continue
     diff = Comparison.rel_diff(np.array(getattr(c.ms.sfs2, stat).data), np.array(getattr(c.ph.sfs2, stat).data)).max()
     print(f'{stat:>5}: rel_diff.max={diff:.4f} tol={tol} [{"ok" if diff <= tol else "FAIL"}]', flush=True)

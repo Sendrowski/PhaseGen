@@ -576,7 +576,81 @@ class EmpiricalSFSDistribution(EmpiricalDistribution):  # pragma: no cover
         return TwoSFS(super().corr)
 
 
-class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
+class _EmpiricalMutationConfigMixin:  # pragma: no cover
+    """
+    Relative frequencies of mutational configurations among simulated replicates, from per-replicate mutation counts
+    in the array shape of the spectrum. The frequencies are kept over the spectrum's polymorphic entries, so a
+    configuration of any layout that bins those entries is looked up by summing the counts of its bins.
+    """
+
+    #: Static for backward compatibility.
+    _mutation_counts: Optional[np.ndarray] = None
+
+    #: Static for backward compatibility.
+    _count_frequencies: Optional[Dict[Tuple[int, ...], float]] = None
+
+    def _mutation_entries(self) -> List[tuple]:
+        """
+        The polymorphic entries of the spectrum, in the order of the stored counts.
+
+        :return: The array indices of the entries.
+        """
+        raise NotImplementedError
+
+    def _frequencies_by_entry(self) -> Dict[Tuple[int, ...], float]:
+        """
+        Relative frequency of each tuple of counts over the polymorphic entries, computed once from the counts.
+
+        :return: Dictionary from counts to relative frequency.
+        :raises ValueError: If the spectrum carries no mutation counts.
+        """
+        if self._count_frequencies is None:
+            if self._mutation_counts is None:
+                raise ValueError("This spectrum carries no mutation counts, so mutational configuration frequencies "
+                                 "are unavailable.")
+
+            counts = np.stack([self._mutation_counts[(slice(None),) + tuple(e)] for e in self._mutation_entries()], 1)
+            rows, n = np.unique(counts, axis=0, return_counts=True)
+            self._count_frequencies = {tuple(int(x) for x in r): k / len(counts) for r, k in zip(rows, n)}
+
+        return self._count_frequencies
+
+    def get_mutation_config(self, config: MutationConfig) -> float:
+        """
+        Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
+        :meth:`UnfoldedSFSDistribution.get_mutation_config()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
+
+        :param config: The configuration, whose layout bins entries of this spectrum.
+        :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
+        :raises ValueError: If the spectrum carries no mutation counts.
+        """
+        layout = config.layout
+        cache = self.__dict__.setdefault('_binned_frequencies', {})
+
+        if layout.bins not in cache:
+            index = {tuple(e): k for k, e in enumerate(self._mutation_entries())}
+            groups = [[index[tuple(layout.positions[label])] for label in b] for b in layout.bins]
+            binned = {}
+            for counts, p in self._frequencies_by_entry().items():
+                key = tuple(sum(counts[k] for k in g) for g in groups)
+                binned[key] = binned.get(key, 0) + p
+            cache[layout.bins] = binned
+
+        return cache[layout.bins].get(tuple(config), 0)
+
+    def _drop(self) -> None:
+        """Drop the per-replicate mutation counts, retaining their configuration frequencies."""
+        if self._mutation_counts is not None:
+            self._frequencies_by_entry()
+            self._mutation_counts = None
+
+        self.__dict__.pop('_binned_frequencies', None)
+
+        super()._drop()
+
+
+class EmpiricalJointSFSDistribution(_EmpiricalMutationConfigMixin, EmpiricalDistribution):  # pragma: no cover
     r"""
     Empirical joint site-frequency spectrum, built by
     :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
@@ -613,7 +687,13 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
     #: Static for backward compatibility.
     _joint_surface: list = []
 
-    def __init__(self, moments: np.ndarray, samples: np.ndarray = None, n_samples: int = None) -> None:
+    def __init__(
+            self,
+            moments: np.ndarray,
+            samples: np.ndarray = None,
+            n_samples: int = None,
+            mutation_counts: np.ndarray = None
+    ) -> None:
         """
         Initialize the distribution from the raw moments and, optionally, per-replicate samples.
 
@@ -623,6 +703,8 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
             capped subset of the replicates the moments were averaged over.
         :param n_samples: The number of replicates :math:`N` the moments were averaged over. Defaults to the length
             of ``samples``, and must be given when ``samples`` is a capped subset.
+        :param mutation_counts: Optional per-replicate mutation counts, of shape ``(N, n_0 + 1, ...)``, from which
+            :meth:`get_mutation_config` takes the configuration frequencies.
         """
         moments = np.asarray(moments)
 
@@ -640,6 +722,17 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
 
         #: Cached full-grid joint surface ground truth: ``[(config_a, config_b, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface = []
+
+        #: Per-replicate mutation counts, ``None`` once dropped.
+        self._mutation_counts = mutation_counts
+
+    def _mutation_entries(self) -> List[Tuple[int, ...]]:
+        """
+        The polymorphic descendant vectors.
+
+        :return: The descendant vectors.
+        """
+        return self._polymorphic_bins()
 
     def _polymorphic_bins(self) -> List[Tuple[int, ...]]:
         """
@@ -762,7 +855,7 @@ class EmpiricalJointSFSDistribution(EmpiricalDistribution):  # pragma: no cover
             self.samples[(slice(None),) + tuple(config_a)], self.samples[(slice(None),) + tuple(config_b)]
         )
 
-class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cover
+class EmpiricalTwoLocusSFSDistribution(_EmpiricalMutationConfigMixin, EmpiricalDistribution):  # pragma: no cover
     r"""
     Empirical two-locus site-frequency spectrum, built by
     :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
@@ -797,16 +890,24 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cov
     #: Statistics :meth:`_cache_standard_errors` estimates a standard error for.
     _STANDARD_ERROR_STATISTICS = ('mean', 'var', 'm2', 'm3', 'm4')
 
-    def __init__(self, left: np.ndarray, right: np.ndarray) -> None:
+    #: Static for backward compatibility.
+    _n_lineages: Optional[int] = None
+
+    def __init__(self, left: np.ndarray, right: np.ndarray, mutation_counts: np.ndarray = None) -> None:
         """
         Initialize the distribution from the per-replicate branch lengths of the two loci.
 
         :param left: Locus-0 SFS branch lengths, of shape ``(N, n + 1)``.
         :param right: Locus-1 SFS branch lengths, of shape ``(N, n + 1)``.
+        :param mutation_counts: Optional per-replicate mutation counts of the two loci, of shape ``(N, 2, n + 1)``,
+            from which :meth:`get_mutation_config` takes the configuration frequencies.
         """
         left, right = np.asarray(left, dtype=float), np.asarray(right, dtype=float)
 
         super().__init__(left[:, :, None] * right[:, None, :])
+
+        #: Number of lineages :math:`n`.
+        self._n_lineages: int = left.shape[1] - 1
 
         #: Per-replicate branch lengths of the two loci, ``None`` once freed for serialization.
         self._left: np.ndarray | None = left
@@ -814,6 +915,17 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalDistribution):  # pragma: no cov
 
         #: Cached full-grid joint surface ground truth: ``[(i, j, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface = []
+
+        #: Per-replicate mutation counts, ``None`` once dropped.
+        self._mutation_counts = mutation_counts
+
+    def _mutation_entries(self) -> List[Tuple[int, int]]:
+        """
+        The pairs ``(locus, i)`` of polymorphic classes.
+
+        :return: The pairs.
+        """
+        return [(locus, i) for locus in (0, 1) for i in range(1, self._n_lineages)]
 
     def _polymorphic_bins(self) -> List[Tuple[int, int]]:
         """
@@ -2678,7 +2790,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.simulate()
 
         return EmpiricalJointSFSDistribution(moments=self.jsfs_moments, samples=self.jsfs_samples,
-                                             n_samples=self.n_total)
+                                             n_samples=self.n_total, mutation_counts=self.jsfs_mutations)
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
@@ -2698,7 +2810,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         # the branch lengths of a locus summed over the demes they reside in
         lengths = self.sfs_lengths.sum(axis=1)
 
-        return EmpiricalTwoLocusSFSDistribution(lengths[0], lengths[1])
+        # the mutation counts of a locus summed over the demes they occur in, of shape (N, 2, n + 1)
+        counts = None if self.mutations is None else np.moveaxis(self.mutations.sum(axis=1), 1, 0)
+
+        return EmpiricalTwoLocusSFSDistribution(lengths[0], lengths[1], mutation_counts=counts)
 
     @cached_property
     def fst(self) -> float:
