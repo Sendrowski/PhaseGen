@@ -353,8 +353,8 @@ class MutationConfigMixin:
         \mathbb{P}(\mathbf{Y} = \mathbf{m})
         = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right],
 
-    which depends on the state space only through the sub-intensity matrices, the initial distribution and the
-    reward vectors.
+    with :math:`J` the number of bins. This probability depends on the state space only through the sub-intensity
+    matrices, the initial distribution and the reward vectors.
     """
 
     #: Probability mass yielded by the most recently started configuration iterator.
@@ -480,7 +480,9 @@ class MutationConfigMixin:
         .. math::
 
             \mathbb{P}(\mathbf{Y} = \mathbf{m})
-            = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right].
+            = \mathbb{E}\left[ \prod_{j=1}^{J} e^{-\theta \ell_j} \frac{(\theta \ell_j)^{m_j}}{m_j!} \right],
+
+        with :math:`J` the number of bins.
 
         The following example computes the probability of two singletons, one doubleton and no tripletons, first in the
         default unfolded layout and then of two singletons or tripletons and one doubleton in the folded layout.
@@ -517,7 +519,8 @@ class MutationConfigMixin:
 
         .. rubric:: Several epochs
 
-        The mutation counts are tracked jointly with the state, on the :math:`L = \prod_j (m_j + 1)` count vectors
+        The resolvent requires a single sub-intensity matrix over an infinite horizon. Over several epochs, the
+        mutation counts are instead tracked jointly with the state, on the :math:`L = \prod_j (m_j + 1)` count vectors
         that do not exceed :math:`\mathbf{m}`. In epoch :math:`i`, this process has the sub-intensity matrix
 
         .. math::
@@ -525,29 +528,32 @@ class MutationConfigMixin:
             \mathbf{A}_i = \mathbf{I}_L \otimes \big( \mathbf{T}_i - \theta \operatorname{diag}(\bar{\mathbf{r}}) \big)
             + \theta \sum_{j=1}^{J} \mathbf{N}_j \otimes \operatorname{diag}(\mathbf{r}_j),
 
-        where :math:`\otimes` is the Kronecker product, :math:`\mathbf{I}_L` the :math:`L \times L` identity matrix,
-        and :math:`\mathbf{N}_j` raises the count of bin :math:`j` by one while it is below :math:`m_j`. A mutation
-        that would exceed :math:`m_j` removes the process. The mass absorbed at count vector :math:`\mathbf{c}`,
-        accumulated over all epochs, is :math:`\mathbb{P}(\mathbf{Y} = \mathbf{c})` for every
-        :math:`\mathbf{c} \le \mathbf{m}`.
+        where :math:`\otimes` is the Kronecker product and :math:`\mathbf{I}_L` the :math:`L \times L` identity matrix.
+        The first term moves the process between states at fixed counts, at the rates of :math:`\mathbf{T}_i`, and
+        removes it from those counts at the total mutation rate. The second term adds a mutation to bin :math:`j` and
+        keeps the state, with :math:`\mathbf{N}_j` raising the count of bin :math:`j` by one while it is below
+        :math:`m_j`. A mutation that would exceed :math:`m_j` removes the process. The joint distribution is
+        propagated across a finite epoch by :math:`e^{\mathbf{A}_i \Delta_i}`, and the last epoch is closed by
+        :math:`\int_0^\infty e^{\mathbf{A}_M s}\, \mathrm{d}s = -\mathbf{A}_M^{-1}`. Absorption ends the process with
+        its current counts, so the mass absorbed at count vector :math:`\mathbf{c}`, accumulated over all epochs, is
+        :math:`\mathbb{P}(\mathbf{Y} = \mathbf{c})` for every :math:`\mathbf{c} \le \mathbf{m}`.
 
         .. rubric:: Implementation
 
-        - In a single epoch, the resolvent is formed by one dense inverse and cached for the most recent layout and
-          :math:`\theta`, together with the row vectors :math:`\mathbf{x}_\mathbf{c} \mathbf{U}` of every count vector
-          evaluated so far, so a configuration costs one vector-matrix product per count vector not yet evaluated.
-        - Over several epochs, the finite epochs are propagated by matrix exponentials and the last epoch is closed by
-          a linear solve. The solves use a sparse LU factorization once :math:`L n_T` reaches
+        - In a single epoch, the resolvent is one dense inverse. It is cached for the most recent layout and
+          :math:`\theta`, with the row vectors :math:`\mathbf{x}_\mathbf{c} \mathbf{U}` of all count vectors evaluated
+          so far, so a configuration costs one vector-matrix product per new count vector.
+        - Over several epochs, the linear solves use a sparse LU factorization once :math:`L n_T` reaches
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`,
           and the exponentials become sparse actions once it reaches
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. The probabilities of
           all :math:`L` count vectors are cached for the most recent layout and :math:`\theta`.
         - ``get_mutation_configs(order='probability')`` climbs from the empty configuration to a local maximum of the
-          probability and expands outward with a priority queue. The order is exactly descending when every other
-          configuration has a neighbour, differing by one mutation, of at least equal probability.
+          probability, then expands outward with a priority queue. The order is exactly descending if every other
+          configuration has a neighbour, one mutation apart, of at least equal probability.
         - ``get_mutation_configs(order='count')`` yields configurations in ascending order of :math:`|\mathbf{m}|`.
-        - The iterator resets ``generated_mass`` when the first configuration is requested and adds each yielded
-          probability to it, so one minus its value is the probability not yet yielded.
+        - ``generated_mass`` is reset when the first configuration is requested and accumulates each yielded
+          probability, so one minus its value is the probability not yet yielded.
 
         .. rubric:: References
 
