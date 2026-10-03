@@ -48,6 +48,9 @@ _MSPRIME_BETA_ALPHA_MAX = 1.991
 #: directly. Larger grids bin all replicates against the grid.
 _JOINT_CDF_DIRECT_MAX = 16
 
+#: Multiple of the replicate count with which a pairwise coalescence time is simulated, for the f-statistics.
+_PAIRWISE_REPLICATE_FACTOR = 10
+
 
 class _EmpiricalFunction:  # pragma: no cover
     """Mixin building the plot data of an empirical function object: one curve for a sample vector (a scalar
@@ -4101,7 +4104,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         msprime estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
         two in ``pop_i`` when they coincide, simulated for that pair alone as :class:`Coalescent` computes it. It does
-        not depend on the sample configuration of this coalescent. Memoized per pair.
+        not depend on the sample configuration of this coalescent, and uses ten times its replicates. Memoized per pair.
 
         :param pop_i: Name of the first population.
         :param pop_j: Name of the second population.
@@ -4128,7 +4131,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 demography=self.demography.to_msprime(),
                 model=self.get_coalescent_model(),
                 ploidy=1,
-                num_replicates=self.num_replicates,
+                num_replicates=self.num_replicates * _PAIRWISE_REPLICATE_FACTOR,
                 random_seed=self._msprime_seed(),
             )])
 
