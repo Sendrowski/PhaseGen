@@ -717,8 +717,7 @@ class _EmpiricalAccumulating:  # pragma: no cover
 class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
     """
     The bins, their pairwise statistics and the estimators of Tajima's :math:`D` of an empirical site-frequency
-    spectrum, the sampled counterparts of those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`. The
-    statistics are read from :attr:`mean`, :attr:`cov` and :attr:`corr`, and the bins from the samples.
+    spectrum, the sampled counterparts of those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`.
     """
 
     #: Whether the spectrum is folded.
@@ -948,9 +947,8 @@ class EmpiricalSFSDistribution(_EmpiricalSFSMixin, EmpiricalDistribution):  # pr
 
 class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
     """
-    Base class for the empirical spectra. It holds the relative frequencies of mutational configurations among
-    simulated replicates, from per-replicate mutation counts over the spectrum's polymorphic entries. A configuration
-    of any layout of the spectrum is looked up by summing the counts of the entries of each of its bins.
+    Base class for the empirical spectra, which hold the relative frequencies of the mutational configurations of
+    any of their layouts among the simulated replicates.
     """
 
     #: Static for backward compatibility.
@@ -1285,8 +1283,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
     @property
     def loci(self) -> Dict[int, 'EmpiricalJointSFSDistribution']:
         """
-        The empirical joint spectrum of each locus, keyed by locus index, with the covariance and correlation of each
-        descendant configuration across the loci as ``cov`` and ``corr``, the sampled counterpart of
+        The empirical joint spectrum of each locus, keyed by locus index, the sampled counterpart of
         :attr:`JointSFSDistribution.loci <phasegen.distributions.JointSFSDistribution.loci>`. The joint spectrum has
         one locus, whose spectrum is this one.
         """
@@ -2194,18 +2191,15 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
             start_time: float = None
     ) -> np.ndarray:
         """
-        The :math:`k`-th sample moment accumulated from the start time to each end time, as described in
-        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`, by default of
-        the reward of this distribution. A spectrum returns one column per site-frequency count, as
-        :meth:`UnfoldedSFSDistribution.accumulate() <phasegen.distributions.UnfoldedSFSDistribution.accumulate>`
-        does.
+        The :math:`k`-th sample moment accumulated from the start time to each end time, defined in
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`. A spectrum
+        returns one column per site-frequency count.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times at which to evaluate the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of the exact distribution. The sample moment does not depend on
-            the order of the rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
         :return: The moment at each end time.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies, or a reward is not
@@ -2224,18 +2218,16 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
     ) -> float:
         r"""
         The :math:`k`-th sample moment, the sampled counterpart of :meth:`PhaseTypeDistribution.moment()
-        <phasegen.distributions.PhaseTypeDistribution.moment>`. Without rewards and times, it is the sample moment of
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`. Otherwise, it is
-        the moment of the rewards accumulated from the start time to the end time, as described in
-        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+        <phasegen.distributions.PhaseTypeDistribution.moment>`: that of :meth:`EmpiricalDistribution.moment()
+        <phasegen.distributions.EmpiricalDistribution.moment>` without rewards and times, and otherwise that of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>` at the end time.
 
         :param k: The order :math:`k \ge 0` of the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
         :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
         :param end_time: The end time. By default, the end time of the coalescent, or absorption.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of the exact distribution. The sample moment does not depend on
-            the order of the rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment.
         :raises TypeError: If ``k`` is not a number, or an entry of ``rewards`` is not a
             :class:`~phasegen.rewards.Reward`.
@@ -2255,7 +2247,7 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         """
         The empirical joint distribution of two rewards accumulated by each replicate from the start time to the end
         time of the coalescent, the sampled counterpart of :meth:`PhaseTypeDistribution.joint()
-        <phasegen.distributions.PhaseTypeDistribution.joint>`. The rewards are those of
+        <phasegen.distributions.PhaseTypeDistribution.joint>`, for the rewards supported by
         :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
 
         :param reward_a: The first reward.
@@ -2412,21 +2404,19 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
     sampled counterpart of :class:`~phasegen.distributions.JointRewardDistribution`, with :math:`R_{am}` and
     :math:`R_{bm}` the rewards of replicate :math:`m = 1, \dots, N`. Its marginals, covariance and correlation are the
     sample estimators of :class:`~phasegen.distributions.EmpiricalDistribution`, with the normalisation :math:`1 / N`.
-    The joint :attr:`cdf` and :attr:`pdf` are plotted as those of
-    :class:`~phasegen.distributions.JointRewardDistribution`, and a joint distribution has no quantile function.
+    A joint distribution has no quantile function.
 
     - :attr:`cdf`: the fraction of replicates with :math:`R_{am} \le x` and :math:`R_{bm} \le y`.
-    - :attr:`pdf`: for grids :math:`x_0 < x_1 < \dots` and :math:`y_0 < y_1 < \dots` of left cell edges, with the
-      last cell as wide as the one before, the fraction of replicates in each cell divided by its area,
+    - :attr:`pdf`: the fraction of replicates in each cell of the grids :math:`x_0 < x_1 < \dots` and
+      :math:`y_0 < y_1 < \dots` of left cell edges, divided by its area, with the last cell as wide as the one before,
 
       .. math::
 
           \hat f_{jl} = \frac{\#\{m : R_{am}, R_{bm} > 0,\ x_j \le R_{am} < x_{j+1},\ y_l \le R_{bm} < y_{l+1}\}}
           {N\, (x_{j+1} - x_j)\, (y_{l+1} - y_l)}.
 
-      Replicates with a zero reward lie on an axis, which has no density, and are counted in :math:`N` only, so the
-      cells carry the mass :math:`\mathbb{P}(R_a > 0,\ R_b > 0)`. By default, the plots coarsen the cells with the
-      sample size, to the fourth root of :math:`N` per axis and at least 10.
+      Replicates with a zero reward are counted in :math:`N` only, so the cells carry the mass
+      :math:`\mathbb{P}(R_a > 0,\ R_b > 0)`.
 
     .. warning::
         :meth:`EmpiricalJointDistribution.conditional()
@@ -2544,9 +2534,8 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         ``value - half_width`` to ``value + half_width``, the sampled counterpart of
         :meth:`JointRewardDistribution.window_average()
         <phasegen.distributions.JointRewardDistribution.window_average>`. ``statistic`` is applied to the
-        :class:`~phasegen.distributions.EmpiricalDistribution` of the other reward over these replicates, whose
-        estimators therefore estimate the averages over :math:`W` weighted by the density of :math:`R_c`, the mean
-        being the plain mean over the window.
+        :class:`~phasegen.distributions.EmpiricalDistribution` of the other reward over these replicates, which
+        estimates the average over :math:`W` weighted by the density of :math:`R_c`.
 
         :param statistic: Callable taking an :class:`~phasegen.distributions.EmpiricalDistribution` and returning a
             scalar or a 1D array, for example ``lambda c: c.mean`` or ``lambda c: c.cdf(ys)``.
@@ -2881,11 +2870,10 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
     ) -> SFS:
         r"""
         The :math:`k`-th sample moment of every frequency class, the sampled counterpart of
-        :meth:`UnfoldedSFSDistribution.moment() <phasegen.distributions.UnfoldedSFSDistribution.moment>`. Without
-        rewards and times, it is the sample moment of :meth:`EmpiricalDistribution.moment()
-        <phasegen.distributions.EmpiricalDistribution.moment>`. Otherwise, it is the moment of every bin at the end
-        time of :meth:`EmpiricalPhaseTypeSFSDistribution.accumulate()
-        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.accumulate>`.
+        :meth:`UnfoldedSFSDistribution.moment() <phasegen.distributions.UnfoldedSFSDistribution.moment>`: that of
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>` without rewards
+        and times, and otherwise that of :meth:`EmpiricalPhaseTypeSFSDistribution.accumulate()
+        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.accumulate>` at the end time.
 
         :param k: The order :math:`k \ge 0` of the moment.
         :param rewards: Sequence of :math:`k` rewards, each combined with the reward of the bin. By default, the
@@ -2978,9 +2966,8 @@ class _ReplicateStatistic:  # pragma: no cover
     @staticmethod
     def _locus_migrations(j: int, ts, ctx: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        The migrations of the lineages at locus ``j``, the unit interval ``[j, j + 1)``, in time order. A tree may span
-        several loci, whose lineages migrate independently, so the migrations taken are those covering the locus
-        midpoint. The migration table of the replicate is read once and kept in ``ctx``.
+        The migrations covering the midpoint of locus ``j``, the unit interval ``[j, j + 1)``, in time order, with the
+        migration table of the replicate read once into ``ctx``.
 
         :param j: The locus.
         :param ts: The tree sequence of the replicate.
@@ -3184,13 +3171,8 @@ class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
 
 class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
     """
-    The lineages of each tree through time, from which ``_Trajectories`` reads rewards accumulated over a time
-    window. A lineage contributes one row per deme it resides in, holding the time interval of its residence, its
-    number of leaves, the deme and its descendant vector, the numbers of its leaves sampled in each deme. Each
-    interval between consecutive events of a tree that holds more than one lineage contributes one row per occupied
-    deme, holding the share of the lineages residing in it. The demes are read from the recorded migrations when
-    ``axis`` is given, and all lineages are placed in deme 0 otherwise. The lineages of a tree that ``end_time``
-    stops before its root extend to ``end_time``.
+    The rows of each tree that ``_Trajectories`` reads: one per lineage and deme of residence, and one per occupied
+    deme and interval between consecutive events with more than one lineage, holding the share of the lineages in it.
     """
 
     def __init__(self, n_pops: int, origin: np.ndarray, end_time: float = None, axis: np.ndarray = None) -> None:
@@ -3281,17 +3263,15 @@ class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
 
 class _Trajectories:  # pragma: no cover
     r"""
-    Rewards accumulated over a time window by the replicates of :class:`MsprimeCoalescent`, read from the rows that
-    ``_TrajectoryStatistics`` records. A row holds a time interval :math:`[a, b]` and a weight :math:`w`, the share
-    of the lineages in its deme for the tree height and one for the branch lengths. Replicate :math:`m` accumulates
-    over the window :math:`[s, t]` the reward
+    Rewards accumulated over a time window :math:`[s, t]` by the replicates of :class:`MsprimeCoalescent`. Replicate
+    :math:`m` accumulates
 
     .. math::
 
         R_m(s, t) = \sum_{\text{rows of } m} w \max\{0, \min(b, t) - \max(a, s)\},
 
-    the sum running over the rows that the reward selects by locus, deme, number of leaves and descendant vector. The
-    tree height of several loci is the largest of the per-locus heights.
+    over the rows of ``_TrajectoryStatistics`` that the reward selects, each with interval :math:`[a, b]` and weight
+    :math:`w`, the share of the lineages in its deme for the tree height and one for the branch lengths.
     """
 
     #: The rewards that are read from the simulated genealogies, for error messages.
@@ -3510,16 +3490,14 @@ class _Trajectories:  # pragma: no cover
 
 class _SampledTrajectories:  # pragma: no cover
     r"""
-    The sojourns of the trajectories that :class:`SampledCoalescent` samples from a phase-type distribution, recorded
-    on first use by sampling again from the seed of the statistic, which gives the trajectories of its samples.
-    Trajectory :math:`m` accumulates over the window :math:`[s, t]` the reward
+    The sojourns of the trajectories that :class:`SampledCoalescent` samples, recorded on first use. Trajectory
+    :math:`m` accumulates over the window :math:`[s, t]` the reward
 
     .. math::
 
         R_m(s, t) = \sum_{\text{sojourns of } m} r(x) \max\{0, \min(b, t) - \max(a, s)\},
 
-    the sum running over the sojourns :math:`[a, b]` of the trajectory in the states :math:`x`, with :math:`r(x)` the
-    reward rate of state :math:`x`. It stands in for the coalescent of ``_EmpiricalAccumulation``.
+    over its sojourns :math:`[a, b]` in the states :math:`x`, with :math:`r(x)` the reward rate of state :math:`x`.
     """
 
     def __init__(
@@ -3587,10 +3565,9 @@ class _SampledTrajectories:  # pragma: no cover
 
 class _EmpiricalAccumulation:  # pragma: no cover
     """
-    Sample moments of rewards accumulated by the replicates of :class:`MsprimeCoalescent`, or the trajectories of
-    :class:`SampledCoalescent`, over a time window, with the ``accumulate`` and ``plot_accumulation`` interface and the
-    plotting code of :class:`~phasegen.distributions.PhaseTypeDistribution`. ``reward`` is the default reward of every
-    factor.
+    Sample moments of rewards accumulated over a time window by the replicates of :class:`MsprimeCoalescent` or the
+    trajectories of :class:`SampledCoalescent`, with the plotting code of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`.
     """
 
     _reward_names = staticmethod(PhaseTypeDistribution._reward_names)
@@ -4848,9 +4825,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
     def _trajectory_records(self) -> _Trajectories:
         """
-        The lineage trajectories of the replicates, recorded on first use. They are simulated together with the
-        statistics of :meth:`simulate` while those are not yet held, and otherwise from the same seeds, which give
-        the same genealogies.
+        The lineage trajectories of the replicates, simulated on first use from the seeds of :meth:`simulate`.
 
         :return: The trajectories.
         """
@@ -4883,9 +4858,8 @@ class MsprimeCoalescent(AbstractCoalescent):
     def joint(self, reward_a: Reward, reward_b: Reward) -> EmpiricalJointDistribution:
         """
         Joint distribution of two rewards accumulated by each replicate until the end time of the coalescent, the
-        sampled counterpart of :meth:`Coalescent.joint() <phasegen.distributions.Coalescent.joint>`, cached per pair
-        of rewards. The rewards are those of :meth:`MsprimeCoalescent.accumulate()
-        <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+        sampled counterpart of :meth:`Coalescent.joint() <phasegen.distributions.Coalescent.joint>`, for the rewards
+        supported by :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
 
         :param reward_a: The first reward.
         :param reward_b: The second reward.
@@ -4913,18 +4887,16 @@ class MsprimeCoalescent(AbstractCoalescent):
             permute: bool = True
     ) -> float:
         """
-        The :math:`k`-th sample moment of the rewards accumulated from the start time to the end time, as described
-        in :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`, the sampled
-        counterpart of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`.
+        The :math:`k`-th sample moment of the rewards accumulated from the start time to the end time, the sampled
+        counterpart of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, defined in
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
 
         :param k: The order :math:`k` of the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
         :param start_time: The start time :math:`s`. By default, 0.
         :param end_time: The end time :math:`t`. By default, the end time of the coalescent, or absorption.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of :meth:`Coalescent.moment()
-            <phasegen.distributions.Coalescent.moment>`. The sample moment does not depend on the order of the
-            rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment.
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
             time is negative, or the end time exceeds that of the coalescent.
@@ -4965,22 +4937,19 @@ class MsprimeCoalescent(AbstractCoalescent):
         with :math:`\hat\mu_i` the sample mean of :math:`R_{i,m}(s, t)` for a central moment (``center`` and
         :math:`k \ge 2`) and zero otherwise.
 
-        The rewards read from the genealogies are :class:`~phasegen.rewards.TreeHeightReward`,
+        The supported rewards are :class:`~phasegen.rewards.TreeHeightReward`,
         :class:`~phasegen.rewards.TotalTreeHeightReward`, :class:`~phasegen.rewards.TotalBranchLengthReward`,
         :class:`~phasegen.rewards.UnfoldedSFSReward`, :class:`~phasegen.rewards.FoldedSFSReward`,
         :class:`~phasegen.rewards.TwoLocusSFSReward` and :class:`~phasegen.rewards.JointSFSReward`, their restrictions
         to a locus or a deme by :class:`~phasegen.rewards.RestrictedReward` or
         :class:`~phasegen.rewards.CombinedReward`, and sums of them by :class:`~phasegen.rewards.SumReward`. A
-        restriction to a deme of several demes requires ``record_migration``. The lineage trajectories are recorded by
-        a simulation on first use, see :meth:`simulate`.
+        restriction to a deme of several demes requires ``record_migration``.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times :math:`t` at which to evaluate the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of :meth:`Coalescent.accumulate()
-            <phasegen.distributions.Coalescent.accumulate>`. The sample moment does not depend on the order of the
-            rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param start_time: The start time :math:`s`. By default, 0.
         :return: The moment at each end time.
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
@@ -4988,7 +4957,6 @@ class MsprimeCoalescent(AbstractCoalescent):
             frequency class that does not exist.
         :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
             been dropped, as for serialization.
-        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
         """
         return self._accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
 
@@ -5018,8 +4986,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             the end time of the coalescent if it is finite.
         :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
         :param center: Whether to center the moment around the mean.
-        :param permute: Accepted for the signature of :meth:`Coalescent.plot_accumulation()
-            <phasegen.distributions.Coalescent.plot_accumulation>`.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -5027,10 +4994,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
+        :raises ValueError: if ``k`` is not a non-negative integer, or if ``rewards`` is a single
+            :class:`~phasegen.rewards.Reward` and not a sequence.
         :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
             been dropped, as for serialization.
-            :class:`~phasegen.rewards.Reward` and not a sequence.
-        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
         """
         return self._accumulator().plot_accumulation(
             k=k,
@@ -5156,8 +5123,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
     def _trajectories(self, name: str, dist: PhaseTypeDistribution) -> _SampledTrajectories:
         """
-        The trajectories of a statistic on the state space of a distribution, sampled on first use from the seed of
-        the statistic and cached per pair.
+        The trajectories of a statistic on the state space of a distribution, sampled on first use and cached.
 
         :param name: The key of the spawned seed in ``_spawn_keys``.
         :param dist: The distribution whose state space the trajectories visit.
@@ -5224,16 +5190,13 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         estimator of :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
         Trajectory :math:`m` accumulates :math:`R_{i,m}(s, t) = \sum_j r_i(x_j) |[a_j, b_j] \cap [s, t]|` over its
         sojourns :math:`[a_j, b_j]` in the states :math:`x_j`, with :math:`r_i(x)` the rate of reward :math:`i` in
-        state :math:`x`. The trajectories are those of :meth:`moment`, whose jump times and states are recorded by
-        sampling again on first use.
+        state :math:`x`.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times :math:`t` at which to evaluate the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of :meth:`Coalescent.accumulate()
-            <phasegen.distributions.Coalescent.accumulate>`. The sample moment does not depend on the order of the
-            rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param start_time: The start time :math:`s`. By default, the start time of the wrapped coalescent.
         :return: The moment at each end time.
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
@@ -5271,8 +5234,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
             the end time of the coalescent if it is finite.
         :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
         :param center: Whether to center the moment around the mean.
-        :param permute: Accepted for the signature of :meth:`Coalescent.plot_accumulation()
-            <phasegen.distributions.Coalescent.plot_accumulation>`.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
@@ -5332,19 +5294,17 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
             permute: bool = True
     ) -> float:
         """
-        The :math:`k`-th sample moment of rewards sampled from shared trajectories, the sampled counterpart of
-        :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`. The estimator is that of
-        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`. The
-        trajectories accumulate the rewards over the window of the wrapped coalescent.
+        The :math:`k`-th sample moment of rewards accumulated by shared trajectories over the window of the wrapped
+        coalescent, the sampled counterpart of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`,
+        with the estimator of :meth:`MsprimeCoalescent.accumulate()
+        <phasegen.distributions.MsprimeCoalescent.accumulate>`.
 
         :param k: The order :math:`k` of the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
         :param start_time: The start time, which must be that of the wrapped coalescent.
         :param end_time: The end time, which must be that of the wrapped coalescent.
         :param center: Whether to return the central moment.
-        :param permute: Accepted for the signature of :meth:`Coalescent.moment()
-            <phasegen.distributions.Coalescent.moment>`. The sample moment does not depend on the order of the
-            rewards.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment.
         :raises ValueError: if ``k`` is not a non-negative integer or the number of rewards differs from it.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.

@@ -1991,8 +1991,7 @@ class ConditionalRewardDistribution(RewardDistribution):
         other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving there is reported by a
         warning. Each node is evaluated once, since every truncation weights a subset of the nodes of the next, and a
         node below the real axis takes the conjugate of the coefficients at its mirror image, as they are real on the
-        axis. The ladder is memoised per ``k``, so that ``mean``, ``var`` and ``moment(2)`` share one, and honours
-        :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
+        axis. The ladder is memoised per ``k``, subject to :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
 
         :param k: Highest order.
         :return: The moments at the last two truncations, of shape ``(2, k)``.

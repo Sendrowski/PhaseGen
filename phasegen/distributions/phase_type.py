@@ -803,8 +803,7 @@ class _ExpmFunction(_LogSurvivalGrid):
 
     def _build_cdf_grid(self) -> tuple:
         """
-        Build the grid by bisecting segments of doubling width in each epoch below ``t_max``, as described at
-        ``TreeHeightDistribution``.
+        Build the grid of :class:`~phasegen.distributions.TreeHeightDistribution` below ``t_max``.
 
         :return: The nodes, the negative log-survival on them, and its slope at the left and at the right end of
             each segment between them.
@@ -927,10 +926,9 @@ class _ExpmFunction(_LogSurvivalGrid):
                 + h_{11}(s) \Delta_i \lambda_{i+1}^-,
 
         with :math:`h_{00}, h_{10}, h_{01}, h_{11}` the cubic Hermite basis, :math:`H_i` the negative log-survival at
-        :math:`x_i` and :math:`\lambda_i^+`, :math:`\lambda_{i+1}^-` its slopes at the ends of the segment, taken
-        within it. The level :math:`H = -\log(1 - q)` is solved for :math:`s` by Newton's method, safeguarded by
-        bisection. Levels at or below :math:`H` at the first node return the first node, and levels above the last
-        node return the last node.
+        :math:`x_i` and :math:`\lambda_i^+`, :math:`\lambda_{i+1}^-` its slopes at the ends of the segment. The level
+        :math:`-\log(1 - q)` is solved for :math:`s` by safeguarded Newton iteration, and levels outside the grid return
+        its first or last node.
 
         :param q: Probability levels.
         :param nodes: The grid's nodes.
@@ -1125,11 +1123,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
       <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact negative log-survival
       :math:`H` and its slope :math:`H' = f / (1 - F)`, the latter taken within the epoch of each adjacent segment, and
       the epoch boundaries are nodes. Each epoch is split from its start into segments of doubling width, up to the
-      first node past every level below 1, and each segment is bisected until, at the midpoint :math:`x` of every
-      segment, the cubic Hermite interpolant departs from the exact :math:`H` by at most
-      :math:`\epsilon \min\{H(x), x H'(x)\}`, which bounds the relative errors of the quantile and of its negative
-      log-survival by about :math:`\epsilon`, with :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A segment whose negative log-survival stays
-      below the double-precision resolution is not bisected, and the level 1 returns :math:`t_\mathrm{max}`.
+      first node past every level below 1, and a segment is bisected at its midpoint :math:`x` while the cubic
+      Hermite interpolant departs there from the exact :math:`H` by more than :math:`\epsilon \min\{H(x), x H'(x)\}`,
+      with :math:`\epsilon` a fixed tolerance, which bounds the relative error of the quantile by about
+      :math:`\epsilon`. A segment whose negative log-survival stays below the double-precision resolution is not
+      bisected, and the level 1 returns :math:`t_\mathrm{max}`.
     - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 
     .. rubric:: References
@@ -1398,10 +1396,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
     def _exit_rates(self) -> np.ndarray:
         r"""
         The per-state absorption rates of the current epoch, :math:`\mathbf{h} \circ \mathbf{S}\,(\mathbf{1} -
-        \mathbf{h})` with :math:`\mathbf{S}` its rate matrix, :math:`\mathbf{h}` the indicator of the transient states
-        (``_e``), :math:`\mathbf{1}` the vector of ones and :math:`\circ` the elementwise product. Summing over the
-        absorbing columns keeps a small rate free of cancellation, and the rate is exactly zero on the absorbing states
-        and on transient states that do not absorb directly.
+        \mathbf{h})` with :math:`\mathbf{S}` its rate matrix, :math:`\mathbf{h}` the indicator of the transient states,
+        :math:`\mathbf{1}` the vector of ones and :math:`\circ` the elementwise product.
 
         :return: The absorption rates, one per state.
         """
@@ -1414,9 +1410,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         The exact CDF and density at the ascending times ``t``, in one pass. The state distribution
         :math:`\mathbf{p}(x)` is propagated through the epochs, and at each time
         :math:`F = \mathbf{p}\,(\mathbf{1} - \mathbf{h}) / \mathbf{p}\,\mathbf{1}` and
-        :math:`f = \mathbf{p}\,\mathbf{S}_\ell\,(\mathbf{1} - \mathbf{h})` (``_exit_rates``) are read off, with
-        :math:`\mathbf{h}` the indicator of the transient states (``_e``), :math:`\mathbf{1}` the vector of ones and
-        :math:`\ell` the epoch ``_sweep_to`` leaves the state space in (``TreeHeightDistribution``).
+        :math:`f = \mathbf{p}\,\mathbf{S}_\ell\,(\mathbf{1} - \mathbf{h})` are read off, with :math:`\mathbf{h}` the
+        indicator of the transient states, :math:`\mathbf{1}` the vector of ones and :math:`\mathbf{S}_\ell` the rate
+        matrix of the epoch :math:`\ell` holding the time.
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.

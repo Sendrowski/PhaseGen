@@ -948,9 +948,8 @@ class SFSDistribution(SpectrumDistribution, ABC):
 class _TajimaSFSMixin:
     """
     Mixin providing the branch-length diversity estimators and Tajima's :math:`D` from the site-frequency
-    spectrum mean and covariance. Shared by the analytical unfolded and folded spectra and the simulation-based
-    empirical spectra, so the same statistics can be computed from either source.
-    Subclasses supply the number of lineages and the mean and covariance of the polymorphic bins.
+    spectrum mean and covariance. Subclasses supply the number of lineages and the mean and covariance of the
+    polymorphic bins.
     """
 
     def _tajima_n(self) -> int:
@@ -1075,9 +1074,9 @@ class FoldedSFSDistribution(SFSDistribution, _TajimaSFSMixin):
     r"""
     Distribution of the folded site-frequency spectrum, whose bin :math:`i` is :math:`L_i + L_{n-i}` for
     :math:`i = 1, \dots, \lfloor n/2 \rfloor`, counted once where the two classes coincide, with :math:`L_i` the
-    total length of the branches subtending :math:`i` of the :math:`n` samples. The weights of :attr:`theta_pi`,
-    :attr:`theta_w` and :attr:`tajimas_d` are symmetric in :math:`i` and :math:`n - i`, so the folded spectrum
-    determines them and they equal those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`.
+    total length of the branches subtending :math:`i` of the :math:`n` samples. Its :attr:`theta_pi`,
+    :attr:`theta_w` and :attr:`tajimas_d` equal those of :class:`~phasegen.distributions.UnfoldedSFSDistribution`,
+    whose weights are symmetric in :math:`i` and :math:`n - i`.
 
     The following example computes the mean and correlation matrix of the folded spectrum.
 
