@@ -802,7 +802,8 @@ class _ExpmFunction(_LogSurvivalGrid):
 
     def _build_cdf_grid(self) -> tuple:
         """
-        Build the grid by bisecting each epoch below ``t_max``, as described at ``TreeHeightDistribution``.
+        Build the grid by bisecting segments of doubling width in each epoch below ``t_max``, as described at
+        ``TreeHeightDistribution``.
 
         :return: The nodes, the negative log-survival on them, and its slope at the left and at the right end of
             each segment between them.
@@ -832,12 +833,16 @@ class _ExpmFunction(_LogSurvivalGrid):
             dense = d.state_space.k < Settings.expm_action_min_dim
 
             def advance(v: np.ndarray, tau: float) -> np.ndarray:
-                """``v`` advanced by ``tau``, by one propagator per step length on the dense path."""
+                """
+                ``v`` advanced by ``tau``, by one propagator per step length on the dense path, the square of the
+                propagator of ``tau / 2`` where that exists.
+                """
                 if not dense:
                     return d._propagate(v, tau, memo)
 
                 if tau not in propagators:
-                    propagators[tau] = d._propagate(np.eye(d.state_space.k), tau, memo)
+                    half = propagators.get(tau / 2)
+                    propagators[tau] = d._propagate(np.eye(d.state_space.k), tau, memo) if half is None else half @ half
 
                 return v @ propagators[tau]
 
@@ -856,8 +861,28 @@ class _ExpmFunction(_LogSurvivalGrid):
 
                 return x, v, math.inf, 0.0
 
+            # segments from the epoch start of widths h, h, 2h, 4h, ..., with h the longest step of ``_propagate``,
+            # up to the first node where H reaches h_top or to the epoch end, each bisected below
+            h = d._per_epoch(memo, 'step', d._step_constants)[2]
+            width = b - a if h is None else h
             lo = point(a, w)
-            stack = [(b - a, 0, point(b, advance(w, b - a)))]
+            segments = [(0.0, 0, lo)]
+
+            while True:
+                x, v = segments[-1][2][:2]
+                inner = x + width < b
+
+                if not inner:
+                    width = b - x
+
+                segments.append((width, 0, point(x + width if inner else b, advance(v, width))))
+
+                if not inner or segments[-1][2][2] >= h_top:
+                    break
+
+                width *= 2 if len(segments) > 2 else 1
+
+            stack = segments[:0:-1]
 
             while stack:
                 width, depth, hi = stack.pop()
@@ -1098,10 +1123,11 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
       <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact negative log-survival
       :math:`H` and its slope :math:`H' = f / (1 - F)`, the latter taken within the epoch of each adjacent segment, and
-      the epoch boundaries are nodes. Each epoch is bisected until, at the midpoint :math:`x` of every segment, the
-      cubic Hermite interpolant departs from the exact :math:`H` by at most :math:`\epsilon \min\{H(x), x H'(x)\}`,
-      which bounds the relative errors of the quantile and of its negative log-survival by about :math:`\epsilon`, with
-      :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A segment whose negative log-survival stays
+      the epoch boundaries are nodes. Each epoch is split from its start into segments of doubling width, up to the
+      first node past every level below 1, and each segment is bisected until, at the midpoint :math:`x` of every
+      segment, the cubic Hermite interpolant departs from the exact :math:`H` by at most
+      :math:`\epsilon \min\{H(x), x H'(x)\}`, which bounds the relative errors of the quantile and of its negative
+      log-survival by about :math:`\epsilon`, with :math:`\epsilon` a fixed tolerance. The midpoint then becomes a node. A segment whose negative log-survival stays
       below the double-precision resolution is not bisected, and the level 1 returns :math:`t_\mathrm{max}`.
     - A coalescent with a start time above 0 or a finite end time raises :class:`NotImplementedError`.
 

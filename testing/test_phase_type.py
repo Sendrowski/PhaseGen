@@ -61,6 +61,27 @@ def test_tree_height_quantile_grid_is_error_controlled():
     assert len(pg.Coalescent(n=2).tree_height.quantile._cdf_grid()[0]) == 3
 
 
+def test_tree_height_quantile_grid_under_recent_growth_takes_few_exponentials():
+    """
+    Under a recent 1e4-fold expansion ``t_max`` lies about 1e4 times beyond the rise of the CDF. Bisecting each epoch
+    from its full width formed a propagator for every one of the about 15 halvings down to the rise, 143 matrix
+    exponentials in all, and made the quantile about twice as slow as the fixed grid it replaced at n of 200 to
+    300. The grid keeps its accuracy.
+    """
+    import phasegen.distributions.phase_type as phase_type
+
+    th = pg.Coalescent(n=50, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e4, 0.1: 1}})).tree_height
+    levels = np.array([1e-6, 0.01, 0.5, 0.9, 0.99])
+    _ = th.t_max
+
+    with patch.object(phase_type, 'expm', wraps=phase_type.expm) as expm:
+        q = th.quantile(levels)
+
+    assert expm.call_count <= 40
+
+    np.testing.assert_allclose(-np.log1p(-th.cdf(q)), -np.log1p(-levels), rtol=1e-8, atol=0)
+
+
 def test_tree_height_quantile_boundary_levels():
     """
     Levels 0 and 1 return the ends of the support, NaN levels return NaN, and the shape of the levels is kept.
