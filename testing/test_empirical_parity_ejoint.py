@@ -513,3 +513,13 @@ def test_empirical_classes_offer_the_members_of_the_exact_ones(one_deme, two_dem
     }
 
     assert not {k: v for k, v in missing.items() if v}
+
+
+def test_spectrum_loci_joint_raises_on_both_sides(one_deme):
+    """The per-locus marginals of a spectrum have no joint distribution across loci, exactly or empirically.
+    Regression: the exact side passed the restricted spectrum rewards to ``SFSDistribution.joint(i, j)`` and failed
+    with a TypeError."""
+    coal, sfs, fsfs = one_deme
+    for spectrum in (coal.sfs, coal.fsfs, sfs, fsfs):
+        with pytest.raises(NotImplementedError, match='pair of frequency classes'):
+            spectrum.loci.joint(0, 0)

@@ -1626,11 +1626,20 @@ class MarginalLocusDistributions(MarginalDistributions):
         :param locus2: The second locus.
         :return: The joint distribution across the two loci.
         :raises ValueError: If either locus does not exist.
+        :raises NotImplementedError: If the distribution is a spectrum, whose joint distribution is taken per pair of
+            frequency classes, as by :meth:`TwoLocusSFSDistribution.joint()
+            <phasegen.distributions.TwoLocusSFSDistribution.joint>`.
         """
         locus1, locus2 = int(locus1), int(locus2)
 
         if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
             raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
+
+        from .mutation_configs import SpectrumDistribution
+
+        if isinstance(self.dist, SpectrumDistribution):
+            raise NotImplementedError("The joint distribution across loci is defined for a scalar total. For a "
+                                      "spectrum, use the joint distribution of a pair of frequency classes.")
 
         return self.dist.joint(
             RestrictedReward(self.dist.reward, locus=locus1),
