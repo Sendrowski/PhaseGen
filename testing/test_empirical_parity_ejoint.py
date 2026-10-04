@@ -23,12 +23,12 @@ INVERSION_TOL = 3e-3
 
 TWO_DEMES = pg.Demography(pop_sizes={'a': 1, 'b': 1.5}, migration_rates={('a', 'b'): 0.75, ('b', 'a'): 0.75})
 
-#: Members of the exact classes without a sampled counterpart: time accumulation and the distribution of arbitrary
-#: rewards need the Markov jump process, as do the transforms, the checks of the inversions and the samplers.
+#: Members of the exact classes without a sampled counterpart: the distribution of arbitrary rewards needs the Markov
+#: jump process, as do the transforms, the checks of the inversions and the samplers.
 EXACT_ONLY = {
-    'accumulate', 'get_accumulation', 'plot_accumulation', 'distribution', 'sample', 'sample_per_locus',
-    'to_empirical', 'lst', 'lst_batch', 'lst_taylor', 'check_conditional_grid_moments', 'check_conditional_moments',
-    'check_total_expectation', 'check_total_probability', 't_max', 'p_absorption', 'max_iter'
+    'distribution', 'sample', 'sample_per_locus', 'to_empirical', 'lst', 'lst_batch', 'lst_taylor',
+    'check_conditional_grid_moments', 'check_conditional_moments', 'check_total_expectation',
+    'check_total_probability', 't_max', 'p_absorption', 'max_iter'
 }
 
 #: Further exact-only members per pair, with the reason.
@@ -36,11 +36,12 @@ EXACT_ONLY_BY_PAIR = {
     # the joint distribution of two arbitrary rewards needs the jump process
     'tree_height': {'joint'},
     'total_branch_length': {'joint'},
-    'total_branch_length.demes[a]': {'joint', 'demes', 'loci'},
-    'tree_height.loci[0]': {'joint', 'demes', 'loci'},
+    # a per-deme or per-locus marginal holds its samples, not the trajectories its accumulation over time needs
+    'total_branch_length.demes[a]': {'joint', 'demes', 'loci', 'accumulate', 'plot_accumulation'},
+    'tree_height.loci[0]': {'joint', 'demes', 'loci', 'accumulate', 'plot_accumulation'},
     # a per-deme marginal records neither nested marginals nor its deme-restricted mutation counts
     'sfs.demes[a]': {'demes', 'loci', 'mutation_layout', 'get_mutation_config', 'get_mutation_configs',
-                     'generated_mass'},
+                     'generated_mass', 'accumulate', 'get_accumulation', 'plot_accumulation'},
 }
 
 

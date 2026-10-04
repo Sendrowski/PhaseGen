@@ -17,7 +17,7 @@ from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward, TotalTreeHeightReward, TotalBranchLengthReward, SFSReward, \
-    TwoLocusSFSReward, SumReward, ProductReward, RestrictedReward, UnitReward, CombinedReward
+    TwoLocusSFSReward, SumReward, ProductReward, RestrictedReward, UnitReward, CombinedReward, JointSFSReward
 from ..settings import Settings
 from ..spectrum import AbstractSpectrum, SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..utils import parallelize
@@ -530,6 +530,56 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         return np.mean(samples ** k, axis=0)
 
 
+class _EmpiricalAccumulating:  # pragma: no cover
+    """
+    The accumulation over time of an empirical distribution, read from the genealogies simulated by
+    :class:`~phasegen.distributions.MsprimeCoalescent` or the trajectories sampled by
+    :class:`~phasegen.distributions.SampledCoalescent`, with the plotting code of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`.
+    """
+
+    #: Accumulation over time of the rewards of the simulated genealogies or sampled trajectories, set by
+    #: :class:`MsprimeCoalescent` and :class:`SampledCoalescent` and ``None`` otherwise. Static for backward
+    #: compatibility.
+    _accumulator: Optional['_EmpiricalAccumulation'] = None
+
+    def _require_accumulator(self) -> '_EmpiricalAccumulation':
+        """
+        :return: The accumulation over time of the simulated genealogies.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
+        """
+        if self._accumulator is None:
+            raise NotImplementedError(
+                "The accumulation over time requires the genealogies simulated by MsprimeCoalescent or the "
+                "trajectories sampled by SampledCoalescent, which this distribution does not hold."
+            )
+
+        return self._accumulator
+
+    def _plot_accumulation_data(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> '_CurveData':
+        """
+        The accumulation of a moment over time that :meth:`plot_accumulation` draws, one curve per polymorphic bin
+        for a spectrum.
+
+        :param k: The order of the moment.
+        :param end_times: Times at which to evaluate the moment.
+        :param rewards: Sequence of k rewards. By default, the reward of the distribution.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Accepted for the signature of the exact distribution.
+        :return: The curves.
+        """
+        return self._require_accumulator()._plot_accumulation_data(k, end_times, rewards, center, permute)
+
+    plot_accumulation = PhaseTypeDistribution.plot_accumulation
+
+
 class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
     """
     The bins, their pairwise statistics and the estimators of Tajima's :math:`D` of an empirical site-frequency
@@ -844,7 +894,7 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         super()._drop()
 
 
-class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: no cover
+class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDistribution):  # pragma: no cover
     r"""
     Empirical joint site-frequency spectrum, built by
     :meth:`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` or by
@@ -1162,8 +1212,32 @@ class EmpiricalJointSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: n
 
         return jd
 
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        The :math:`k`-th sample moment of every bin accumulated from the start time to each end time, the sampled
+        counterpart of :meth:`JointSFSDistribution.accumulate()
+        <phasegen.distributions.JointSFSDistribution.accumulate>`, with the estimator of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
 
-class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma: no cover
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times at which to evaluate the moment.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :return: Array of shape ``(len(end_times),) +`` :attr:`shape` with the moment of each bin over time.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
+        """
+        return self._require_accumulator().accumulate(k, end_times, center, permute, start_time)
+
+
+class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDistribution):  # pragma: no cover
     r"""
     Empirical two-locus site-frequency spectrum, built by
     :meth:`TwoLocusSFSDistribution.to_empirical() <phasegen.distributions.TwoLocusSFSDistribution.to_empirical>` or
@@ -1401,6 +1475,28 @@ class EmpiricalTwoLocusSFSDistribution(EmpiricalSpectrumDistribution):  # pragma
 
         return jd
 
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        r"""
+        The :math:`k`-th sample moment of every bin :math:`L^0_i L^1_j`, with the branch lengths accumulated from the
+        start time to each end time, the sampled counterpart of :meth:`TwoLocusSFSDistribution.accumulate()
+        <phasegen.distributions.TwoLocusSFSDistribution.accumulate>`, with the estimator of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times at which to evaluate the moment.
+        :param center: Whether to return the central moment.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :return: Array of shape ``(len(end_times), n + 1, n + 1)`` of the moments, symmetrized over the two loci.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
+        """
+        return self._require_accumulator().accumulate(k, end_times, center, start_time)
+
     def _drop(self) -> None:
         """Drop the per-replicate samples, retaining the moment statistics and their block standard errors."""
         if self.samples is None:
@@ -1543,7 +1639,7 @@ class _LocusContainer(DictContainer):  # pragma: no cover
         return EmpiricalJointDistribution(a, b)
 
 
-class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
+class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistribution):  # pragma: no cover
     """
     Empirical distribution of an accumulated reward with per-deme and per-locus breakdowns, built by
     :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` or by
@@ -1570,10 +1666,6 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
     #: Cached windowed-conditional ground truth of the locus pairs, see ``_cache_windowed_conditional``. Declared at
     #: class level for payloads serialized without it.
     _loci_windowed_conditional: list = []
-
-    #: Accumulation over time of the rewards of the simulated genealogies, set by :class:`MsprimeCoalescent` and
-    #: ``None`` otherwise. Static for backward compatibility.
-    _accumulator: Optional['_EmpiricalAccumulation'] = None
 
     def __init__(
             self,
@@ -1820,19 +1912,6 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
 
         setattr(self, '_loci_windowed_conditional' if loci else '_windowed_conditional', cached)
 
-    def _require_accumulator(self) -> '_EmpiricalAccumulation':
-        """
-        :return: The accumulation over time of the simulated genealogies.
-        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
-        """
-        if self._accumulator is None:
-            raise NotImplementedError(
-                "The accumulation over time requires the genealogies simulated by MsprimeCoalescent, which this "
-                "distribution does not hold."
-            )
-
-        return self._accumulator
-
     def accumulate(
             self,
             k: int,
@@ -1855,35 +1934,12 @@ class EmpiricalPhaseTypeDistribution(EmpiricalDistribution):  # pragma: no cover
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution. The sample moment does not depend on
             the order of the rewards.
-        :param start_time: The start time. By default, 0.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
         :return: The moment at each end time.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies, or a reward is not
             one they record.
         """
         return self._require_accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
-
-    def _plot_accumulation_data(
-            self,
-            k: int = 1,
-            end_times: Iterable[float] = None,
-            rewards: Sequence[Reward] = None,
-            center: bool = True,
-            permute: bool = True
-    ) -> '_CurveData':
-        """
-        The accumulation of a moment over time that :meth:`plot_accumulation` draws, one curve per polymorphic bin
-        for a spectrum.
-
-        :param k: The order of the moment.
-        :param end_times: Times at which to evaluate the moment.
-        :param rewards: Sequence of k rewards. By default, the reward of the distribution.
-        :param center: Whether to center the moment around the mean.
-        :param permute: Accepted for the signature of the exact distribution.
-        :return: The curves.
-        """
-        return self._require_accumulator()._plot_accumulation_data(k, end_times, rewards, center, permute)
-
-    plot_accumulation = PhaseTypeDistribution.plot_accumulation
 
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
@@ -2577,6 +2633,33 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
             # increase counter for number of mutations
             i += 1
 
+    def get_accumulation(
+            self,
+            k: int,
+            i: int,
+            end_times: Iterable[float] | float,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray | float:
+        """
+        The accumulation of the :math:`k`-th sample moment of bin ``i``, column ``i`` of :meth:`accumulate`, the
+        sampled counterpart of :meth:`UnfoldedSFSDistribution.get_accumulation()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_accumulation>`.
+
+        :param k: The order of the moment.
+        :param i: The site-frequency count.
+        :param end_times: Times or time when to evaluate the moment.
+        :param rewards: Sequence of k rewards, each combined with the reward of the bin.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :return: The moment, a float for a single time and an array for a sequence of times.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies.
+        """
+        return self._require_accumulator().get_accumulation(k, i, end_times, rewards, center, permute, start_time)
+
 
 class _ReplicateStatistic:  # pragma: no cover
     """
@@ -2807,23 +2890,26 @@ class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
     """
     The lineages of each tree through time, from which ``_Trajectories`` reads rewards accumulated over a time
     window. A lineage contributes one row per deme it resides in, holding the time interval of its residence, its
-    number of leaves and the deme. Each interval between consecutive events of a tree that holds more than one
-    lineage contributes one row per occupied deme, holding the share of the lineages residing in it. The demes are
-    read from the recorded migrations when ``axis`` is given, and all lineages are placed in deme 0 otherwise. The
-    lineages of a tree that ``end_time`` stops before its root extend to ``end_time``.
+    number of leaves, the deme and its descendant vector, the numbers of its leaves sampled in each deme. Each
+    interval between consecutive events of a tree that holds more than one lineage contributes one row per occupied
+    deme, holding the share of the lineages residing in it. The demes are read from the recorded migrations when
+    ``axis`` is given, and all lineages are placed in deme 0 otherwise. The lineages of a tree that ``end_time``
+    stops before its root extend to ``end_time``.
     """
 
-    def __init__(self, n_pops: int, end_time: float = None, axis: np.ndarray = None) -> None:
+    def __init__(self, n_pops: int, origin: np.ndarray, end_time: float = None, axis: np.ndarray = None) -> None:
         """
         :param n_pops: Number of demes.
+        :param origin: Deme axis of each msprime population id, by which the leaves are counted.
         :param end_time: Time at which the simulation ends, ``None`` for absorption.
         :param axis: Deme axis of each msprime population id, ``None`` without migration recording.
         """
         self._n_pops = n_pops
+        self._origin = origin
         self._end_time = np.inf if end_time is None else float(end_time)
         self._axis = axis
 
-        #: Per tree, rows ``(replicate, locus, deme, start, end, leaves)`` of the lineages.
+        #: Per tree, rows ``(replicate, locus, deme, start, end, leaves, c_0, ..., c_{P-1})`` of the lineages.
         self._lineages: List[np.ndarray] = []
 
         #: Per tree, rows ``(replicate, locus, deme, start, end, share)`` of the intervals between events.
@@ -2831,12 +2917,24 @@ class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
 
     def process_tree(self, i, j, tree, ts, ctx) -> None:
         axis = self._axis
+        n_pops = self._n_pops
 
         # the migrations of each lineage at locus j, in time order
         moves = {}
         if axis is not None:
             for time, node, _, dest in zip(*self._locus_migrations(j, ts, ctx)):
                 moves.setdefault(int(node), []).append((float(time), int(axis[dest])))
+
+        # the descendant vector of each node, which is its number of leaves for one deme
+        below = {}
+        if n_pops > 1:
+            for u in tree.nodes(order='postorder'):
+                vec = [0] * n_pops
+                if tree.is_sample(u):
+                    vec[self._origin[tree.population(u)]] += 1
+                for c in tree.children(u):
+                    vec = [a + b for a, b in zip(vec, below[c])]
+                below[u] = vec
 
         unfinished = tree.num_roots > 1
         rows = []
@@ -2852,14 +2950,15 @@ class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
             end = tree.time(parent) if parent != -1 else self._end_time
             leaves = tree.get_num_leaves(u)
             deme = 0 if axis is None else int(axis[tree.population(u)])
+            vec = below[u] if n_pops > 1 else (leaves,)
 
             for time, dest in moves.get(u, ()):
-                rows.append((i, j, deme, start, time, leaves))
+                rows.append((i, j, deme, start, time, leaves, *vec))
                 start, deme = time, dest
 
-            rows.append((i, j, deme, start, end, leaves))
+            rows.append((i, j, deme, start, end, leaves, *vec))
 
-        lineages = np.array(rows, dtype=float).reshape(-1, 6)
+        lineages = np.array(rows, dtype=float).reshape(-1, 6 + n_pops)
         self._lineages.append(lineages)
 
         # the number of lineages per deme between consecutive events
@@ -2880,7 +2979,7 @@ class _TrajectoryStatistics(_ReplicateStatistic):  # pragma: no cover
         """
         :return: The rows of the lineages and of the intervals between events.
         """
-        return (np.concatenate(self._lineages) if self._lineages else np.zeros((0, 6)),
+        return (np.concatenate(self._lineages) if self._lineages else np.zeros((0, 6 + self._n_pops)),
                 np.concatenate(self._shares) if self._shares else np.zeros((0, 6)))
 
 
@@ -2895,15 +2994,15 @@ class _Trajectories:  # pragma: no cover
 
         R_m(s, t) = \sum_{\text{rows of } m} w \max\{0, \min(b, t) - \max(a, s)\},
 
-    the sum running over the rows that the reward selects by locus, deme and number of leaves. The tree height of
-    several loci is the largest of the per-locus heights.
+    the sum running over the rows that the reward selects by locus, deme, number of leaves and descendant vector. The
+    tree height of several loci is the largest of the per-locus heights.
     """
 
     #: The rewards that are read from the simulated genealogies, for error messages.
     _supported = (
-        "TreeHeightReward, TotalTreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, FoldedSFSReward and "
-        "TwoLocusSFSReward, their restrictions to a locus or a deme by RestrictedReward or CombinedReward, and sums "
-        "of them by SumReward"
+        "TreeHeightReward, TotalTreeHeightReward, TotalBranchLengthReward, UnfoldedSFSReward, FoldedSFSReward, "
+        "TwoLocusSFSReward and JointSFSReward, their restrictions to a locus or a deme by RestrictedReward or "
+        "CombinedReward, and sums of them by SumReward"
     )
 
     def __init__(
@@ -2914,16 +3013,18 @@ class _Trajectories:  # pragma: no cover
             n_loci: int,
             n: int,
             pops: List[str],
-            resolves_demes: bool
+            resolves_demes: bool,
+            sizes: Tuple[int, ...] = None
     ) -> None:
         """
-        :param lineages: Rows ``(replicate, locus, deme, start, end, leaves)`` of the lineages.
+        :param lineages: Rows ``(replicate, locus, deme, start, end, leaves, c_0, ..., c_{P-1})`` of the lineages.
         :param shares: Rows ``(replicate, locus, deme, start, end, share)`` of the intervals between events.
         :param n_replicates: Number of replicates.
         :param n_loci: Number of loci.
         :param n: Number of sampled lineages.
         :param pops: Population names, in the order of the deme axis.
         :param resolves_demes: Whether the rows resolve the demes.
+        :param sizes: Number of sampled lineages per deme, by default ``n`` in one deme.
         """
         self._lineages = lineages
         self._shares = shares
@@ -2932,35 +3033,50 @@ class _Trajectories:  # pragma: no cover
         self.n = n
         self.pops = pops
         self.resolves_demes = resolves_demes
+        self.sizes = (n,) if sizes is None else tuple(sizes)
 
-    def _terms(self, reward: Reward) -> List[Tuple[str, Optional[int], Optional[int], Optional[Tuple[int, ...]]]]:
+    def _terms(self, reward: Reward) -> List[tuple]:
         """
-        The terms whose sum is the accumulated reward, each ``(kind, locus, deme, leaves)``, where ``kind`` is
-        ``'height'`` for the lineage shares, ``'length'`` for the lineages and ``'max_height'`` for the largest
-        per-locus height, and ``None`` selects all loci, demes or leaf counts.
+        The terms whose sum is the accumulated reward, each ``(kind, locus, deme, leaves, config)``, where ``kind``
+        is ``'height'`` for the lineage shares, ``'length'`` for the lineages and ``'max_height'`` for the largest
+        per-locus height, ``config`` is a descendant vector, and ``None`` selects all loci, demes, leaf counts or
+        descendant vectors.
 
         :param reward: The reward.
         :return: The terms.
-        :raises ValueError: If a locus, deme or frequency class does not exist, or the demes are not resolved.
+        :raises ValueError: If a locus, deme, frequency class or descendant vector does not exist, or the demes are
+            not resolved.
         :raises NotImplementedError: If the reward is not read from the simulated genealogies.
         """
         if isinstance(reward, TreeHeightReward):
-            return [('max_height' if self.n_loci > 1 else 'height', None, None, None)]
+            return [('max_height' if self.n_loci > 1 else 'height', None, None, None, None)]
 
         if isinstance(reward, TotalTreeHeightReward):
-            return [('height', None, None, None)]
+            return [('height', None, None, None, None)]
 
         if isinstance(reward, TotalBranchLengthReward):
-            return [('length', None, None, None)]
+            return [('length', None, None, None, None)]
 
         if isinstance(reward, SFSReward):
-            return [('length', None, None, tuple(reward._block_sizes(self.n)))]
+            return [('length', None, None, tuple(reward._block_sizes(self.n)), None)]
 
         if isinstance(reward, TwoLocusSFSReward):
             _polymorphic_class(reward.count, 1, self.n - 1)
             self._check_locus(reward.locus)
 
-            return [('length', reward.locus, None, (reward.count,))]
+            return [('length', reward.locus, None, (reward.count,), None)]
+
+        if isinstance(reward, JointSFSReward):
+            config = reward.config
+
+            if len(config) != len(self.sizes) or not all(0 <= c <= s for c, s in zip(config, self.sizes)) \
+                    or not any(config):
+                raise ValueError(
+                    f"The descendant vector must have one entry per population, the entry of population p lying in "
+                    f"0, ..., n_p for the sample sizes {self.sizes}, and at least one non-zero entry, got {config}."
+                )
+
+            return [('length', None, None, None, config)]
 
         if isinstance(reward, SumReward):
             return [term for r in reward.rewards for term in self._terms(r)]
@@ -2977,8 +3093,8 @@ class _Trajectories:  # pragma: no cover
 
             if reward.locus is not None:
                 self._check_locus(reward.locus)
-                terms = [('height' if kind == 'max_height' else kind, reward.locus, deme, leaves)
-                         for kind, locus, deme, leaves in terms if locus in (None, reward.locus)]
+                terms = [('height' if kind == 'max_height' else kind, reward.locus, deme, leaves, config)
+                         for kind, locus, deme, leaves, config in terms if locus in (None, reward.locus)]
 
             if reward.pop is not None:
                 deme = self._deme(reward.pop)
@@ -2990,7 +3106,8 @@ class _Trajectories:  # pragma: no cover
                         f"that is additive over loci such as TotalTreeHeightReward or TotalBranchLengthReward."
                     )
 
-                terms = [(kind, locus, deme, leaves) for kind, locus, d, leaves in terms if d in (None, deme)]
+                terms = [(kind, locus, deme, leaves, config) for kind, locus, d, leaves, config in terms
+                         if d in (None, deme)]
 
             return terms
 
@@ -3029,6 +3146,7 @@ class _Trajectories:  # pragma: no cover
             locus: Optional[int],
             deme: Optional[int],
             leaves: Optional[Tuple[int, ...]],
+            config: Optional[Tuple[int, ...]],
             start_time: float,
             end_times: np.ndarray
     ) -> np.ndarray:
@@ -3039,13 +3157,14 @@ class _Trajectories:  # pragma: no cover
         :param locus: The locus, ``None`` for all.
         :param deme: The deme, ``None`` for all.
         :param leaves: The numbers of leaves, ``None`` for all.
+        :param config: The descendant vector, ``None`` for all.
         :param start_time: The start time of the window.
         :param end_times: The end times of the window.
         :return: The accumulation of shape ``(len(end_times), n_replicates)``.
         """
         if kind == 'max_height':
-            return np.max([self._term('height', l, deme, None, start_time, end_times) for l in range(self.n_loci)],
-                          axis=0)
+            return np.max([self._term('height', l, deme, None, None, start_time, end_times)
+                           for l in range(self.n_loci)], axis=0)
 
         rows = self._shares if kind == 'height' else self._lineages
         mask = np.ones(len(rows), dtype=bool)
@@ -3058,6 +3177,9 @@ class _Trajectories:  # pragma: no cover
 
         if leaves is not None:
             mask &= np.isin(rows[:, 5], leaves)
+
+        if config is not None:
+            mask &= np.all(rows[:, 6:] == config, axis=1)
 
         rows = rows[mask]
         replicates = rows[:, 0].astype(int)
@@ -3090,11 +3212,89 @@ class _Trajectories:  # pragma: no cover
         return out
 
 
+class _SampledTrajectories:  # pragma: no cover
+    r"""
+    The sojourns of the trajectories that :class:`SampledCoalescent` samples from a phase-type distribution, recorded
+    on first use by sampling again from the seed of the statistic, which gives the trajectories of its samples.
+    Trajectory :math:`m` accumulates over the window :math:`[s, t]` the reward
+
+    .. math::
+
+        R_m(s, t) = \sum_{\text{sojourns of } m} r(x) \max\{0, \min(b, t) - \max(a, s)\},
+
+    the sum running over the sojourns :math:`[a, b]` of the trajectory in the states :math:`x`, with :math:`r(x)` the
+    reward rate of state :math:`x`. It stands in for the coalescent of ``_EmpiricalAccumulation``.
+    """
+
+    def __init__(
+            self,
+            dist: PhaseTypeDistribution,
+            n_samples: int,
+            seed: Optional[np.random.SeedSequence],
+            end_time: Optional[float],
+            lineage_config: LineageConfig
+    ) -> None:
+        """
+        :param dist: The distribution whose state space the trajectories visit.
+        :param n_samples: Number of trajectories.
+        :param seed: Seed sequence of the sampler, ``None`` for fresh entropy.
+        :param end_time: End time of the coalescent, ``None`` for absorption.
+        :param lineage_config: Lineage configuration of the coalescent.
+        """
+        self._dist = dist
+        self.n_replicates = n_samples
+        self._seed = seed
+        self.end_time = end_time
+        self.lineage_config = lineage_config
+
+        #: The trajectory, state, entry time and exit time of each sojourn, ``None`` until sampled.
+        self._sojourns: Optional[Tuple[np.ndarray, ...]] = None
+
+    def _trajectory_records(self) -> '_SampledTrajectories':
+        """
+        :return: These trajectories, sampled on first use.
+        """
+        if self._sojourns is None:
+            path = []
+            self._dist._sample(self.n_replicates, rewards=[self._dist.reward], rng=np.random.default_rng(self._seed),
+                               path=path)
+            self._sojourns = tuple(np.concatenate(c) for c in zip(*path)) if path else (
+                np.zeros(0, dtype=int), np.zeros(0, dtype=int), np.zeros(0), np.zeros(0))
+
+        return self
+
+    def accumulated(self, reward: Reward, start_time: float, end_times: np.ndarray) -> np.ndarray:
+        """
+        The reward accumulated by each trajectory from the start time to each end time.
+
+        :param reward: The reward.
+        :param start_time: The start time.
+        :param end_times: The end times.
+        :return: The accumulated reward of shape ``(len(end_times), n_replicates)``.
+        """
+        trajectories, states, entries, exits = self._sojourns
+        rates = np.asarray(reward._get(self._dist.state_space), dtype=float)[states]
+        lower = np.maximum(entries, start_time)
+
+        out = np.empty((len(end_times), self.n_replicates))
+        for e, t in enumerate(end_times):
+            overlap = np.clip(np.minimum(exits, t) - lower, 0, None)
+
+            # a sojourn without end accrues nothing at a zero rate
+            with np.errstate(invalid='ignore'):
+                weights = np.where(rates != 0, rates * overlap, 0.0)
+
+            out[e] = np.bincount(trajectories, weights=weights, minlength=self.n_replicates)
+
+        return out
+
+
 class _EmpiricalAccumulation:  # pragma: no cover
     """
-    Sample moments of rewards accumulated by the replicates of :class:`MsprimeCoalescent` over a time window, with
-    the ``accumulate`` and ``plot_accumulation`` interface and the plotting code of
-    :class:`~phasegen.distributions.PhaseTypeDistribution`. ``reward`` is the default reward of every factor.
+    Sample moments of rewards accumulated by the replicates of :class:`MsprimeCoalescent`, or the trajectories of
+    :class:`SampledCoalescent`, over a time window, with the ``accumulate`` and ``plot_accumulation`` interface and the
+    plotting code of :class:`~phasegen.distributions.PhaseTypeDistribution`. ``reward`` is the default reward of every
+    factor.
     """
 
     _reward_names = staticmethod(PhaseTypeDistribution._reward_names)
@@ -3103,13 +3303,20 @@ class _EmpiricalAccumulation:  # pragma: no cover
 
     plot_accumulation = PhaseTypeDistribution.plot_accumulation
 
-    def __init__(self, coalescent: 'MsprimeCoalescent', reward: Reward) -> None:
+    def __init__(
+            self,
+            coalescent: 'MsprimeCoalescent | _SampledTrajectories',
+            reward: Reward,
+            start_time: float = 0.0
+    ) -> None:
         """
-        :param coalescent: The coalescent whose replicates accumulate the rewards.
+        :param coalescent: The coalescent, or the sampled trajectories, whose replicates accumulate the rewards.
         :param reward: The default reward.
+        :param start_time: The default start time.
         """
         self._coalescent = coalescent
         self.reward = reward
+        self.start_time = start_time
 
     @staticmethod
     def _rewards(k: int, rewards: Optional[Sequence[Reward]], default: Reward) -> Tuple[Reward, ...]:
@@ -3154,13 +3361,10 @@ class _EmpiricalAccumulation:  # pragma: no cover
         """The end time of the coalescent, infinite for absorption."""
         return np.inf if self._coalescent.end_time is None else self._coalescent.end_time
 
-    def _estimate(self, rewards: Tuple[Reward, ...], start_time: float, end_times: np.ndarray, center: bool) -> np.ndarray:
+    def _check_window(self, start_time: float, end_times: np.ndarray) -> None:
         """
-        :param rewards: The rewards.
         :param start_time: The start time.
         :param end_times: The end times.
-        :param center: Whether to center the moment.
-        :return: The sample moment at each end time.
         :raises ValueError: If the start time is negative, or an end time exceeds the end time of the coalescent, at
             which the simulation stops.
         """
@@ -3171,6 +3375,18 @@ class _EmpiricalAccumulation:  # pragma: no cover
                 f"The end times must not exceed the end time of the coalescent ({self._end_time:g}), at which the "
                 f"simulation stops, got {np.max(end_times):g}."
             )
+
+    def _estimate(self, rewards: Tuple[Reward, ...], start_time: float, end_times: np.ndarray, center: bool) -> np.ndarray:
+        """
+        :param rewards: The rewards.
+        :param start_time: The start time.
+        :param end_times: The end times.
+        :param center: Whether to center the moment.
+        :return: The sample moment at each end time.
+        :raises ValueError: If the start time is negative, or an end time exceeds the end time of the coalescent, at
+            which the simulation stops.
+        """
+        self._check_window(start_time, end_times)
 
         if not rewards:
             return np.ones(len(end_times))
@@ -3197,14 +3413,14 @@ class _EmpiricalAccumulation:  # pragma: no cover
         :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution.
-        :param start_time: The start time, by default 0.
+        :param start_time: The start time, by default :attr:`start_time`.
         :return: The moment at each end time.
         """
         k = _validate_order(k)
         rewards = self._rewards(k, rewards, self.reward)
         end_times = np.asarray(list(end_times), dtype=float)
 
-        return self._estimate(rewards, 0.0 if start_time is None else start_time, end_times, center)
+        return self._estimate(rewards, self.start_time if start_time is None else start_time, end_times, center)
 
     def moment(
             self,
@@ -3220,7 +3436,7 @@ class _EmpiricalAccumulation:  # pragma: no cover
 
         :param k: The order of the moment.
         :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
-        :param start_time: The start time, by default 0.
+        :param start_time: The start time, by default :attr:`start_time`.
         :param end_time: The end time, by default the end time of the coalescent.
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution.
@@ -3229,15 +3445,18 @@ class _EmpiricalAccumulation:  # pragma: no cover
         k = _validate_order(k)
         rewards = self._rewards(k, rewards, self.reward)
         end = self._end_time if end_time is None else end_time
+        start = self.start_time if start_time is None else start_time
 
-        return float(self._estimate(rewards, 0.0 if start_time is None else start_time, np.array([end]), center)[0])
+        return float(self._estimate(rewards, start, np.array([end]), center)[0])
 
     def samples(self, reward: Reward) -> np.ndarray:
         """
         :param reward: The reward.
-        :return: The reward accumulated by each replicate from time 0 to the end time of the coalescent.
+        :return: The reward accumulated by each replicate from :attr:`start_time` to the end time of the coalescent.
         """
-        return self._coalescent._trajectory_records().accumulated(reward, 0.0, np.array([self._end_time]))[0]
+        records = self._coalescent._trajectory_records()
+
+        return records.accumulated(reward, self.start_time, np.array([self._end_time]))[0]
 
     def _default_end_times(self) -> np.ndarray:
         """
@@ -3263,12 +3482,18 @@ class _EmpiricalSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
 
     _plot_accumulation_data = SFSDistribution._plot_accumulation_data
 
-    def __init__(self, coalescent: 'MsprimeCoalescent', sfs_dist: Type[SFSDistribution]) -> None:
+    def __init__(
+            self,
+            coalescent: 'MsprimeCoalescent | _SampledTrajectories',
+            sfs_dist: Type[SFSDistribution],
+            start_time: float = 0.0
+    ) -> None:
         """
-        :param coalescent: The coalescent whose replicates accumulate the rewards.
+        :param coalescent: The coalescent, or the sampled trajectories, whose replicates accumulate the rewards.
         :param sfs_dist: The exact spectrum class whose bins are accumulated.
+        :param start_time: The default start time.
         """
-        super().__init__(coalescent, UnitReward())
+        super().__init__(coalescent, UnitReward(), start_time)
 
         self._sfs_dist = sfs_dist
         self.lineage_config = coalescent.lineage_config
@@ -3298,13 +3523,13 @@ class _EmpiricalSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
         :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution.
-        :param start_time: The start time, by default 0.
+        :param start_time: The start time, by default :attr:`start_time`.
         :return: Array of shape ``(len(end_times), n + 1)``, one column per site-frequency count.
         """
         k = _validate_order(k)
         rewards = self._rewards(k, rewards, self.reward)
         end_times = np.asarray(list(end_times), dtype=float)
-        start_time = 0.0 if start_time is None else start_time
+        start_time = self.start_time if start_time is None else start_time
 
         out = np.zeros((len(end_times), self.lineage_config.n + 1))
         for i in self._get_indices():
@@ -3312,6 +3537,153 @@ class _EmpiricalSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
             out[:, i] = self._estimate(bin_rewards, start_time, end_times, center)
 
         return out
+
+    def get_accumulation(
+            self,
+            k: int,
+            i: int,
+            end_times: Iterable[float] | float,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray | float:
+        """
+        The moment of bin ``i``, each reward combined with the reward of the bin.
+
+        :param k: The order of the moment.
+        :param i: The site-frequency count.
+        :param end_times: Times or time when to evaluate the moment.
+        :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time, by default :attr:`start_time`.
+        :return: The moment, a float for a single time and an array for a sequence of times.
+        """
+        k = _validate_order(k)
+        rewards = self._rewards(k, rewards, self.reward)
+        scalar = np.ndim(end_times) == 0
+        times = np.asarray([end_times] if scalar else list(end_times), dtype=float)
+
+        accumulation = self._estimate(
+            tuple(CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards),
+            self.start_time if start_time is None else start_time, times, center
+        )
+
+        return float(accumulation[0]) if scalar else accumulation
+
+
+class _EmpiricalJointSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
+    """
+    The accumulation of every bin of a joint site-frequency spectrum, with the ``accumulate`` interface and the
+    plotting code of :class:`~phasegen.distributions.JointSFSDistribution`.
+    """
+
+    _plot_accumulation_data = JointSFSDistribution._plot_accumulation_data
+
+    def __init__(self, coalescent: 'MsprimeCoalescent | _SampledTrajectories', start_time: float = 0.0) -> None:
+        """
+        :param coalescent: The coalescent, or the sampled trajectories, whose replicates accumulate the rewards.
+        :param start_time: The default start time.
+        """
+        super().__init__(coalescent, UnitReward(), start_time)
+
+        #: Shape of the joint SFS array, ``(n_0 + 1, ..., n_{P-1} + 1)``.
+        self.shape = tuple(int(n) + 1 for n in coalescent.lineage_config.lineages)
+
+    def _get_configs(self) -> List[Tuple[int, ...]]:
+        """The descendant vectors of the polymorphic bins, all but the empty one and the one of every lineage."""
+        full = tuple(s - 1 for s in self.shape)
+
+        return [c for c in np.ndindex(*self.shape) if any(c) and c != full]
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        The moment of every bin, of the reward of the bin.
+
+        :param k: The order of the moment.
+        :param end_times: The end times.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :param start_time: The start time, by default :attr:`start_time`.
+        :return: Array of shape ``(len(end_times),) + shape``.
+        """
+        k = _validate_order(k)
+        end_times = np.asarray(list(end_times), dtype=float)
+        start_time = self.start_time if start_time is None else start_time
+
+        out = np.zeros((len(end_times),) + self.shape)
+        for config in self._get_configs():
+            rewards = (CombinedReward([self.reward, JointSFSReward(config)]),) * k
+            out[(slice(None),) + config] = self._estimate(rewards, start_time, end_times, center)
+
+        return out
+
+
+class _EmpiricalTwoLocusSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
+    """
+    The accumulation of every bin :math:`L^0_i L^1_j` of a two-locus site-frequency spectrum, with the ``accumulate``
+    interface and the plotting code of :class:`~phasegen.distributions.TwoLocusSFSDistribution`.
+    """
+
+    _plot_accumulation_data = TwoLocusSFSDistribution._plot_accumulation_data
+
+    _get_indices = TwoLocusSFSDistribution._get_indices
+
+    def __init__(self, coalescent: 'MsprimeCoalescent | _SampledTrajectories', start_time: float = 0.0) -> None:
+        """
+        :param coalescent: The coalescent, or the sampled trajectories, whose replicates accumulate the rewards.
+        :param start_time: The default start time.
+        """
+        super().__init__(coalescent, UnitReward(), start_time)
+
+        self.lineage_config = coalescent.lineage_config
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            center: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        """
+        The moment of every bin, of the product of the per-locus branch lengths, symmetrized over the two loci.
+
+        :param k: The order of the moment.
+        :param end_times: The end times.
+        :param center: Whether to return the central moment.
+        :param start_time: The start time, by default :attr:`start_time`.
+        :return: Array of shape ``(len(end_times), n + 1, n + 1)``.
+        """
+        k = _validate_order(k)
+        end_times = np.asarray(list(end_times), dtype=float)
+        start_time = self.start_time if start_time is None else start_time
+        self._check_window(start_time, end_times)
+
+        indices = self._get_indices()
+        n = self.lineage_config.n
+        out = np.zeros((len(end_times), n + 1, n + 1))
+
+        records = self._coalescent._trajectory_records() if k > 0 else None
+        lengths = {
+            (locus, i): records.accumulated(CombinedReward([self.reward, TwoLocusSFSReward(locus, i)]),
+                                            start_time, end_times)
+            for locus in (0, 1) for i in indices
+        } if k > 0 else {}
+
+        for i in indices:
+            for j in indices:
+                products = [lengths[0, i] * lengths[1, j] for _ in range(k)]
+                out[:, i, j] = self._moment(products, center, len(end_times))
+
+        return (out + out.transpose(0, 2, 1)) / 2
 
 
 def _unlinked_initial_state(samples: dict, n_unlinked: int, demography) -> 'tskit.TableCollection':
@@ -3693,7 +4065,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                                                   jsfs_shape=jsfs_shape if compute_jsfs else None,
                                                   axis=axis if self.record_migration else None)
                               if main and self.simulate_mutations else None)
-            trajectory_stats = (_TrajectoryStatistics(n_pops, end_time, axis if self.record_migration else None)
+            trajectory_stats = (_TrajectoryStatistics(n_pops, axis, end_time, axis if self.record_migration else None)
                                 if trajectories else None)
             stats = [s for s in (tree_stats, jsfs_stats, mutation_stats, trajectory_stats) if s is not None]
 
@@ -3756,7 +4128,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             lineages, shares = [], []
             for b, batch in enumerate(batches):
                 for rows, combined in zip(batch['trajectories'], (lineages, shares)):
-                    combined.append(rows + np.array([b * num_replicates, 0, 0, 0, 0, 0]))
+                    combined.append(rows + np.eye(1, rows.shape[1])[0] * b * num_replicates)
 
             self._trajectories = _Trajectories(
                 lineages=np.concatenate(lineages),
@@ -3765,7 +4137,8 @@ class MsprimeCoalescent(AbstractCoalescent):
                 n_loci=self.locus_config.n,
                 n=sample_size,
                 pops=self.lineage_config.pop_names,
-                resolves_demes=self._resolves_demes
+                resolves_demes=self._resolves_demes,
+                sizes=tuple(int(s) for s in self.lineage_config.lineages)
             )
 
         if not main:
@@ -3889,9 +4262,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         for name in self._distributions:
             if name in self.__dict__:
                 self.__dict__[name]._drop()
-
-                if name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
-                    self.__dict__[name]._accumulator = None
+                self.__dict__[name]._accumulator = None
 
         # caused problems when serializing
         self.demography = None
@@ -4011,7 +4382,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         self.simulate()
 
-        return EmpiricalJointSFSDistribution(
+        dist = EmpiricalJointSFSDistribution(
             moments=self.jsfs_moments,
             samples=self.jsfs_samples,
             n_samples=self.n_total,
@@ -4019,6 +4390,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
             locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
+        dist._accumulator = _EmpiricalJointSFSAccumulation(self)
+
+        return dist
 
     @cached_property
     def sfs2(self) -> 'EmpiricalTwoLocusSFSDistribution':
@@ -4041,13 +4415,16 @@ class MsprimeCoalescent(AbstractCoalescent):
         # the mutation counts of a locus summed over the demes they occur in, of shape (N, 2, n + 1)
         counts = None if self.mutations is None else np.moveaxis(self.mutations.sum(axis=1), 1, 0)
 
-        return EmpiricalTwoLocusSFSDistribution(
+        dist = EmpiricalTwoLocusSFSDistribution(
             lengths[0],
             lengths[1],
             mutation_counts=counts,
             lineage_config=self.lineage_config if self.lineage_distribution is None else self.lineage_distribution,
             locus_config=self.locus_config if self.locus_distribution is None else self.locus_distribution
         )
+        dist._accumulator = _EmpiricalTwoLocusSFSAccumulation(self)
+
+        return dist
 
     @cached_property
     def fst(self) -> float:
@@ -4271,12 +4648,12 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         The rewards read from the genealogies are :class:`~phasegen.rewards.TreeHeightReward`,
         :class:`~phasegen.rewards.TotalTreeHeightReward`, :class:`~phasegen.rewards.TotalBranchLengthReward`,
-        :class:`~phasegen.rewards.UnfoldedSFSReward`, :class:`~phasegen.rewards.FoldedSFSReward` and
-        :class:`~phasegen.rewards.TwoLocusSFSReward`, their restrictions to a locus or a deme by
-        :class:`~phasegen.rewards.RestrictedReward` or :class:`~phasegen.rewards.CombinedReward`, and sums of them
-        by :class:`~phasegen.rewards.SumReward`. A restriction to a deme of several demes requires
-        ``record_migration``. The lineage trajectories are recorded by a simulation on first use, see
-        :meth:`simulate`.
+        :class:`~phasegen.rewards.UnfoldedSFSReward`, :class:`~phasegen.rewards.FoldedSFSReward`,
+        :class:`~phasegen.rewards.TwoLocusSFSReward` and :class:`~phasegen.rewards.JointSFSReward`, their restrictions
+        to a locus or a deme by :class:`~phasegen.rewards.RestrictedReward` or
+        :class:`~phasegen.rewards.CombinedReward`, and sums of them by :class:`~phasegen.rewards.SumReward`. A
+        restriction to a deme of several demes requires ``record_migration``. The lineage trajectories are recorded by
+        a simulation on first use, see :meth:`simulate`.
 
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times :math:`t` at which to evaluate the moment.
@@ -4426,11 +4803,51 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         #: Random seed.
         self.seed: Optional[int] = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed
 
+    def _seed(self, name: str) -> Optional[np.random.SeedSequence]:
+        """
+        :param name: The key of the spawned seed in ``_spawn_keys``.
+        :return: The seed sequence of the statistic, ``None`` for fresh entropy.
+        """
+        return None if self.seed is None else np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],))
+
     def _to_empirical(self, name: str):
-        """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly."""
-        seed = None if self.seed is None else np.random.default_rng(
-            np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],)))
-        return getattr(self._coalescent, name).to_empirical(self.n_samples, seed=seed)
+        """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly, with the
+        accumulation over time of its trajectories."""
+        exact = getattr(self._coalescent, name)
+        seed = self._seed(name)
+        dist = exact.to_empirical(self.n_samples, seed=None if seed is None else np.random.default_rng(seed))
+
+        trajectories = self._trajectories(name, exact)
+        start = self._coalescent.start_time
+
+        if name in ('sfs', 'fsfs'):
+            dist._accumulator = _EmpiricalSFSAccumulation(trajectories, type(exact), start)
+        elif name == 'jsfs':
+            dist._accumulator = _EmpiricalJointSFSAccumulation(trajectories, start)
+        elif name == 'sfs2':
+            dist._accumulator = _EmpiricalTwoLocusSFSAccumulation(trajectories, start)
+        else:
+            dist._accumulator = _EmpiricalAccumulation(trajectories, exact.reward, start)
+
+        return dist
+
+    def _trajectories(self, name: str, dist: PhaseTypeDistribution) -> _SampledTrajectories:
+        """
+        The trajectories of a statistic on the state space of a distribution, sampled on first use from the seed of
+        the statistic and cached per pair.
+
+        :param name: The key of the spawned seed in ``_spawn_keys``.
+        :param dist: The distribution whose state space the trajectories visit.
+        :return: The trajectories.
+        """
+        cache = self.__dict__.setdefault('_sampled_trajectories', {})
+        key = (name, id(dist.state_space))
+
+        if key not in cache:
+            cache[key] = _SampledTrajectories(dist, self.n_samples, self._seed(name), self.end_time,
+                                              self.lineage_config)
+
+        return cache[key]
 
     def _sample_rewards(self, rewards: Tuple[Reward, ...], name: str) -> np.ndarray:
         """
@@ -4441,10 +4858,110 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param name: The key of the spawned seed in ``_spawn_keys``.
         :return: The samples, of shape ``(n_samples, len(rewards))``.
         """
-        seed = None if self.seed is None else np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],))
         dist = self._coalescent._get_dist(len(rewards), list(rewards))
 
-        return dist._sample(self.n_samples, rewards=list(rewards), rng=np.random.default_rng(seed))
+        return dist._sample(self.n_samples, rewards=list(rewards), rng=np.random.default_rng(self._seed(name)))
+
+    def _accumulator(self, k: int, rewards: Optional[Sequence[Reward]]) -> _EmpiricalAccumulation:
+        """
+        :param k: The order of the moment.
+        :param rewards: Sequence of ``k`` rewards, ``None`` for the tree-height reward for each factor.
+        :return: The accumulation of the rewards over time, from the trajectories of :meth:`moment` on the smallest
+            state space supporting all of them.
+        """
+        dist = self._coalescent._get_dist(k, rewards)
+
+        return _EmpiricalAccumulation(self._trajectories('moment', dist), TreeHeightReward(),
+                                      self._coalescent.start_time)
+
+    def accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            start_time: float = None
+    ) -> np.ndarray:
+        r"""
+        The :math:`k`-th sample moment of the rewards accumulated from the start time to each end time, the sampled
+        counterpart of :meth:`Coalescent.accumulate() <phasegen.distributions.Coalescent.accumulate>`, with the
+        estimator of :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+        Trajectory :math:`m` accumulates :math:`R_{i,m}(s, t) = \sum_j r_i(x_j) |[a_j, b_j] \cap [s, t]|` over its
+        sojourns :math:`[a_j, b_j]` in the states :math:`x_j`, with :math:`r_i(x)` the rate of reward :math:`i` in
+        state :math:`x`. The trajectories are those of :meth:`moment`, whose jump times and states are recorded by
+        sampling again on first use.
+
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t` at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of :meth:`Coalescent.accumulate()
+            <phasegen.distributions.Coalescent.accumulate>`. The sample moment does not depend on the order of the
+            rewards.
+        :param start_time: The start time :math:`s`. By default, the start time of the wrapped coalescent.
+        :return: The moment at each end time.
+        :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
+            time is negative, or an end time exceeds that of the coalescent.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        """
+        k = _validate_order(k)
+
+        return self._accumulator(k, rewards).accumulate(k, end_times, rewards, center, permute, start_time)
+
+    def plot_accumulation(
+            self,
+            k: int = 1,
+            end_times: Iterable[float] = None,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            ax: 'plt.Axes' = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None
+    ) -> 'plt.Axes':
+        """
+        Plot the accumulation of the sample moments of :meth:`SampledCoalescent.accumulate()
+        <phasegen.distributions.SampledCoalescent.accumulate>`, as :meth:`Coalescent.plot_accumulation()
+        <phasegen.distributions.Coalescent.plot_accumulation>` does.
+
+        :param k: The order of the moment.
+        :param end_times: Times when to evaluate the moment. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to the
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile of the sampled tree height, or up to
+            the end time of the coalescent if it is finite.
+        :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to center the moment around the mean.
+        :param permute: Accepted for the signature of :meth:`Coalescent.plot_accumulation()
+            <phasegen.distributions.Coalescent.plot_accumulation>`.
+        :param ax: Axes to plot on.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Label for the plot.
+        :param title: Title of the plot.
+        :return: Axes.
+        :raises ValueError: if ``k`` is not a non-negative integer, or if ``rewards`` is a single
+            :class:`~phasegen.rewards.Reward` and not a sequence.
+        """
+        k = _validate_order(k)
+
+        return self._accumulator(k, rewards).plot_accumulation(
+            k=k,
+            end_times=end_times,
+            rewards=rewards,
+            center=center,
+            permute=permute,
+            ax=ax,
+            show=show,
+            file=file,
+            clear=clear,
+            label=label,
+            title=title
+        )
 
     @_make_hashable
     @cache
@@ -4572,7 +5089,9 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs', 'jsfs', 'sfs2'):
             if name in self.__dict__:
                 self.__dict__[name]._drop()
+                self.__dict__[name]._accumulator = None
 
+        self.__dict__.pop('_sampled_trajectories', None)
         self._coalescent = None
         self.demography = None
 

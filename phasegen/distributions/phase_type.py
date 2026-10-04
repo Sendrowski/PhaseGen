@@ -467,7 +467,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             n_samples: int,
             rewards: Sequence[Reward] = None,
             record_visits: bool = False,
-            rng: np.random.Generator = None
+            rng: np.random.Generator = None,
+            path: list = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Sample the given rewards from shared trajectories, in batches with spawned child generators, as described in
@@ -477,6 +478,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param rewards: Rewards to sample from. Default is this distribution's reward.
         :param record_visits: Whether to also return the mean number of visits per trajectory to each state.
         :param rng: Generator to draw from, ``None`` for fresh entropy.
+        :param path: List to which the sojourns of the trajectories are appended as arrays ``(trajectory, state,
+            entry time, exit time)``, ``None`` to record none.
         :return: Array of sampled rewards of shape ``(n_samples, len(rewards))``, and optionally the visit counts.
         """
         if rewards is None:
@@ -487,7 +490,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         batch = Settings.sample_batch_size
         if batch is None or n_samples <= batch:
-            return self._sample_vectorized(n_samples, rewards, record_visits, rng=rng)
+            return self._sample_vectorized(n_samples, rewards, record_visits, rng=rng, path=path)
 
         # bound peak memory by simulating the ensemble in batches and concatenating the per-trajectory results.
         # each batch draws from its own independent child generator, so the memory-batching does not couple the
@@ -497,8 +500,13 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             sizes.append(n_samples % batch)
 
         mass_parts, visits = [], None
-        for size, child in zip(sizes, rng.spawn(len(sizes))):
-            out = self._sample_vectorized(size, rewards, record_visits, rng=child)
+        for b, (size, child) in enumerate(zip(sizes, rng.spawn(len(sizes)))):
+            part_path = None if path is None else []
+            out = self._sample_vectorized(size, rewards, record_visits, rng=child, path=part_path)
+            if path is not None:
+                # number the trajectories of each batch after those of the previous ones
+                path.extend((walkers + b * batch, *rest) for walkers, *rest in part_path)
+
             if record_visits:
                 part, visited = out
                 visits = visited * size if visits is None else visits + visited * size  # visit counts, re-averaged below
@@ -518,7 +526,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             n_samples: int,
             rewards: Sequence[Reward],
             record_visits: bool = False,
-            rng: np.random.Generator = None
+            rng: np.random.Generator = None,
+            path: list = None
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Simulate one batch of trajectories, as described in :meth:`sample`.
@@ -526,6 +535,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from.
         :param record_visits: Whether to also return the per-state visit frequencies.
+        :param path: List to which the sojourns of the trajectories are appended as arrays ``(trajectory, state,
+            entry time, exit time)``, ``None`` to record none.
         :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
         """
         if rng is None:
@@ -589,6 +600,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         if record_visits:
             np.add.at(states_visited, state, 1)  # each walker visits its initial state (drawn from alpha)
         active = ~absorbing[state]
+        entered = None if path is None else np.zeros(n_samples)  # entry time of the current state
 
         with np.errstate(over='ignore', invalid='ignore'):
             while active.any():
@@ -629,6 +641,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                         # a finite window caps the wait, so even a stuck walker accrues a finite reward
                         ov = np.clip(t_b - np.maximum(t[sa], t_a), 0.0, None)
                         mass[sa] += R[:, state[sa]].T * ov[:, None]
+                    if path is not None:
+                        path.append((sa, state[sa], entered[sa], np.full(sa.size, np.inf)))
                     active[sa] = False
                     keep = ~stuck
                     a, lam = a[keep], lam[keep]
@@ -639,6 +653,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                 ov = np.clip(np.minimum(t[a] + dt, t_b) - np.maximum(t[a], t_a), 0.0, None)
                 mass[a] += R[:, state[a]].T * ov[:, None]
                 t[a] += dt
+                if path is not None:
+                    path.append((a, state[a], entered[a], t[a]))
+                    entered[a] = t[a]
                 if t_b != np.inf:
                     active[a[t[a] >= t_b]] = False  # past the window end: done accruing
 
