@@ -503,21 +503,22 @@ def test_from_array_accepts_object_arrays_of_counts(folded):
             layout.from_array(np.array(counts, dtype=object))
 
 
-def test_empirical_mutation_config_rejects_other_layout():
+def test_empirical_mutation_config_reads_rebinned_and_folded_layouts():
     """
-    A configuration of another layout raises ValueError on the simulated spectrum, which stores its frequencies in
-    its own layout, rather than reading the frequency of the configuration with the same counts there.
+    The simulated spectrum looks up a configuration of any layout that bins its classes, summing the frequencies of
+    the counts it merges, and rejects a layout of another spectrum.
     """
     ms = MsprimeCoalescent(n=4, num_replicates=50, n_threads=1, parallelize=False, simulate_mutations=True,
                            mutation_rate=1.0, seed=1)
     own = ms.sfs.mutation_layout()
     permuted = own.rebin(own.bins[::-1])
+    p = ms.sfs.get_mutation_config
 
-    for config in (permuted.config((0, 0, 2)), ms.fsfs.mutation_layout().config((1, 0))):
-        with pytest.raises(ValueError):
-            ms.sfs.get_mutation_config(config)
+    assert p(permuted.config((0, 0, 2))) == p((2, 0, 0))
+    assert p(ms.fsfs.mutation_layout().config((1, 0))) == pytest.approx(p((1, 0, 0)) + p((0, 0, 1)), rel=1e-12)
 
-    assert ms.sfs.get_mutation_config(own.config((0, 0, 0))) == ms.sfs.get_mutation_config((0, 0, 0))
+    with pytest.raises(ValueError):
+        p(pg.Coalescent(n=5).sfs.mutation_layout().config((0, 0, 0, 0)))
 
 
 @pytest.mark.parametrize('rates', [{0: 0}, {0: 1, 0.5: 0}])

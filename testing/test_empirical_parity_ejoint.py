@@ -1,10 +1,9 @@
 """
 Parity of the empirical joint distribution, spectra and marginal containers with their exact counterparts: the same
-members, signatures, return types and plots, and values that agree within Monte Carlo error. Every tolerance is four
+members, return types and plots, and values that agree within Monte Carlo error. Every tolerance is four
 standard errors of the empirical estimate, plus a small allowance for the numerical error of the exact inversion where
 the exact side is an inversion.
 """
-import warnings
 
 import numpy as np
 import pytest
@@ -33,9 +32,6 @@ EXACT_ONLY = {
 
 #: Further exact-only members per pair, with the reason.
 EXACT_ONLY_BY_PAIR = {
-    # the joint distribution of two arbitrary rewards needs the jump process
-    'tree_height': {'joint'},
-    'total_branch_length': {'joint'},
     # a per-deme or per-locus marginal holds its samples, not the trajectories its accumulation over time needs
     'total_branch_length.demes[a]': {'joint', 'demes', 'loci', 'accumulate', 'plot_accumulation'},
     'tree_height.loci[0]': {'joint', 'demes', 'loci', 'accumulate', 'plot_accumulation'},
@@ -514,6 +510,22 @@ def test_empirical_classes_offer_the_members_of_the_exact_ones(one_deme, two_dem
     }
 
     assert not {k: v for k, v in missing.items() if v}
+
+
+def test_empirical_moment_joint_and_layout_take_the_parameters_of_the_exact_ones(one_deme):
+    """The moments, joint distributions and layouts of the empirical distributions with an accumulation over time
+    take the parameters of their exact counterparts, so that positional arguments mean the same on both sides."""
+    import inspect
+
+    coal, _, _ = one_deme
+    sampled = coal.to_empirical(n_samples=200, seed=SEED)
+
+    for name in ('tree_height', 'total_branch_length', 'sfs', 'fsfs'):
+        exact, emp = getattr(coal, name), getattr(sampled, name)
+
+        for member in [m for m in ('moment', 'joint', 'mutation_layout') if hasattr(exact, m)]:
+            assert inspect.signature(getattr(exact, member)).parameters.keys() == \
+                   inspect.signature(getattr(emp, member)).parameters.keys(), (name, member)
 
 
 def test_spectrum_loci_joint_raises_on_both_sides(one_deme):

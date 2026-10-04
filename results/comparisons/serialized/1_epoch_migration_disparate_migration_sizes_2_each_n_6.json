@@ -9749,7 +9749,6 @@
                 "py/type": "phasegen.distributions.spectra.UnfoldedSFSDistribution"
             },
             "_samples": null,
-            "_mutations": null,
             "pops_corr": {
                 "py/object": "numpy.ndarray",
                 "data": [
@@ -19312,9 +19311,6 @@
                     }
                 }
             },
-            "mutation_configs": {
-                "json://{\"py/tuple\": [0, 0, 0, 0, 0]}": 1.000000000007918
-            },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
@@ -22065,19 +22061,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 555
+                                "py/id": 554
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 555
+                                "py/id": 554
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 555
+                                "py/id": 554
                             }
                         }
                     }
@@ -22338,10 +22334,13 @@
                         "py/id": 442
                     }
                 }
+            },
+            "_count_frequencies": {
+                "json://{\"py/tuple\": [0, 0, 0, 0, 0]}": 1.000000000007918
             }
         },
         "fsfs": {
-            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
+            "py/object": "phasegen.distributions.empirical._EmpiricalFoldedSFSDistribution",
             "_logger": {
                 "py/id": 443
             },
@@ -24889,7 +24888,6 @@
                 "py/type": "phasegen.distributions.spectra.FoldedSFSDistribution"
             },
             "_samples": null,
-            "_mutations": null,
             "pops_corr": {
                 "py/object": "numpy.ndarray",
                 "data": [
@@ -34443,9 +34441,6 @@
                     }
                 }
             },
-            "mutation_configs": {
-                "json://{\"py/tuple\": [0, 0, 0]}": 1.000000000007918
-            },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
@@ -37196,19 +37191,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 704
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 704
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 705
+                                "py/id": 704
                             }
                         }
                     }
@@ -37469,6 +37464,9 @@
                         "py/id": 594
                     }
                 }
+            },
+            "_count_frequencies": {
+                "json://{\"py/tuple\": [0, 0, 0, 0, 0]}": 1.000000000007918
             }
         }
     }

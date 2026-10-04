@@ -52,6 +52,12 @@ _JOINT_CDF_DIRECT_MAX = 16
 #: Multiple of the replicate count with which a pairwise coalescence time is simulated, for the f-statistics.
 _PAIRWISE_REPLICATE_FACTOR = 10
 
+#: Message of the error raised where the simulated genealogies or sampled trajectories are not held.
+_NO_GENEALOGIES = (
+    "The {statistic} requires the genealogies simulated by MsprimeCoalescent or the trajectories sampled by "
+    "SampledCoalescent, which this {holder} does not hold."
+)
+
 
 class _EmpiricalFunction:  # pragma: no cover
     """Mixin building the plot data of an empirical function object: one curve for a sample vector (a scalar
@@ -81,6 +87,8 @@ class _EmpiricalFunction:  # pragma: no cover
             if per_bin else []
         if samples.ndim == 2:
             keys = [int(i) for i in keys]
+        elif per_bin:
+            keys = [tuple(int(c) for c in key) for key in keys]
         columns = [
             int(np.ravel_multi_index(np.atleast_1d(key), samples.shape[1:])) for key in keys
         ] if per_bin else []
@@ -278,6 +286,128 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
         counts, _ = np.histogram(samples[samples > 0], bins=edges)
 
         return counts / samples.size / widths
+
+
+class _EmpiricalJointSFSFunction:  # pragma: no cover
+    """Mixin selecting the bins of an empirical joint spectrum by their descendant configurations, as the functions
+    of :class:`~phasegen.distributions.JointSFSDistribution` do."""
+
+    def _configs(self, configs: Sequence[Tuple[int, ...]] | None) -> List[Tuple[int, ...]] | None:
+        """
+        Validate the descendant configurations of the joint bins.
+
+        :param configs: The descendant configurations, ``None`` for all polymorphic bins.
+        :return: The configurations as tuples of integers, ``None`` for all polymorphic bins.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        return None if configs is None else [self._distribution._bin_config(c) for c in configs]
+
+    def _plot_data(self, t: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+                   n_points: int = None) -> '_CurveData':
+        """
+        The curves :meth:`plot` draws, one per joint bin.
+
+        :param t: Points to evaluate at, as for the function of a spectrum.
+        :param configs: The joint bins (descendant configurations) to include. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        return self._empirical_curves(t, self._configs(configs), n_points)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            t: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the empirical function of every joint bin at once, one curve per descendant configuration.
+
+        :param ax: Axes to plot on.
+        :param t: Points to evaluate at, as for the function of a spectrum.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, configs=configs, n_points=n_points),
+                                         file=file, show=show, clear=clear, label=label, title=title, **kwargs)
+
+
+class _EmpiricalJointSFSCDF(_EmpiricalJointSFSFunction, _EmpiricalCumulativeDistributionFunction):  # pragma: no cover
+    """The empirical CDF of every bin of an empirical joint spectrum, with the bins selected by configuration."""
+
+
+class _EmpiricalJointSFSDensity(_EmpiricalJointSFSFunction, _EmpiricalDensityFunction):  # pragma: no cover
+    """The cell-average density of every bin of an empirical joint spectrum, with the bins selected by
+    configuration."""
+
+
+class _EmpiricalJointSFSQuantileFunction(_EmpiricalJointSFSFunction, _EmpiricalQuantileFunction):  # pragma: no cover
+    """The sample quantile of every bin of an empirical joint spectrum, with the bins selected by configuration."""
+
+    def _plot_data(self, q: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+                   n_points: int = None) -> '_CurveData':
+        """
+        The empirical quantile curves :meth:`plot` draws, one per joint bin.
+
+        :param q: Probabilities to evaluate at, as for the quantile function of a spectrum.
+        :param configs: The joint bins (descendant configurations) to include. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :return: The curves.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        return self._empirical_curves(q, self._configs(configs), n_points)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            configs: Sequence[Tuple[int, ...]] = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the empirical quantile function of every joint bin at once (value versus probability).
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at, as for the quantile function of a spectrum.
+        :param configs: The joint bins (descendant configurations) to plot. By default, all polymorphic bins.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Legend label of the curves, ``None`` for the default labels.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curves, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, configs=configs, n_points=n_points),
+                                         file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
 class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
@@ -523,10 +653,13 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :math:`\hat\mu = 0` for a raw moment. :attr:`var` is the central moment of order two, and :attr:`m2`,
         :attr:`m3` and :attr:`m4` are raw moments.
 
-        :param k: Order :math:`k \ge 1` of the moment.
+        :param k: Order :math:`k \ge 0` of the moment.
         :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
         :return: The :math:`k`-th moment, per entry for a spectrum.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not integral or is negative.
         """
+        k = _validate_order(k)
         samples = self.samples
         if center and k > 1:
             samples = samples - np.mean(samples, axis=0)
@@ -553,10 +686,7 @@ class _EmpiricalAccumulating:  # pragma: no cover
         :raises NotImplementedError: If the distribution does not hold simulated genealogies.
         """
         if self._accumulator is None:
-            raise NotImplementedError(
-                "The accumulation over time requires the genealogies simulated by MsprimeCoalescent or the "
-                "trajectories sampled by SampledCoalescent, which this distribution does not hold."
-            )
+            raise NotImplementedError(_NO_GENEALOGIES.format(statistic="accumulation over time", holder="distribution"))
 
         return self._accumulator
 
@@ -593,6 +723,73 @@ class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
 
     #: Whether the spectrum is folded.
     _folded: bool = False
+
+    @cached_property
+    def mean(self) -> SFS:
+        """
+        Sample mean spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return SFS(super().mean)
+
+    @cached_property
+    def var(self) -> SFS:
+        """
+        Sample variance spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return SFS(super().var)
+
+    @cached_property
+    def m2(self) -> SFS:
+        """
+        Second raw sample moment spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return SFS(super().m2)
+
+    @cached_property
+    def m3(self) -> SFS:
+        """
+        Third raw sample moment spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return SFS(super().m3)
+
+    @cached_property
+    def m4(self) -> SFS:
+        """
+        Fourth raw sample moment spectrum, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        """
+        return SFS(super().m4)
+
+    @cached_property
+    def cov(self) -> TwoSFS:
+        """
+        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
+        """
+        return TwoSFS(super().cov)
+
+    @cached_property
+    def corr(self) -> TwoSFS:
+        """
+        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
+        """
+        return TwoSFS(super().corr)
+
+    def moment(self, k: int, center: bool = True) -> SFS:
+        r"""
+        The :math:`k`-th sample moment of every frequency class, see
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+
+        :param k: Order :math:`k \ge 0` of the moment.
+        :param center: Whether to center the moment around the sample mean.
+        :return: The :math:`k`-th moment spectrum.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not integral or is negative.
+        """
+        return SFS(EmpiricalDistribution.moment(self, k, center))
 
     def _tajima_n(self) -> int:
         """Number of lineages, from the mean, which is retained when the samples are dropped."""
@@ -748,51 +945,12 @@ class EmpiricalSFSDistribution(_EmpiricalSFSMixin, EmpiricalDistribution):  # pr
         """Whether the spectrum is folded."""
         return self.folded
 
-    @cached_property
-    def mean(self) -> SFS:
-        """
-        Sample mean spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().mean)
-
-    @cached_property
-    def var(self) -> SFS:
-        """
-        Sample variance spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().var)
-
-    @cached_property
-    def m2(self) -> SFS:
-        """
-        Second raw sample moment spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().m2)
-
-    @cached_property
-    def cov(self) -> TwoSFS:
-        """
-        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
-        """
-        return TwoSFS(super().cov)
-
-    @cached_property
-    def corr(self) -> TwoSFS:
-        """
-        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
-        """
-        return TwoSFS(super().corr)
-
 
 class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
     """
-    Base class for the empirical joint and two-locus spectra. It holds the relative frequencies of mutational
-    configurations among simulated replicates, from per-replicate mutation counts in the array shape of the spectrum.
-    The frequencies are kept over the spectrum's polymorphic entries, so a configuration of any layout that bins those
-    entries is looked up by summing the counts of its bins.
+    Base class for the empirical spectra. It holds the relative frequencies of mutational configurations among
+    simulated replicates, from per-replicate mutation counts over the spectrum's polymorphic entries. A configuration
+    of any layout of the spectrum is looked up by summing the counts of the entries of each of its bins.
     """
 
     #: Static for backward compatibility.
@@ -814,13 +972,13 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         Unending iterator over the mutational configurations and their relative frequencies among the simulated
         replicates, in ascending order of the total number of mutations, the sampled counterpart of
-        :meth:`JointSFSDistribution.get_mutation_configs()
-        <phasegen.distributions.JointSFSDistribution.get_mutation_configs>` with ``order='count'``. The frequencies
-        yielded so far sum to :attr:`generated_mass`.
+        :meth:`UnfoldedSFSDistribution.get_mutation_configs()
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` with ``order='count'``. The
+        frequencies yielded so far sum to :attr:`generated_mass`.
 
         :param layout: The layout of the configurations, by default that of ``mutation_layout()``.
         :return: An iterator over pairs of configuration and relative frequency.
-        :raises ValueError: If the spectrum carries no mutation counts.
+        :raises ValueError: If the spectrum carries no mutation counts, or ``layout`` is not a layout of this spectrum.
         """
         layout = self.mutation_layout() if layout is None else layout
 
@@ -840,6 +998,31 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         raise NotImplementedError
 
+    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
+        """
+        The axes of the spectrum arrays of the layouts this spectrum provides.
+
+        :return: The axes of each kind of layout.
+        """
+        return self.mutation_layout().axes,
+
+    def _entry_groups(self, layout: MutationLayout) -> List[List[int]]:
+        """
+        The positions in the stored counts of the entries each bin of a layout sums.
+
+        :param layout: The layout.
+        :return: One list of positions per bin.
+        :raises ValueError: If ``layout`` is not a layout of this spectrum.
+        """
+        index = {tuple(e): k for k, e in enumerate(self._mutation_entries())}
+        positions = [tuple(layout.positions[label]) for b in layout.bins for label in b]
+
+        if layout.axes not in self._layout_axes() or any(p not in index for p in positions):
+            raise ValueError(f"The layout {layout!r} does not belong to this spectrum, whose default layout is "
+                             f"{self.mutation_layout()!r}.")
+
+        return [[index[tuple(layout.positions[label])] for label in b] for b in layout.bins]
+
     def _frequencies_by_entry(self) -> Dict[Tuple[int, ...], float]:
         """
         Relative frequency of each tuple of counts over the polymorphic entries, computed once from the counts.
@@ -858,34 +1041,57 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
 
         return self._count_frequencies
 
+    def _layout_frequencies(self, layout: MutationLayout) -> Dict[Tuple[int, ...], float]:
+        """
+        Relative frequency of each configuration of a layout shown by a replicate, memoized per layout.
+
+        :param layout: The layout.
+        :return: Dictionary from the counts of the bins to relative frequency.
+        :raises ValueError: If the spectrum carries no mutation counts, or ``layout`` is not a layout of this spectrum.
+        """
+        frequencies = self._frequencies_by_entry()
+        cache = self.__dict__.setdefault('_binned_frequencies', {})
+        key = (layout.axes, layout.bins)
+
+        if key not in cache:
+            groups = self._entry_groups(layout)
+            binned = {}
+            for counts, p in frequencies.items():
+                config = tuple(sum(counts[k] for k in g) for g in groups)
+                binned[config] = binned.get(config, 0) + p
+            cache[key] = binned
+
+        return cache[key]
+
+    @property
+    def mutation_configs(self) -> Dict[MutationConfig, float]:
+        """
+        Relative frequency of each configuration of the default layout ``mutation_layout()`` shown by a replicate.
+
+        :raises ValueError: If the spectrum carries no mutation counts.
+        """
+        layout = self.mutation_layout()
+
+        return {layout.config(c): p for c, p in self._layout_frequencies(layout).items()}
+
     def get_mutation_config(self, config: Union[MutationConfig, Sequence[int], int]) -> float:
         """
         Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
         <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
 
-        :param config: The configuration, whose layout bins entries of this spectrum, or one mutation count per bin of
-            the default layout, a single count for one bin.
+        :param config: A :class:`~phasegen.distributions.MutationConfig` of any layout of this spectrum, or one
+            mutation count per bin of the default layout, a single count for one bin.
         :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
-        :raises ValueError: If the spectrum carries no mutation counts, or ``config`` does not have one non-negative
-            integer per bin of the default layout.
+        :raises ValueError: If the spectrum carries no mutation counts, ``config`` does not have one non-negative
+            integer per bin of the default layout, or its layout is not one of this spectrum.
         """
+        self._frequencies_by_entry()
+
         if not isinstance(config, MutationConfig):
             config = self.mutation_layout().config((config,) if np.isscalar(config) else config)
 
-        layout = config.layout
-        cache = self.__dict__.setdefault('_binned_frequencies', {})
-
-        if layout.bins not in cache:
-            index = {tuple(e): k for k, e in enumerate(self._mutation_entries())}
-            groups = [[index[tuple(layout.positions[label])] for label in b] for b in layout.bins]
-            binned = {}
-            for counts, p in self._frequencies_by_entry().items():
-                key = tuple(sum(counts[k] for k in g) for g in groups)
-                binned[key] = binned.get(key, 0) + p
-            cache[layout.bins] = binned
-
-        return cache[layout.bins].get(tuple(config), 0)
+        return self._layout_frequencies(config.layout).get(tuple(config), 0)
 
     def _drop(self) -> None:
         """Drop the per-replicate mutation counts, retaining their configuration frequencies."""
@@ -925,6 +1131,9 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
 
         mean = coal.jsfs.to_empirical(1000, seed=1).mean
     """
+    _cdf_function = _EmpiricalJointSFSCDF
+    _pdf_function = _EmpiricalJointSFSDensity
+    _quantile_function = _EmpiricalJointSFSQuantileFunction
 
     #: Static for backward compatibility.
     _cache: Optional[dict] = None
@@ -1082,6 +1291,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         one locus, whose spectrum is this one.
         """
         loci = _LocusContainer({0: self})
+        loci._spectrum = JointSFS
         loci.cov = np.asarray(self.var.data, dtype=float)[None, None]
 
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -1143,10 +1353,15 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         three, where the central moment is :math:`\sum_{o=0}^{k} \binom{k}{o} \hat M_o (-\hat M_1)^{k-o}` with
         :math:`\hat M_0 = 1`, and from the stored samples above.
 
-        :param k: Order :math:`k \ge 1` of the moment.
+        :param k: Order :math:`k \ge 0` of the moment.
         :param center: Whether to center the moment around the sample mean.
         :return: The :math:`k`-th moment per descendant vector.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not integral or is negative, or if ``k`` exceeds three and the per-replicate
+            samples have been dropped.
         """
+        k = _validate_order(k)
+
         if k > 3:
             if self.samples is None:
                 raise ValueError("Moments above order three need the per-replicate samples, which have been dropped.")
@@ -1460,11 +1675,15 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         The :math:`k`-th sample moment, see
         :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
 
-        :param k: Order :math:`k \ge 1` of the moment.
+        :param k: Order :math:`k \ge 0` of the moment.
         :param center: Whether to center the moment around the sample mean.
         :return: The :math:`k`-th moment per pair of classes.
-        :raises ValueError: If the samples have been dropped and the moment is not among those retained.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not integral or is negative, or if the samples have been dropped and the moment
+            is not among those retained.
         """
+        k = _validate_order(k)
+
         if self._left is None:
             retained = {1: 'mean', 2: 'var' if center else 'm2', 3: None if center else 'm3', 4: None if center else 'm4'}
 
@@ -1559,6 +1778,10 @@ class DictContainer(dict):  # pragma: no cover
     #: Correlation matrix of the marginals.
     corr: Optional[np.ndarray] = None
 
+    #: The spectrum type of the per-class covariance and correlation of marginal spectra, ``None`` for scalar
+    #: marginals.
+    _spectrum: Optional[Type[AbstractSpectrum]] = None
+
     @classmethod
     def _of_spectra(cls, dists: dict, data: np.ndarray) -> 'DictContainer':
         """
@@ -1574,6 +1797,7 @@ class DictContainer(dict):  # pragma: no cover
         sd = np.sqrt(np.einsum('aaj->aj', cov))
 
         container = cls(dists)
+        container._spectrum = SFS
         container.cov = cov
         with np.errstate(divide='ignore', invalid='ignore'):
             container.corr = cov / (sd[:, None] * sd[None, :])
@@ -1593,27 +1817,41 @@ class DictContainer(dict):  # pragma: no cover
 
         return list(self).index(key)
 
-    def get_cov(self, d1, d2) -> float | np.ndarray:
+    def _entry(self, matrix: np.ndarray, d1, d2) -> 'float | np.ndarray | AbstractSpectrum':
+        """
+        The entry of a matrix of the marginals for a pair of keys.
+
+        :param matrix: The covariance or correlation matrix.
+        :param d1: Deme name or locus index of the first marginal distribution.
+        :param d2: Deme name or locus index of the second marginal distribution.
+        :return: The entry, a spectrum of one value per frequency class for spectra.
+        :raises ValueError: If there is no marginal of either key.
+        """
+        entry = np.atleast_2d(matrix)[self._index(d1), self._index(d2)]
+
+        return entry if self._spectrum is None else self._spectrum(entry)
+
+    def get_cov(self, d1, d2) -> 'float | AbstractSpectrum':
         """
         Get the covariance between two marginal distributions.
 
         :param d1: Deme name or locus index of the first marginal distribution.
         :param d2: Deme name or locus index of the second marginal distribution.
-        :return: The covariance, one per frequency class for spectra.
+        :return: The covariance, a spectrum of one covariance per frequency class for spectra.
         :raises ValueError: If there is no marginal of either key.
         """
-        return np.atleast_2d(self.cov)[self._index(d1), self._index(d2)]
+        return self._entry(self.cov, d1, d2)
 
-    def get_corr(self, d1, d2) -> float | np.ndarray:
+    def get_corr(self, d1, d2) -> 'float | AbstractSpectrum':
         """
         Get the correlation coefficient between two marginal distributions.
 
         :param d1: Deme name or locus index of the first marginal distribution.
         :param d2: Deme name or locus index of the second marginal distribution.
-        :return: The correlation coefficient, one per frequency class for spectra.
+        :return: The correlation coefficient, a spectrum of one coefficient per frequency class for spectra.
         :raises ValueError: If there is no marginal of either key.
         """
-        return np.atleast_2d(self.corr)[self._index(d1), self._index(d2)]
+        return self._entry(self.corr, d1, d2)
 
 
 class _DemeContainer(DictContainer):  # pragma: no cover
@@ -1974,6 +2212,65 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
             one they record.
         """
         return self._require_accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
+
+    def moment(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float:
+        r"""
+        The :math:`k`-th sample moment, the sampled counterpart of :meth:`PhaseTypeDistribution.moment()
+        <phasegen.distributions.PhaseTypeDistribution.moment>`. Without rewards and times, it is the sample moment of
+        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`. Otherwise, it is
+        the moment of the rewards accumulated from the start time to the end time, as described in
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+
+        :param k: The order :math:`k \ge 0` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param end_time: The end time. By default, the end time of the coalescent, or absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution. The sample moment does not depend on
+            the order of the rewards.
+        :return: The :math:`k`-th moment.
+        :raises TypeError: If ``k`` is not a number, or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not integral or is negative, the number of rewards differs from it, the start
+            time is negative, or the end time exceeds that of the coalescent.
+        :raises NotImplementedError: If rewards or times are given and the distribution does not hold simulated
+            genealogies, or a reward is not one they record.
+        """
+        k = _validate_order(k)
+
+        if rewards is None and start_time is None and end_time is None:
+            return EmpiricalDistribution.moment(self, k, center)
+
+        return self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute)
+
+    def joint(self, reward_a: Reward, reward_b: Reward) -> 'EmpiricalJointDistribution':
+        """
+        The empirical joint distribution of two rewards accumulated by each replicate from the start time to the end
+        time of the coalescent, the sampled counterpart of :meth:`PhaseTypeDistribution.joint()
+        <phasegen.distributions.PhaseTypeDistribution.joint>`. The rewards are those of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>`.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The empirical joint distribution.
+        :raises TypeError: If ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: If the distribution does not hold simulated genealogies, or a reward is not
+            one they record.
+        """
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
+
+        accumulator = self._require_accumulator()
+
+        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b))
 
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
@@ -2337,7 +2634,8 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         return float(np.corrcoef(self._a, self._b)[0, 1])
 
 
-class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDistribution):  # pragma: no cover
+class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDistribution,
+                                        EmpiricalSpectrumDistribution):  # pragma: no cover
     """
     Empirical site-frequency spectrum with a per-deme breakdown, built by
     :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>` or
@@ -2353,14 +2651,26 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         mean, cov = emp.mean, emp.cov
     """
 
-    #: Static for backward compatibility.
-    _layout_lineages: LineageConfig | InitialDistribution | None = None
+    #: Whether the mutation counts are resolved by the deme in which each mutation occurs. Static for backward
+    #: compatibility.
+    _mutations_by_deme: bool = False
 
-    #: Static for backward compatibility.
-    _layout_loci: LocusConfig | InitialDistribution | None = None
+    def __new__(cls, *args, **kwargs) -> 'EmpiricalPhaseTypeSFSDistribution':
+        """
+        Create the spectrum, a folded one as an instance of the subclass with the layouts of
+        :class:`~phasegen.distributions.FoldedSFSDistribution`.
 
-    #: Static for backward compatibility.
-    generated_mass: float = 0
+        :param args: The arguments of :meth:`__init__`.
+        :param kwargs: The keyword arguments of :meth:`__init__`.
+        :return: The uninitialized spectrum.
+        """
+        sfs_dist = kwargs.get('sfs_dist', args[3] if len(args) > 3 else None)
+
+        if cls is EmpiricalPhaseTypeSFSDistribution and isinstance(sfs_dist, type) and \
+                issubclass(sfs_dist, FoldedSFSDistribution):
+            cls = _EmpiricalFoldedSFSDistribution
+
+        return super().__new__(cls)
 
     def __init__(
             self,
@@ -2378,8 +2688,9 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
 
         :param branch_lengths: Branch lengths per locus, deme, replicate and frequency class, of shape
             ``(loci, demes, N, n + 1)``.
-        :param mutations: Mutation counts per locus, deme, replicate and polymorphic frequency class, or ``None`` for
-            a spectrum without mutations.
+        :param mutations: Unfolded mutation counts summed over loci, per replicate, deme in which the mutation occurs
+            and frequency class, of shape ``(N, demes, n + 1)``, or per replicate and frequency class, of shape
+            ``(N, n + 1)``, for counts that do not resolve the demes. ``None`` for a spectrum without mutations.
         :param pops: List of population names.
         :param sfs_dist: SFS distribution class.
         :param locus_agg: Aggregation function for loci.
@@ -2405,8 +2716,11 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         #: Branch length samples by deme and locus
         self._samples = branch_lengths
 
-        #: Mutation counts by deme and locus, ``None`` for a spectrum without mutations
-        self._mutations = mutations
+        #: Per-replicate mutation counts, ``None`` for a spectrum without mutations and once dropped.
+        self._mutation_counts = mutations
+
+        #: Whether the mutation counts are resolved by the deme in which each mutation occurs.
+        self._mutations_by_deme = mutations is not None and np.ndim(mutations) == 3
 
         self.resolves_demes = resolves_demes
 
@@ -2416,74 +2730,12 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         #: The loci the replicates start from.
         self._layout_loci: LocusConfig | InitialDistribution = locus_config
 
-        #: Relative frequency yielded by the most recently started
-        #: :meth:`EmpiricalPhaseTypeSFSDistribution.get_mutation_configs()
-        #: <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.get_mutation_configs>` iterator.
-        self.generated_mass = 0
-
         #: Atom-conditional ground truth: ``[(i, j, on, mass, dist), ...]``, see
         #: ``_cache_atom_conditional``. Survives ``_drop`` and is serialized with the comparison.
         self._atom_conditional: list = []
 
         #: Cached windowed-conditional ground truth, see ``_cache_windowed_conditional``.
         self._windowed_conditional: list = []
-
-    @cached_property
-    def mean(self) -> SFS:
-        """
-        Sample mean spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().mean)
-
-    @cached_property
-    def var(self) -> SFS:
-        """
-        Sample variance spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().var)
-
-    @cached_property
-    def m2(self) -> SFS:
-        """
-        Second raw sample moment spectrum, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-        """
-        return SFS(super().m2)
-
-    @cached_property
-    def cov(self) -> TwoSFS:
-        """
-        Sample covariance matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
-        """
-        return TwoSFS(super().cov)
-
-    @cached_property
-    def corr(self) -> TwoSFS:
-        """
-        Sample correlation matrix, see :class:`~phasegen.distributions.EmpiricalDistribution`.
-        """
-        return TwoSFS(super().corr)
-
-    def _touch(self, t: np.ndarray) -> None:
-        """
-        Touch as ``EmpiricalPhaseTypeDistribution._touch`` and persist ``mutation_configs`` when mutation counts exist.
-
-        :param t: Times to cache properties for.
-        """
-        super()._touch(t)
-
-        if self._mutations is not None:
-            self.__dict__['mutation_configs'] = self._config_frequencies()
-
-    def _drop(self) -> None:
-        """
-        Drop simulated samples.
-        """
-        super()._drop()
-
-        self._mutations = None
 
     def _cache_atom_conditional(self, pairs: List[Tuple[int, int]], n_grid: int = 100) -> None:
         """
@@ -2551,121 +2803,114 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         """Whether the spectrum is folded."""
         return issubclass(self._sfs_dist, FoldedSFSDistribution)
 
-    def mutation_layout(self) -> MutationLayout:
+    def mutation_layout(self, folded: bool = False, demes: bool = False) -> MutationLayout:
         """
-        The layout of the configurations, one bin per polymorphic frequency class as
-        :meth:`UnfoldedSFSDistribution.mutation_layout()
-        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>` or
-        :meth:`FoldedSFSDistribution.mutation_layout()
-        <phasegen.distributions.FoldedSFSDistribution.mutation_layout>`.
+        The layout of the mutational configurations, that of :meth:`UnfoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>`.
 
+        :param folded: Whether to merge the classes :math:`i` and :math:`n - i` into the bin of the smaller one.
+        :param demes: Whether to resolve each bin by the deme in which the mutation occurs.
         :return: The layout.
         """
         return SFSDistribution._layout_of(
             LineageConfig(self.n) if self._layout_lineages is None else self._layout_lineages,
             LocusConfig() if self._layout_loci is None else self._layout_loci,
-            folded=self._folded,
-            demes=False
+            folded=folded,
+            demes=demes
         )
 
-    @property
-    def mutation_configs(self) -> Dict[MutationConfig, float]:
+    def _mutation_entries(self) -> List[Tuple[int, ...]]:
         """
-        Relative frequency of each mutational configuration among the simulated replicates, of the mutation counts
-        summed over loci.
+        The polymorphic entries of the stored counts, the unfolded classes ``(i,)``, or ``(p, i)`` per deme ``p`` for
+        counts resolved by deme.
 
-        :return: Dictionary from configuration to relative frequency.
-        :raises ValueError: If the spectrum carries no mutation counts, as a spectrum built by
-            :meth:`UnfoldedSFSDistribution.to_empirical() <phasegen.distributions.UnfoldedSFSDistribution.to_empirical>`.
+        :return: The entries.
         """
-        layout = self.mutation_layout()
+        classes = range(1, self.n)
 
-        return {layout.config(c): p for c, p in self._config_frequencies().items()}
+        if self._mutations_by_deme:
+            return [(p, i) for p in range(len(self.pops)) for i in classes]
 
-    @mutation_configs.setter
-    def mutation_configs(self, configs: Dict[MutationConfig, float]) -> None:
+        return [(i,) for i in classes]
+
+    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
         """
-        Store the configuration frequencies.
+        The axes of the spectrum arrays of the plain and the deme-resolved layouts.
 
-        :param configs: Dictionary from configuration to relative frequency.
+        :return: The axes of each kind of layout.
         """
-        self.__dict__['mutation_configs'] = {tuple(int(k) for k in c): p for c, p in configs.items()}
+        return ('class',), ('deme', 'class')
 
-    def _config_frequencies(self) -> Dict[Tuple[int, ...], float]:
+    def _entry_groups(self, layout: MutationLayout) -> List[List[int]]:
         """
-        The configuration frequencies keyed by the plain tuples of the counts, as they are stored and serialized.
+        The positions in the stored counts of the entries each bin of a layout sums. A class of a layout without demes
+        sums the counts of all demes.
 
-        :return: Dictionary from configuration to relative frequency.
-        :raises ValueError: If the spectrum carries no mutation counts.
+        :param layout: The layout.
+        :return: One list of positions per bin.
+        :raises ValueError: If ``layout`` is not a layout of this spectrum, or resolves the demes while the counts do
+            not.
         """
-        # stored under the name of the property, so a serialized comparison restores it through the setter, and
-        # persisted by ``_touch`` only when mutation counts exist
-        if 'mutation_configs' in self.__dict__:
-            return self.__dict__['mutation_configs']
-
-        if self._mutations is None:
+        if layout.axes == ('deme', 'class') and not self._mutations_by_deme:
             raise ValueError(
-                "This spectrum carries no mutation counts (it was sampled from branch lengths only, or its samples "
-                "were dropped), so mutational configuration frequencies are unavailable."
+                "The deme-resolved configurations need the deme in which each mutation occurs, which "
+                "MsprimeCoalescent records with record_migration=True."
             )
 
-        configs = {}
+        if layout.axes != ('class',) or not self._mutations_by_deme:
+            return super()._entry_groups(layout)
 
-        # the mutations of a replicate summed over loci and demes, as the branch lengths of the moments
-        for config in self._mutations.sum(axis=(0, 1)):
-            key = tuple(int(c) for c in config)
-            configs[key] = configs.get(key, 0) + 1 / self._mutations.shape[2]
+        index = {e: k for k, e in enumerate(self._mutation_entries())}
+        groups = [[(p, int(layout.positions[label][0])) for label in b for p in range(len(self.pops))]
+                  for b in layout.bins]
 
-        if Settings.cache:
-            self.__dict__['mutation_configs'] = configs
+        if any(e not in index for g in groups for e in g):
+            raise ValueError(f"The layout {layout!r} does not belong to this spectrum, whose default layout is "
+                             f"{self.mutation_layout()!r}.")
 
-        return configs
+        return [[index[e] for e in g] for g in groups]
 
-    def get_mutation_config(self, config: Union[MutationConfig, Sequence[int], int]) -> float:
+    def moment(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> SFS:
+        r"""
+        The :math:`k`-th sample moment of every frequency class, the sampled counterpart of
+        :meth:`UnfoldedSFSDistribution.moment() <phasegen.distributions.UnfoldedSFSDistribution.moment>`. Without
+        rewards and times, it is the sample moment of :meth:`EmpiricalDistribution.moment()
+        <phasegen.distributions.EmpiricalDistribution.moment>`. Otherwise, it is the moment of every bin at the end
+        time of :meth:`EmpiricalPhaseTypeSFSDistribution.accumulate()
+        <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.accumulate>`.
+
+        :param k: The order :math:`k \ge 0` of the moment.
+        :param rewards: Sequence of :math:`k` rewards, each combined with the reward of the bin. By default, the
+            reward of the distribution for each factor.
+        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param end_time: The end time. By default, the end time of the coalescent, or absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :return: The :math:`k`-th moment spectrum.
+        :raises TypeError: If ``k`` is not a number, or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not integral or is negative, the number of rewards differs from it, the start
+            time is negative, or the end time exceeds that of the coalescent.
+        :raises NotImplementedError: If rewards or times are given and the distribution does not hold simulated
+            genealogies, or a reward is not one they record.
         """
-        Relative frequency of a mutational configuration among the simulated replicates, the sampled counterpart of
-        :meth:`UnfoldedSFSDistribution.get_mutation_config()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`, which defines configurations.
+        k = _validate_order(k)
 
-        :param config: A :class:`~phasegen.distributions.MutationConfig`, or one mutation count per frequency class of
-            the default layout, a single count for one class.
-        :return: The fraction of replicates showing the configuration, 0 for a configuration no replicate shows.
-        :raises ValueError: If ``config`` does not have one non-negative integer per frequency class, is a
-            :class:`~phasegen.distributions.MutationConfig` of another layout, or the spectrum carries no mutation
-            counts.
-        """
-        frequencies = self._config_frequencies()
-        layout = self.mutation_layout()
+        if rewards is None and start_time is None and end_time is None:
+            return _EmpiricalSFSMixin.moment(self, k, center)
 
-        if not isinstance(config, MutationConfig):
-            config = layout.config((config,) if np.isscalar(config) else config)
-        elif not config.layout._same_bins(layout):
-            raise ValueError(f"The configuration must have the layout {layout}, got {config.layout}.")
+        accumulator = self._require_accumulator()
+        end = accumulator._end_time if end_time is None else end_time
 
-        return frequencies.get(tuple(config), 0)
-
-    def get_mutation_configs(self) -> Iterator[Tuple[MutationConfig, float]]:
-        """
-        Sampled counterpart of :meth:`UnfoldedSFSDistribution.get_mutation_configs()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>` with ``order='count'``, yielding the
-        relative frequencies of the configurations among the simulated replicates.
-
-        :return: An iterator over pairs of configuration and relative frequency.
-        """
-        # reset generated mass
-        self.generated_mass = 0
-
-        # iterate over number of mutations
-        i = 0
-        while True:
-            # iterate over configurations
-            for config in self.mutation_layout().configs(i):
-                p = self._config_frequencies().get(tuple(config), 0)
-                self.generated_mass += p
-                yield config, p
-
-            # increase counter for number of mutations
-            i += 1
+        return SFS(accumulator.accumulate(k, [end], rewards, center, permute, start_time)[0])
 
     def get_accumulation(
             self,
@@ -2693,6 +2938,23 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         :raises NotImplementedError: If the distribution does not hold simulated genealogies.
         """
         return self._require_accumulator().get_accumulation(k, i, end_times, rewards, center, permute, start_time)
+
+
+class _EmpiricalFoldedSFSDistribution(EmpiricalPhaseTypeSFSDistribution):  # pragma: no cover
+    """
+    Empirical folded site-frequency spectrum, an :class:`~phasegen.distributions.EmpiricalPhaseTypeSFSDistribution`
+    built for :class:`~phasegen.distributions.FoldedSFSDistribution`, with its layouts.
+    """
+
+    def mutation_layout(self, demes: bool = False) -> MutationLayout:
+        """
+        The layout of the mutational configurations, that of :meth:`FoldedSFSDistribution.mutation_layout()
+        <phasegen.distributions.FoldedSFSDistribution.mutation_layout>`.
+
+        :param demes: Whether to resolve each bin by the deme in which the mutation occurs.
+        :return: The layout.
+        """
+        return super().mutation_layout(folded=True, demes=demes)
 
 
 class _ReplicateStatistic:  # pragma: no cover
@@ -3866,10 +4128,10 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: recording.
         self.deme_mutations: np.ndarray | None = None
 
-        #: Joint SFS (non-central) moments per descendant configuration, of orders 1, ..., ``_jsfs_max_order``.
+        #: Raw moments of the joint SFS per descendant configuration, of the orders one up to a fixed maximum order.
         self.jsfs_moments: np.ndarray | None = None
 
-        #: Per-replicate joint SFS branch lengths (capped subset) for the within-tree joint ground truth.
+        #: Per-replicate joint SFS branch lengths of a capped subset of the replicates.
         self.jsfs_samples: np.ndarray | None = None
 
         #: Actual number of replicates simulated and averaged over (``num_replicates`` rounded down to a multiple of
@@ -3882,8 +4144,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Mutation rate.
         self.mutation_rate: float = mutation_rate
 
-        #: Number of threads, capped at ``num_replicates`` so each thread simulates at least one replicate
-        #: (``num_replicates // n_threads`` must not floor to zero, which would yield empty simulations).
+        #: Number of threads, at most ``num_replicates``.
         self.n_threads: int = max(1, min(n_threads, num_replicates))
 
         #: Whether to parallelize computations.
@@ -4332,6 +4593,24 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return dist
 
+    def _sfs_mutation_counts(self) -> Optional[np.ndarray]:
+        """
+        The unfolded mutation counts of the spectra, summed over loci, resolved by the deme in which each mutation
+        occurs when the simulation resolves the demes.
+
+        :return: Counts of shape ``(N, demes, n + 1)``, of shape ``(N, n + 1)`` when the demes are not resolved, or
+            ``None`` without simulated mutations.
+        """
+        if not self.simulate_mutations:
+            return None
+
+        if not self._resolves_demes:
+            return self.mutations.sum(axis=(0, 1))
+
+        by_deme = self.mutations if self.deme_mutations is None else self.deme_mutations
+
+        return np.moveaxis(by_deme.sum(axis=0), 1, 0)
+
     @cached_property
     def sfs(self) -> EmpiricalPhaseTypeSFSDistribution:
         """
@@ -4341,7 +4620,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         dist = EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=self.sfs_lengths,
-            mutations=self.mutations.T[1:-1].T if self.simulate_mutations else None,
+            mutations=self._sfs_mutation_counts(),
             pops=self.lineage_config.pop_names,
             sfs_dist=UnfoldedSFSDistribution,
             resolves_demes=self._resolves_demes,
@@ -4366,14 +4645,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         lengths[:mid] += lengths[-mid:][::-1]
         lengths[-mid:] = 0
 
-        # fold SFS mutations
-        mutations = self.mutations.copy().T
-        mutations[:mid] += mutations[-mid:][::-1]
-        mutations = mutations[1:self.lineage_config.n // 2 + 1]
-
         dist = EmpiricalPhaseTypeSFSDistribution(
             branch_lengths=lengths.T,
-            mutations=mutations.T if self.simulate_mutations else None,
+            mutations=self._sfs_mutation_counts(),
             pops=self.lineage_config.pop_names,
             sfs_dist=FoldedSFSDistribution,
             resolves_demes=self._resolves_demes,
@@ -4441,7 +4715,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         lengths = self.sfs_lengths.sum(axis=1)
 
         # the mutation counts of a locus summed over the demes they occur in, of shape (N, 2, n + 1)
-        counts = None if self.mutations is None else np.moveaxis(self.mutations.sum(axis=1), 1, 0)
+        counts = np.moveaxis(self.mutations.sum(axis=1), 1, 0) if self.simulate_mutations else None
 
         dist = EmpiricalTwoLocusSFSDistribution(
             lengths[0],
@@ -4464,10 +4738,11 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
             lineage configurations of an initial distribution differ.
+        :raises NotImplementedError: if the demography has been dropped, as for serialization.
         """
         import msprime as ms
 
-        pops = self.demography.pop_names
+        pops = self._require_demography().pop_names
         self._assert_single_lineage_config("F_ST")
 
         counts = self.lineage_config.lineage_dict
@@ -4516,10 +4791,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param pop_j: Name of the second population.
         :return: The mean coalescence time.
         :raises ValueError: If a population is unknown.
+        :raises NotImplementedError: If the demography has been dropped, as for serialization.
         """
         import msprime as ms
 
-        names = self.demography.pop_names
+        names = self._require_demography().pop_names
         for pop in (pop_i, pop_j):
             if pop not in names:
                 raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
@@ -4586,8 +4862,21 @@ class MsprimeCoalescent(AbstractCoalescent):
     def _accumulator(self) -> _EmpiricalAccumulation:
         """
         :return: The accumulation of rewards over time, with the tree-height reward by default.
+        :raises NotImplementedError: If the simulation setup has been dropped.
         """
+        self._require_demography()
+
         return _EmpiricalAccumulation(self, TreeHeightReward())
+
+    def _require_demography(self) -> Demography:
+        """
+        :return: The demography, from which the replicates are simulated.
+        :raises NotImplementedError: If the demography has been dropped, as for serialization.
+        """
+        if self.demography is None:
+            raise NotImplementedError(_NO_GENEALOGIES.format(statistic="statistic", holder="coalescent"))
+
+        return self.demography
 
     @_make_hashable
     @cache
@@ -4602,7 +4891,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param reward_b: The second reward.
         :return: The joint distribution.
         :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
-        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
+            been dropped, as for serialization.
         """
         _validate_reward(reward_a, "reward_a")
         _validate_reward(reward_b, "reward_b")
@@ -4639,7 +4929,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
             time is negative, or the end time exceeds that of the coalescent.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
-        :raises NotImplementedError: if a reward is not read from the simulated genealogies.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
+            been dropped, as for serialization.
         """
         return self._accumulator().moment(k, rewards, start_time, end_time, center, permute)
 
@@ -4695,7 +4986,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
             time is negative, an end time exceeds that of the coalescent, or a reward refers to a locus, deme or
             frequency class that does not exist.
-        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
+            been dropped, as for serialization.
         :raises NotImplementedError: if a reward is not read from the simulated genealogies.
         """
         return self._accumulator().accumulate(k, end_times, rewards, center, permute, start_time)
@@ -4735,7 +5027,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
-        :raises ValueError: if ``k`` is not a non-negative integer, or if ``rewards`` is a single
+        :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
+            been dropped, as for serialization.
             :class:`~phasegen.rewards.Reward` and not a sequence.
         :raises NotImplementedError: if a reward is not read from the simulated genealogies.
         """
@@ -4887,8 +5180,9 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param rewards: The rewards.
         :param name: The key of the spawned seed in ``_spawn_keys``.
         :return: The samples, of shape ``(n_samples, len(rewards))``.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped.
         """
-        dist = self._coalescent._get_dist(len(rewards), list(rewards))
+        dist = self._require_coalescent()._get_dist(len(rewards), list(rewards))
 
         return dist._sample(self.n_samples, rewards=list(rewards), rng=np.random.default_rng(self._seed(name)))
 
@@ -4898,11 +5192,22 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param rewards: Sequence of ``k`` rewards, ``None`` for the tree-height reward for each factor.
         :return: The accumulation of the rewards over time, from the trajectories of :meth:`moment` on the smallest
             state space supporting all of them.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped.
         """
-        dist = self._coalescent._get_dist(k, rewards)
+        coalescent = self._require_coalescent()
+        dist = coalescent._get_dist(k, rewards)
 
-        return _EmpiricalAccumulation(self._trajectories('moment', dist), TreeHeightReward(),
-                                      self._coalescent.start_time)
+        return _EmpiricalAccumulation(self._trajectories('moment', dist), TreeHeightReward(), coalescent.start_time)
+
+    def _require_coalescent(self) -> Coalescent:
+        """
+        :return: The wrapped coalescent.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped, as for serialization.
+        """
+        if self._coalescent is None:
+            raise NotImplementedError(_NO_GENEALOGIES.format(statistic="statistic", holder="coalescent"))
+
+        return self._coalescent
 
     def accumulate(
             self,
@@ -4934,6 +5239,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
             time is negative, or an end time exceeds that of the coalescent.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if the wrapped coalescent has been dropped, as for serialization.
         """
         k = _validate_order(k)
 
@@ -4976,6 +5282,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :return: Axes.
         :raises ValueError: if ``k`` is not a non-negative integer, or if ``rewards`` is a single
             :class:`~phasegen.rewards.Reward` and not a sequence.
+        :raises NotImplementedError: if the wrapped coalescent has been dropped, as for serialization.
         """
         k = _validate_order(k)
 
@@ -5004,6 +5311,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param reward_b: The second reward.
         :return: The joint distribution.
         :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
+        :raises NotImplementedError: if the wrapped coalescent has been dropped, as for serialization.
         """
         _validate_reward(reward_a, "reward_a")
         _validate_reward(reward_b, "reward_b")
@@ -5040,11 +5348,13 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :return: The :math:`k`-th moment.
         :raises ValueError: if ``k`` is not a non-negative integer or the number of rewards differs from it.
         :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
-        :raises NotImplementedError: if the start or end time differs from that of the wrapped coalescent.
+        :raises NotImplementedError: if the start or end time differs from that of the wrapped coalescent, or the
+            wrapped coalescent has been dropped, as for serialization.
         """
         k = _validate_order(k)
         rewards = _EmpiricalAccumulation._rewards(k, rewards, TreeHeightReward())
-        window = (self._coalescent.start_time, self._coalescent.end_time)
+        coalescent = self._require_coalescent()
+        window = (coalescent.start_time, coalescent.end_time)
 
         if (start_time not in (None, window[0])) or (end_time not in (None, window[1])):
             raise NotImplementedError(

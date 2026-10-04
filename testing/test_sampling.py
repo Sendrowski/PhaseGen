@@ -466,7 +466,7 @@ def test_unseeded_trajectory_rerun_reproduces_the_statistics(make):
 
 def test_msprime_mutation_configs_survive_drop_and_serialization():
     """The configuration frequencies of a spectrum with mutation counts are persisted by ``_touch``, remain available
-    after ``_drop`` frees the counts, and are restored by jsonpickle under the serialized key ``mutation_configs``."""
+    after ``_drop`` frees the counts, and are restored by jsonpickle."""
     import jsonpickle
 
     ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False, simulate_mutations=True,
@@ -480,7 +480,6 @@ def test_msprime_mutation_configs_survive_drop_and_serialization():
     assert dict(sfs.mutation_configs) == expected
 
     restored = jsonpickle.decode(jsonpickle.encode(sfs, keys=True), keys=True)
-    assert 'mutation_configs' in jsonpickle.encode(sfs, keys=True)
     assert restored.get_mutation_config(next(iter(expected))) == pytest.approx(expected[next(iter(expected))])
 
 

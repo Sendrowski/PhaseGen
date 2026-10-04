@@ -234,6 +234,30 @@ def test_sampled_distribution_accumulate_matches_exact(name):
                       _sfs2_se(sampled.sfs2, 2, coal.n))
 
 
+def test_sampled_sfs_accumulation_with_rewards_and_start_time_matches_exact():
+    """
+    The accumulation of every SFS bin with rewards other than the default and from a later start time matches the
+    exact one, each reward combined with the reward of the bin.
+    """
+    coal, sampled = SCENARIOS['2_demes'], _sampled('2_demes')
+    rewards = [pg.DemeReward('a'), pg.TotalBranchLengthReward()]
+    start = 0.4
+    times = np.array(TIMES[1:])
+    records = _records(sampled.sfs)
+
+    for k, pair in ((1, rewards[:1]), (2, rewards)):
+        se = np.array([
+            _standard_error([records.accumulated(pg.CombinedReward([r, pg.UnfoldedSFSReward(i)]), start, times)
+                             for r in pair], True) if 0 < i < coal.n else np.zeros(len(times))
+            for i in range(coal.n + 1)
+        ]).T
+
+        _assert_close(coal.sfs.accumulate(k, times, pair, start_time=start),
+                      sampled.sfs.accumulate(k, times, pair, start_time=start), se)
+        _assert_close(coal.sfs.get_accumulation(k, 1, times, pair, start_time=start),
+                      sampled.sfs.get_accumulation(k, 1, times, pair, start_time=start), se[:, 1])
+
+
 def test_sampled_accumulation_follows_the_samples():
     """
     The trajectories recorded again from the seed of a statistic give its samples, also when sampled in batches, and

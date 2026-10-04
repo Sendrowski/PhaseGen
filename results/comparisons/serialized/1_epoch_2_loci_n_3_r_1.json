@@ -10394,7 +10394,6 @@
                 "py/type": "phasegen.distributions.spectra.UnfoldedSFSDistribution"
             },
             "_samples": null,
-            "_mutations": null,
             "pops_corr": null,
             "pops_cov": null,
             "loci_corr": null,
@@ -12261,9 +12260,6 @@
                     }
                 }
             },
-            "mutation_configs": {
-                "json://{\"py/tuple\": [0, 0]}": 1.000000000007918
-            },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
@@ -14078,19 +14074,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 406
+                                "py/id": 405
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 406
+                                "py/id": 405
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 406
+                                "py/id": 405
                             }
                         }
                     }
@@ -15907,19 +15903,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 431
+                                "py/id": 430
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 431
+                                "py/id": 430
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 431
+                                "py/id": 430
                             }
                         }
                     }
@@ -16081,10 +16077,13 @@
                         "py/id": 355
                     }
                 }
+            },
+            "_count_frequencies": {
+                "json://{\"py/tuple\": [0, 0]}": 1.000000000007918
             }
         },
         "fsfs": {
-            "py/object": "phasegen.distributions.empirical.EmpiricalPhaseTypeSFSDistribution",
+            "py/object": "phasegen.distributions.empirical._EmpiricalFoldedSFSDistribution",
             "_logger": {
                 "py/id": 356
             },
@@ -17789,7 +17788,6 @@
                 "py/type": "phasegen.distributions.spectra.FoldedSFSDistribution"
             },
             "_samples": null,
-            "_mutations": null,
             "pops_corr": null,
             "pops_cov": null,
             "loci_corr": null,
@@ -19647,9 +19645,6 @@
                     }
                 }
             },
-            "mutation_configs": {
-                "json://{\"py/tuple\": [0]}": 1.000000000007918
-            },
             "loci": {
                 "py/object": "phasegen.distributions.empirical.DictContainer",
                 "json://0": {
@@ -21464,19 +21459,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 519
+                                "py/id": 518
                             }
                         }
                     }
@@ -23293,19 +23288,19 @@
                         "cdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalCumulativeDistributionFunction",
                             "_distribution": {
-                                "py/id": 544
+                                "py/id": 543
                             }
                         },
                         "pdf": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalDensityFunction",
                             "_distribution": {
-                                "py/id": 544
+                                "py/id": 543
                             }
                         },
                         "quantile": {
                             "py/object": "phasegen.distributions.empirical._EmpiricalQuantileFunction",
                             "_distribution": {
-                                "py/id": 544
+                                "py/id": 543
                             }
                         }
                     }
@@ -23467,6 +23462,9 @@
                         "py/id": 470
                     }
                 }
+            },
+            "_count_frequencies": {
+                "json://{\"py/tuple\": [0, 0]}": 1.000000000007918
             }
         }
     },
@@ -30141,7 +30139,8 @@
                 ]
             },
             "_cache": null,
-            "samples": null,
+            "_left": null,
+            "_right": null,
             "n_samples": 200000,
             "_standard_errors": {
                 "mean": {
@@ -30295,8 +30294,6 @@
                     "dtype": "float64"
                 }
             },
-            "_left": null,
-            "_right": null,
             "_joint_surface": [],
             "mean": {
                 "py/object": "sfsutils.spectrum.TwoLocusSFS",
