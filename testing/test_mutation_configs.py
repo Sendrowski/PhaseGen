@@ -484,6 +484,25 @@ def test_from_array_rejects_entries_that_are_not_counts(folded):
     assert layout.from_array(np.array([3, 1, 0, 0, 2.0])) == ((1, 0) if folded else (1, 0, 0))
 
 
+@pytest.mark.parametrize('folded', [False, True])
+def test_from_array_accepts_object_arrays_of_counts(folded):
+    """
+    ``MutationLayout.from_array`` rejected an object-dtype array of valid counts by its dtype. Such an array is read
+    by its values, so negative, fractional, NaN and non-numeric entries still raise ValueError.
+    """
+    coal = pg.Coalescent(n=4)
+    layout = (coal.fsfs if folded else coal.sfs).mutation_layout()
+    expected = (1, 0) if folded else (1, 0, 0)
+
+    assert layout.from_array(np.array([3, 1, 0, 0, 2], dtype=object)) == expected
+    assert layout.from_array(np.array([3, np.int64(1), 0, 0, 2.0], dtype=object)) == expected
+
+    for counts in ([0, -1, 0, 2, 0], [0, 0.5, 0, 0.5, 0], [0, 1, np.nan, 0, 0], [0, '1', 0, 0, 0],
+                   [0, True, 0, 0, 0], [0, None, 0, 0, 0]):
+        with pytest.raises(ValueError):
+            layout.from_array(np.array(counts, dtype=object))
+
+
 def test_empirical_mutation_config_rejects_other_layout():
     """
     A configuration of another layout raises ValueError on the simulated spectrum, which stores its frequencies in

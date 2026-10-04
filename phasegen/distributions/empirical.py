@@ -384,20 +384,21 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param n_blocks: Number of blocks ``B``, reduced to half the sample size for small samples. Nothing is cached
             below two blocks.
         """
-        n_blocks = min(n_blocks, self.samples.shape[0] // 2)
+        samples = self.samples
+        n_blocks = min(n_blocks, samples.shape[0] // 2)
 
         if n_blocks < 2:
             return
 
-        blocks = self.samples[:self.samples.shape[0] // n_blocks * n_blocks]
-        blocks = blocks.reshape(n_blocks, -1, *self.samples.shape[1:])
+        blocks = samples[:samples.shape[0] // n_blocks * n_blocks]
+        blocks = blocks.reshape(n_blocks, -1, *samples.shape[1:])
 
         # the base class' statistics are plain numpy; the subclasses only wrap the identical numerics in an SFS type
         stats = [EmpiricalDistribution(block) for block in blocks]
 
         self._standard_errors = {}
         for name in self._STANDARD_ERROR_STATISTICS:
-            if name in ('cov', 'corr') and self.samples.ndim == 1:
+            if name in ('cov', 'corr') and samples.ndim == 1:
                 continue  # a 1-D sample has no covariance/correlation: corrcoef is the constant 1, SE a bogus 0
             values = np.array([np.asarray(getattr(s, name), dtype=float) for s in stats])
             self._standard_errors[name] = np.std(values, axis=0) / np.sqrt(n_blocks)
@@ -501,10 +502,11 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param func: The statistic of a matrix with one column per entry.
         :return: The statistic, with entries without variance set to zero.
         """
-        shape = self.samples.shape[1:]
+        samples = self.samples
+        shape = samples.shape[1:]
 
         with np.errstate(divide='ignore', invalid='ignore'):
-            out = np.nan_to_num(func(self.samples.reshape(self.samples.shape[0], -1)))
+            out = np.nan_to_num(func(samples.reshape(samples.shape[0], -1)))
 
         return out.reshape(shape + shape) if len(shape) > 1 else out
 
@@ -525,7 +527,9 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
         :return: The :math:`k`-th moment, per entry for a spectrum.
         """
-        samples = self.samples - np.mean(self.samples, axis=0) if (center and k > 1) else self.samples
+        samples = self.samples
+        if center and k > 1:
+            samples = samples - np.mean(samples, axis=0)
 
         return np.mean(samples ** k, axis=0)
 
@@ -1297,14 +1301,22 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         """
         left, right = np.asarray(left, dtype=float), np.asarray(right, dtype=float)
 
-        super().__init__(left[:, :, None] * right[:, None, :])
+        super(EmpiricalDistribution, self).__init__()
 
-        #: Number of lineages :math:`n`.
-        self._n_lineages: int = left.shape[1] - 1
+        self._cache = None
 
         #: Per-replicate branch lengths of the two loci, ``None`` once freed for serialization.
         self._left: np.ndarray | None = left
         self._right: np.ndarray | None = right
+
+        #: Number of samples, retained when the samples are freed so that it is recorded in a serialized comparison.
+        self.n_samples: int = left.shape[0]
+
+        #: Standard error of each moment statistic, estimated from blocks of the samples, retained when they are freed.
+        self._standard_errors: dict = {}
+
+        #: Number of lineages :math:`n`.
+        self._n_lineages: int = left.shape[1] - 1
 
         #: Cached full-grid joint surface ground truth: ``[(i, j, xs, ys, cdf_grid, pdf_grid), ...]``.
         self._joint_surface = []
@@ -1325,6 +1337,31 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         :return: The pairs.
         """
         return [(locus, i) for locus in (0, 1) for i in range(1, self._n_lineages)]
+
+    @property
+    def samples(self) -> np.ndarray | None:
+        r"""
+        The products :math:`Y_{mij} = L^0_{mi} L^1_{mj}`, of shape ``(N, n + 1, n + 1)``, formed from the branch
+        lengths of the two loci on every access, ``None`` once they are freed.
+        """
+        if self._left is None:
+            return None
+
+        return self._left[:, :, None] * self._right[:, None, :]
+
+    @samples.setter
+    def samples(self, value: None) -> None:
+        """
+        Free the branch lengths of the two loci.
+
+        :param value: ``None``.
+        :raises AttributeError: If ``value`` is not ``None``, as the samples are formed from the branch lengths.
+        """
+        if value is not None:
+            raise AttributeError("The samples are formed from the branch lengths of the two loci and cannot be set.")
+
+        self._left = None
+        self._right = None
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -1375,7 +1412,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
 
         :return: The pairs ``(i, j)``.
         """
-        n = self.samples.shape[1] - 1
+        n = self._n_lineages
 
         return [(i, j) for i in range(1, n) for j in range(1, n)]
 
@@ -1428,7 +1465,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         :return: The :math:`k`-th moment per pair of classes.
         :raises ValueError: If the samples have been dropped and the moment is not among those retained.
         """
-        if self.samples is None:
+        if self._left is None:
             retained = {1: 'mean', 2: 'var' if center else 'm2', 3: None if center else 'm3', 4: None if center else 'm4'}
 
             if retained.get(k) is None:
@@ -1499,7 +1536,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
 
     def _drop(self) -> None:
         """Drop the per-replicate samples, retaining the moment statistics and their block standard errors."""
-        if self.samples is None:
+        if self._left is None:
             return
 
         for name in ('mean', 'var', 'm2', 'm3', 'm4', 'cov', 'corr'):
@@ -1508,9 +1545,6 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         self._cache_standard_errors()
 
         super()._drop()
-
-        self._left = None
-        self._right = None
 
 
 class DictContainer(dict):  # pragma: no cover

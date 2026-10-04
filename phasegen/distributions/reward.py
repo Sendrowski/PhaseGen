@@ -700,6 +700,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :return: The coefficients :math:`[\Phi_0(s), \ldots, \Phi_J(s)]`.
         :raises NotImplementedError: If a reward does not assign one value per state, or if the coalescent has a
             bounded accumulation window.
+        :raises TypeError: If ``order`` is not a number.
         :raises ValueError: If ``on`` is not ``'a'`` or ``'b'``, if ``order`` is not a non-negative integer, if a
             reward is negative, or if some state carrying mass can never reach a common ancestor in the final epoch.
         """
@@ -1986,7 +1987,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         other reward, whichever is larger, up to ``_MOMENT_N0_MAX``. A moment still moving there is reported by a
         warning. Each node is evaluated once, since every truncation weights a subset of the nodes of the next, and a
         node below the real axis takes the conjugate of the coefficients at its mirror image, as they are real on the
-        axis. The ladder is memoised per ``k``, so that ``mean``, ``var`` and ``moment(2)`` share one.
+        axis. The ladder is memoised per ``k``, so that ``mean``, ``var`` and ``moment(2)`` share one, and honours
+        :attr:`Settings.cache <phasegen.settings.Settings.cache>`.
 
         :param k: Highest order.
         :return: The moments at the last two truncations, of shape ``(2, k)``.
@@ -2053,9 +2055,11 @@ class ConditionalRewardDistribution(RewardDistribution):
                 "inner inversion up to N0 = %d. They may be off by about that much.", self.label, move, _MOMENT_TOL, n0
             )
 
-        cache[k] = np.array(ladder[-2:])
+        ladder = np.array(ladder[-2:])
+        if Settings.cache:
+            cache[k] = ladder
 
-        return cache[k]
+        return ladder
 
     @cached_property
     def var(self) -> float:
@@ -2106,6 +2110,7 @@ class ConditionalRewardDistribution(RewardDistribution):
 
         :param k: Order :math:`k` of the moment.
         :return: The raw moment of order ``k``.
+        :raises TypeError: If ``k`` is not a number.
         :raises ValueError: If ``k`` is not an integer of at least 1, or if the density of the conditioning reward at
             :math:`v` is not resolvable.
         :raises NotImplementedError: If ``k`` exceeds 2 for :math:`v = 0`.

@@ -1264,6 +1264,35 @@ def test_conditional_moments_share_one_ladder(monkeypatch):
     assert jd.lst_taylor(0.5, order=2.0) == jd.lst_taylor(0.5, order=2)
 
 
+def test_conditional_moment_ladder_honours_the_cache_setting(monkeypatch):
+    """With ``Settings.cache = False``, ``ConditionalRewardDistribution._moment_ladder`` memoised the ladder per order,
+    so a repeated conditional moment evaluated no Taylor coefficients. Each call evaluates one ladder, and with the
+    cache on a repeated call evaluates none."""
+    jd = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={0: 1, 0.5: 0.2})).sfs.joint(4, 1)
+    v = float(jd.marginal('a').quantile(0.5 + 0.5 * float(jd._atoms['a0'])))
+    cond = jd.conditional('a', v)
+
+    calls = []
+    batch = jd._lst_taylor_batch
+    monkeypatch.setattr(jd, '_lst_taylor_batch', lambda *args: calls.append(1) or batch(*args))
+
+    prev = Settings.cache
+    Settings.cache = False
+    try:
+        m3 = cond.moment(3)
+        n = len(calls)
+        assert n > 0
+        assert cond.moment(3) == m3
+        assert len(calls) == 2 * n
+        assert not cond.__dict__.get('_ladder_cache')
+    finally:
+        Settings.cache = prev
+
+    assert cond.moment(3) == m3
+    assert cond.moment(3) == m3
+    assert len(calls) == 3 * n
+
+
 def test_check_conditional_moments_compares_against_the_reported_mean():
     """``JointRewardDistribution.check_conditional_moments`` took its reference from an order-1 ladder, which can stop
     at a different truncation than the order-2 ladder the conditional's mean is read from."""
@@ -3012,3 +3041,15 @@ def test_lst_taylor_validates_its_arguments():
     with pytest.raises(ValueError, match='order'):
         joint.lst_taylor(0.5, order=-1)
     assert len(joint.lst_taylor(0.5, on='b', order=0)) == 1
+
+
+def test_lst_taylor_documents_the_type_error_of_a_non_numeric_order():
+    """``JointRewardDistribution.lst_taylor`` raises TypeError for a non-numeric order, as ``_validate_order`` does
+    elsewhere, and its docstring listed only ValueError for a bad order."""
+    joint = pg.Coalescent(n=3).sfs.joint(1, 2)
+
+    with pytest.raises(TypeError):
+        joint.lst_taylor(0.5, order='2')
+
+    assert ':raises TypeError:' in type(joint).lst_taylor.__doc__
+    assert ':raises TypeError:' in pg.distributions.ConditionalRewardDistribution.moment.__doc__

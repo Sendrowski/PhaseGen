@@ -4,6 +4,7 @@ under the infinite-sites model on any state space whose rewards count the branch
 """
 import heapq
 import itertools
+import numbers
 from abc import ABC
 from typing import Dict, Hashable, Iterator, Literal, Optional, Sequence, Tuple, Union
 
@@ -214,6 +215,9 @@ class MutationLayout:
 
         if counts.shape != self.shape:
             raise ValueError(f"The counts must have shape {self.shape}, got {counts.shape}.")
+
+        if counts.dtype.kind == 'O' and all(isinstance(c, numbers.Real) and not isinstance(c, bool) for c in counts.flat):
+            counts = counts.astype(float)
 
         if counts.dtype.kind not in 'iuf' or not np.all(np.isfinite(counts) & (counts >= 0) & (counts % 1 == 0)):
             raise ValueError(f"The counts must be non-negative integers, got {counts.tolist()}.")

@@ -842,6 +842,33 @@ def test_sample_variance_matches_var():
     assert np.all(np.abs(sfs2.var.data[1:3, 1:3] - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
 
 
+def test_empirical_spectrum_keeps_only_the_branch_lengths_of_the_two_loci():
+    """
+    ``EmpiricalTwoLocusSFSDistribution`` stored the dense per-replicate products ``L^0_i L^1_j`` of ``N (n + 1)^2``
+    floats beside the branch lengths of the two loci. It holds no array of that size, and its statistics equal those
+    of the products.
+    """
+    e = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.to_empirical(2000, seed=1)
+    left, right = e._left.copy(), e._right.copy()
+    y = left[:, :, None] * right[:, None, :]
+
+    assert all(v.size < y.size for v in vars(e).values() if isinstance(v, np.ndarray))
+    np.testing.assert_array_equal(e.samples, y)
+    np.testing.assert_array_equal(e.mean.data, np.mean(y, axis=0))
+    np.testing.assert_array_equal(e.var.data, np.var(y, axis=0))
+    np.testing.assert_array_equal(e.moment(3).data, np.mean((y - np.mean(y, axis=0)) ** 3, axis=0))
+    np.testing.assert_array_equal(e.cov, np.cov(y.reshape(len(y), -1), rowvar=False, bias=True).reshape(5, 5, 5, 5))
+
+    e._drop()
+
+    assert e.samples is None and e._left is None and e._right is None
+    np.testing.assert_array_equal(e.mean.data, np.mean(y, axis=0))
+    assert e.n_samples == 2000
+
+    with pytest.raises(AttributeError):
+        e.samples = y
+
+
 def test_empirical_moments_survive_dropping_the_samples():
     """After the samples are freed, the empirical spectrum serves its retained moments and covariance."""
     e = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.to_empirical(5000, seed=1)
