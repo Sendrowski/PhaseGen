@@ -119,3 +119,24 @@ test_that("the declared Python version constraints admit Python 3.10 to 3.13", {
     expect_true(all(vapply(checkers, function(check) check(version), logical(1))), label = version)
   }
 })
+
+test_that("plot_accumulation() draws empirical distributions and coalescents like the exact distribution", {
+  skip_if_not(phasegen_is_installed())
+
+  t <- c(0.5, 1, 2)
+  coal <- pg$Coalescent(n = 4L)
+  ms <- pg$distributions$MsprimeCoalescent(n = 4L, num_replicates = 200L, parallelize = FALSE, seed = 1L)
+  sampled <- pg$distributions$SampledCoalescent(coal, n_samples = 200L, seed = 1L)
+
+  exact <- plot_accumulation(coal$tree_height, k = 2L, end_times = t)
+  expect_equal(plot_accumulation(coal, k = 2L, end_times = t)$data, exact$data)
+
+  for (x in list(ms$tree_height, ms$sfs, ms, sampled, sampled$sfs)) {
+    p <- plot_accumulation(x, k = 1L, end_times = t)
+    expect_s3_class(p, "ggplot")
+    expect_equal(sort(unique(p$data$x)), t)
+    expect_no_error(ggplot2::ggplot_build(p))
+  }
+
+  expect_equal(length(unique(plot_accumulation(ms$sfs, end_times = t)$data$series)), 3)
+})

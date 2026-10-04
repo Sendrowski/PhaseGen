@@ -3,6 +3,10 @@
 \name{plot_accumulation}
 \alias{plot_accumulation}
 \alias{plot_accumulation.phasegen.distributions.phase_type.PhaseTypeDistribution}
+\alias{plot_accumulation.phasegen.distributions.empirical._EmpiricalAccumulating}
+\alias{plot_accumulation.phasegen.distributions.coalescent.Coalescent}
+\alias{plot_accumulation.phasegen.distributions.empirical.MsprimeCoalescent}
+\alias{plot_accumulation.phasegen.distributions.empirical.SampledCoalescent}
 \title{Plot the accumulation of a moment over time}
 \usage{
 plot_accumulation(x, ...)
@@ -17,9 +21,54 @@ plot_accumulation(x, ...)
   title = NULL,
   ...
 )
+
+\method{plot_accumulation}{phasegen.distributions.empirical._EmpiricalAccumulating}(
+  x,
+  k = 1L,
+  end_times = NULL,
+  rewards = NULL,
+  center = TRUE,
+  permute = TRUE,
+  title = NULL,
+  ...
+)
+
+\method{plot_accumulation}{phasegen.distributions.coalescent.Coalescent}(
+  x,
+  k = 1L,
+  end_times = NULL,
+  rewards = NULL,
+  center = TRUE,
+  permute = TRUE,
+  title = NULL,
+  ...
+)
+
+\method{plot_accumulation}{phasegen.distributions.empirical.MsprimeCoalescent}(
+  x,
+  k = 1L,
+  end_times = NULL,
+  rewards = NULL,
+  center = TRUE,
+  permute = TRUE,
+  title = NULL,
+  ...
+)
+
+\method{plot_accumulation}{phasegen.distributions.empirical.SampledCoalescent}(
+  x,
+  k = 1L,
+  end_times = NULL,
+  rewards = NULL,
+  center = TRUE,
+  permute = TRUE,
+  title = NULL,
+  ...
+)
 }
 \arguments{
-\item{x}{A phase-type distribution, such as \code{coal$tree_height} or \code{coal$sfs}.}
+\item{x}{A phase-type distribution, such as \code{coal$tree_height} or \code{coal$sfs}, an empirical distribution of a
+\code{MsprimeCoalescent} or \code{SampledCoalescent}, or a coalescent.}
 
 \item{...}{Unused.}
 
@@ -27,7 +76,8 @@ plot_accumulation(x, ...)
 
 \item{end_times}{Times at which to evaluate the moment, \code{NULL} for the default.}
 
-\item{rewards}{A list of \code{k} rewards, \code{NULL} for the reward of the distribution.}
+\item{rewards}{A list of \code{k} rewards, \code{NULL} for the reward of the distribution, or the tree-height reward for a
+coalescent.}
 
 \item{center}{Logical, whether to center the moment around the mean. Default is \code{TRUE}.}
 
@@ -40,7 +90,8 @@ A ggplot object.
 }
 \description{
 Draws a moment of a phase-type distribution with the absorption time truncated at each end time, one curve per bin
-for a spectrum distribution.
+for a spectrum distribution. An empirical distribution or a coalescent simulated by \code{MsprimeCoalescent} or sampled
+by \code{SampledCoalescent} draws the corresponding sample moment.
 }
 \examples{
 \dontrun{
@@ -48,6 +99,7 @@ pg <- load_phasegen()
 coal <- pg$Coalescent(n = 10L)
 plot_accumulation(coal$sfs, k = 1L)
 plot_accumulation(coal$tree_height, k = 2L)
+plot_accumulation(coal, k = 2L)
 }
 
 }

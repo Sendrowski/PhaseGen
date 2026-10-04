@@ -1143,12 +1143,15 @@ plot.phasegen.demography.Demography <- function(x, which = c("all", "pop_sizes",
 #' Plot the accumulation of a moment over time
 #'
 #' Draws a moment of a phase-type distribution with the absorption time truncated at each end time, one curve per bin
-#' for a spectrum distribution.
+#' for a spectrum distribution. An empirical distribution or a coalescent simulated by `MsprimeCoalescent` or sampled
+#' by `SampledCoalescent` draws the corresponding sample moment.
 #'
-#' @param x A phase-type distribution, such as `coal$tree_height` or `coal$sfs`.
+#' @param x A phase-type distribution, such as `coal$tree_height` or `coal$sfs`, an empirical distribution of a
+#'        `MsprimeCoalescent` or `SampledCoalescent`, or a coalescent.
 #' @param k The order of the moment. Default is `1`.
 #' @param end_times Times at which to evaluate the moment, `NULL` for the default.
-#' @param rewards A list of `k` rewards, `NULL` for the reward of the distribution.
+#' @param rewards A list of `k` rewards, `NULL` for the reward of the distribution, or the tree-height reward for a
+#'        coalescent.
 #' @param center Logical, whether to center the moment around the mean. Default is `TRUE`.
 #' @param permute Logical, whether to average cross-moments over all permutations of the rewards. Default is `TRUE`.
 #' @param title Plot title, `NULL` for the default.
@@ -1162,6 +1165,7 @@ plot.phasegen.demography.Demography <- function(x, which = c("all", "pop_sizes",
 #' coal <- pg$Coalescent(n = 10L)
 #' plot_accumulation(coal$sfs, k = 1L)
 #' plot_accumulation(coal$tree_height, k = 2L)
+#' plot_accumulation(coal, k = 2L)
 #' }
 #'
 #' @export
@@ -1177,14 +1181,65 @@ plot_accumulation.phasegen.distributions.phase_type.PhaseTypeDistribution <- fun
                                                                                       rewards = NULL, center = TRUE,
                                                                                       permute = TRUE, title = NULL,
                                                                                       ...) {
-
   check_unused(...)
+  accumulation_plot(x, k, end_times, rewards, center, permute, title)
+}
+
+
+#' @rdname plot_accumulation
+#' @method plot_accumulation phasegen.distributions.empirical._EmpiricalAccumulating
+#' @export
+plot_accumulation.phasegen.distributions.empirical._EmpiricalAccumulating <- function(x, k = 1L, end_times = NULL,
+                                                                                      rewards = NULL, center = TRUE,
+                                                                                      permute = TRUE, title = NULL,
+                                                                                      ...) {
+  check_unused(...)
+  accumulation_plot(x, k, end_times, rewards, center, permute, title)
+}
+
+
+#' @rdname plot_accumulation
+#' @method plot_accumulation phasegen.distributions.coalescent.Coalescent
+#' @export
+plot_accumulation.phasegen.distributions.coalescent.Coalescent <- function(x, k = 1L, end_times = NULL, rewards = NULL,
+                                                                           center = TRUE, permute = TRUE, title = NULL,
+                                                                           ...) {
+  check_unused(...)
+  accumulation_plot(x$`_get_dist`(as.integer(k), rewards), k, end_times, rewards, center, permute, title)
+}
+
+
+#' @rdname plot_accumulation
+#' @method plot_accumulation phasegen.distributions.empirical.MsprimeCoalescent
+#' @export
+plot_accumulation.phasegen.distributions.empirical.MsprimeCoalescent <- function(x, k = 1L, end_times = NULL,
+                                                                                 rewards = NULL, center = TRUE,
+                                                                                 permute = TRUE, title = NULL, ...) {
+  check_unused(...)
+  accumulation_plot(x$`_accumulator`(), k, end_times, rewards, center, permute, title)
+}
+
+
+#' @rdname plot_accumulation
+#' @method plot_accumulation phasegen.distributions.empirical.SampledCoalescent
+#' @export
+plot_accumulation.phasegen.distributions.empirical.SampledCoalescent <- function(x, k = 1L, end_times = NULL,
+                                                                                 rewards = NULL, center = TRUE,
+                                                                                 permute = TRUE, title = NULL, ...) {
+  check_unused(...)
+  accumulation_plot(x$`_accumulator`(as.integer(k), rewards), k, end_times, rewards, center, permute, title)
+}
+
+
+# Curves of the moment accumulation of `source`, an object with the `_plot_accumulation_data` of a phase-type
+# distribution
+accumulation_plot <- function(source, k, end_times, rewards, center, permute, title) {
 
   args <- list(k = as.integer(k), center = center, permute = permute)
   args$end_times <- np_or_null(end_times)
   args$rewards <- rewards
 
-  curves <- do.call(x$`_plot_accumulation_data`, args)
+  curves <- do.call(source$`_plot_accumulation_data`, args)
 
   line_plot(
     curve_frame(curves),
