@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     import msprime
     import tskit
     from ..visualization import _CurveData
+    from matplotlib import pyplot as plt
 
 logger = logging.getLogger('phasegen')
 
