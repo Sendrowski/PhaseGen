@@ -973,8 +973,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         :class:`~phasegen.distributions.SampledCoalescent`.
 
         :param n_samples: Number of trajectories to sample per statistic.
-        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one is drawn. ``None`` draws fresh
-            entropy.
+        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one is drawn. ``None`` draws one
+            from fresh entropy.
         :return: The sampled coalescent.
 
         .. versionadded:: 2.0

@@ -3264,14 +3264,14 @@ class _SampledTrajectories:  # pragma: no cover
             self,
             dist: PhaseTypeDistribution,
             n_samples: int,
-            seed: Optional[np.random.SeedSequence],
+            seed: np.random.SeedSequence,
             end_time: Optional[float],
             lineage_config: LineageConfig
     ) -> None:
         """
         :param dist: The distribution whose state space the trajectories visit.
         :param n_samples: Number of trajectories.
-        :param seed: Seed sequence of the sampler, ``None`` for fresh entropy.
+        :param seed: Seed sequence of the sampler.
         :param end_time: End time of the coalescent, ``None`` for absorption.
         :param lineage_config: Lineage configuration of the coalescent.
         """
@@ -3823,7 +3823,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param record_migration: Whether to record migrations, which the per-deme statistics of more than one deme
             require.
         :param simulate_mutations: Whether to simulate mutations.
-        :param seed: Non-negative integer random seed. ``None`` draws fresh entropy.
+        :param seed: Non-negative integer random seed. ``None`` draws one from fresh entropy.
         :raises ValueError: If ``model`` is a Beta coalescent whose alpha exceeds 1.991, the largest that msprime
             accepts, or if ``simulate_mutations`` is set without a ``mutation_rate``.
         """
@@ -3895,8 +3895,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Whether to simulate mutations.
         self.simulate_mutations: bool = simulate_mutations
 
-        #: Random seed.
-        self.seed: int = seed
+        #: Random seed, drawn from fresh entropy at construction if none is given.
+        self.seed: int = int(np.random.default_rng().integers(2 ** 63)) if seed is None else seed
 
     def get_coalescent_model(self) -> 'msprime.AncestryModel':
         """
@@ -3915,38 +3915,32 @@ class MsprimeCoalescent(AbstractCoalescent):
         if isinstance(self.model, DiracCoalescent):
             return ms.DiracCoalescent(psi=self.model.psi, c=self.model.c)
 
-    def _msprime_seed(self) -> Optional[int]:
+    def _msprime_seed(self) -> int:
         """
         The msprime seed of :attr:`seed`, wrapped into msprime's range :math:`[1, 2^{32} - 1]`, which it leaves
         unchanged. It seeds the statistics simulated outside the batches of :meth:`simulate`.
 
-        :return: The msprime seed, ``None`` for fresh entropy.
+        :return: The msprime seed.
         """
-        return None if self.seed is None else (self.seed - 1) % (2 ** 32 - 1) + 1
+        return (self.seed - 1) % (2 ** 32 - 1) + 1
 
-    def _batch_seeds(self) -> List[Optional[np.random.SeedSequence]]:
+    def _batch_seeds(self) -> List[np.random.SeedSequence]:
         """
         The seed sequence of each of the :attr:`n_threads` batches, spawned from :attr:`seed`.
 
-        :return: One seed sequence per batch, ``None`` for fresh entropy.
+        :return: One seed sequence per batch.
         """
-        if self.seed is None:
-            return [None] * self.n_threads
-
         return np.random.SeedSequence(self.seed).spawn(self.n_threads)
 
     @staticmethod
-    def _msprime_seeds(seed: Optional[np.random.SeedSequence], n: int) -> List[Optional[int]]:
+    def _msprime_seeds(seed: np.random.SeedSequence, n: int) -> List[int]:
         """
         Draw ``n`` msprime seeds, in msprime's range :math:`[1, 2^{32} - 1]`, from a seed sequence.
 
-        :param seed: Seed sequence, ``None`` for fresh entropy.
+        :param seed: Seed sequence.
         :param n: Number of seeds.
-        :return: The msprime seeds, ``None`` for fresh entropy.
+        :return: The msprime seeds.
         """
-        if seed is None:
-            return [None] * n
-
         return [int(s) % (2 ** 32 - 1) + 1 for s in seed.generate_state(n)]
 
     @property
@@ -3986,7 +3980,7 @@ class MsprimeCoalescent(AbstractCoalescent):
     def _sim_ancestry(
             placements: List[Tuple[float, dict]],
             num_replicates: int,
-            random_seed: Optional[int],
+            random_seed: int,
             **kwargs
     ) -> Iterator['tskit.TreeSequence']:
         """
@@ -3995,7 +3989,7 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         :param placements: Pairs of the weight and the keyword arguments placing the samples, see ``_placements``.
         :param num_replicates: Number of replicates.
-        :param random_seed: msprime seed, which also draws the starting configurations. ``None`` draws fresh entropy.
+        :param random_seed: msprime seed, which also draws the starting configurations.
         :param kwargs: Further keyword arguments of :func:`msprime.sim_ancestry`.
         :return: The tree sequences.
         """
@@ -4059,7 +4053,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
         jsfs_sample_cap = self._jsfs_sample_cap // self.n_threads
 
-        def simulate_batch(seed: Optional[np.random.SeedSequence]) -> dict:
+        def simulate_batch(seed: np.random.SeedSequence) -> dict:
             """
             Simulate one batch of replicates, accumulating every requested statistic in a single pass over the tree
             sequences via self-contained per-statistic accumulators.
@@ -4580,7 +4574,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         """
         The lineage trajectories of the replicates, recorded on first use. They are simulated together with the
         statistics of :meth:`simulate` while those are not yet held, and otherwise from the same seeds, which give
-        the same genealogies for a fixed :attr:`seed`.
+        the same genealogies.
 
         :return: The trajectories.
         """
@@ -4813,10 +4807,13 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param coalescent: The exact coalescent to sample from.
         :param n_samples: Number of trajectories to simulate per statistic.
         :param seed: Non-negative integer seed, or a :class:`numpy.random.Generator` from which one is drawn at
-            construction. ``None`` draws fresh entropy per statistic.
+            construction. ``None`` draws one from fresh entropy.
         :raises ValueError: If ``seed`` is a negative integer.
         """
-        if seed is not None and not isinstance(seed, np.random.Generator) and seed < 0:
+        if seed is None:
+            seed = np.random.default_rng()
+
+        if not isinstance(seed, np.random.Generator) and seed < 0:
             raise ValueError(f"The seed must be non-negative, got {seed}.")
 
         # adopt the wrapped coalescent's configuration: this satisfies the AbstractCoalescent contract and retains
@@ -4834,22 +4831,21 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         #: Number of trajectories sampled per statistic.
         self.n_samples: int = n_samples
 
-        #: Random seed.
-        self.seed: Optional[int] = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed
+        #: Random seed, drawn at construction if none is given.
+        self.seed: int = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed
 
-    def _seed(self, name: str) -> Optional[np.random.SeedSequence]:
+    def _seed(self, name: str) -> np.random.SeedSequence:
         """
         :param name: The key of the spawned seed in ``_spawn_keys``.
-        :return: The seed sequence of the statistic, ``None`` for fresh entropy.
+        :return: The seed sequence of the statistic.
         """
-        return None if self.seed is None else np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],))
+        return np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys[name],))
 
     def _to_empirical(self, name: str):
         """Sample the named analytic distribution into its empirical counterpart, seeded reproducibly, with the
         accumulation over time of its trajectories."""
         exact = getattr(self._coalescent, name)
-        seed = self._seed(name)
-        dist = exact.to_empirical(self.n_samples, seed=None if seed is None else np.random.default_rng(seed))
+        dist = exact.to_empirical(self.n_samples, seed=np.random.default_rng(self._seed(name)))
 
         trajectories = self._trajectories(name, exact)
         start = self._coalescent.start_time

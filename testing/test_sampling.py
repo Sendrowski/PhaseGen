@@ -446,6 +446,24 @@ def test_sampled_coalescent_accepts_a_generator_seed():
     np.testing.assert_array_equal(a.sfs.samples, b.sfs.samples)
 
 
+@pytest.mark.parametrize('make', [
+    lambda: MsprimeCoalescent(n=4, num_replicates=200, n_threads=4, parallelize=False),
+    lambda: SampledCoalescent(coalescent=pg.Coalescent(n=4), n_samples=200),
+], ids=['msprime', 'sampled'])
+def test_unseeded_trajectory_rerun_reproduces_the_statistics(make):
+    """With the default ``seed=None`` the trajectories behind ``accumulate`` were rerun from fresh entropy, so the
+    accumulation up to infinity differed from the moments of the statistic read before it, also on an object restored
+    from its serialization."""
+    import jsonpickle
+
+    coal = make()
+    moments = [coal.tree_height.moment(k) for k in (1, 2)]
+    restored = jsonpickle.decode(jsonpickle.encode(coal, keys=True), keys=True)
+
+    for c in (coal, restored):
+        assert [c.tree_height.accumulate(k, [np.inf])[0] for k in (1, 2)] == pytest.approx(moments, rel=1e-12)
+
+
 def test_msprime_mutation_configs_survive_drop_and_serialization():
     """The configuration frequencies of a spectrum with mutation counts are persisted by ``_touch``, remain available
     after ``_drop`` frees the counts, and are restored by jsonpickle under the serialized key ``mutation_configs``."""
