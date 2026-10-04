@@ -692,3 +692,64 @@ def test_two_locus_with_free_recombination_factorises(dem):
     for m0, m1 in [((0, 0), (0, 0)), ((1, 0), (0, 1)), ((2, 1), (1, 0))]:
         ref = sfs.get_mutation_config(m0, 0.5) * sfs.get_mutation_config(m1, 0.5)
         np.testing.assert_allclose(sfs2.get_mutation_config(layout.config(m0 + m1), 0.5), ref, rtol=2e-4)
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+@pytest.mark.parametrize('sizes', [{0: 1}, {0: 1, 0.5: 2}])
+def test_deme_view_with_isolated_unsampled_demes(sizes, sparse, monkeypatch):
+    """
+    Isolated unsampled demes leave closed classes of states without reward and absorption in the deme views, which
+    made the single-epoch resolvent singular (LinAlgError) and the unbounded last epoch of several epochs NaN. The
+    lineages never leave the sampled deme, so its view has the probabilities of the panmictic spectrum and the view of
+    an unsampled deme puts all mass on the empty configuration, both in agreement with the Laplace transform of the
+    restricted total branch length.
+    """
+    monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1 if sparse else 10 ** 9)
+    pops = ('pop_0', 'pop_1', 'pop_2')
+    dem = pg.Demography(pop_sizes={'pop_0': sizes, 'pop_1': {0: 1}, 'pop_2': {0: 1}},
+                        migration_rates={(a, b): {0: 0} for a in pops for b in pops if a != b})
+    coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0}, demography=dem)
+    ref = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': sizes})).sfs
+    theta = 0.7
+
+    for config in ((0, 0), (1, 0), (2, 1), (0, 2)):
+        np.testing.assert_allclose(coal.sfs.demes['pop_0'].get_mutation_config(config, theta),
+                                   ref.get_mutation_config(config, theta), rtol=1e-12)
+
+    for pop in pops:
+        p0 = coal.sfs.demes[pop].get_mutation_config((0, 0), theta)
+        np.testing.assert_allclose(p0, coal.total_branch_length.demes[pop].distribution().lst(theta).real, rtol=1e-12)
+
+    assert coal.sfs.demes['pop_1'].get_mutation_config((0, 0), theta) == pytest.approx(1, abs=1e-14)
+
+
+def test_rebin_accepts_lists_for_tuple_labels():
+    """
+    Lists stand for tuples in the class labels of a rebinned layout, and integral floats for integers, as passed from
+    R, so the joint, deme-resolved and two-locus layouts can be rebinned from lists. A list label that is not one of
+    the layout raises ValueError.
+    """
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+        pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION))
+    sfs2 = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1)).sfs2
+
+    for layout in (coal.jsfs.mutation_layout(), coal.sfs.mutation_layout(demes=True), sfs2.mutation_layout()):
+        a, b, c = layout.bins[0][0], layout.bins[1][0], layout.bins[2][0]
+        expected = layout.rebin([(a,), (b, c)])
+        as_lists = layout.rebin([[[float(x) if isinstance(x, int) else x for x in a]], [list(b), list(c)]])
+
+        assert as_lists == expected
+        assert as_lists.positions == expected.positions
+
+    with pytest.raises(ValueError):
+        coal.sfs.mutation_layout().rebin([[[1]]])
+
+    with pytest.raises(ValueError):
+        coal.jsfs.mutation_layout().rebin([[[5, 0]]])
+
+
+def test_probability_generator_at_zero_theta_rejects_a_window():
+    """The descending generator raises NotImplementedError on a bounded window also at zero theta."""
+    for kwargs in (dict(start_time=0.5), dict(end_time=1.0)):
+        with pytest.raises(NotImplementedError):
+            next(pg.Coalescent(n=4, **kwargs).sfs.get_mutation_configs(theta=0))

@@ -186,12 +186,25 @@ class MutationLayout:
         The layout of the same spectrum with other bins.
 
         :param bins: The bins, each a sequence of the class labels of this layout it merges. Classes left out are not
-            counted.
+            counted. A list stands for the tuple of its entries, so that ``[[[1, 0]], [[0, 1]]]`` bins the joint
+            classes ``(1, 0)`` and ``(0, 1)``.
         :return: The layout.
         :raises ValueError: If there are no bins, a bin is empty, a class label appears in more than one bin, or a
             class label is not one of this layout.
         """
-        return MutationLayout(bins, self.positions, self.shape, self.axes, self.lineage_config, self.locus_config)
+        keys = {label: label for label in self.positions}
+
+        def canonical(label: Hashable) -> Hashable:
+            if isinstance(label, list):
+                label = tuple(canonical(x) for x in label)
+            try:
+                return keys.get(label, label)
+            except TypeError:
+                raise ValueError(f"The class labels must be hashable, got {label!r}.") from None
+
+        bins = [[canonical(label) for label in b] for b in bins]
+
+        return MutationLayout(bins,self.positions, self.shape, self.axes, self.lineage_config, self.locus_config)
 
     def config(self, counts: Sequence[int]) -> 'MutationConfig':
         """
@@ -615,13 +628,13 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
     def _get_resolvent(self, layout: MutationLayout, theta: float) -> Tuple:
         r"""
         Single-epoch resolvent :math:`\mathbf{U} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}`,
-        the scaled bin rewards :math:`\theta \mathbf{r}_j` and the absorption vector :math:`\mathbf{g}`, with the
-        lattice memo of the row vectors :math:`\mathbf{x}_\mathbf{c} \mathbf{U}`. The most recent
-        :math:`(\text{layout}, \theta)` is cached.
+        the scaled bin rewards :math:`\theta \mathbf{r}_j`, the absorption vector :math:`\mathbf{g}` and the initial
+        distribution, with the lattice memo of the row vectors :math:`\mathbf{x}_\mathbf{c} \mathbf{U}`, over the
+        transient states of ``_leaking_states``. The most recent :math:`(\text{layout}, \theta)` is cached.
 
         :param layout: The layout.
         :param theta: The mutation rate :math:`\theta`.
-        :return: ``(U, theta R, g, memo)``.
+        :return: ``(U, theta R, g, alpha, memo)``.
         """
         cached = self.__dict__.get('_resolvent')
         if cached is not None and cached[0] == (layout, theta):
@@ -634,12 +647,19 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
 
         S = self.state_space.S[non_absorbing, :][:, non_absorbing]
         S = S.toarray() if sp.issparse(S) else np.asarray(S)
+        e = -S @ np.ones(S.shape[0])
+        r_total = R.sum(axis=0)
 
-        U = np.linalg.inv(theta * np.diag(R.sum(axis=0)) - S)
-        g = U @ (-S @ np.ones(S.shape[0]))
+        leaking = self._leaking_states(S, e, r_total)
+        if leaking is not None:
+            S, e, r_total = S[leaking][:, leaking], e[leaking], r_total[leaking]
+            R, alpha = R[:, leaking], alpha[leaking]
+
+        U = np.linalg.inv(theta * np.diag(r_total) - S)
+        g = U @ e
 
         memo = {(0,) * len(layout): alpha @ U}
-        resolvent = (U, theta * R, g, memo)
+        resolvent = (U, theta * R, g, alpha, memo)
 
         if Settings.cache:
             self.__dict__['_resolvent'] = ((layout, theta), resolvent)
@@ -660,7 +680,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         :param theta: The mutation rate.
         :return: The configuration probability.
         """
-        U, R, g, memo = self._get_resolvent(config.layout, theta)
+        U, R, g, alpha, memo = self._get_resolvent(config.layout, theta)
         origin = (0,) * len(config)
 
         if len(memo) * len(g) > _LATTICE_MEMO_MAX_FLOATS:
@@ -670,7 +690,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
 
         def x_of(c: Tuple[int, ...]) -> np.ndarray:
             if c == origin:
-                return self._mutation_rewards(config.layout)[1]
+                return alpha
 
             x = 0
             for j, cj in enumerate(c):
@@ -801,6 +821,16 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
                 A[a * m:(a + 1) * m, b * m:(b + 1) * m] = np.diag(theta * R[i])
             return A
 
+        def occupation(M: 'np.ndarray | sp.spmatrix', b: np.ndarray, leaking: Optional[np.ndarray]) -> np.ndarray:
+            if leaking is None:
+                return self._lu_solver(M.T, sparse)(b)
+
+            # the occupation of the closed classes enters no equation of the others and exits nowhere
+            k = np.tile(leaking, L)
+            occ = np.zeros(nt)
+            occ[k] = self._lu_solver(M[k][:, k].T, sparse)(b[k])
+            return occ
+
         v = np.zeros(nt)
         v[:m] = alpha
 
@@ -809,8 +839,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             A = build_generator(S)
 
             if tau is None:
-                occ = self._lu_solver((-A).T, sparse)(v)
-                p += occ.reshape(L, m) @ e
+                p += occupation(-A, v, leaking).reshape(L, m) @ e
                 break
 
             if action:
@@ -818,14 +847,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             else:
                 u = v @ expm((A.toarray() if sparse else A) * tau)
 
-            if leaking is None:
-                occ = self._lu_solver(A.T, sparse)(u - v)
-            else:
-                # the occupation of the closed classes enters no equation of the others and exits nowhere
-                k = np.tile(leaking, L)
-                occ = np.zeros(nt)
-                occ[k] = self._lu_solver(A[k][:, k].T, sparse)((u - v)[k])
-            p += occ.reshape(L, m) @ e
+            p += occupation(A, u - v, leaking).reshape(L, m) @ e
             v = u
 
         probs = dict(zip(nodes, p.tolist()))
@@ -845,10 +867,11 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             order: Literal['probability', 'count'] = 'probability'
     ) -> Iterator[Tuple[MutationConfig, float]]:
         """
-        Unending iterator over mutational configurations and their probabilities, as described in
+        Iterator over mutational configurations and their probabilities, as described in
         :meth:`UnfoldedSFSDistribution.get_mutation_config()
-        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. The following example consumes it until
-        the yielded probability mass exceeds 0.8.
+        <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`. It does not end, except that with
+        ``order='probability'`` and ``theta=0`` it yields only the empty configuration. The following example consumes
+        it until the yielded probability mass exceeds 0.8.
 
         ::
 
@@ -868,8 +891,9 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             number of mutations, so that stopping after a given total yields every configuration with at most that many
             mutations.
         :return: An iterator over pairs of configuration and probability.
-        :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``, or ``layout`` belongs to
-            another spectrum.
+        :raises ValueError: If ``order`` is neither ``'probability'`` nor ``'count'``, ``layout`` belongs to
+            another spectrum, or ``theta`` is negative or not finite.
+        :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
         :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """
         if order not in ('probability', 'count'):
@@ -882,6 +906,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
 
         J = len(layout)
 
+        self._assert_no_window()
         self._assert_absorbs()
 
         self.generated_mass = 0
