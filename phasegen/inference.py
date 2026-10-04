@@ -443,6 +443,7 @@ class Inference(Serializable):
         :param get_dist: Callback returning the configured coalescent distribution.
         :param get_loss: Loss function.
         :param opts: Additional options passed to the optimization algorithm.
+        :param method_mle: Method of `scipy.optimize.minimize` used for the optimization.
         :param logger: Logger.
         :return: Result of the optimization procedure.
         """

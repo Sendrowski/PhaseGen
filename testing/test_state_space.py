@@ -2,7 +2,6 @@
 Test StateSpace class.
 """
 import itertools
-import sys
 from collections import defaultdict
 from testing import TestCase
 from testing import state_space_old

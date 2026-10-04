@@ -14,7 +14,6 @@ import scipy.sparse as sp
 from scipy.integrate import simpson
 
 from ..caching import cached_property
-from ..errors import ModelError
 from ..rewards import Reward
 from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
@@ -1098,11 +1097,16 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """
         cache = self.__dict__.setdefault('_step_error_cache', {})
         key = (on, value, truncations, None if keep is None else keep.tobytes())
-        if key not in cache:
-            locations = [x for cls in self._jump_blocks(on, keep) for x in cls['locations']]
-            err = _euler_step_error(value, np.array(locations, dtype=float), truncations) if locations else None
-            cache[key] = err if err is not None and np.abs(err).max() > _STEP_ERROR_FLOOR else None
-        return cache[key]
+        if key in cache:
+            return cache[key]
+
+        locations = [x for cls in self._jump_blocks(on, keep) for x in cls['locations']]
+        err = _euler_step_error(value, np.array(locations, dtype=float), truncations) if locations else None
+        err = err if err is not None and np.abs(err).max() > _STEP_ERROR_FLOOR else None
+        if Settings.cache:
+            cache[key] = err
+
+        return err
 
     @cached_property
     def _lines(self) -> tuple:
@@ -2705,9 +2709,14 @@ class _LineContinuous(ConditionalRewardDistribution):
     def _f(self) -> np.ndarray:
         """The densities of the atoms at the truncation of ``G``."""
         n0 = self._nested._N0
-        if n0 not in self._f_cache:
-            self._f_cache[n0] = self._densities((n0,))[0]
-        return self._f_cache[n0]
+        if n0 in self._f_cache:
+            return self._f_cache[n0]
+
+        f = self._densities((n0,))[0]
+        if Settings.cache:
+            self._f_cache[n0] = f
+
+        return f
 
     def _refine(self) -> None:
         """Refine the inner inversion on the expansion of this continuous part, see ``_NestedConditional._refine``."""

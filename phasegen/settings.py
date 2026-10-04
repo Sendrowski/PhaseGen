@@ -56,7 +56,9 @@ class Settings(metaclass=_SettingsMeta):
 
     #: Whether to memoize cached properties and results. With ``False``, values already stored are still served and
     #: anything not yet computed is recomputed on every access, which helps debugging. The internal memos a
-    #: distribution object keeps of its epochs, state reachability and reward ranges are stored regardless.
+    #: distribution object keeps of its epochs, their sparse generators and stability checks, state reachability, the
+    #: generator blocks at density jumps and reward ranges, and the simulated mutation-configuration frequencies and
+    #: pairwise coalescence times of an empirical distribution, are stored regardless.
     cache: bool = True
 
     #: Whether to use the numba-accelerated state-space construction. Set to ``False`` to force the deprecated

@@ -343,14 +343,15 @@ class Comparison(Serializable):
             mode: str = None
     ) -> None:
         """
-        Compare the given distributions and return their difference.
+        Compare a statistic of the given distributions and log the difference against the tolerance.
 
         :param ph: Phase-type distribution.
-        :param ms: Phase-type distribution.
+        :param ms: Msprime distribution.
         :param stat: Statistic to compare.
         :param tol: Tolerance.
         :param title: Title of the plot.
         :param name: Name of the plot.
+        :param mode: Inversion mode of the pdf, cdf or quantile ('cosine'), or None for the exact curve.
         """
         title = f"{title}: {stat}"
         name = f"{name}_{stat}"
@@ -895,10 +896,11 @@ class Comparison(Serializable):
         Compare the given statistics recursively.
 
         :param ph: Phase-type distribution.
-        :param ms: Phase-type distribution.
+        :param ms: Msprime distribution.
         :param data: Dictionary of statistics to compare, possibly nested.
         :param title: Title prefix for the plot.
         :param name: Name prefix for the plot.
+        :param mode: Inversion mode passed to the curve comparison, or None for the exact curve.
         """
 
         # statistic, distribution or nested demes dictionary

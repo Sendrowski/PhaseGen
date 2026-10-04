@@ -11,7 +11,6 @@ inversion along the conditioning axis under an outer de Hoog inversion. The cond
 ``P(R = 0)`` at ``t = 0``.
 """
 import numpy as np
-import pytest
 
 import phasegen as pg
 from testing import TestCase

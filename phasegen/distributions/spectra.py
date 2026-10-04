@@ -15,7 +15,7 @@ from ..demography import Demography
 from ..rewards import Reward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward, RestrictedReward
 from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
-from ..state_space import BlockCountingStateSpace, StateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
+from ..state_space import BlockCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 from ._common import _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order
 from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction

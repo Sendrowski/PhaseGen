@@ -2297,6 +2297,30 @@ def test_conditioning_across_an_epoch_jump(caplog):
     assert joint.conditional('a', 0.501).mean == pytest.approx(0.51493, abs=4 * 0.00036)
 
 
+def test_step_errors_and_line_atom_densities_honour_the_cache_setting():
+    """With ``Settings.cache = False``, ``JointRewardDistribution._step_errors`` and ``_LineContinuous._f`` stored
+    every value they computed. Neither stores with the cache off, and both store and return the same values with it
+    on."""
+    prev = Settings.cache
+    Settings.cache = False
+    try:
+        joint = _locus_jump_joint()
+        cond = joint.conditional('a', 0.499)
+        uncached = cond._atom_masses, float(cond.cdf(0.3))
+        assert not joint.__dict__.get('_step_error_cache')
+        assert not cond._continuous._f_cache
+    finally:
+        Settings.cache = prev
+
+    joint = _locus_jump_joint()
+    cond = joint.conditional('a', 0.499)
+    cached = cond._atom_masses, float(cond.cdf(0.3))
+    assert joint.__dict__['_step_error_cache']
+    assert cond._continuous._f_cache
+    np.testing.assert_array_equal(cached[0], uncached[0])
+    assert cached[1] == uncached[1]
+
+
 def test_euler_step_error_of_a_unit_step():
     """The Euler series of a unit step converges to the midpoint on the step, half a unit below the value 1 taken
     there, to half the damped weight of an image point ``(2j + 1) t`` on the step, and to the exact value elsewhere."""
