@@ -2,6 +2,7 @@
 Test the tree-height quantile grid and the sweep of ``TreeHeightDistribution``.
 """
 
+import math
 from unittest.mock import patch
 
 import numpy as np
@@ -82,6 +83,73 @@ def test_tree_height_quantile_grid_under_recent_growth_takes_few_exponentials():
     np.testing.assert_allclose(-np.log1p(-th.cdf(q)), -np.log1p(-levels), rtol=1e-8, atol=0)
 
 
+class _LogBudget:
+    """
+    Stands in for the ``math`` module of ``phase_type``, raising once the grid has taken more than ``budget``
+    logarithms, about one per evaluated node, so that a grid that does not terminate fails fast.
+    """
+
+    def __init__(self, budget: int):
+        self.calls, self.budget = 0, budget
+
+    def __getattr__(self, name):
+        return getattr(math, name)
+
+    def _spend(self):
+        self.calls += 1
+
+        if self.calls > self.budget:
+            raise RuntimeError(f'the grid took more than {self.budget} logarithms')
+
+    def log(self, x):
+        self._spend()
+        return math.log(x)
+
+    def log1p(self, x):
+        self._spend()
+        return math.log1p(x)
+
+
+def _island(n: dict, within: float, between: float, pairs: bool) -> pg.Coalescent:
+    """
+    Four demes of size 1. With ``pairs`` the demes form the pairs ``(pop_0, pop_1)`` and ``(pop_2, pop_3)``, with rate
+    ``within`` inside a pair and ``between`` across. Otherwise every rate is ``between``.
+    """
+    pops = [f'pop_{i}' for i in range(4)]
+    paired = lambda a, b: pairs and {a, b} in ({'pop_0', 'pop_1'}, {'pop_2', 'pop_3'})
+
+    return pg.Coalescent(n=n, demography=pg.Demography(
+        pop_sizes={p: 1 for p in pops},
+        migration_rates={(a, b): within if paired(a, b) else between for a in pops for b in pops if a != b}))
+
+
+@pytest.mark.parametrize('coal', [
+    pytest.param(lambda: _island({f'pop_{i}': 1 for i in range(4)}, 0.1, 0.1, False), id='island_one_per_deme'),
+    pytest.param(lambda: _island({f'pop_{i}': 2 for i in range(4)}, 2, 0.1, True), id='1_epoch_4_pops_tree_n_2'),
+])
+def test_tree_height_quantile_grid_terminates_when_the_ancestor_migrates(coal):
+    """
+    The single lineage left at absorption keeps migrating between demes, so the absorbing states carry rates whose
+    rows sum to zero only up to rounding. The grid evaluates a bounded number of nodes and inverts the CDF to a
+    relative error of 1e-8 in the negative log-survival, and the tail density is non-negative. Regression: the slope
+    of the negative log-survival in the far tail read the rounding of those row sums, turned negative, and every
+    segment there was bisected to the depth limit, so the quantile did not return.
+    """
+    import phasegen.distributions.phase_type as phase_type
+
+    th = coal().tree_height
+    levels = np.array([1e-6, 0.01, 0.5, 0.9, 0.99, 1 - 1e-6])
+    _ = th.t_max
+
+    budget = _LogBudget(4000)
+    with patch.object(phase_type, 'math', budget):
+        q = th.quantile(levels)
+
+    assert 0 < budget.calls <= 4000
+    np.testing.assert_allclose(-np.log1p(-th.cdf(q)), -np.log1p(-levels), rtol=1e-8, atol=0)
+    assert np.all(th.pdf(np.linspace(0.5, 1, 6) * th.t_max) >= 0)
+
+
 def test_tree_height_quantile_boundary_levels():
     """
     Levels 0 and 1 return the ends of the support, NaN levels return NaN, and the shape of the levels is kept.
@@ -98,19 +166,32 @@ def test_tree_height_quantile_boundary_levels():
     assert th.quantile(0.5) == out[0, 1]
 
 
-def test_tree_height_quantile_without_cache():
+@pytest.mark.parametrize('cache', [True, False])
+def test_tree_height_quantile_grid_honours_the_cache_flag(cache):
     """
-    With caching disabled the grid is rebuilt for every call and gives the same quantiles.
+    The grid is stored on the distribution and built once when caching is enabled, and rebuilt for every call and
+    never stored when it is disabled. Either way the quantiles agree.
     """
+    from phasegen.distributions.phase_type import _ExpmFunction
+
+    expected = pg.Coalescent(n=6).tree_height.quantile([0.1, 0.5, 0.9])
     th = pg.Coalescent(n=6).tree_height
-    expected = th.quantile([0.1, 0.5, 0.9])
 
     prev = pg.Settings.cache
     try:
-        pg.Settings.cache = False
-        np.testing.assert_array_equal(pg.Coalescent(n=6).tree_height.quantile([0.1, 0.5, 0.9]), expected)
+        pg.Settings.cache = cache
+
+        with patch.object(_ExpmFunction, '_build_cdf_grid', autospec=True,
+                          side_effect=_ExpmFunction._build_cdf_grid) as build:
+            first = th.quantile([0.1, 0.5, 0.9])
+            second = th.quantile([0.1, 0.5, 0.9])
     finally:
         pg.Settings.cache = prev
+
+    assert build.call_count == (1 if cache else 2)
+    assert ('expm_cdf_grid' in th.__dict__.get('_lst_curve_cache', {})) == cache
+    np.testing.assert_array_equal(first, expected)
+    np.testing.assert_array_equal(second, expected)
 
 
 def test_sweep_reads_each_epoch_once():

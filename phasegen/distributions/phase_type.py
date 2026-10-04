@@ -535,6 +535,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_samples: Number of trajectories to simulate.
         :param rewards: Rewards to sample from.
         :param record_visits: Whether to also return the per-state visit frequencies.
+        :param rng: Generator to draw from, ``None`` for fresh entropy.
         :param path: List to which the sojourns of the trajectories are appended as arrays ``(trajectory, state,
             entry time, exit time)``, ``None`` to record none.
         :return: Array of sampled rewards of shape ``(n_samples, len(rewards))`` (and visit frequencies if requested).
@@ -1396,14 +1397,17 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     def _exit_rates(self) -> np.ndarray:
         r"""
-        The per-state absorption rates of the current epoch, :math:`\mathbf{S}\,(\mathbf{1} - \mathbf{h})` with
-        :math:`\mathbf{S}` its rate matrix, :math:`\mathbf{h}` the indicator of the transient states (``_e``) and
-        :math:`\mathbf{1}` the vector of ones. Summing over the absorbing columns keeps a small rate free of
-        cancellation, and the rate is exactly zero on states that do not absorb directly.
+        The per-state absorption rates of the current epoch, :math:`\mathbf{h} \circ \mathbf{S}\,(\mathbf{1} -
+        \mathbf{h})` with :math:`\mathbf{S}` its rate matrix, :math:`\mathbf{h}` the indicator of the transient states
+        (``_e``), :math:`\mathbf{1}` the vector of ones and :math:`\circ` the elementwise product. Summing over the
+        absorbing columns keeps a small rate free of cancellation, and the rate is exactly zero on the absorbing states
+        and on transient states that do not absorb directly.
 
         :return: The absorption rates, one per state.
         """
-        return np.asarray(self.state_space.S @ (1 - np.asarray(self._e, dtype=float)), dtype=float).ravel()
+        e = np.asarray(self._e, dtype=float)
+
+        return e * np.asarray(self.state_space.S @ (1 - e), dtype=float).ravel()
 
     def _sweep(self, t: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         r"""
