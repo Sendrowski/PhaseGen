@@ -741,6 +741,7 @@ def test_rebin_accepts_lists_for_tuple_labels():
 
         assert as_lists == expected
         assert as_lists.positions == expected.positions
+        assert repr(as_lists) == repr(expected)
 
     with pytest.raises(ValueError):
         coal.sfs.mutation_layout().rebin([[[1]]])
@@ -754,3 +755,48 @@ def test_probability_generator_at_zero_theta_rejects_a_window():
     for kwargs in (dict(start_time=0.5), dict(end_time=1.0)):
         with pytest.raises(NotImplementedError):
             next(pg.Coalescent(n=4, **kwargs).sfs.get_mutation_configs(theta=0))
+
+
+@pytest.mark.parametrize('spectrum', ['sfs', 'fsfs', 'jsfs', 'sfs2', 'deme'])
+def test_default_layout_built_once_across_lookups(spectrum, monkeypatch):
+    """
+    Repeated configuration lookups build the default layout of a spectrum once, for plain counts, configurations of
+    another layout of the spectrum and the enumeration, with the same probabilities as with caching disabled, under
+    which the layout is rebuilt. The default layout was rebuilt twice per lookup by the check that a layout belongs
+    to the spectrum, which made the lookups several times slower.
+    """
+    def make():
+        if spectrum == 'sfs2':
+            return pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1)).sfs2
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes=TWO_DEME_SIZES[1], migration_rates=MIGRATION))
+
+        return coal.sfs.demes['pop_0'] if spectrum == 'deme' else getattr(coal, spectrum)
+
+    def probabilities(dist):
+        calls = []
+        build = dist.mutation_layout
+
+        def counted(*args, **kwargs):
+            calls.append(args or kwargs)
+            return build(*args, **kwargs)
+
+        monkeypatch.setattr(dist, 'mutation_layout', counted, raising=False)
+
+        layout = build()
+        other = layout.rebin([layout.bins[0], [c for b in layout.bins[1:] for c in b]])
+        p = [dist.get_mutation_config([1] + [0] * (len(layout) - 1), theta=0.5) for _ in range(3)]
+        p += [dist.get_mutation_config(other.config([1, 1]), theta=0.5) for _ in range(3)]
+        p += [q for _, q in itertools.islice(dist.get_mutation_configs(theta=0.5, layout=other), 5)]
+        n_default = sum(1 for c in calls if not c)
+
+        return p, n_default
+
+    p, n_default = probabilities(make())
+    assert n_default == 1
+
+    monkeypatch.setattr(pg.Settings, 'cache', False)
+    p_uncached, n_uncached = probabilities(make())
+    assert n_uncached > 1
+    np.testing.assert_allclose(p, p_uncached, rtol=1e-12)

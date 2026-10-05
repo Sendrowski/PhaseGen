@@ -22,7 +22,8 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_start_time
+from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_rewards, \
+    _validate_start_time
 
 if TYPE_CHECKING:
     from ..demography import Demography
@@ -330,11 +331,16 @@ class MomentEvaluator:
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
         :return: The :math:`k`-th moment.
-        :raises ValueError: If ``k`` is not a non-negative integer, if the start time is negative, exceeds the
-            end time, or lies beyond the time of almost sure absorption, if the population sizes and migration rates
-            are too far apart for a reliable evaluation, or if the moment is not a number.
+        :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not a non-negative integer, if a single :class:`~phasegen.rewards.Reward` is
+            passed or the number of rewards differs from ``k``, or if the start time is negative, exceeds the end time,
+            or lies beyond the time of almost sure absorption.
+        :raises ModelError: If the population sizes and migration rates are too far apart for a reliable evaluation,
+            or if the moment is not a number.
         """
         k = _validate_order(k)
+        _validate_rewards(rewards, k)
         start_time, end_time = self._resolve_window(start_time, end_time)
 
         # a window starting after 0 is accumulated directly from the entry distribution propagated to its start

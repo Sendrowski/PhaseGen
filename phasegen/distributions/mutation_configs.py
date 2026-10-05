@@ -394,6 +394,22 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         """
         raise NotImplementedError
 
+    def _default_layout(self) -> MutationLayout:
+        """
+        The layout of ``mutation_layout()`` with its default arguments, memoized.
+
+        :return: The layout.
+        """
+        layout = self.__dict__.get('_default_layout_memo')
+
+        if layout is None:
+            layout = self.mutation_layout()
+
+            if Settings.cache:
+                self.__dict__['_default_layout_memo'] = layout
+
+        return layout
+
     @property
     def _layout_lineages(self) -> LineageConfig | InitialDistribution:
         """The lineages the coalescent starts from, as recorded by the layouts."""
@@ -423,7 +439,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
 
         :return: The axes of each kind of layout.
         """
-        return self.mutation_layout().axes,
+        return self._default_layout().axes,
 
     def _check_layout(self, layout: MutationLayout) -> None:
         """
@@ -432,9 +448,15 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         :param layout: The layout.
         :raises ValueError: If the layout records other lineages or loci, or bins another kind of spectrum.
         """
-        if layout.axes not in self._layout_axes() or not layout._same_spectrum(self.mutation_layout()):
+        if layout is self.__dict__.get('_checked_layout'):
+            return
+
+        if layout.axes not in self._layout_axes() or not layout._same_spectrum(self._default_layout()):
             raise ValueError(f"The layout {layout!r} does not belong to this spectrum, whose default layout is "
-                             f"{self.mutation_layout()!r}.")
+                             f"{self._default_layout()!r}.")
+
+        if Settings.cache:
+            self.__dict__['_checked_layout'] = layout
 
     def _as_mutation_config(self, config: Sequence[int]) -> MutationConfig:
         """
@@ -453,7 +475,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         if np.isscalar(config):
             config = (config,)
 
-        return MutationConfig(config, self.mutation_layout())
+        return MutationConfig(config, self._default_layout())
 
     def _assert_no_window(self) -> None:
         """Guard the mutational-configuration path against a bounded accumulation window. The configuration
@@ -900,7 +922,7 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             raise ValueError(f"The order must be 'probability' or 'count', got {order!r}.")
 
         if layout is None:
-            layout = self.mutation_layout()
+            layout = self._default_layout()
         else:
             self._check_layout(layout)
 

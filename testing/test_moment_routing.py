@@ -504,3 +504,19 @@ def test_accumulate_passes_nan_end_time_through(caplog, force_sparse):
     assert np.isnan(out[1])
     np.testing.assert_allclose(out[[0, 2]], th.accumulate(k=2, end_times=[1.0, 2.0]), rtol=1e-12)
     assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+
+@pytest.mark.parametrize('rewards, error', [
+    (pg.TreeHeightReward(), ValueError),
+    ([1.0], TypeError),
+    ([pg.TreeHeightReward(), 'a'], TypeError),
+    ([pg.TreeHeightReward()], ValueError),
+])
+def test_phase_type_moment_validates_rewards(rewards, error):
+    """
+    PhaseTypeDistribution.moment raises ValueError for a single bare reward or a wrong number of rewards, and
+    TypeError for an entry that is not a reward, as Coalescent.moment does. A bare reward and a non-reward entry
+    raised AttributeError or a TypeError about len() before the rewards were validated.
+    """
+    with pytest.raises(error, match='reward'):
+        pg.Coalescent(n=4).tree_height.moment(2, rewards=rewards)
