@@ -73,7 +73,7 @@ Installation
 
          library(phasegen)
 
-      The ``phasegen`` R package serves as a wrapper around the Python library, and draws its figures with ``ggplot2`` through ``plot()`` methods and with base graphics through ``persp()`` methods. Loading the R package declares the Python requirement, which ``reticulate`` resolves into a suitable environment the first time the module is loaded:
+      The ``phasegen`` R package wraps the Python library and plots with ``ggplot2``. Loading the R package declares the Python requirement, which ``reticulate`` resolves into a suitable environment the first time the module is loaded:
 
       .. code-block:: r
 

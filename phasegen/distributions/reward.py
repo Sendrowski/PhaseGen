@@ -133,12 +133,10 @@ class RewardDistribution(CallableDistributionFunctions):
         \frac{\varphi(z_l)}{z_l}\, (-1)^l,
 
     where the transform is evaluated at the nodes :math:`s = z_l = \gamma + \mathrm{i} l \pi / x`. They lie on a
-    vertical line in the complex plane, and their real part :math:`\gamma = -\ln(\varepsilon) / (2x)` damps the
-    function being inverted by :math:`e^{-\gamma x}`, which keeps the series convergent and bounds its aliasing error by
-    about :math:`\varepsilon F(3x)`, with :math:`\varepsilon = \epsilon_\mathrm{mach}^{2/3} \approx 3.7 \times
-    10^{-11}` for the double-precision machine epsilon :math:`\epsilon_\mathrm{mach}`. The weights are
-    :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and the degree :math:`D` is given by :attr:`Settings.dehoog_degree
-    <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in :math:`e^{\mathrm{i} \pi} = -1`, the sum
+    vertical line in the complex plane, and their real part :math:`\gamma = -\ln(\varepsilon) / (2x)`, with
+    :math:`\varepsilon` a small tolerance, damps the function being inverted by :math:`e^{-\gamma x}`, which keeps the
+    series convergent. The weights are :math:`w_0 = 1/2` and :math:`w_l = 1` otherwise, and the degree :math:`D` is
+    given by :attr:`Settings.dehoog_degree <phasegen.settings.Settings.dehoog_degree>`. Read as a power series in :math:`e^{\mathrm{i} \pi} = -1`, the sum
     converges slowly, so it is replaced by its Padé approximant: a continued fraction that matches its first
     :math:`2D + 1` terms, with coefficients from the quotient-difference algorithm.
 
