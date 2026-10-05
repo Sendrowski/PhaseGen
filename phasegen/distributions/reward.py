@@ -6,7 +6,7 @@ Distributions of accumulated rewards obtained from their Laplace transforms: the
 """
 import logging
 from math import comb, factorial
-from typing import Any, TYPE_CHECKING, Optional, Sequence
+from typing import Any, NoReturn, TYPE_CHECKING, Optional, Sequence, Union
 
 import numpy as np
 import scipy.linalg as sla
@@ -24,6 +24,7 @@ from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
     from .phase_type import PhaseTypeDistribution
+    from .empirical import EmpiricalDistribution, EmpiricalJointDistribution
 
 logger = logging.getLogger('phasegen')
 
@@ -240,6 +241,25 @@ class RewardDistribution(CallableDistributionFunctions):
     def std(self) -> float:
         """Standard deviation of the accumulated reward."""
         return self.var ** 0.5
+
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalDistribution':
+        """
+        Sample the accumulated reward from trajectories of the Markov jump process, as
+        :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>` describes, into an
+        :class:`~phasegen.distributions.EmpiricalDistribution`.
+
+        :param n_samples: Number of trajectories.
+        :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
+            entropy.
+        :return: The empirical distribution.
+        """
+        from .empirical import EmpiricalDistribution
+
+        samples = self._host._sample(n_samples, rewards=[self.reward], rng=np.random.default_rng(seed))
+        dist = EmpiricalDistribution(samples[:, 0])
+        dist.label = self.label
+
+        return dist
 
     def lst(self, s: complex) -> complex:
         r"""
@@ -803,6 +823,30 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 y = sla.solve_triangular(S + si * T, c, check_finite=False)
                 out[i, j] = aZ @ y
         return out.T if transpose else out
+
+    def to_empirical(
+            self,
+            n_samples: int,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalJointDistribution':
+        """
+        Sample both rewards from the same trajectories of the Markov jump process, as
+        :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>` describes, into an
+        :class:`~phasegen.distributions.EmpiricalJointDistribution`.
+
+        :param n_samples: Number of trajectories.
+        :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
+            entropy.
+        :return: The empirical joint distribution.
+        """
+        from .empirical import EmpiricalJointDistribution
+
+        samples = self._host._sample(n_samples, rewards=[self.reward_a, self.reward_b],
+                                     rng=np.random.default_rng(seed))
+        dist = EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
+        dist.label = self.label
+
+        return dist
 
     def marginal(self, which: str = 'a') -> RewardDistribution:
         r"""
@@ -1925,6 +1969,18 @@ class ConditionalRewardDistribution(RewardDistribution):
     #: Relative step of the cumulant differences, larger than for an exact transform because the conditional transform
     #: is a numerical inversion with fewer correct digits.
     _cumulant_step: float = 1e-3
+
+    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> NoReturn:
+        """
+        Not available for a conditional distribution, whose condition the trajectories cannot be drawn under. Sample
+        the joint distribution with :meth:`JointRewardDistribution.to_empirical()
+        <phasegen.distributions.JointRewardDistribution.to_empirical>` and condition the sample with
+        :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
+
+        :raises NotImplementedError: Always.
+        """
+        raise NotImplementedError("A conditional distribution cannot be sampled directly. Sample the joint "
+                                  "distribution with JointRewardDistribution.to_empirical() and condition the sample.")
 
     @property
     def _rms(self) -> float:

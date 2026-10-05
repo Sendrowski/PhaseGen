@@ -3077,3 +3077,29 @@ def test_lst_taylor_documents_the_type_error_of_a_non_numeric_order():
 
     assert ':raises TypeError:' in type(joint).lst_taylor.__doc__
     assert ':raises TypeError:' in pg.distributions.ConditionalRewardDistribution.moment.__doc__
+
+
+def test_to_empirical_samples_the_reward_and_the_joint():
+    """
+    ``RewardDistribution.to_empirical`` and ``JointRewardDistribution.to_empirical`` sample the rewards from the
+    host's trajectories: the sampled means lie within four standard errors of the exact ones, the two rewards of the
+    joint come from the same trajectories (the total branch length is at least twice the tree height, since at least
+    two lineages remain until absorption), the label carries over, and a conditional refuses to be sampled.
+    """
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}}))
+    n = 20000
+
+    dist = coal.sfs.bin(1)
+    emp = dist.to_empirical(n, seed=1)
+    assert abs(emp.mean - dist.mean) < 4 * dist.std / np.sqrt(n)
+    assert emp.label == dist.label
+
+    joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+    sampled = joint.to_empirical(n, seed=2)
+    for which in ('a', 'b'):
+        exact = joint.marginal(which)
+        assert abs(sampled.marginal(which).mean - exact.mean) < 4 * exact.std / np.sqrt(n)
+    assert np.all(sampled._b >= 2 * sampled._a - 1e-12)
+
+    with pytest.raises(NotImplementedError):
+        joint.conditional(value=1.0).to_empirical(10)
