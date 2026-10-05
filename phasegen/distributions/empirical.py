@@ -110,14 +110,15 @@ class _EmpiricalFunction:  # pragma: no cover
 
         y = values.reshape(values.shape[0], -1).T[columns] if per_bin else values[None]
         name = dict(pdf='PDF', cdf='CDF', quantile='quantile function')[self.kind]
+        variable = self._distribution._variable
 
         return _CurveData(
             x=x,
             y=y,
             labels=[str(key) for key in keys] if per_bin else [''],
-            xlabel='q' if self.kind == 'quantile' else 't',
-            ylabel=dict(pdf='f(t)', cdf='F(t)', quantile='quantile')[self.kind],
-            title=f'SFS bin {name}s' if per_bin else name[0].upper() + name[1:],
+            xlabel='q' if self.kind == 'quantile' else variable,
+            ylabel=dict(pdf=f'f({variable})', cdf=f'F({variable})', quantile='quantile')[self.kind],
+            title=f'SFS bin {name}s' if per_bin else self._distribution._titled(name),
             legend_title='bin' if per_bin else None
         )
 
@@ -451,6 +452,21 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
     _cdf_function = _EmpiricalCumulativeDistributionFunction
     _pdf_function = _EmpiricalDensityFunction
     _quantile_function = _EmpiricalQuantileFunction
+
+    #: Label prefixed to the plot titles, such as ``"R_b | R_a = 1"`` for a conditional distribution.
+    label: Optional[str] = None
+
+    #: Variable on the x-axis of the curve plots, ``t`` for a time and ``x`` for any other reward.
+    _variable: str = 'x'
+
+    def _titled(self, base: str) -> str:
+        """
+        A plot title prefixed with :attr:`label` when one is set, and capitalized otherwise.
+
+        :param base: The title without the label, such as ``"CDF"``.
+        :return: The title.
+        """
+        return f"{self.label} {base}" if self.label else base[0].upper() + base[1:]
 
     def __init__(self, samples: np.ndarray | list) -> None:
         """
@@ -2082,6 +2098,8 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         demes = _DemeContainer(
             {pop: EmpiricalDistribution(self._samples.sum(axis=0)[i]) for i, pop in enumerate(self.pops)}
         )
+        for dist in demes.values():
+            dist._variable = self._variable
 
         demes.cov = self.pops_cov
         demes.corr = self.pops_corr
@@ -2123,6 +2141,8 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         loci = _LocusContainer(
             {i: EmpiricalDistribution(self._samples[i].sum(axis=0)) for i in range(self._samples.shape[0])}
         )
+        for dist in loci.values():
+            dist._variable = self._variable
 
         loci.cov = self.loci_cov
         loci.corr = self.loci_corr
@@ -2500,7 +2520,10 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         if not mask.any():
             raise ValueError(f"No samples within window {window:g} of {value:g}.")
 
-        return _WindowedConditional(other[mask], cond[mask] - value, float(window))
+        dist = _WindowedConditional(other[mask], cond[mask] - value, float(window))
+        dist.label = f"R_{'b' if on == 'a' else 'a'} | R_{on} = {value:g}"
+
+        return dist
 
     def conditional_on_atom(self, on: str = 'a') -> Tuple[float, EmpiricalDistribution]:
         """
@@ -2525,7 +2548,10 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         if not empty.any():
             raise ValueError(f"No replicate has R_{on} = 0, so the atom conditional cannot be estimated.")
 
-        return float(empty.mean()), EmpiricalDistribution(other[empty])
+        dist = EmpiricalDistribution(other[empty])
+        dist.label = f"R_{'b' if on == 'a' else 'a'} | R_{on} = 0"
+
+        return float(empty.mean()), dist
 
     def window_average(self, statistic, on: str, value: float, half_width: float,
                        n_nodes: int = None) -> 'float | np.ndarray':
@@ -4554,6 +4580,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             resolves_demes=self._resolves_demes
         )
         dist._accumulator = _EmpiricalAccumulation(self, TreeHeightReward())
+        dist._variable = 't'
 
         return dist
 

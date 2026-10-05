@@ -14,7 +14,7 @@ from ..expm import Backend
 from ..errors import ModelError
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
+from ..rewards import Reward, RestrictedReward, TreeHeightReward, TotalBranchLengthReward
 from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
@@ -284,6 +284,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return self._reward_distribution.quantile(q)
 
+    @property
+    def _variable(self) -> str:
+        """
+        The variable on the x-axis of the curve plots: ``t`` for a time, the tree height and its restrictions to a deme
+        or a locus, and ``x`` for any other reward.
+        """
+        rewards = self.reward.rewards if isinstance(self.reward, RestrictedReward) else [self.reward]
+
+        return 't' if all(isinstance(r, TreeHeightReward) for r in rewards) else 'x'
+
     def _plot_data_cdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
         The CDF curve of the accumulated reward (see :meth:`_reward_curves`).
@@ -292,7 +302,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._reward_curves('cdf', [('', self._reward_distribution)], t, n_points, 'CDF')
+        return self._reward_curves('cdf', [('', self._reward_distribution)], t, n_points, 'CDF',
+                                   variable=self._variable)
 
     def _plot_data_pdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
@@ -302,7 +313,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._reward_curves('pdf', [('', self._reward_distribution)], t, n_points, 'PDF')
+        return self._reward_curves('pdf', [('', self._reward_distribution)], t, n_points, 'PDF',
+                                   variable=self._variable)
 
     def _plot_data_quantile(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """
@@ -321,7 +333,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             grid: np.ndarray | None,
             n_points: int | None,
             title: str,
-            legend_title: str = None
+            legend_title: str = None,
+            variable: str = 'x'
     ) -> '_CurveData':
         """
         The CDF, density or quantile curve of each ``(label, distribution)`` in ``items``, each evaluated through that
@@ -334,6 +347,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param n_points: Number of points of the default grid.
         :param title: Plot title.
         :param legend_title: Legend title.
+        :param variable: Name of the variable on the x-axis.
         :return: The curves.
         """
         from ..visualization import _CurveData
@@ -348,8 +362,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             x=x,
             y=np.array([getattr(d, kind)(x) for _, d in items]).reshape(len(items), len(x)),
             labels=[str(label) for label, _ in items],
-            xlabel='q' if kind == 'quantile' else 'accumulated branch length',
-            ylabel=dict(pdf='f(x)', cdf='F(x)', quantile='quantile')[kind],
+            xlabel='q' if kind == 'quantile' else variable,
+            ylabel=dict(pdf=f'f({variable})', cdf=f'F({variable})', quantile='quantile')[kind],
             title=title,
             legend_title=legend_title
         )
@@ -460,7 +474,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         # (n_samples, n_loci, n_demes) -> (n_loci, n_demes, n_samples), the layout the empirical container expects
         samples = sampled.reshape(n_samples, n_loci, len(pops)).transpose(1, 2, 0)
 
-        return EmpiricalPhaseTypeDistribution(samples, pops=pops, locus_agg=self._empirical_locus_agg)
+        dist = EmpiricalPhaseTypeDistribution(samples, pops=pops, locus_agg=self._empirical_locus_agg)
+        dist._variable = self._variable
+
+        return dist
 
     def _sample(
             self,

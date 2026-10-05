@@ -356,7 +356,7 @@ class RewardDistribution(CallableDistributionFunctions):
     def _titled(self, base: str) -> str:
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
         function objects (the :class:`~phasegen.distributions.base._LSTFunction` family) for their plot titles."""
-        return f"{self.label} {base}" if self.label else base
+        return f"{self.label} {base}" if self.label else base[0].upper() + base[1:]
 
     @property
     def _rms(self) -> float:

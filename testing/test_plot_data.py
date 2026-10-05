@@ -477,3 +477,28 @@ def test_spectrum_functions_keep_the_shape_of_the_points():
             out = f(x)
             assert out.shape == x.shape + shape
             np.testing.assert_array_equal(out.reshape((-1,) + shape), f(x.ravel()))
+
+
+@pytest.mark.parametrize('kind', ['cdf', 'pdf', 'quantile'])
+def test_exact_and_empirical_curves_share_titles_and_axes(kind):
+    """
+    The exact and the empirical curves of a conditional, a marginal, the tree height and its deme view, and a
+    spectrum carry the same title and axis labels: the label of a conditional leads the title, and the x-axis is ``t``
+    for the tree height and ``x`` for any other reward. Regression: the empirical curves were always titled without a
+    label and put ``t`` on the x-axis, and the exact deme views named it the accumulated branch length.
+    """
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}))
+    emp = coal.to_empirical(n_samples=2000)
+
+    def dists(c):
+        joint = c.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+        return [joint.conditional(value=1.0), joint.marginal('a'), c.tree_height, c.tree_height.demes['pop_0'], c.sfs]
+
+    for exact, sampled in zip(dists(coal), dists(emp)):
+        a, b = getattr(exact, kind)._plot_data(), getattr(sampled, kind)._plot_data()
+        assert (a.title, a.xlabel, a.ylabel) == (b.title, b.xlabel, b.ylabel)
+
+    cond = getattr(coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0), kind)
+    assert cond._plot_data().title.startswith('R_b | R_a = 1')
+    assert getattr(coal.tree_height.demes['pop_0'], kind)._plot_data().xlabel == ('q' if kind == 'quantile' else 't')
