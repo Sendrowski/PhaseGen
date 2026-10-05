@@ -77,7 +77,9 @@ def test_empirical_moments_validate_the_order():
     coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=DEMOGRAPHY)
     dists = [coal.tree_height.to_empirical(200, seed=1), coal.jsfs.to_empirical(200, seed=1),
              pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.to_empirical(200, seed=1),
-             pg.Coalescent(n=4).sfs.to_empirical(200, seed=1)]
+             pg.Coalescent(n=4).sfs.to_empirical(200, seed=1),
+             pg.distributions.EmpiricalDistribution(np.linspace(0.1, 2, 20)),
+             coal.sfs.to_empirical(200, seed=1).demes['pop_0']]
 
     for dist in dists:
         for k in (-1, 1.5):
@@ -287,3 +289,93 @@ def test_empirical_joint_sfs_functions_select_bins_by_configs():
             getattr(emp, kind)._plot_data(configs=[(2, 1)])
 
     assert emp.cdf._plot_data().labels == [str(c) for c in emp._polymorphic_bins()]
+
+
+def test_empirical_spectra_reject_the_layout_of_another_spectrum():
+    """
+    A layout with the bins of this spectrum's layout but other lineages or loci was accepted when its positions
+    indexed stored entries, so a layout of three lineages returned a frequency of the four-lineage simulation. It
+    raises ValueError as on the exact spectrum, before and after the own layout is memoized.
+    """
+    ms = MsprimeCoalescent(n=4, num_replicates=200, n_threads=1, parallelize=False, simulate_mutations=True,
+                           mutation_rate=1.0, seed=1)
+    loci = pg.LocusConfig(n=2, recombination_rate=1.0)
+    ms2 = MsprimeCoalescent(n=3, loci=loci, num_replicates=200, n_threads=1, parallelize=False,
+                            simulate_mutations=True, mutation_rate=1.0, seed=1)
+    other_loci = pg.Coalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=2.0)).sfs2
+
+    cases = [(ms.sfs, pg.Coalescent(n=3).sfs.mutation_layout()),
+             (ms.sfs, pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=DEMOGRAPHY).sfs.mutation_layout()),
+             (ms.fsfs, pg.Coalescent(n=3).fsfs.mutation_layout()),
+             (ms2.sfs2, other_loci.mutation_layout())]
+
+    for dist, foreign in cases:
+        own = dist.mutation_layout()
+        config = foreign.config((0,) * len(foreign))
+
+        with pytest.raises(ValueError, match="does not belong"):
+            dist.get_mutation_config(config)
+
+        if foreign.bins == own.bins:
+            assert sum(dist.mutation_configs.values()) == pytest.approx(1)
+
+            with pytest.raises(ValueError, match="does not belong"):
+                dist.get_mutation_config(config)
+
+        with pytest.raises(ValueError, match="does not belong"):
+            next(dist.get_mutation_configs(foreign))
+
+    layout = pg.Coalescent(n=4).sfs.mutation_layout()
+    assert ms.sfs.get_mutation_config(layout.config((1, 0, 0))) == ms.sfs.get_mutation_config((1, 0, 0))
+
+
+def test_empirical_moments_after_drop_serve_the_retained_moments():
+    """
+    After ``_drop`` the moments of the empirical tree height, total branch length, SFS, folded SFS and two-locus SFS
+    raised TypeError or AxisError on the freed samples, and the two-locus SFS raised for order zero. They serve order
+    zero and the retained moments, and raise an informative ValueError for the others.
+    """
+    ms = MsprimeCoalescent(n=3, num_replicates=200, n_threads=1, parallelize=False, seed=1)
+    ms2 = MsprimeCoalescent(n=3, loci=pg.LocusConfig(n=2, recombination_rate=1.0), num_replicates=200, n_threads=1,
+                            parallelize=False, seed=1)
+    dists = [ms.tree_height, ms.total_branch_length, ms.sfs, ms.fsfs, ms2.sfs2]
+    expected = [[np.asarray(d.moment(k, center=c)) for k in range(5) for c in (True, False)] for d in dists]
+
+    for coal in (ms, ms2):
+        coal._touch()
+        coal._drop()
+
+    for dist, want in zip(dists, expected):
+        assert dist.samples is None
+        got = [np.asarray(dist.moment(k, center=c)) if (k < 3 or not c) else None for k in range(5)
+               for c in (True, False)]
+
+        for g, w in zip(got, want):
+            if g is not None:
+                np.testing.assert_allclose(g, w, rtol=1e-12, atol=1e-15)
+
+        for k in (3, 4):
+            with pytest.raises(ValueError, match="dropped"):
+                dist.moment(k)
+
+    bare = pg.distributions.EmpiricalDistribution(np.linspace(0.1, 2, 20))
+    bare._drop()
+    for k in range(3):
+        with pytest.raises(ValueError, match="dropped"):
+            bare.moment(k)
+
+
+def test_fixtures_without_simulated_mutations_store_no_configuration_frequencies():
+    """
+    The serialized comparisons of configurations that simulate no mutations carried a point mass at the
+    configuration without mutations, which a regenerated fixture does not store.
+    """
+    from pathlib import Path
+
+    fixtures = sorted(Path('results/comparisons/serialized').glob('*.json'))
+    assert fixtures
+
+    for fixture in fixtures:
+        config = Path('resources/configs') / f'{fixture.stem}.yaml'
+        if 'simulate_mutations: true' not in config.read_text():
+            assert '"_count_frequencies"' not in fixture.read_text(), fixture.stem

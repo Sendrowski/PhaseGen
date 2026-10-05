@@ -11671,6 +11671,12 @@
                 "json://{\"py/tuple\": [12, 9]}": 1e-06,
                 "json://{\"py/tuple\": [9, 8]}": 2e-06,
                 "json://{\"py/tuple\": [15, 6]}": 1e-06
+            },
+            "_layout_lineages": {
+                "py/id": 25
+            },
+            "_layout_loci": {
+                "py/id": 29
             }
         },
         "fsfs": {
@@ -17477,6 +17483,12 @@
                 "json://{\"py/tuple\": [12, 9]}": 1e-06,
                 "json://{\"py/tuple\": [9, 8]}": 2e-06,
                 "json://{\"py/tuple\": [15, 6]}": 1e-06
+            },
+            "_layout_lineages": {
+                "py/id": 25
+            },
+            "_layout_loci": {
+                "py/id": 29
             }
         }
     }

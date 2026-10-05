@@ -5524,6 +5524,12 @@
                     "pop_1",
                     "pop_2"
                 ]
+            },
+            "_layout_lineages": {
+                "py/id": 23
+            },
+            "_layout_loci": {
+                "py/id": 27
             }
         }
     }

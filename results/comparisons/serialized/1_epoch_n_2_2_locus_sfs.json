@@ -151,7 +151,8 @@
                 ]
             },
             "_cache": null,
-            "samples": null,
+            "_left": null,
+            "_right": null,
             "n_samples": 200000,
             "_standard_errors": {
                 "mean": {
@@ -260,8 +261,6 @@
                     "dtype": "float64"
                 }
             },
-            "_left": null,
-            "_right": null,
             "_joint_surface": [
                 {
                     "py/tuple": [
@@ -2014,6 +2013,12 @@
                     ],
                     "dtype": "float64"
                 }
+            },
+            "_layout_lineages": {
+                "py/id": 15
+            },
+            "_layout_loci": {
+                "py/id": 19
             }
         }
     }

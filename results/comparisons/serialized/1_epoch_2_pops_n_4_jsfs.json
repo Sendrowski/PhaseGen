@@ -2487,6 +2487,12 @@
                     "pop_0",
                     "pop_1"
                 ]
+            },
+            "_layout_lineages": {
+                "py/id": 18
+            },
+            "_layout_loci": {
+                "py/id": 22
             }
         }
     }

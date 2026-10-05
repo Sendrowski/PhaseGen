@@ -673,14 +673,41 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
         :return: The :math:`k`-th moment, per entry for a spectrum.
         :raises TypeError: If ``k`` is not a number.
-        :raises ValueError: If ``k`` is not integral or is negative.
+        :raises ValueError: If ``k`` is not integral or is negative, or if the samples have been dropped and the moment
+            is not among those retained.
         """
         k = _validate_order(k)
         samples = self.samples
+
+        if samples is None:
+            return self._retained_moment(k, center)
+
         if center and k > 1:
             samples = samples - np.mean(samples, axis=0)
 
         return np.mean(samples ** k, axis=0)
+
+    def _retained_moment(self, k: int, center: bool) -> float | np.ndarray:
+        """
+        The moment of order ``k`` from the statistics retained when the samples are dropped: one per entry of the
+        retained :attr:`mean` for order zero, :attr:`mean` for order one, :attr:`var` or :attr:`m2` for order two,
+        and :attr:`m3` and :attr:`m4` for the raw moments of orders three and four.
+
+        :param k: The order of the moment.
+        :param center: Whether to center the moment around the sample mean.
+        :return: The moment, per entry for a spectrum.
+        :raises ValueError: If the moment is not among those retained.
+        """
+        name = {0: 'mean', 1: 'mean', 2: 'var' if center else 'm2', 3: None if center else 'm3',
+                4: None if center else 'm4'}.get(k)
+
+        if name not in self.__dict__:
+            raise ValueError(f"The moment of order {k} needs the per-replicate samples, which have been dropped.")
+
+        value = self.__dict__[name]
+        value = np.asarray(getattr(value, 'data', value), dtype=float)
+
+        return np.ones(value.shape)[()] if k == 0 else value[()]
 
 
 class _EmpiricalAccumulating:  # pragma: no cover
@@ -994,7 +1021,7 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         :return: An iterator over pairs of configuration and relative frequency.
         :raises ValueError: If the spectrum carries no mutation counts, or ``layout`` is not a layout of this spectrum.
         """
-        layout = self.mutation_layout() if layout is None else layout
+        layout = self._default_layout() if layout is None else layout
 
         self.generated_mass = 0
 
@@ -1012,13 +1039,29 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         """
         raise NotImplementedError
 
+    def _default_layout(self) -> MutationLayout:
+        """
+        The layout of ``mutation_layout()`` with its default arguments, memoized.
+
+        :return: The layout.
+        """
+        layout = self.__dict__.get('_default_layout_memo')
+
+        if layout is None:
+            layout = self.mutation_layout()
+
+            if Settings.cache:
+                self.__dict__['_default_layout_memo'] = layout
+
+        return layout
+
     def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
         """
         The axes of the spectrum arrays of the layouts this spectrum provides.
 
         :return: The axes of each kind of layout.
         """
-        return self.mutation_layout().axes,
+        return self._default_layout().axes,
 
     def _entry_groups(self, layout: MutationLayout) -> List[List[int]]:
         """
@@ -1066,16 +1109,29 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         frequencies = self._frequencies_by_entry()
         cache = self.__dict__.setdefault('_binned_frequencies', {})
         key = (layout.axes, layout.bins)
+        entry = cache.get(key)
 
-        if key not in cache:
+        # the layout memoized with the bins was checked against this spectrum, so it serves as the reference
+        if entry is None or entry[0] is not layout:
+            reference = self._default_layout() if entry is None else entry[0]
+
+            if not (layout.lineage_config is reference.lineage_config and layout.locus_config is reference.locus_config
+                    or layout._same_spectrum(reference)):
+                raise ValueError(f"The layout {layout!r} does not belong to this spectrum, whose default layout is "
+                                 f"{self._default_layout()!r}.")
+
+            if entry is not None:
+                entry = cache[key] = layout, entry[1]
+
+        if entry is None:
             groups = self._entry_groups(layout)
             binned = {}
             for counts, p in frequencies.items():
                 config = tuple(sum(counts[k] for k in g) for g in groups)
                 binned[config] = binned.get(config, 0) + p
-            cache[key] = binned
+            entry = cache[key] = layout, binned
 
-        return cache[key]
+        return entry[1]
 
     @property
     def mutation_configs(self) -> Dict[MutationConfig, float]:
@@ -1084,7 +1140,7 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
 
         :raises ValueError: If the spectrum carries no mutation counts.
         """
-        layout = self.mutation_layout()
+        layout = self._default_layout()
 
         return {layout.config(c): p for c, p in self._layout_frequencies(layout).items()}
 
@@ -1103,7 +1159,7 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         self._frequencies_by_entry()
 
         if not isinstance(config, MutationConfig):
-            config = self.mutation_layout().config((config,) if np.isscalar(config) else config)
+            config = self._default_layout().config((config,) if np.isscalar(config) else config)
 
         return self._layout_frequencies(config.layout).get(tuple(config), 0)
 
@@ -1114,6 +1170,7 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
             self._mutation_counts = None
 
         self.__dict__.pop('_binned_frequencies', None)
+        self.__dict__.pop('_default_layout_memo', None)
 
         super()._drop()
 
@@ -1695,16 +1752,6 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         :raises ValueError: If ``k`` is not integral or is negative, or if the samples have been dropped and the moment
             is not among those retained.
         """
-        k = _validate_order(k)
-
-        if self._left is None:
-            retained = {1: 'mean', 2: 'var' if center else 'm2', 3: None if center else 'm3', 4: None if center else 'm4'}
-
-            if retained.get(k) is None:
-                raise ValueError(f"The moment of order {k} needs the per-replicate samples, which have been dropped.")
-
-            return getattr(self, retained[k])
-
         return TwoLocusSFS(super().moment(k, center))
 
     @cached_property
@@ -4138,7 +4185,9 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Tree heights per locus, deme and replicate.
         self.heights: np.ndarray | None = None
 
-        #: Mutations per locus, deme and replicate.
+        #: Mutations per locus, replicate and frequency class, of shape ``(loci, demes, N, n + 1)``, all at deme 0.
+        #: The deme in which each mutation occurs is recorded in :attr:`MsprimeCoalescent.deme_mutations
+        #: <phasegen.distributions.MsprimeCoalescent.deme_mutations>`.
         self.mutations: np.ndarray | None = None
 
         #: Mutations per replicate and descendant vector, for multi-population single-locus scenarios.
@@ -4996,9 +5045,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :param start_time: The start time :math:`s`. By default, 0.
         :return: The moment at each end time.
-        :raises ValueError: if ``k`` is not a non-negative integer, the number of rewards differs from it, the start
-            time is negative, an end time exceeds that of the coalescent, or a reward refers to a locus, deme or
-            frequency class that does not exist.
+        :raises ValueError: if ``k`` is not a non-negative integer, ``rewards`` is a single reward, the number of
+            rewards differs from ``k``, the start time is negative, an end time exceeds that of the coalescent, or a
+            reward refers to a locus, deme or frequency class that does not exist.
+        :raises TypeError: if ``k`` is not a number, or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
         :raises NotImplementedError: if a reward is not read from the simulated genealogies, or the demography has
             been dropped, as for serialization.
         """
