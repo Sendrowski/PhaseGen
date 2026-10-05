@@ -5,10 +5,13 @@ Changelog
 
 [2.0.0] - 2026-10-05
 ^^^^^^^^^^^^^^^^^^^^
-- Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` distributions.
-- Add a vectorised trajectory sampler (:meth:`to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`SampledCoalescent <phasegen.distributions.SampledCoalescent>`) as a sampled counterpart of every phase-type distribution.
-- Support time-inhomogeneous (multi-epoch) demographies for :meth:`mutational block configurations <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
-- Speed up the moments of large state spaces, such as those of the joint and two-locus spectra, by an order of magnitude.
+- Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the joint distribution of two rewards (:class:`~phasegen.distributions.JointRewardDistribution`) with its marginal and conditional distributions.
+- Substantially speed up the moments of large state spaces with sparse linear solves and matrix-exponential actions, by an order of magnitude on the joint and two-locus spectra.
+- Support time-inhomogeneous (multi-epoch) demographies for mutational block configurations (:meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`), and add them for the joint and two-locus spectra and for folded and deme-resolved layouts, described by :class:`~phasegen.distributions.MutationLayout`.
+- Add a fast vectorised trajectory sampler (:meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`~phasegen.distributions.SampledCoalescent`) as a sampled counterpart of every phase-type distribution.
+- Start the coalescent from a weighted mixture of lineage or locus configurations with :class:`~phasegen.initial.InitialDistribution`.
+- Improve parameter inference with :class:`~phasegen.inference.Inference`.
+- Make numerous smaller improvements and bug fixes throughout.
 
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
