@@ -278,11 +278,15 @@ class RewardDistribution(CallableDistributionFunctions):
 
         .. rubric:: Atom
 
-        As :math:`s \to \infty`, the weight of every path that enters a state of positive reward vanishes, so the atom
-        :math:`\varphi(\infty) = \mathbb{P}(R = 0)` is the formula above at :math:`s = 0` on the set :math:`Z` of
-        transient states with zero reward: :math:`\boldsymbol{\alpha}_T`, :math:`\mathbf{T}_i` and :math:`\mathbf{q}_i`
-        are replaced by their restrictions to :math:`Z`, with :math:`\mathbf{q}_i` the exit vectors of the full
-        process. The transform at ``s = inf`` evaluates it so.
+        A reward can be zero with positive probability, as an SFS bin is when no branch subtends it. Its distribution
+        then has an atom :math:`p_0 = \mathbb{P}(R = 0)`, which the inversion of
+        :class:`~phasegen.distributions.RewardDistribution` removes before inverting the continuous part. Let
+        :math:`Z` be the set of transient states with zero reward, :math:`r(x) = 0`. The reward is 0 exactly when
+        the process is absorbed before it leaves :math:`Z`, and since :math:`e^{-sR} \to 0` for :math:`R > 0` while
+        :math:`e^{-s \cdot 0} = 1`, :math:`\varphi(\infty) = p_0`. It is the probability of absorption
+        from :math:`Z`: the formula above at :math:`s = 0` with :math:`\boldsymbol{\alpha}_T`, :math:`\mathbf{T}_i` and
+        :math:`\mathbf{q}_i` restricted to :math:`Z`, so that a jump out of :math:`Z` loses its mass. Passing
+        ``s = inf`` returns this probability.
 
         .. rubric:: Implementation
 
@@ -290,8 +294,6 @@ class RewardDistribution(CallableDistributionFunctions):
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
           transient states on, and by a dense one below.
         - Transient states that the initial vector cannot reach in any epoch carry no mass and are left out.
-        - When the largest transition rate is far from 1, time is measured in units of its inverse, which leaves
-          :math:`\varphi` unchanged and keeps the shifted matrices well scaled.
 
         .. rubric:: References
 
@@ -435,9 +437,10 @@ def _build_epoch_data(host) -> dict:
 
 def time_scale(host) -> float:
     """
-    The time unit of the transform, described at :meth:`RewardDistribution.lst()
-    <phasegen.distributions.RewardDistribution.lst>`: the inverse of the largest total transition rate of a transient
-    state reachable from the initial vector, over all epochs, when it lies outside ``[1e-2, 1e2]``, and 1 otherwise.
+    The time unit ``tau`` of the transform: the inverse of the largest total transition rate of a transient state
+    reachable from the initial vector, over all epochs, when it lies outside ``[1e-2, 1e2]``, and 1 otherwise. The
+    sub-generators become ``tau T``, the epoch boundaries ``t / tau``, and the transform is evaluated at ``s tau``,
+    which leaves it unchanged and keeps the shifted matrices well scaled.
 
     :param host: The phase-type distribution whose state space and demography set the unit.
     :return: The time unit.
@@ -449,8 +452,8 @@ def time_scale(host) -> float:
 
 def _scale_epoch_data(data: dict, tau: float) -> dict:
     """Return a copy of :func:`_build_epoch_data` output with the per-epoch sub-generators scaled by ``tau`` and the
-    epoch boundaries by ``1/tau`` (the reward stays unscaled; the LST is evaluated at ``s tau`` -- see
-    :meth:`RewardDistribution.lst`). The block-triangular ordering is pattern-fixed under the positive scaling, so it
+    epoch boundaries by ``1/tau`` (the reward stays unscaled and the LST is evaluated at ``s tau``, see
+    ``time_scale``). The block-triangular ordering is pattern-fixed under the positive scaling, so it
     is reused. A no-op when ``tau == 1``."""
     if tau == 1.0:
         return data
