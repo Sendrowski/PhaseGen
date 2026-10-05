@@ -27,12 +27,9 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    ~phasegen.distributions.DensityFunction
    ~phasegen.distributions.CumulativeDistributionFunction
    ~phasegen.distributions.QuantileFunction
-   ~phasegen.distributions.MarginalDensity
-   ~phasegen.distributions.MarginalCDF
    ~phasegen.distributions.SFSDensity
    ~phasegen.distributions.SFSCDF
    ~phasegen.distributions.SFSQuantileFunction
-   ~phasegen.distributions.MarginalQuantileFunction
    ~phasegen.distributions.JointDensity
    ~phasegen.distributions.JointCDF
    ~phasegen.distributions.JointSFSDensity
@@ -95,14 +92,6 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    :members:
    :special-members: __call__
 
-.. autoclass:: phasegen.distributions.MarginalDensity
-   :members:
-   :special-members: __call__
-
-.. autoclass:: phasegen.distributions.MarginalCDF
-   :members:
-   :special-members: __call__
-
 .. autoclass:: phasegen.distributions.SFSDensity
    :members:
    :special-members: __call__
@@ -112,10 +101,6 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
    :special-members: __call__
 
 .. autoclass:: phasegen.distributions.SFSQuantileFunction
-   :members:
-   :special-members: __call__
-
-.. autoclass:: phasegen.distributions.MarginalQuantileFunction
    :members:
    :special-members: __call__
 

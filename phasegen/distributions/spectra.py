@@ -18,7 +18,7 @@ from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 from ._common import _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order
-from .base import MarginalDensity, MarginalCDF, MarginalQuantileFunction
+from .base import CumulativeDistributionFunction, DensityFunction, QuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
 
@@ -93,7 +93,7 @@ class _SFSAggregateFunction:
                                          show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class SFSDensity(_SFSAggregateFunction, MarginalDensity):
+class SFSDensity(_SFSAggregateFunction, DensityFunction):
     """Per-bin densities of the SFS, one per frequency class, each that of the bin's
     :class:`~phasegen.distributions.RewardDistribution`.
 
@@ -105,7 +105,7 @@ class SFSDensity(_SFSAggregateFunction, MarginalDensity):
     """
 
 
-class SFSCDF(_SFSAggregateFunction, MarginalCDF):
+class SFSCDF(_SFSAggregateFunction, CumulativeDistributionFunction):
     """Per-bin CDFs of the SFS, one per frequency class, each that of the bin's
     :class:`~phasegen.distributions.RewardDistribution`.
 
@@ -120,7 +120,7 @@ class SFSCDF(_SFSAggregateFunction, MarginalCDF):
     """
 
 
-class SFSQuantileFunction(_SFSAggregateFunction, MarginalQuantileFunction):
+class SFSQuantileFunction(_SFSAggregateFunction, QuantileFunction):
     """Per-bin quantile functions of the SFS, one per frequency class, each that of the bin's
     :class:`~phasegen.distributions.RewardDistribution`.
 
@@ -1178,7 +1178,7 @@ class _JointSFSAggregateFunction:
                                          file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class JointSFSDensity(_JointSFSAggregateFunction, MarginalDensity):
+class JointSFSDensity(_JointSFSAggregateFunction, DensityFunction):
     """Per-bin densities of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`.
 
     The following example evaluates the density of every bin of the joint spectrum of two demes at 1.
@@ -1193,7 +1193,7 @@ class JointSFSDensity(_JointSFSAggregateFunction, MarginalDensity):
     """
 
 
-class JointSFSCDF(_JointSFSAggregateFunction, MarginalCDF):
+class JointSFSCDF(_JointSFSAggregateFunction, CumulativeDistributionFunction):
     """Per-bin CDFs of the joint SFS, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`.
 
     The following example evaluates the CDF of every bin of the joint spectrum of two demes at 1.
@@ -1208,7 +1208,7 @@ class JointSFSCDF(_JointSFSAggregateFunction, MarginalCDF):
     """
 
 
-class JointSFSQuantileFunction(_JointSFSAggregateFunction, MarginalQuantileFunction):
+class JointSFSQuantileFunction(_JointSFSAggregateFunction, QuantileFunction):
     """Per-bin quantile functions of the joint SFS, each that of the bin's
     :class:`~phasegen.distributions.RewardDistribution`.
 

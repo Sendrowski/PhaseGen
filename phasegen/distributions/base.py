@@ -928,21 +928,6 @@ class _GridQuantileFunction(QuantileFunction):
         return self._curve(q, n_points, 't', 'Quantile function')
 
 
-# --- marginal (per-bin spectrum) flavours ---------------------------------------------------------------------------
-
-class MarginalDensity(DensityFunction):
-    """Per-bin densities of a spectrum, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
-
-
-class MarginalCDF(CumulativeDistributionFunction):
-    """Per-bin CDFs of a spectrum, each that of the bin's :class:`~phasegen.distributions.RewardDistribution`."""
-
-
-class MarginalQuantileFunction(QuantileFunction):
-    """Per-bin quantile functions of a spectrum, each that of the bin's
-    :class:`~phasegen.distributions.RewardDistribution`."""
-
-
 # --- joint (bivariate) flavours -------------------------------------------------------------------------------------
 
 class _JointFunction:
