@@ -19,7 +19,7 @@ from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
     ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
     _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
-from ._common import _validate_order
+from ._common import N_EMPIRICAL_SAMPLES, _validate_order
 from ._moments import MomentEvaluator, _AUTO_PERM
 
 if TYPE_CHECKING:
@@ -242,7 +242,11 @@ class RewardDistribution(CallableDistributionFunctions):
         """Standard deviation of the accumulated reward."""
         return self.var ** 0.5
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalDistribution':
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalDistribution':
         """
         Sample the accumulated reward from trajectories of the Markov jump process, as
         :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>` describes, into an
@@ -684,6 +688,23 @@ class JointRewardDistribution(CallableDistributionFunctions):
         """
         return complex(self.lst_batch(s_a, s_b)[0])
 
+    @property
+    def cdf(self) -> JointCDF:
+        r"""
+        The joint cumulative distribution function :math:`F(x, y) = \mathbb{P}(R_a \le x, R_b \le y)`. Calling it
+        evaluates :math:`F` at :math:`(x, y)`, and :meth:`JointCDF.plot_surface()
+        <phasegen.distributions.JointCDF.plot_surface>` draws its surface.
+        """
+        return self._function('cdf', self._cdf_function)
+
+    @property
+    def pdf(self) -> JointDensity:
+        r"""
+        The joint density :math:`f(x, y)` of :math:`(R_a, R_b)`. Calling it evaluates :math:`f` at :math:`(x, y)`, and
+        :meth:`JointDensity.plot_surface() <phasegen.distributions.JointDensity.plot_surface>` draws its surface.
+        """
+        return self._function('pdf', self._pdf_function)
+
     def lst_taylor(self, s: complex, on: str = 'a', order: int = 2) -> list:
         r"""
         Taylor coefficients of the joint transform in one argument about zero, with the other argument held at
@@ -826,7 +847,7 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     def to_empirical(
             self,
-            n_samples: int,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
             seed: Union[int, np.random.Generator] = None
     ) -> 'EmpiricalJointDistribution':
         """
@@ -1970,7 +1991,11 @@ class ConditionalRewardDistribution(RewardDistribution):
     #: is a numerical inversion with fewer correct digits.
     _cumulant_step: float = 1e-3
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> NoReturn:
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> NoReturn:
         """
         Not available for a conditional distribution, whose condition the trajectories cannot be drawn under. Sample
         the joint distribution with :meth:`JointRewardDistribution.to_empirical()

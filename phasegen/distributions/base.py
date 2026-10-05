@@ -1293,9 +1293,7 @@ class CallableDistributionFunctions:
     def cdf(self) -> CumulativeDistributionFunction:
         """
         The cumulative distribution function. Calling it evaluates the function at ``t``, and
-        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve. The
-        CDF of a joint distribution also draws its surface with
-        :meth:`JointCDF.plot_surface() <phasegen.distributions.JointCDF.plot_surface>`.
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve.
         """
         return self._function('cdf', self._cdf_function)
 
@@ -1303,9 +1301,7 @@ class CallableDistributionFunctions:
     def pdf(self) -> DensityFunction:
         """
         The probability density function. Calling it evaluates the function at ``t``, and
-        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve. The
-        density of a joint distribution also draws its surface with
-        :meth:`JointDensity.plot_surface() <phasegen.distributions.JointDensity.plot_surface>`.
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve.
         """
         return self._function('pdf', self._pdf_function)
 

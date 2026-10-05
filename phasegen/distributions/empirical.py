@@ -2471,6 +2471,23 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         #: Optional human-readable label used in plot titles, such as ``"SFS bins (1, 2)"``.
         self.label: Optional[str] = None
 
+    @property
+    def cdf(self) -> JointCDF:
+        r"""
+        The empirical joint cumulative distribution function :math:`F(x, y) = \mathbb{P}(R_a \le x, R_b \le y)`. Calling it
+        evaluates :math:`F` at :math:`(x, y)`, and :meth:`JointCDF.plot_surface()
+        <phasegen.distributions.JointCDF.plot_surface>` draws its surface.
+        """
+        return self._function('cdf', self._cdf_function)
+
+    @property
+    def pdf(self) -> JointDensity:
+        r"""
+        The empirical joint density :math:`f(x, y)` of :math:`(R_a, R_b)`. Calling it evaluates :math:`f` at :math:`(x, y)`, and
+        :meth:`JointDensity.plot_surface() <phasegen.distributions.JointDensity.plot_surface>` draws its surface.
+        """
+        return self._function('pdf', self._pdf_function)
+
     def marginal(self, which: str = 'a') -> EmpiricalDistribution:
         """
         The empirical marginal distribution of the first reward (``which='a'``) or the second (``which='b'``).
