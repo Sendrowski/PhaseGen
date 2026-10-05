@@ -3,40 +3,12 @@
 Changelog
 =========
 
-[2.0.0] - Unreleased
+[2.0.0] - 2026-10-05
 ^^^^^^^^^^^^^^^^^^^^
-- Start the coalescent from a weighted mixture of lineage or locus configurations with :class:`~phasegen.initial.InitialDistribution`, accepted as ``n`` and ``loci`` by :class:`~phasegen.distributions.Coalescent` and :class:`~phasegen.distributions.MsprimeCoalescent`.
-- Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` slices.
+- Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the :class:`joint distribution <phasegen.distributions.JointRewardDistribution>` of two rewards with its :meth:`marginal <phasegen.distributions.JointRewardDistribution.marginal>` and :meth:`conditional <phasegen.distributions.JointRewardDistribution.conditional>` distributions.
 - Add a vectorised trajectory sampler (:meth:`to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`SampledCoalescent <phasegen.distributions.SampledCoalescent>`) as a sampled counterpart of every phase-type distribution.
 - Support time-inhomogeneous (multi-epoch) demographies for :meth:`mutational block configurations <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`.
-- Add mutational configurations of the joint and two-locus spectra and of folded, deme-resolved and custom layouts, described by :class:`~phasegen.distributions.MutationLayout` and obtained from :meth:`UnfoldedSFSDistribution.mutation_layout() <phasegen.distributions.UnfoldedSFSDistribution.mutation_layout>`, :meth:`JointSFSDistribution.mutation_layout() <phasegen.distributions.JointSFSDistribution.mutation_layout>` and :meth:`TwoLocusSFSDistribution.mutation_layout() <phasegen.distributions.TwoLocusSFSDistribution.mutation_layout>`.
-- Yield :class:`~phasegen.distributions.MutationConfig` objects, equal to the tuples of their counts, from :meth:`UnfoldedSFSDistribution.get_mutation_configs() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_configs>`, which yields them in descending order of probability, exactly so under a neighbour condition, or, with ``order='count'``, in ascending order of the total number of mutations, and key :attr:`EmpiricalPhaseTypeSFSDistribution.mutation_configs <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.mutation_configs>` by them.
-- Record the simulated mutations by descendant vector and by the deme in which they occur in :attr:`MsprimeCoalescent.jsfs_mutations <phasegen.distributions.MsprimeCoalescent.jsfs_mutations>` and :attr:`MsprimeCoalescent.deme_mutations <phasegen.distributions.MsprimeCoalescent.deme_mutations>`.
-- Compute single-epoch configuration probabilities by a recursion over the configurations below the target, memoized across calls, and assemble the multi-epoch generator from Kronecker products, with memory linear in the number of configurations below the target.
-- Remove ``phasegen.utils.multiset_permutations``.
-- Substantially speed up the closed-form last-epoch moments with a block-triangular sparse LU (strongly-connected-component ordering, ``NATURAL`` column order), giving order-of-magnitude speedups on jSFS and two-locus spectra by lowering the dense/sparse crossover to a few hundred states (:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`).
-- Make the tree-height density exact (the exit-rate reading of the propagated vector, rather than a finite difference of the CDF) and the quantile a vectorised inverse interpolation of the shared log-survival grid, rather than a per-level bisection of the CDF.
-- Propagate the tree-height cdf / pdf / quantile through the same dense / sparse / matrix-exponential-action machinery as the moments (:attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`), so a large state space is no longer densified into a ``k x k`` propagator.
-- Return a public :class:`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>` from :meth:`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>`, carrying its own :attr:`var <phasegen.distributions.ConditionalRewardDistribution.var>` and :meth:`moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`.
-- Raise :class:`ModelError <phasegen.errors.ModelError>`, a subclass of ``ValueError``, when the model cannot be evaluated at its parameters, such as a zero population size in an epoch the computation reaches. :class:`Inference <phasegen.inference.Inference>` treats it as an invalid region of the parameter space.
-- Make :attr:`JointRewardDistribution.cov <phasegen.distributions.JointRewardDistribution.cov>`, :attr:`JointRewardDistribution.corr <phasegen.distributions.JointRewardDistribution.corr>`, :attr:`EmpiricalJointDistribution.cov <phasegen.distributions.EmpiricalJointDistribution.cov>` and :attr:`EmpiricalJointDistribution.corr <phasegen.distributions.EmpiricalJointDistribution.corr>` properties, as on the other distributions.
-- Return one for moments of order zero (:meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`).
-- Restrict :class:`~phasegen.rewards.LineageReward` to single-locus coalescents.
-- Require the ``value`` and ``half_width`` arguments of :meth:`JointRewardDistribution.window_average() <phasegen.distributions.JointRewardDistribution.window_average>`, with ``half_width`` positive.
-- Take the evaluation grid of distribution-function plots as ``t`` (``q`` for quantile functions), as in :meth:`DensityFunction.plot() <phasegen.distributions.DensityFunction.plot>`.
-- Draw plots called without ``ax`` on a new figure.
-- Treat ``end_time=inf`` as no end time in :class:`~phasegen.distributions.Coalescent` and :class:`~phasegen.distributions.TreeHeightDistribution`.
-- Reject non-finite population sizes, migration rates and model parameters, and migration from a population to itself (:class:`~phasegen.demography.Demography`).
-- Seed the simulation batches of :class:`~phasegen.distributions.MsprimeCoalescent` from children of a ``numpy.random.SeedSequence`` spawned from its seed, so a given seed yields different replicates than in 1.2.0.
-- Require ``record_migration=True`` for the per-deme statistics of a :class:`~phasegen.distributions.MsprimeCoalescent` with more than one deme.
-- Return empirical spectrum cdf and pdf values with shape ``(len(t), n + 1)`` (points, bins).
-- Put the time axis first in the arrays returned by :meth:`UnfoldedSFSDistribution.accumulate() <phasegen.distributions.UnfoldedSFSDistribution.accumulate>`, :meth:`FoldedSFSDistribution.accumulate() <phasegen.distributions.FoldedSFSDistribution.accumulate>` and :meth:`JointSFSDistribution.accumulate() <phasegen.distributions.JointSFSDistribution.accumulate>`.
-- Rename ``SFS2`` to :class:`~sfsutils.spectrum.TwoSFS` and replace the ``fastdfe`` dependency with ``sfsutils-popgen``, whose :mod:`sfsutils` module provides the spectrum classes.
-- Replace ``TotalBranchLengthLocusReward`` with :class:`~phasegen.rewards.RestrictedReward`.
-- Remove ``Settings.cache_epochs`` and ``Inference.loss_runs``, and raise ``AttributeError`` when assigning an undeclared name on :class:`~phasegen.settings.Settings`.
-- Remove ``plot_pdf`` and the tuning arguments of ``pdf`` and ``quantile``.
-- Return central moments by default from :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
-- Fix bugs affecting population splits, F_ST and :meth:`Coalescent.accumulate() <phasegen.distributions.Coalescent.accumulate>`.
+- Speed up the moments of large state spaces, such as those of the joint and two-locus spectra, by an order of magnitude.
 
 [1.2.0] - 2026-06-13
 ^^^^^^^^^^^^^^^^^^^^
