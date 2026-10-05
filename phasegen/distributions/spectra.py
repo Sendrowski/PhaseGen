@@ -17,7 +17,8 @@ from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ..state_space import BlockCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order
+from ._common import N_EMPIRICAL_SAMPLES, _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, \
+    _validate_order
 from .base import CumulativeDistributionFunction, DensityFunction, QuantileFunction
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
@@ -496,7 +497,11 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
         return out
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeSFSDistribution':
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalPhaseTypeSFSDistribution':
         """
         Build an empirical spectrum from ``n_samples`` trajectories, with the per-deme breakdown of
         :meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`
@@ -1442,7 +1447,11 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return out
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalJointSFSDistribution':
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalJointSFSDistribution':
         """
         Build an empirical joint spectrum from ``n_samples`` samples of
         :meth:`JointSFSDistribution.sample() <phasegen.distributions.JointSFSDistribution.sample>`, holding the raw
@@ -2286,7 +2295,11 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         return np.einsum('ni,nj->nij', left, right)
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalTwoLocusSFSDistribution':
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalTwoLocusSFSDistribution':
         """
         Build an empirical two-locus spectrum from ``n_samples`` trajectories of
         :meth:`TwoLocusSFSDistribution.sample_per_locus()

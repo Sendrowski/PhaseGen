@@ -15,7 +15,7 @@ from ..rewards import Reward, TreeHeightReward
 from ..serialization import Serializable
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable, _validate_order, _validate_reward, _validate_rewards
+from ._common import N_EMPIRICAL_SAMPLES, _make_hashable, _validate_order, _validate_reward, _validate_rewards
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
@@ -965,7 +965,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def to_empirical(
             self,
-            n_samples: int = 100000,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
             seed: int | np.random.Generator = None
     ) -> 'SampledCoalescent':
         """

@@ -6,6 +6,9 @@ from typing import Callable, Sequence, Tuple
 
 from ..rewards import Reward
 
+#: Number of samples ``to_empirical`` draws by default.
+N_EMPIRICAL_SAMPLES = 100000
+
 
 def _make_hashable(func: Callable) -> Callable:
     """

@@ -19,7 +19,7 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import _validate_order, _validate_reward, _validate_start_time
+from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_start_time
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -444,7 +444,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         height overrides this with the maximum). Mirrors :class:`~phasegen.distributions.empirical.MsprimeCoalescent`."""
         return x.sum(axis=0)
 
-    def to_empirical(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> 'EmpiricalPhaseTypeDistribution':
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: Union[int, np.random.Generator] = None
+    ) -> 'EmpiricalPhaseTypeDistribution':
         r"""
         Build an empirical counterpart of this distribution from trajectories simulated as in
         :meth:`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, with the
