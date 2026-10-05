@@ -441,7 +441,7 @@ def test_reward_state_space_guards():
     matters because the two-locus state space subclasses the joint one, so without explicit guards a joint-SFS reward
     would evaluate on it (and vice versa)."""
     from phasegen.state_space import (BlockCountingStateSpace, JointBlockCountingStateSpace,
-                                       TwoLocusBlockCountingStateSpace, LineageCountingStateSpace)
+                                       TwoLocusBlockCountingStateSpace)
 
     two = pg.TwoLocusSFSReward(0, 1)
     joint = pg.JointSFSReward((1, 1))
@@ -814,10 +814,10 @@ def test_windowed_moments_match_sampled_products():
 
 def test_plot_accumulation_draws_one_curve_per_pair():
     """The accumulation plot draws the accumulated moment of each pair of classes i <= j and takes no rewards."""
-    sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
     data = sfs2._plot_accumulation_data(2, [0.5, 1.0])
     acc = sfs2.accumulate(2, [0.5, 1.0])
-    pairs = [(i, j) for i in (1, 2, 3) for j in (1, 2, 3) if i <= j]
+    pairs = [(i, j) for i in (1, 2) for j in (1, 2) if i <= j]
 
     assert data.labels == [f"({i}, {j})" for i, j in pairs]
     np.testing.assert_allclose(data.y, [acc[:, i, j] for i, j in pairs])

@@ -1150,8 +1150,8 @@ class JointCDF(_JointFunction, CumulativeDistributionFunction):
     - For a single epoch on a dense state space, the transform values of one frequency :math:`u_j` form a shifted
       linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
     - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
-      on the window ending at the marginal mean plus 12 standard deviations, fitted and checked as the marginal CDF of
-      a :class:`~phasegen.distributions.RewardDistribution`.
+      on the window ending at the marginal mean plus a fixed multiple of the standard deviation, fitted and checked as
+      the marginal CDF of a :class:`~phasegen.distributions.RewardDistribution`.
     - When :math:`\mathbf{r}_a = c\,\mathbf{r}_b` on every transient state for a constant :math:`c > 0`,
       :math:`R_a = c R_b` almost surely and :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, c y))`.
     - Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when

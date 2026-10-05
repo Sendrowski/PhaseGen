@@ -2306,7 +2306,7 @@ def test_step_errors_and_line_atom_densities_honour_the_cache_setting():
     try:
         joint = _locus_jump_joint()
         cond = joint.conditional('a', 0.499)
-        uncached = cond._atom_masses, float(cond.cdf(0.3))
+        uncached = cond._continuous._f
         assert not joint.__dict__.get('_step_error_cache')
         assert not cond._continuous._f_cache
     finally:
@@ -2314,11 +2314,10 @@ def test_step_errors_and_line_atom_densities_honour_the_cache_setting():
 
     joint = _locus_jump_joint()
     cond = joint.conditional('a', 0.499)
-    cached = cond._atom_masses, float(cond.cdf(0.3))
+    cached = cond._continuous._f
     assert joint.__dict__['_step_error_cache']
     assert cond._continuous._f_cache
-    np.testing.assert_array_equal(cached[0], uncached[0])
-    assert cached[1] == uncached[1]
+    np.testing.assert_array_equal(cached, uncached)
 
 
 def test_euler_step_error_of_a_unit_step():

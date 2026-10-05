@@ -6,7 +6,6 @@ from testing import TestCase
 
 import numpy as np
 import pytest
-from numpy import testing
 
 import phasegen as pg
 

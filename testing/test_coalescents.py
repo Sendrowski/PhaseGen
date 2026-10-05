@@ -1,7 +1,6 @@
 """
 Test coalescents.
 """
-import unittest
 from itertools import islice, permutations
 from typing import cast
 from testing import TestCase

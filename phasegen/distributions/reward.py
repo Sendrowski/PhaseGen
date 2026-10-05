@@ -2189,9 +2189,9 @@ class ConditionalRewardDistribution(RewardDistribution):
         :math:`s_o = 0`, from :meth:`JointRewardDistribution.lst_taylor()
         <phasegen.distributions.JointRewardDistribution.lst_taylor>`. The denominator is :math:`f_c(v)`. Both inverse
         transforms are the Fourier series of the inner inversion, with the truncation :math:`N` doubled until no moment
-        up to order :math:`k` moves by more than 0.1% over three consecutive truncations, and a warning logged where one
-        still moves at the largest truncation. For :math:`v = 0` only the mean :math:`-\varphi'(0)` and the second moment
-        :math:`\varphi''(0)` are available, by central differences.
+        up to order :math:`k` moves by more than a fixed relative tolerance over three consecutive truncations, and a
+        warning logged where one still moves at the largest truncation. For :math:`v = 0` only the mean
+        :math:`-\varphi'(0)` and the second moment :math:`\varphi''(0)` are available, by central differences.
 
         :param k: Order :math:`k` of the moment.
         :return: The raw moment of order ``k``.

@@ -770,15 +770,10 @@ class Comparison(Serializable):
 
             \\frac{\\int |Q_{\\mathrm{ph}}(q) - Q_{\\mathrm{ms}}(q)|\\, \\mathrm{d}q}{\\int Q_{\\mathrm{ms}}(q)\\, \\mathrm{d}q}.
 
-        The :math:`L^1` distance between the quantile
-        functions is a proper distributional distance (it equals the area between the CDFs); normalising by the
-        reference mean (:math:`\\int Q\\, \\mathrm{d}q = \\mathbb{E}[L]`) makes it dimensionless and transferable across
-        scenarios.
-
-        It is naturally **atom-robust**: for an SFS bin with an atom ``P(L_i = 0) = p0`` the inverse CDF is exactly 0
-        for every probability below ``p0``, so on that flat region both quantiles are 0 and the integrand contributes
-        nothing -- there is no per-point relative blow-up of the tiny near-atom values that the old worst-relative
-        metric suffered from. For a per-bin spectrum the worst bin's value is returned. A bin whose curves agree is 0,
+        The :math:`L^1` distance between the quantile functions equals the area between the CDFs, and the reference
+        mean :math:`\\int Q_{\\mathrm{ms}}\\, \\mathrm{d}q` in the denominator makes it dimensionless. For an SFS bin
+        with an atom ``P(L_i = 0) = p0`` both quantiles are 0 below ``p0``, so the atom contributes nothing. For a
+        per-bin spectrum the worst bin's value is returned. A bin whose curves agree is 0,
         also where the reference is identically 0, and a non-finite value on either curve fails."""
         y_ms, y_ph, q = np.asarray(y_ms, dtype=float), np.asarray(y_ph, dtype=float), np.asarray(q, dtype=float)
 
@@ -963,9 +958,8 @@ class Comparison(Serializable):
 
                 # nested conditional group: the self-consistency checks of the conditional path, on freely chosen bin
                 # pairs. These are identities the analytic joint must satisfy, so they need no msprime operand and a
-                # pair can be added without regenerating the fixture. The one exception is the ``atom`` sub-block,
-                # which *is* compared against msprime (see :meth:`_compare_atom_conditional`) and does need the
-                # cached ground truth.
+                # pair can be added without regenerating the fixture. The exceptions are the ``atom`` and ``windowed``
+                # sub-blocks, which are compared against the cached msprime ground truth.
                 for key, subtol in sub.items():
                     pair = ast.literal_eval(key) if isinstance(key, str) else tuple(key)
                     self._compare_conditional(ph.joint(*pair), pair, subtol, title, name, ms=ms)
@@ -1141,15 +1135,9 @@ class Comparison(Serializable):
 
     def _compare_atom_conditional(self, jd, ms, pair: tuple, tols: dict, title: str, name: str = '') -> None:
         """
-        Compare the exact **atom conditional** ``R_other | R_on = 0`` against the msprime ground truth, for each
-        conditioning axis of one bin pair.
-
-        The only conditional with a ground truth worth the name: ``{R_on = 0}`` has positive probability, so the
-        replicates whose conditioning bin is empty *are* the conditioning set, with no window and no bandwidth bias
-        (unlike ``R_other | R_on = v``, which a sample can only estimate over a window). It is also the only check
-        that reaches ``value = 0`` at all: every other conditional check places its conditioning values at
-        ``quantile(p0 + (1 - p0) u)``, strictly above the atom, so none of them exercise the closed-form atom
-        transform.
+        Compare the exact atom conditional ``R_other | R_on = 0`` against the msprime ground truth, for each
+        conditioning axis of one bin pair. The event ``{R_on = 0}`` has positive probability, so the replicates whose
+        conditioning bin is empty are the conditioning set, with no window. This is the only check at ``value = 0``.
 
         Asserts the atom's ``mass``, and hands every other requested statistic to :meth:`compare_stat`, so both the
         conditional's moments (``mean`` / ``var``) and its ``cdf`` / ``pdf`` / ``quantile`` grids are validated against
@@ -1197,32 +1185,16 @@ class Comparison(Serializable):
     def _compare_windowed_conditional(self, jd, ms, pair: tuple, tols: dict, title: str,
                                       loci: bool = False) -> None:
         """
-        Compare the **nested conditional** ``R_other | R_on = v`` against the msprime ground truth, over the
+        Compare the nested conditional ``R_other | R_on = v`` against the msprime ground truth, over the
         conditioning windows cached for this pair.
 
-        The only external check the nested conditional has (away from the atom): every other conditional check is an
-        identity the analytic joint must satisfy, so a systematic error shared by the transform and the identity would
-        pass them all. Here msprime decides.
+        Both sides are averaged over the same window, the sample by construction and phasegen by
+        :meth:`~phasegen.distributions.reward.JointRewardDistribution.window_average`, so the ``O(h)`` window bias
+        cancels and the residual is the sample's standard error.
 
-        Both sides are averaged over the *same* window -- the sample by construction, phasegen by
-        :meth:`~phasegen.distributions.reward.JointRewardDistribution.window_average` -- so the ``O(h)`` window bias
-        cancels rather than being corrected for, and the residual is the sample's standard error alone.
-
-        The ``mean`` is reported in **standard errors of the sample**, and its tolerance is a number of sigmas. Once
-        the window bias is gone, the mean has no floor other than the sampling noise of the window, so a sigma is the
-        only scale that means the same thing across demographies and replicate counts: a relative tolerance would have
-        to be loosened for a noisy scenario, and would silently stop biting as a scenario's replicate count rose. It
-        costs one conditional cumulant per quadrature node.
-
-        The ``cdf`` is reported as a plain absolute difference. A sigma is the wrong unit for it: the empirical CDF's
-        binomial error collapses in the tails, where a z-score explodes on an absolute agreement that is in fact
-        excellent. Its tolerance is bounded by *msprime's* replicate count rather than by phasegen -- against a large
-        sample the nested conditional's CDF resolves to a few 1e-4 -- so it is a tripwire with an order of magnitude
-        of headroom, not a precision bound.
-
-        The cdf is also the dear one: every quadrature node is a whole cosine grid, where the mean needs only a
-        cumulant. It therefore runs on the axes named by ``cdf_axes`` (default both), so a config can pay for it on
-        one conditioning axis while the mean, which is nearly free, still covers both.
+        The ``mean`` is reported in standard errors of the sample, and its tolerance is a number of sigmas. The
+        ``cdf`` is reported as the maximum absolute difference. It evaluates a cosine grid per quadrature node and
+        runs on the axes named by ``cdf_axes`` (default both).
 
         :param jd: The analytic joint distribution of the pair.
         :param ms: The msprime operand, carrying the cached ground truth.
@@ -1342,7 +1314,7 @@ class Comparison(Serializable):
             and ``dehoog`` sub-blocks.
         :param title: Title prefix for the log line.
         :param name: Name prefix for the plot file.
-        :param ms: The msprime operand, needed only by the ``atom`` sub-block.
+        :param ms: The msprime operand, needed only by the ``atom`` and ``windowed`` sub-blocks.
         :param loci: Whether ``pair`` is a pair of loci, for the ``windowed`` sub-block.
         :raises ValueError: If a requested check is not one of :attr:`_CONDITIONAL_CHECKS`.
         """
@@ -1350,7 +1322,7 @@ class Comparison(Serializable):
             if key in self._CONDITIONAL_OPTS:
                 continue
             if key == 'atom':
-                # the one conditional check with an msprime ground truth (see :meth:`_compare_atom_conditional`)
+                # the atom conditional against msprime
                 self._compare_atom_conditional(jd, ms, pair, tol, title, name)
                 continue
             if key == 'windowed':
