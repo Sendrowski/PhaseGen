@@ -880,19 +880,6 @@ class Coalescent(AbstractCoalescent, Serializable):
                 spaces[name].drop_cache()
                 spaces[name].epoch = epoch
 
-    def __setstate__(self, state: dict) -> None:
-        """
-        Restore the state of the object from a serialized state.
-
-        :param state: State.
-        """
-        self.__dict__.update(state)
-
-        # the drain rate of a population split depends on the coalescent model
-        demography = self.__dict__.get('demography')
-        if demography is not None and '_model' not in demography.__dict__:
-            demography._model = self.__dict__.get('model')
-
     def __getstate__(self) -> dict:
         """
         Get the state of the object for serialization.
@@ -919,7 +906,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         # drop cache
         other.drop_cache()
 
-        return super(self.__class__, other).to_json()
+        return super(Coalescent, other).to_json()
 
     def to_msprime(
             self,

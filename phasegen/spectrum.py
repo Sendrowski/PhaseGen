@@ -19,8 +19,3 @@ class SFS(Spectrum):
     A site-frequency spectrum.
     """
     pass
-
-
-#: Deserialization alias so jsonpickle can resolve ``phasegen.spectrum.SFS2`` in fixtures serialized before the class
-#: was renamed to :class:`TwoSFS` and moved to :mod:`sfsutils`. Not part of the public API.
-SFS2 = TwoSFS

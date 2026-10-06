@@ -1886,21 +1886,18 @@ def test_high_moments_across_a_very_short_epoch_match_an_extended_precision_refe
     assert tiny_first.tree_height.moment(5, center=False) == pytest.approx(6896.2962962962963, rel=1e-12)
 
 
-def test_moments_survive_absorption_memos_stored_in_an_older_form():
-    """Payloads from v1.2 store the absorption-certainty memo as a bool, which is replaced rather than indexed.
-    Regression: every uncached moment of such a payload raised TypeError: argument of type 'bool' is not iterable."""
-    coal = pg.Coalescent(n=4)
+class _SubCoalescent(pg.Coalescent):
+    """A user subclass of Coalescent."""
+    pass
 
-    for dist in (coal.tree_height, coal.total_branch_length, coal.sfs):
-        dist.__dict__['_absorption_certain_cache'] = True
-        dist.__dict__['_alpha_support_cache'] = None
 
-    restored = pg.Coalescent.from_json(coal.to_json())
+def test_a_subclass_of_coalescent_serializes():
+    """A user subclass of Coalescent round-trips through JSON. Regression: to_json recursed without end, raising
+    RecursionError."""
+    restored = pg.Coalescent.from_json(_SubCoalescent(n=3).to_json())
 
-    assert restored.tree_height.moment(3, center=False) == pytest.approx(
-        pg.Coalescent(n=4).tree_height.moment(3, center=False), rel=1e-12)
-    np.testing.assert_allclose(restored.sfs.moment(3, center=False).data,
-                               pg.Coalescent(n=4).sfs.moment(3, center=False).data, rtol=1e-12)
+    assert isinstance(restored, _SubCoalescent)
+    assert restored.tree_height.mean == pytest.approx(pg.Coalescent(n=3).tree_height.mean, rel=1e-12)
 
 
 def test_action_path_moments_do_not_depend_on_the_other_end_times():

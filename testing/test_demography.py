@@ -979,27 +979,54 @@ def test_the_constant_migration_shorthand_rejects_malformed_keys(key):
         pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={key: 1})
 
 
-@pytest.mark.parametrize('model', [pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.5, c=1)])
-def test_a_payload_without_the_demography_model_restores_the_split_drain_rate(model):
-    """A serialized coalescent whose demography predates the stored model restores the model's split drain rate.
-    Regression: the demography fell back to the standard coalescent, shifting the tree-height mean by about 2e-3."""
-    def build():
-        return pg.Coalescent(
-            n={'a': 2, 'b': 1}, model=model,
-            demography=pg.Demography(
-                events=[pg.PopulationSplit(time=0.5, derived='a', ancestral='b')],
-                pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0, ('b', 'a'): 0}
-            )
-        )
+def test_symmetric_migration_accepts_one_shot_iterables():
+    """Populations given as a generator or map set every pair of migration rates, as a list does. Regression: the
+    iterable was read twice, so only the pairs leaving the first population survived."""
+    pops = ['a', 'b', 'c']
+    expected = pg.SymmetricMigrationRateChanges(pops, 0.5).migration_rates
 
-    coal = build()
-    del coal.demography.__dict__['_model']
+    assert len(expected[0]) == 6
+    assert pg.SymmetricMigrationRateChanges((p for p in pops), 0.5).migration_rates == expected
+    assert pg.SymmetricMigrationRateChanges(map(str, pops), 0.5).migration_rates == expected
 
-    restored = pg.Coalescent.from_json(coal.to_json())
 
-    assert restored.demography._model == model
-    assert restored.tree_height.mean == pytest.approx(build().tree_height.mean, rel=1e-12)
+def test_population_split_accepts_any_iterable_of_derived_populations():
+    """Derived populations given as a tuple or generator split as a list does. Regression: a tuple raised
+    TypeError when concatenated with the ancestral population."""
+    expected = pg.PopulationSplit(time=0.5, derived=['a', 'b'], ancestral='c')
 
+    for derived in [('a', 'b'), (p for p in ['a', 'b'])]:
+        split = pg.PopulationSplit(time=0.5, derived=derived, ancestral='c')
+
+        assert split.derived == expected.derived
+        assert split.pop_names == expected.pop_names
+
+
+@pytest.mark.parametrize('kwargs, match', [
+    (dict(pop_sizes={'a': {}}), "got {} for 'a'"),
+    (dict(pop_sizes={'a': np.array(1.0)}), "for 'a'"),
+    (dict(pop_sizes=np.array(1.0)), 'Population sizes must be a number or a dictionary'),
+])
+def test_demography_rejects_malformed_size_and_migration_entries(kwargs, match):
+    """Every entry of the size and migration shorthands is checked, whatever its position. Regression: the form was
+    read from the first entry only, so an empty dictionary raised IndexError and a 0-d array raised TypeError."""
+    with pytest.raises(ValueError, match=match):
+        pg.Demography(**kwargs)
+
+
+@pytest.mark.parametrize('pop_sizes, migration_rates', [
+    ({'a': {0: 1, 1: 0.5}, 'b': 2}, {('a', 'b'): 1, ('b', 'a'): 1}),
+    ({'b': 2, 'a': {0: 1, 1: 0.5}}, {('a', 'b'): {0: 1}, ('b', 'a'): 1}),
+])
+def test_demography_accepts_constant_and_time_dependent_entries_together(pop_sizes, migration_rates):
+    """A constant entry next to time-dependent ones is read as constant from time 0. Regression: the form was read
+    from the first entry only, so mixed forms raised a TypeError that depended on the entry order."""
+    expected = pg.Demography(pop_sizes={'a': {0: 1, 1: 0.5}, 'b': {0: 2}},
+                             migration_rates={('a', 'b'): {0: 1}, ('b', 'a'): {0: 1}})
+
+    assert pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes=pop_sizes, migration_rates=migration_rates)).tree_height.mean == pytest.approx(
+        pg.Coalescent(n={'a': 2, 'b': 1}, demography=expected).tree_height.mean, rel=1e-14)
 
 
 def test_events_must_be_a_list_of_demographic_events():

@@ -1324,17 +1324,12 @@ class MomentEvaluator:
         """
         A memo of the host keyed by state space, or by state space and epoch list, holding ``(state_space, value)`` so
         that an entry is used only for the very state space it was computed on, which a key reused by another object
-        after deserialization is not. A payload that stored the memo in another form starts afresh.
+        after deserialization is not.
 
         :param name: Attribute name of the memo.
         :return: The memo.
         """
-        memo = self.__dict__.get(name)
-
-        if not isinstance(memo, dict):
-            memo = self.__dict__[name] = {}
-
-        return memo
+        return self.__dict__.setdefault(name, {})
 
     def _alpha_support(self, k: int = 1) -> np.ndarray:
         """

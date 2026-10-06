@@ -73,13 +73,16 @@ class Demography:
             indexed by population name and time at which the population size changes, or a dictionary of the form
             ``{pop_i: size}`` if the population size is constant, or a single float if there is only one population
             and the population size is constant, or a dictionary of the form ``{time1: size1, time2: size2}`` for a
-            single population.
+            single population. Constant and time-dependent entries may be combined in one dictionary.
         :param migration_rates: Migration rates. A dictionary of the form ``{(pop_i, pop_j): {time1: rate1, time2:
             rate2}}`` of migration from population ``pop_i`` to population ``pop_j`` backwards in time from time
             ``time1`` etc., or alternatively a dictionary of the form ``{(pop_i, pop_j): rate}`` if the migration
-            rate is constant over time.
+            rate is constant over time, the two forms combinable as for the population sizes.
         :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
         :raises TypeError: If ``events`` is not a list of :class:`DemographicEvent` objects.
+        :raises ValueError: If ``pop_sizes`` is neither a number nor a dictionary, ``migration_rates`` is not a
+            dictionary, or one of their entries is neither a number nor a non-empty dictionary of times
+            to values.
         """
         if events is None:
             events = []
@@ -97,16 +100,20 @@ class Demography:
         elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.keys())[0], numbers.Real):
             pop_sizes = {'pop_0': pop_sizes}
 
-        # assuming constant population sizes if only a dictionary of population to size is given
-        elif isinstance(pop_sizes, dict) and pop_sizes and isinstance(list(pop_sizes.values())[0], numbers.Real):
-            pop_sizes = {p: {0: s} for p, s in pop_sizes.items()}
+        elif isinstance(pop_sizes, dict):
+            pop_sizes = self._to_time_series(pop_sizes, 'Population sizes')
+
+        else:
+            raise ValueError(f'Population sizes must be a number or a dictionary, got {pop_sizes!r}.')
 
         if migration_rates is None:
             migration_rates = {}
 
-        # wrap migration rate in dictionary if only one time per migration pair is given
-        elif isinstance(migration_rates, dict) and migration_rates and isinstance(list(migration_rates.values())[0], numbers.Real):
-            migration_rates = {key: {0: r} for key, r in migration_rates.items()}
+        elif isinstance(migration_rates, dict):
+            migration_rates = self._to_time_series(migration_rates, 'Migration rates')
+
+        else:
+            raise ValueError(f'Migration rates must be a dictionary, got {migration_rates!r}.')
 
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
@@ -137,6 +144,24 @@ class Demography:
                 'Initializing with zero migration rates between all populations. '
                 'Note that this may lead to infinite coalescence times if not changed later.'
             )
+
+    @staticmethod
+    def _to_time_series(rates: dict, name: str) -> Dict[Any, Dict[float, float]]:
+        """
+        Bring rates keyed by population or population pair into the form ``{key: {time: rate}}``, wrapping each
+        constant rate as ``{0: rate}``.
+
+        :param rates: Rates, each entry either a number or a dictionary of times to values.
+        :param name: Name of the rates in error messages.
+        :return: Rates of the form ``{key: {time: rate}}``.
+        :raises ValueError: If an entry is neither a number nor a non-empty dictionary.
+        """
+        for key, r in rates.items():
+            if not (isinstance(r, numbers.Real) or (isinstance(r, dict) and r)):
+                raise ValueError(f'{name} must be given as numbers or non-empty dictionaries of times to values, '
+                                 f'got {r!r} for {key!r}.')
+
+        return {key: {0: r} if isinstance(r, numbers.Real) else r for key, r in rates.items()}
 
     def _prepare_events(self) -> None:
         """
@@ -1077,6 +1102,7 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
         if isinstance(rate, numbers.Real):
             rate = {0: rate}
 
+        pops = list(pops)
         rate = {(p, q): rate for p in pops for q in pops if p != q}
 
         super().__init__(rates=rate)
@@ -1125,8 +1151,7 @@ class PopulationSplit(DiscreteDemographicEvent):
         :raises ValueError: If the time is negative, the ancestral population is among the derived ones, or the
             multiplier is not positive and finite.
         """
-        if isinstance(derived, str):
-            derived = [derived]
+        derived = [derived] if isinstance(derived, str) else list(derived)
 
         if not time >= 0:
             raise ValueError(f'The split time must be non-negative, got {time}.')
