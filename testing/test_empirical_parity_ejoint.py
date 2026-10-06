@@ -528,6 +528,67 @@ def test_empirical_moment_joint_and_layout_take_the_parameters_of_the_exact_ones
                    inspect.signature(getattr(emp, member)).parameters.keys(), (name, member)
 
 
+def test_empirical_joint_spectrum_and_marginal_moments_take_the_parameters_of_the_exact_ones():
+    """
+    The moments of the empirical joint spectrum and of the per-deme and per-locus marginals take the parameters of
+    their exact counterparts in the same order. A window of the joint spectrum is served by the accumulation over
+    time, and rewards or times on a marginal, which holds no trajectories, raise. Regression: these took
+    ``(k, center)``, so ``moment(2, None)`` gave the raw moment empirically and the central one exactly, and a window
+    raised TypeError.
+    """
+    import inspect
+
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=TWO_DEMES)
+    sampled = coal.to_empirical(n_samples=200, seed=SEED)
+
+    pairs = [(coal.jsfs, sampled.jsfs), (coal.sfs.demes['a'], sampled.sfs.demes['a'])]
+    pairs += [(getattr(coal, name).demes['a'], getattr(sampled, name).demes['a'])
+              for name in ('tree_height', 'total_branch_length')]
+    pairs += [(getattr(coal, name).loci[0], getattr(sampled, name).loci[0])
+              for name in ('tree_height', 'total_branch_length', 'sfs')]
+
+    for exact, emp in pairs:
+        assert list(inspect.signature(exact.moment).parameters) == list(inspect.signature(emp.moment).parameters)
+
+    jsfs = sampled.jsfs
+    np.testing.assert_array_equal(jsfs.moment(2, None).data, jsfs.moment(2).data)
+    np.testing.assert_allclose(jsfs.moment(1, end_time=0.5).data, jsfs.accumulate(1, [0.5])[0], rtol=1e-12)
+    np.testing.assert_allclose(jsfs.moment(2, start_time=0.0).data, jsfs.var.data, rtol=1e-10, atol=1e-12)
+
+    reward = pg.TreeHeightReward()
+    for emp in (sampled.tree_height.demes['a'], sampled.sfs.loci[0]):
+        for kwargs in (dict(rewards=[reward, reward]), dict(end_time=0.5), dict(start_time=0.1)):
+            with pytest.raises(NotImplementedError, match="does not hold"):
+                emp.moment(2, **kwargs)
+
+
+def test_order_zero_moments_are_one_in_every_bin_exactly_and_empirically():
+    """
+    The moment of order zero is one in every bin of the exact and the empirical SFS, folded SFS, joint SFS and
+    two-locus SFS, also over a time window, through the accumulation, and from the statistics retained after
+    ``_drop``. Regression: the exact spectra and the empirical accumulation held zeros in the bins without a moment,
+    where the empirical moments held ones.
+    """
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=TWO_DEMES)
+    sampled = coal.to_empirical(n_samples=200, seed=SEED)
+    coal2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    exact = [coal.sfs, coal.fsfs, coal.jsfs, coal2.sfs2]
+    emp = [sampled.sfs, sampled.fsfs, sampled.jsfs, coal2.to_empirical(n_samples=200, seed=SEED).sfs2]
+
+    for e, s in zip(exact, emp):
+        for d in (e, s):
+            np.testing.assert_array_equal(np.asarray(d.moment(0).data), 1)
+            np.testing.assert_array_equal(d.accumulate(0, [0.5]), 1)
+
+    for d in exact[:3] + emp[:3]:
+        np.testing.assert_array_equal(np.asarray(d.moment(0, end_time=0.5).data), 1)
+
+    for d in (sampled.sfs, sampled.fsfs, sampled.jsfs):
+        d._touch(np.linspace(0, 2, 5))
+        d._drop()
+        np.testing.assert_array_equal(np.asarray(d.moment(0).data), 1)
+
+
 def test_spectrum_loci_joint_raises_on_both_sides(one_deme):
     """The per-locus marginals of a spectrum have no joint distribution across loci, exactly or empirically.
     Regression: the exact side passed the restricted spectrum rewards to ``SFSDistribution.joint(i, j)`` and failed

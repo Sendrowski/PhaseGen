@@ -362,7 +362,8 @@ class SFSDistribution(SpectrumDistribution, ABC):
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
             equals the cross-moment only when all rewards are equal.
-        :return: A site-frequency spectrum of :math:`k`-th moments.
+        :return: A site-frequency spectrum of :math:`k`-th moments, zero in the other bins and one in every bin for
+            :math:`k = 0`.
         :raises ValueError: if ``k`` is not integral or is negative, or if the start time is negative, exceeds
             the end time, or lies beyond the time of almost sure absorption.
         """
@@ -407,7 +408,10 @@ class SFSDistribution(SpectrumDistribution, ABC):
             for i in self._get_indices()
         ])
 
-        return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
+        # the bins without a moment hold 0, and 1 = 0 ** 0 for order zero
+        pad = float(k == 0)
+
+        return SFS([pad] + list(moments) + [pad] * (self.lineage_config.n - len(moments)))
 
     def _moment(
             self,
@@ -548,11 +552,13 @@ class SFSDistribution(SpectrumDistribution, ABC):
                 self.get_accumulation(k, i, end_times, rewards, center, permute, start_time) for i in indices
             ])
 
-        # pad with zeros
+        # the bins without a moment hold 0, and 1 = 0 ** 0 for order zero
+        pad = float(k == 0)
+
         return np.concatenate([
-            np.zeros((1, len(end_times))),
+            np.full((1, len(end_times)), pad),
             accumulation,
-            np.zeros((self.lineage_config.n - len(indices), len(end_times)))
+            np.full((self.lineage_config.n - len(indices), len(end_times)), pad)
         ]).T
 
     def _accumulate_batched(self, k, indices, end_times, rewards, start_time) -> 'np.ndarray | None':
@@ -1443,7 +1449,8 @@ class JointSFSDistribution(SpectrumDistribution):
             absorption.
         :param center: Whether to return the central moment.
         :param permute: Whether to average over the :math:`k!` orderings of the rewards.
-        :return: A joint site-frequency spectrum of shape :attr:`shape` holding the :math:`k`-th moment of each bin.
+        :return: A joint site-frequency spectrum of shape :attr:`shape` holding the :math:`k`-th moment of each bin,
+            zero in the bins that are not polymorphic and one in every bin for :math:`k = 0`.
         :raises ValueError: If the start time is negative, exceeds the end time, or lies beyond the time of almost sure
             absorption, or if the moment is not a number.
         """
@@ -1459,7 +1466,8 @@ class JointSFSDistribution(SpectrumDistribution):
             acc = self.accumulate(1, [start, end], start_time=0.0)
             out = acc[1] - acc[0]
         else:
-            out = np.zeros(self.shape)
+            # the bins without a moment hold 0, and 1 = 0 ** 0 for order zero
+            out = np.full(self.shape, float(k == 0))
             for config in self._get_configs():
                 out[config] = PhaseTypeDistribution.moment(
                     self,
@@ -1660,7 +1668,7 @@ class JointSFSDistribution(SpectrumDistribution):
                 for config in configs
             ])
 
-        out = np.zeros((len(end_times),) + self.shape)
+        out = np.full((len(end_times),) + self.shape, float(k == 0))
         for config, acc in zip(configs, accumulation):
             out[(slice(None),) + config] = acc
 
@@ -2002,7 +2010,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         k = _validate_order(k)
         end_times = np.array(list(end_times), dtype=float)
         n = self.lineage_config.n
-        out = np.zeros((len(end_times), n + 1, n + 1))
+        out = np.full((len(end_times), n + 1, n + 1), float(k == 0))
 
         for i in self._get_indices():
             for j in self._get_indices():
@@ -2079,7 +2087,8 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         :param k: The order :math:`k` of the moment.
         :param center: Whether to return the central moment.
-        :return: A two-locus spectrum of :math:`k`-th moments.
+        :return: A two-locus spectrum of :math:`k`-th moments, zero in the bins that are not polymorphic and one in
+            every bin for :math:`k = 0`.
         :raises ValueError: If ``k`` is not a non-negative integer.
         """
         end_time = self._tree_height.end_time

@@ -365,6 +365,29 @@ def test_empirical_moments_after_drop_serve_the_retained_moments():
             bare.moment(k)
 
 
+def test_empirical_functions_after_drop_raise_the_error_of_the_moments():
+    """
+    After ``_drop`` the cdf, quantile and pdf of a scalar, a spectrum and a joint spectrum raise the ValueError of
+    the moments that need the samples, also at the points cached by ``_touch``. Regression: they raised
+    AttributeError or numpy AxisError on the freed samples.
+    """
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5}))
+    t = np.linspace(0, 3, 10)
+
+    for dist in (coal.tree_height.to_empirical(200, seed=1), coal.sfs.to_empirical(200, seed=1),
+                 coal.jsfs.to_empirical(200, seed=1)):
+        dist._touch(t)
+        dist._drop()
+
+        for f, x in ((dist.cdf, t), (dist.pdf, t), (dist.quantile, [0.5])):
+            with pytest.raises(ValueError, match="needs the per-replicate samples, which have been dropped"):
+                f(x)
+
+            with pytest.raises(ValueError, match="dropped"):
+                f._plot_data()
+
+
 def test_fixtures_without_simulated_mutations_store_no_configuration_frequencies():
     """
     The serialized comparisons of configurations that simulate no mutations carried a point mass at the

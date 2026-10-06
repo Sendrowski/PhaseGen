@@ -1837,10 +1837,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
             \hat{m}_i = \int_0^{\infty} i\,y^{i-1}\big(1 - F(y)\big)\,\mathrm{d}y,
 
-        computed by Simpson's rule over the support window of :math:`F`. It is compared with
-        :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>` and
-        scaled as in the mean check. Unlike the mean check, this reaches the distribution function itself. Orders above
-        two weight the far tail, where a small absolute error of the CDF becomes a large relative one.
+        computed by Simpson's rule over the support window of :math:`F`. It is compared with the raw moment
+        :meth:`ConditionalRewardDistribution.moment() <phasegen.distributions.ConditionalRewardDistribution.moment>`
+        (``center=False``) and scaled as in the mean check. Unlike the mean check, this reaches the distribution
+        function itself. Orders above two weight the far tail, where a small absolute error of the CDF becomes a large
+        relative one.
 
         :param n_points: Number of conditioning values per conditioning reward. Ignored when ``quantiles`` is given.
         :param tol: Scaled error above which a warning is logged.
@@ -1968,7 +1969,8 @@ class ConditionalRewardDistribution(RewardDistribution):
       where the density of :math:`R_c` at :math:`v` is below the resolution of the inversion.
     - The support window of the cosine fit grows from the conditional mean until the de Hoog CDF reaches a probability
       close to one.
-    - Before the first cosine expansion, :math:`N` is doubled further until the CDF of the locating pass of the
+    - Before the first cosine expansion or value of :meth:`ConditionalRewardDistribution.lst()
+      <phasegen.distributions.ConditionalRewardDistribution.lst>`, :math:`N` is doubled further until the CDF of the locating pass of the
       expansion on that window moves by at most :math:`10^{-3}` when :math:`N` is halved, and held for all :math:`s`.
       Both truncations weight the same nodes, so the check needs no transform evaluations beyond the pass. A CDF still
       moving at the largest truncation is reported by a warning.
@@ -2016,12 +2018,14 @@ class ConditionalRewardDistribution(RewardDistribution):
     def lst(self, s: complex) -> complex:
         r"""
         The conditional transform :math:`\varphi(s)` defined at
-        :class:`~phasegen.distributions.ConditionalRewardDistribution`.
+        :class:`~phasegen.distributions.ConditionalRewardDistribution`, at the truncation of the inner inversion that
+        ``cdf``, ``pdf`` and ``quantile`` invert.
 
         :param s: The argument.
         :return: The transform at ``s``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
         """
+        self._refine()
         return complex(self._lst_nodes(np.array([s], dtype=complex))[0])
 
     def _lst_nodes(self, s: np.ndarray) -> np.ndarray:
@@ -2034,7 +2038,8 @@ class ConditionalRewardDistribution(RewardDistribution):
         raise NotImplementedError
 
     def _refine(self) -> None:
-        """Refine the inner inversion before the first cosine expansion, nothing for a transform without one."""
+        """Refine the inner inversion before the first cosine expansion or public transform value, nothing for a
+        transform without one."""
 
     @cached_property
     def mean(self) -> float:
@@ -2173,12 +2178,12 @@ class ConditionalRewardDistribution(RewardDistribution):
 
         return max(float(var), 0.0)
 
-    def moment(self, k: int) -> float:
+    def moment(self, k: int, center: bool = True) -> float:
         r"""
-        The raw moment :math:`\mathbb{E}[R_o^k \mid R_c = v]` of order :math:`k \ge 1`, with the notation of
+        The moment of order :math:`k` of :math:`R_o` given :math:`R_c = v`, central by default, with the notation of
         :class:`~phasegen.distributions.ConditionalRewardDistribution`.
 
-        For :math:`v > 0`,
+        For :math:`v > 0` the raw moments are
 
         .. math::
 
@@ -2193,16 +2198,26 @@ class ConditionalRewardDistribution(RewardDistribution):
         warning logged where one still moves at the largest truncation. For :math:`v = 0` only the mean
         :math:`-\varphi'(0)` and the second moment :math:`\varphi''(0)` are available, by central differences.
 
-        :param k: Order :math:`k` of the moment.
-        :return: The raw moment of order ``k``.
+        The central moment of order :math:`k \ge 2` is
+        :math:`\sum_{j=0}^{k} \binom{k}{j} \mathbb{E}[R_o^j \mid R_c = v]\, (-\mu)^{k-j}`, with :math:`\mu` the
+        conditional mean, from the raw moments of the same truncation. The sum cancels, multiplying the relative error
+        of the raw moments by about :math:`\mathbb{E}[R_o^k \mid R_c = v] / \mu_k`, with :math:`\mu_k` the central
+        moment, so central moments of order three and above lose accuracy where this ratio is large, near the lower
+        end of the support of :math:`R_c`. Order two is :attr:`var`. Order zero is 1 and order one is :attr:`mean`
+        either way.
+
+        :param k: Order :math:`k \ge 0` of the moment.
+        :param center: Whether to return the central moment.
+        :return: The moment of order ``k``.
         :raises TypeError: If ``k`` is not a number.
-        :raises ValueError: If ``k`` is not an integer of at least 1, or if the density of the conditioning reward at
+        :raises ValueError: If ``k`` is not integral or is negative, or if the density of the conditioning reward at
             :math:`v` is not resolvable.
         :raises NotImplementedError: If ``k`` exceeds 2 for :math:`v = 0`.
         """
         k = _validate_order(k)
-        if k < 1:
-            raise ValueError("k must be at least 1.")
+
+        if k == 0:
+            return 1.0
 
         if k == 1:
             return float(self.mean)
@@ -2214,9 +2229,17 @@ class ConditionalRewardDistribution(RewardDistribution):
                     "derivative identity cannot be evaluated there, and the higher cumulant differences of the "
                     "transform are too noisy to trust."
                 )
-            return float(self.var) + float(self.mean) ** 2
+            return float(self.var) + (0.0 if center else float(self.mean) ** 2)
 
-        return float(self._raw_moments(k=k)[k - 1])
+        if center and k == 2:
+            return float(self.var)
+
+        raw = [1.0] + self._raw_moments(k=k)
+
+        if not center:
+            return raw[k]
+
+        return float(sum(comb(k, j) * raw[j] * (-raw[1]) ** (k - j) for j in range(k + 1)))
 
     def _range(self, scale: float = 12.0) -> float:
         """Support upper end by bracketing the de Hoog CDF (``_range_via_cdf``), memoised per ``scale``. The cumulant
@@ -2534,9 +2557,9 @@ def _euler_invert(transform, t: float, A: float = 16.0, N0: int = _EULER_N0, m: 
 class _NestedConditional(ConditionalRewardDistribution):
     """The conditional on a value ``R_on = value > 0`` of ``ConditionalRewardDistribution``: ``phi(s) = G(s) / G(0)``
     with ``G`` the Euler inversion along the conditioning axis. The truncation ``N0`` is calibrated on ``G(0)`` at
-    construction by ``_calibrate``, and on the CDF by ``_refine`` before the first cosine expansion, and held for every
-    ``s`` in between, since a truncation varying with ``s`` would break the analyticity of ``G`` in ``s`` that the
-    outer inversion needs."""
+    construction by ``_calibrate``, and on the CDF by ``_refine`` before the first cosine expansion or value of ``lst``,
+    and held for every ``s`` in between, since a truncation varying with ``s`` would break the analyticity of ``G`` in
+    ``s`` that the outer inversion needs."""
     _pdf_function = ConditionalDensity
     _cdf_function = ConditionalCDF
     _quantile_function = ConditionalQuantileFunction
@@ -2636,7 +2659,8 @@ class _NestedConditional(ConditionalRewardDistribution):
         costs no transform evaluations beyond the pass, whose values at the accepted truncation the expansion reuses. A
         doubling that makes ``G(0)`` non-positive is rejected, as in ``_calibrate``. The window of the pass is located
         at the truncation of ``_calibrate``. Runs once, and is called by the function objects before their first
-        expansion, so a conditional whose moments alone are read never pays for it.
+        expansion and by ``ConditionalRewardDistribution.lst``, so a conditional whose moments alone are read never
+        pays for it.
 
         :param n_max: Largest truncation tried.
         :param target: The distribution whose expansion is resolved, this one if ``None``.
@@ -2943,7 +2967,7 @@ class _LineConditional(ConditionalRewardDistribution):
     @property
     def _atom_masses(self) -> np.ndarray:
         """Masses of the atoms, :math:`f_c(v) / G(0)` at the truncation of the expansion of the continuous part."""
-        self._continuous._refine()
+        self._refine()
         return self._continuous._f / self._nested._G0
 
     @property
@@ -2963,6 +2987,10 @@ class _LineConditional(ConditionalRewardDistribution):
     def _cumulants(self) -> tuple:
         """The mean and variance of the conditional with the atoms, whose transform this is."""
         return self._nested._cumulants()
+
+    def _refine(self) -> None:
+        """Refine the inner inversion on the expansion of the continuous part, see ``_NestedConditional._refine``."""
+        self._continuous._refine()
 
     def _warn_if_line_unresolved(self) -> None:
         r"""

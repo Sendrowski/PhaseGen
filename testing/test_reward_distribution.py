@@ -1162,7 +1162,7 @@ def test_atom_conditional_matches_the_sampler_exactly(label, coal):
     # the variance, which on the atom is the *only* route (the derivative identity divides by the continuous
     # conditioning density and cannot be evaluated at 0), so the sample is the one thing that pins it
     assert float(cond.var) == pytest.approx(other.var(), rel=0.02)
-    assert float(cond.moment(2)) == pytest.approx((other ** 2).mean(), rel=0.02)
+    assert float(cond.moment(2, center=False)) == pytest.approx((other ** 2).mean(), rel=0.02)
 
     # the whole CDF, not just the mean: the exact atom conditional against the empirical one over the same replicates
     grid = np.linspace(0, float(cond.quantile(0.95)), 25)
@@ -1184,7 +1184,7 @@ def test_atom_conditional_refuses_the_derivative_identity():
     with pytest.raises(NotImplementedError):
         cond.moment(3)
 
-    assert cond.moment(2) == pytest.approx(float(cond.var) + float(cond.mean) ** 2)
+    assert cond.moment(2, center=False) == pytest.approx(float(cond.var) + float(cond.mean) ** 2)
 
 
 def test_windowed_conditional_mean_cancels_the_window_bias():
@@ -1221,7 +1221,7 @@ def test_conditional_moments_live_on_the_conditional():
     assert float(cond._cumulants()[0]) == pytest.approx(float(cond.mean), rel=1e-3)
 
     m1, m2 = cond._raw_moments(k=2)
-    assert float(cond.moment(2)) == pytest.approx(m2, rel=1e-9)
+    assert float(cond.moment(2, center=False)) == pytest.approx(m2, rel=1e-9)
 
 
 def test_conditional_variance_uses_the_mean_it_reports():
@@ -1234,7 +1234,8 @@ def test_conditional_variance_uses_the_mean_it_reports():
 
     for cond in (jd.conditional('a', v), jd.conditional('a', 0.0)):
         assert float(cond.moment(1)) == float(cond.mean)
-        assert float(cond.var) == pytest.approx(cond.moment(2) - cond.moment(1) ** 2, rel=1e-12, abs=1e-15)
+        assert float(cond.var) == pytest.approx(cond.moment(2, center=False) - cond.moment(1) ** 2, rel=1e-12,
+                                                abs=1e-15)
 
 
 def test_conditional_moments_share_one_ladder(monkeypatch):
@@ -1291,6 +1292,86 @@ def test_conditional_moment_ladder_honours_the_cache_setting(monkeypatch):
     assert cond.moment(3) == m3
     assert cond.moment(3) == m3
     assert len(calls) == 3 * n
+
+
+def test_conditional_lst_does_not_depend_on_call_history():
+    """The atom of xi_3 given xi_1 = 3 under a fivefold decline at 0.5 needs the truncation that
+    ``_NestedConditional._refine`` raises from 120 to 480. Regression: ``lst`` served the calibrated truncation until
+    the first cdf, pdf or quantile call refined it, so the same ``lst(inf)`` gave 0.050170 on a fresh conditional and
+    0.051668 afterwards, against 0.051758 at four and eight times the refined truncation."""
+    jd = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}})).sfs.joint(3, 1)
+
+    cond = jd.conditional('b', 3.0)
+    fresh = cond.lst(np.inf)
+    assert fresh.real == pytest.approx(0.0516684, rel=1e-5)
+
+    _ = cond.cdf(0.0)
+    assert cond.lst(np.inf) == fresh
+
+
+def test_conditional_moment_takes_the_convention_of_the_exact_moments():
+    """``ConditionalRewardDistribution.moment`` and its sampled counterpart from
+    ``EmpiricalJointDistribution.conditional`` take ``(k, center=True)`` like ``PhaseTypeDistribution.moment``: order 0
+    is 1, order 1 the mean and order 2 the variance by default. Regression: the exact side returned raw moments only,
+    took no ``center`` and refused order 0, while the empirical side was central by default and its order 1, the plain
+    window mean, differed from its local-linear ``mean``."""
+    import inspect
+    from math import comb
+
+    joint = pg.Coalescent(n=4).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+    cond = joint.conditional('a', 1.0)
+    emp = joint.to_empirical(20_000, seed=1).conditional('a', 1.0)
+
+    assert inspect.signature(cond.moment).parameters.keys() == inspect.signature(emp.moment).parameters.keys()
+
+    for d in (cond, emp):
+        assert d.moment(0) == d.moment(0, center=False) == 1.0
+        assert d.moment(1) == d.moment(1, center=False) == float(d.mean)
+        assert d.moment(2) == pytest.approx(float(d.var), rel=1e-12)
+        assert d.moment(2) == pytest.approx(d.moment(2, center=False) - float(d.mean) ** 2, rel=1e-9)
+        raw = [d.moment(j, center=False) for j in range(4)]
+        assert d.moment(3) == pytest.approx(sum(comb(3, j) * raw[j] * (-raw[1]) ** (3 - j) for j in range(4)),
+                                            rel=1e-9, abs=1e-12)
+
+    # E[L^2 | T = 1] and Var(L | T = 1) of L = 2 + 2 T_4 + T_3 given T_4 + T_3 + T_2 = 1, by mpmath quadrature
+    assert cond.moment(2, center=False) == pytest.approx(7.0942475653, rel=1e-6)
+    assert cond.moment(2) == pytest.approx(0.1230454538, rel=5e-6)
+    assert emp.moment(2) == pytest.approx(cond.moment(2), rel=0.4)
+
+
+def test_empirical_conditional_moments_are_moments_of_a_distribution_at_the_support_edges():
+    """Near either end of the conditioning support the window of ``EmpiricalJointDistribution.conditional`` is
+    one-sided. Regression: each raw moment was its own local-linear intercept, whose weights then turn negative, so
+    with n = 4 and T = 0.05 the variance of L was -0.024 against the exact 4.15e-4, and E[L^2 | T] was negative. With
+    n = 2, where L = 2 T and the conditional variance is 0, the variance was -4e-5 at T = 0.002 and 5e-5 at T = 1."""
+    emp2 = pg.Coalescent(n=2).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).to_empirical(5_000, seed=1)
+
+    for v in (0.002, 1.0, float(emp2._a.max())):
+        d = emp2.conditional('a', v)
+        assert d.mean == pytest.approx(2 * v, rel=1e-9)
+        assert d.var == pytest.approx(0.0, abs=1e-12 * v ** 2)
+
+    joint = pg.Coalescent(n=4).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+    emp4 = joint.to_empirical(20_000, seed=1)
+
+    for v in (0.05, float(emp4._a.max())):
+        d = emp4.conditional('a', v)
+        assert d.var > 0 and d.moment(2, center=False) > 0 and d.moment(4) > 0 and d.moment(4, center=False) > 0
+        assert d.moment(1) == d.mean
+        assert d.moment(2) == d.var == pytest.approx(d.moment(2, center=False) - d.mean ** 2, rel=1e-9)
+
+    # Var(L | T = 0.05) is 4.15e-4, far below the plain variance of the window
+    d = emp4.conditional('a', 0.05)
+    assert d.var < 0.25 * np.var(d.samples)
+
+
+def test_empirical_conditional_covariance_is_its_variance():
+    """Regression: ``cov`` of an empirical conditional was the unweighted variance of the kept replicates while
+    ``var`` is the weighted variance of the local-linear residuals, 1.062 against 1.078 here."""
+    d = pg.Coalescent(n=5).sfs.to_empirical(2000, seed=7).joint(1, 2).conditional('a', 1.0)
+
+    assert d.cov == d.var
+    assert d.corr == 1
 
 
 def test_check_conditional_moments_compares_against_the_reported_mean():
@@ -3020,7 +3101,7 @@ def test_conditional_variance_takes_both_moments_from_one_truncation(caplog):
         cond = joint.conditional('a', 0.45)
         assert cond.var == pytest.approx(0.0162131, rel=2e-3)
     assert not [r for r in caplog.records if 'conditional variance is unresolved' in r.getMessage()]
-    assert cond.var == pytest.approx(cond.moment(2) - cond.mean ** 2, rel=1e-12)
+    assert cond.var == pytest.approx(cond.moment(2, center=False) - cond.mean ** 2, rel=1e-12)
 
     caplog.clear()
     with caplog.at_level('WARNING'):

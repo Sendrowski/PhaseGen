@@ -506,10 +506,11 @@ def test_spectrum_functions_keep_the_shape_of_the_points():
 @pytest.mark.parametrize('kind', ['cdf', 'pdf', 'quantile'])
 def test_exact_and_empirical_curves_share_titles_and_axes(kind):
     """
-    The exact and the empirical curves of a conditional, a marginal, the tree height and its deme view, and a
-    spectrum carry the same title and axis labels: the label of a conditional leads the title, and the x-axis is ``t``
-    for the tree height and ``x`` for any other reward. Regression: the empirical curves were always titled without a
-    label and put ``t`` on the x-axis, and the exact deme views named it the accumulated branch length.
+    The exact and the empirical curves of a conditional, a marginal, the tree height and its deme view, a spectrum
+    and a joint spectrum carry the same title, legend title and axis labels: the label of a conditional leads the
+    title, and the x-axis is ``t`` for the tree height and ``x`` for any other reward. Regression: the empirical
+    curves were always titled without a label and put ``t`` on the x-axis, the exact deme views named it the
+    accumulated branch length, and the empirical joint spectrum was titled as an SFS with the legend title ``bin``.
     """
     coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
         pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}))
@@ -517,11 +518,12 @@ def test_exact_and_empirical_curves_share_titles_and_axes(kind):
 
     def dists(c):
         joint = c.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
-        return [joint.conditional(value=1.0), joint.marginal('a'), c.tree_height, c.tree_height.demes['pop_0'], c.sfs]
+        return [joint.conditional(value=1.0), joint.marginal('a'), c.tree_height, c.tree_height.demes['pop_0'], c.sfs,
+                c.jsfs]
 
     for exact, sampled in zip(dists(coal), dists(emp)):
         a, b = getattr(exact, kind)._plot_data(), getattr(sampled, kind)._plot_data()
-        assert (a.title, a.xlabel, a.ylabel) == (b.title, b.xlabel, b.ylabel)
+        assert (a.title, a.legend_title, a.xlabel, a.ylabel) == (b.title, b.legend_title, b.xlabel, b.ylabel)
 
     cond = getattr(coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0), kind)
     assert cond._plot_data().title.startswith('R_b | R_a = 1')

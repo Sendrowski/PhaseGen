@@ -63,6 +63,27 @@ class _EmpiricalFunction:  # pragma: no cover
     """Mixin building the plot data of an empirical function object: one curve for a sample vector (a scalar
     distribution), one per polymorphic bin for a replicate-by-bin sample matrix (a spectrum)."""
 
+    #: Name of the function in error messages and plot titles, by kind.
+    _NAMES = dict(pdf='PDF', cdf='CDF', quantile='quantile function')
+
+    #: Title prefix of the per-bin curves of a spectrum.
+    _bin_title: str = 'SFS bin'
+
+    #: Legend title of the per-bin curves of a spectrum.
+    _bin_legend: str = 'bin'
+
+    def _samples(self) -> np.ndarray:
+        """
+        :return: The per-replicate samples of the distribution.
+        :raises ValueError: If the samples have been dropped.
+        """
+        samples = self._distribution.samples
+
+        if samples is None:
+            raise ValueError(f"The {self._NAMES[self.kind]} needs the per-replicate samples, which have been dropped.")
+
+        return samples
+
     def _empirical_curves(
             self,
             grid: np.ndarray | None,
@@ -81,7 +102,7 @@ class _EmpiricalFunction:  # pragma: no cover
         """
         from ..visualization import _CurveData
 
-        samples = np.asarray(self._distribution.samples)
+        samples = np.asarray(self._samples())
         per_bin = samples.ndim >= 2
         keys = (list(self._distribution._polymorphic_bins()) if bins is None else list(np.atleast_1d(bins))) \
             if per_bin else []
@@ -109,7 +130,7 @@ class _EmpiricalFunction:  # pragma: no cover
             values = np.asarray(self(x))
 
         y = values.reshape(values.shape[0], -1).T[columns] if per_bin else values[None]
-        name = dict(pdf='PDF', cdf='CDF', quantile='quantile function')[self.kind]
+        name = self._NAMES[self.kind]
         variable = self._distribution._variable
 
         return _CurveData(
@@ -118,8 +139,8 @@ class _EmpiricalFunction:  # pragma: no cover
             labels=[str(key) for key in keys] if per_bin else [''],
             xlabel='q' if self.kind == 'quantile' else variable,
             ylabel=dict(pdf=f'f({variable})', cdf=f'F({variable})', quantile='quantile')[self.kind],
-            title=f'SFS bin {name}s' if per_bin else self._distribution._titled(name),
-            legend_title='bin' if per_bin else None
+            title=f'{self._bin_title} {name}s' if per_bin else self._distribution._titled(name),
+            legend_title=self._bin_legend if per_bin else None
         )
 
     def plot(
@@ -166,7 +187,7 @@ class _EmpiricalCumulativeDistributionFunction(_EmpiricalFunction, CumulativeDis
 
     def __call__(self, t) -> 'np.ndarray':
         # sort along the replicate axis, never across the entries of one replicate
-        samples = self._distribution.samples
+        samples = self._samples()
         x = np.sort(samples.reshape(samples.shape[0], -1), axis=0)
         y = np.arange(1, len(samples) + 1) / len(samples)
 
@@ -197,7 +218,7 @@ class _EmpiricalQuantileFunction(_EmpiricalFunction, QuantileFunction):  # pragm
     def __call__(self, q) -> 'np.ndarray':
         # over the replicate axis (axis 0); for 2-D (per-bin) samples this gives one quantile per bin (shape
         # ``(len(q), n_bins)`` for an array ``q``), as the default flattening would mix bins together
-        return np.quantile(self._distribution.samples, q=q, axis=0)
+        return np.quantile(self._samples(), q=q, axis=0)
 
     def _plot_data(self, q: np.ndarray = None, bins: Sequence[int] = None, n_points: int = None) -> '_CurveData':
         """
@@ -252,7 +273,7 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
     integrates the exact density over the same cells, so both sides estimate the same functional."""
 
     def __call__(self, t) -> 'np.ndarray':
-        samples = self._distribution.samples
+        samples = self._samples()
         t = np.atleast_1d(np.asarray(t, dtype=float))
 
         if t.size < 2:
@@ -292,6 +313,10 @@ class _EmpiricalDensityFunction(_EmpiricalFunction, DensityFunction):  # pragma:
 class _EmpiricalJointSFSFunction:  # pragma: no cover
     """Mixin selecting the bins of an empirical joint spectrum by their descendant configurations, as the functions
     of :class:`~phasegen.distributions.JointSFSDistribution` do."""
+
+    _bin_title = 'Joint SFS bin'
+
+    _bin_legend = 'config'
 
     def _configs(self, configs: Sequence[Tuple[int, ...]] | None) -> List[Tuple[int, ...]] | None:
         """
@@ -656,10 +681,19 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
 
         return out.reshape(shape + shape) if len(shape) > 1 else out
 
-    def moment(self, k: int, center: bool = True) -> float | np.ndarray:
+    def moment(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> float | np.ndarray:
         r"""
         The :math:`k`-th sample moment of the realisations :math:`Y_1, \dots, Y_N` of
-        :class:`~phasegen.distributions.EmpiricalDistribution`,
+        :class:`~phasegen.distributions.EmpiricalDistribution`, with the parameters of
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`,
 
         .. math::
 
@@ -670,13 +704,23 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         :attr:`m3` and :attr:`m4` are raw moments.
 
         :param k: Order :math:`k \ge 0` of the moment.
+        :param rewards: Must be ``None``, as the realisations are those of a single reward.
+        :param start_time: Must be ``None``, as the realisations are accumulated over a fixed time window.
+        :param end_time: Must be ``None``, as the realisations are accumulated over a fixed time window.
         :param center: Whether to center the moment around the sample mean :math:`\hat\mu`.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment, per entry for a spectrum.
         :raises TypeError: If ``k`` is not a number.
         :raises ValueError: If ``k`` is not integral or is negative, or if the samples have been dropped and the moment
             is not among those retained.
+        :raises NotImplementedError: If rewards or times are given.
         """
         k = _validate_order(k)
+
+        if rewards is not None or start_time is not None or end_time is not None:
+            raise NotImplementedError(_NO_GENEALOGIES.format(statistic="moment with rewards or times",
+                                                             holder="distribution"))
+
         samples = self.samples
 
         if samples is None:
@@ -820,18 +864,31 @@ class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
         """
         return TwoSFS(super().corr)
 
-    def moment(self, k: int, center: bool = True) -> SFS:
+    def moment(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> SFS:
         r"""
         The :math:`k`-th sample moment of every frequency class, see
         :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
 
         :param k: Order :math:`k \ge 0` of the moment.
+        :param rewards: Must be ``None``, as the realisations are those of the bins.
+        :param start_time: Must be ``None``, as the realisations are accumulated over a fixed time window.
+        :param end_time: Must be ``None``, as the realisations are accumulated over a fixed time window.
         :param center: Whether to center the moment around the sample mean.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment spectrum.
         :raises TypeError: If ``k`` is not a number.
         :raises ValueError: If ``k`` is not integral or is negative.
+        :raises NotImplementedError: If rewards or times are given.
         """
-        return SFS(EmpiricalDistribution.moment(self, k, center))
+        return SFS(EmpiricalDistribution.moment(self, k, rewards, start_time, end_time, center, permute))
 
     def _tajima_n(self) -> int:
         """Number of lineages, from the mean, which is retained when the samples are dropped."""
@@ -1392,27 +1449,52 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         """
         return JointSFS(super().m4)
 
-    def moment(self, k: int, center: bool = True) -> JointSFS:
+    def moment(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> JointSFS:
         r"""
-        The :math:`k`-th sample moment of :meth:`EmpiricalDistribution.moment()
+        The :math:`k`-th sample moment of every descendant vector, the sampled counterpart of
+        :meth:`JointSFSDistribution.moment() <phasegen.distributions.JointSFSDistribution.moment>`. Without rewards
+        and times it is that of :meth:`EmpiricalDistribution.moment()
         <phasegen.distributions.EmpiricalDistribution.moment>`, from the raw moments over all replicates up to order
         three, where the central moment is :math:`\sum_{o=0}^{k} \binom{k}{o} \hat M_o (-\hat M_1)^{k-o}` with
-        :math:`\hat M_0 = 1`, and from the stored samples above.
+        :math:`\hat M_0 = 1`, and from the stored samples above. Otherwise it is that of
+        :meth:`MsprimeCoalescent.accumulate() <phasegen.distributions.MsprimeCoalescent.accumulate>` at the end time,
+        each reward combined with the reward of the bin.
 
         :param k: Order :math:`k \ge 0` of the moment.
+        :param rewards: Sequence of :math:`k` rewards, each combined with the reward of the bin. By default, the
+            reward of the distribution for each factor.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
+        :param end_time: The end time. By default, the end time of the coalescent, or absorption.
         :param center: Whether to center the moment around the sample mean.
+        :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
         :return: The :math:`k`-th moment per descendant vector.
-        :raises TypeError: If ``k`` is not a number.
-        :raises ValueError: If ``k`` is not integral or is negative, or if ``k`` exceeds three and the per-replicate
-            samples have been dropped.
+        :raises TypeError: If ``k`` is not a number, or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not integral or is negative, if ``k`` exceeds three and the per-replicate
+            samples have been dropped, if the number of rewards differs from ``k``, the start time is negative, or the
+            end time exceeds that of the coalescent.
+        :raises NotImplementedError: If rewards or times are given and the distribution does not hold simulated
+            genealogies, or a reward is not one they record.
         """
         k = _validate_order(k)
+
+        if rewards is not None or start_time is not None or end_time is not None:
+            return JointSFS(self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute))
 
         if k > 3:
             if self.samples is None:
                 raise ValueError("Moments above order three need the per-replicate samples, which have been dropped.")
 
-            return JointSFS(super().moment(k, center))
+            return JointSFS(super().moment(k, center=center))
 
         raw = [np.ones(self._moments.shape[1:])] + list(self._moments)
 
@@ -1495,7 +1577,8 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         :param end_times: The end times at which to evaluate the moment.
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :return: Array of shape ``(len(end_times),) +`` :attr:`shape` with the moment of each bin over time.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies.
         """
@@ -1728,7 +1811,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         :raises ValueError: If ``k`` is not integral or is negative, or if the samples have been dropped and the moment
             is not among those retained.
         """
-        return TwoLocusSFS(super().moment(k, center))
+        return TwoLocusSFS(super().moment(k, center=center))
 
     @cached_property
     def corr(self) -> TwoLocusSFS:
@@ -1783,7 +1866,8 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         :param k: The order :math:`k` of the moment.
         :param end_times: The end times at which to evaluate the moment.
         :param center: Whether to return the central moment.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :return: Array of shape ``(len(end_times), n + 1, n + 1)`` of the moments, symmetrized over the two loci.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies.
         """
@@ -2243,7 +2327,8 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
         :param center: Whether to return the central moment.
         :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :return: The moment at each end time.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies, or a reward is not
             one they record.
@@ -2267,7 +2352,8 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
 
         :param k: The order :math:`k \ge 0` of the moment.
         :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :param end_time: The end time. By default, the end time of the coalescent, or absorption.
         :param center: Whether to return the central moment.
         :param permute: Ignored, as the sample moment does not depend on the order of the rewards.
@@ -2282,7 +2368,7 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         k = _validate_order(k)
 
         if rewards is None and start_time is None and end_time is None:
-            return EmpiricalDistribution.moment(self, k, center)
+            return EmpiricalDistribution.moment(self, k, center=center)
 
         return self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute)
 
@@ -2310,7 +2396,7 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
     """
-    The replicates kept by ``EmpiricalJointDistribution.conditional``, with the local-linear mean described there.
+    The replicates kept by ``EmpiricalJointDistribution.conditional``, with the moments described there.
 
     :param samples: The other reward over the kept replicates.
     :param offsets: The conditioning values of the kept replicates minus the conditioning value.
@@ -2327,23 +2413,87 @@ class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
         self._window = float(window)
 
     @cached_property
+    def _fit(self) -> Tuple[np.ndarray, float, float]:
+        """
+        Normalised tricube weights, intercept and slope of the local-linear fit described in
+        :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`,
+        uniform weights and zero slope where the fit is singular.
+        """
+        x, y, h = self._offsets, self.samples, self._window
+        uniform = np.full(x.size, 1.0 / x.size), float(np.mean(y)), 0.0
+
+        if h <= 0 or x.size < 3:
+            return uniform
+
+        w = (1.0 - np.minimum(np.abs(x / h), 1.0) ** 3) ** 3
+        sw, swx, swx2, swy, swxy = w.sum(), (w * x).sum(), (w * x * x).sum(), (w * y).sum(), (w * x * y).sum()
+        det = sw * swx2 - swx ** 2
+
+        if not np.isfinite(det) or abs(det) < 1e-300:
+            return uniform
+
+        return w / sw, float((swx2 * swy - swx * swxy) / det), float((sw * swxy - swx * swy) / det)
+
+    @cached_property
     def mean(self) -> float:
         """Local-linear window mean, see
         :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
         """
-        x, y, h = self._offsets, self.samples, self._window
+        return self._fit[1]
 
-        if h <= 0 or x.size < 3:
-            return float(np.mean(y))
+    @cached_property
+    def var(self) -> float:
+        """Window variance of the residuals of the local-linear fit, the central moment of order two of
+        :meth:`moment`."""
+        return self.moment(2)
 
-        w = (1.0 - np.minimum(np.abs(x / h), 1.0) ** 3) ** 3
-        sw, swx, swx2 = w.sum(), (w * x).sum(), (w * x * x).sum()
-        det = sw * swx2 - swx ** 2
+    @cached_property
+    def cov(self) -> float:
+        """The variance, :attr:`var`."""
+        return self.var
 
-        if not np.isfinite(det) or abs(det) < 1e-300:
-            return float(np.mean(y))
+    @cached_property
+    def corr(self) -> float:
+        """The correlation of the reward with itself, 1."""
+        return 1.0
 
-        return float((swx2 * (w * y).sum() - swx * (w * x * y).sum()) / det)
+    @cached_property
+    def m2(self) -> float:
+        """Second raw window moment, see :meth:`moment`."""
+        return self.moment(2, center=False)
+
+    @cached_property
+    def m3(self) -> float:
+        """Third raw window moment, see :meth:`moment`."""
+        return self.moment(3, center=False)
+
+    @cached_property
+    def m4(self) -> float:
+        """Fourth raw window moment, see :meth:`moment`."""
+        return self.moment(4, center=False)
+
+    def moment(self, k: int, center: bool = True) -> float:
+        r"""
+        The moment of order :math:`k`, central by default, of the replicates :math:`\hat\beta_0 + r_m` under the
+        normalised tricube weights, with :math:`r_m` the residuals of the local-linear fit, see
+        :meth:`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`.
+        Order one is :attr:`mean`.
+
+        :param k: Order :math:`k \ge 0` of the moment.
+        :param center: Whether to return the central moment.
+        :return: The moment of order ``k``.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not integral or is negative.
+        """
+        k = _validate_order(k)
+        p, b0, b1 = self._fit
+
+        if k < 2:
+            return 1.0 if k == 0 else b0
+
+        shifted = self.samples - b1 * self._offsets
+
+        return float((p * (shifted - b0 if center else shifted) ** k).sum())
 
 
 class _EmpiricalJointCDF(JointCDF):  # pragma: no cover
@@ -2532,16 +2682,25 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         With :math:`c_m` the conditioning reward and :math:`y_m` the other reward of replicate :math:`m`, the estimate
         keeps the replicates with :math:`|c_m - v| \le h`, where :math:`v` is ``value`` and :math:`h` the half-width
         ``window``. By default :math:`h` is the smallest half-width keeping a number of replicates that grows with
-        the sample size. The cdf, pdf, quantile and variance are those of
-        :class:`~phasegen.distributions.EmpiricalDistribution` over the kept replicates. The mean is the intercept
-        :math:`\beta_0` of the local-linear fit minimizing
+        the sample size. The cdf, pdf and quantile are those of :class:`~phasegen.distributions.EmpiricalDistribution`
+        over the kept replicates. The mean is the intercept :math:`\hat\beta_0` of the local-linear fit minimizing
 
         .. math::
 
             \sum_{|c_m - v| \le h} w_m \bigl(y_m - \beta_0 - \beta_1 (c_m - v)\bigr)^2,
 
         with tricube weights :math:`w_m = (1 - |c_m - v|^3 / h^3)^3`, which removes the bias of the plain window mean
-        where the conditional mean changes with :math:`v`. Every estimate remains an average over the window.
+        where the conditional mean changes with :math:`v`. With :math:`\hat\beta_1` the fitted slope and
+        :math:`r_m = y_m - \hat\beta_0 - \hat\beta_1 (c_m - v)` the residuals, the moment of order :math:`k \ge 2` is
+        that of the replicates moved along the fitted line to :math:`v`,
+
+        .. math::
+
+            \hat\mu_k = \frac{\sum_m w_m r_m^k}{\sum_m w_m}, \qquad
+            \hat m_k = \frac{\sum_m w_m (\hat\beta_0 + r_m)^k}{\sum_m w_m},
+
+        central and raw, so that the variance and the even moments are non-negative. Every estimate remains an
+        average over the window.
 
         :param on: Which reward to condition on, ``'a'`` for :math:`R_a` or ``'b'`` for :math:`R_b`.
         :param value: The conditioning value :math:`v`.
@@ -2938,7 +3097,8 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         :param k: The order :math:`k \ge 0` of the moment.
         :param rewards: Sequence of :math:`k` rewards, each combined with the reward of the bin. By default, the
             reward of the distribution for each factor.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :param end_time: The end time. By default, the end time of the coalescent, or absorption.
         :param center: Whether to return the central moment.
         :param permute: Accepted for the signature of the exact distribution.
@@ -2953,7 +3113,7 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         k = _validate_order(k)
 
         if rewards is None and start_time is None and end_time is None:
-            return _EmpiricalSFSMixin.moment(self, k, center)
+            return _EmpiricalSFSMixin.moment(self, k, center=center)
 
         accumulator = self._require_accumulator()
         end = accumulator._end_time if end_time is None else end_time
@@ -2981,7 +3141,8 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
         :param rewards: Sequence of k rewards, each combined with the reward of the bin.
         :param center: Whether to center the moment around the mean.
         :param permute: Accepted for the signature of the exact distribution.
-        :param start_time: The start time. By default, that of the coalescent, 0 for MsprimeCoalescent.
+        :param start_time: The start time. By default, that of the coalescent, 0 for
+            :class:`~phasegen.distributions.MsprimeCoalescent`.
         :return: The moment, a float for a single time and an array for a sequence of times.
         :raises NotImplementedError: If the distribution does not hold simulated genealogies.
         """
@@ -3864,7 +4025,7 @@ class _EmpiricalSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cover
         end_times = np.asarray(list(end_times), dtype=float)
         start_time = self.start_time if start_time is None else start_time
 
-        out = np.zeros((len(end_times), self.lineage_config.n + 1))
+        out = np.full((len(end_times), self.lineage_config.n + 1), float(k == 0))
         for i in self._get_indices():
             bin_rewards = tuple(CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards)
             out[:, i] = self._estimate(bin_rewards, start_time, end_times, center)
@@ -3948,14 +4109,57 @@ class _EmpiricalJointSFSAccumulation(_EmpiricalAccumulation):  # pragma: no cove
         :param start_time: The start time, by default :attr:`start_time`.
         :return: Array of shape ``(len(end_times),) + shape``.
         """
+        return self._accumulate(k, end_times, None, center, start_time)
+
+    def moment(
+            self,
+            k: int = 1,
+            rewards: Sequence[Reward] = None,
+            start_time: float = None,
+            end_time: float = None,
+            center: bool = True,
+            permute: bool = True
+    ) -> np.ndarray:
+        """
+        The moment of every bin at the end time, each reward combined with the reward of the bin.
+
+        :param k: The order of the moment.
+        :param rewards: Sequence of ``k`` rewards, by default :attr:`reward` for each factor.
+        :param start_time: The start time, by default :attr:`start_time`.
+        :param end_time: The end time, by default the end time of the coalescent.
+        :param center: Whether to return the central moment.
+        :param permute: Accepted for the signature of the exact distribution.
+        :return: Array of shape ``shape``.
+        """
+        return self._accumulate(k, [self._end_time if end_time is None else end_time], rewards, center, start_time)[0]
+
+    def _accumulate(
+            self,
+            k: int,
+            end_times: Iterable[float],
+            rewards: Optional[Sequence[Reward]],
+            center: bool,
+            start_time: Optional[float]
+    ) -> np.ndarray:
+        """
+        The moment of every bin at each end time, each reward combined with the reward of the bin.
+
+        :param k: The order of the moment.
+        :param end_times: The end times.
+        :param rewards: Sequence of ``k`` rewards, ``None`` for :attr:`reward` for each factor.
+        :param center: Whether to return the central moment.
+        :param start_time: The start time, ``None`` for :attr:`start_time`.
+        :return: Array of shape ``(len(end_times),) + shape``, one in every bin for order zero.
+        """
         k = _validate_order(k)
+        rewards = self._rewards(k, rewards, self.reward)
         end_times = np.asarray(list(end_times), dtype=float)
         start_time = self.start_time if start_time is None else start_time
 
-        out = np.zeros((len(end_times),) + self.shape)
+        out = np.full((len(end_times),) + self.shape, float(k == 0))
         for config in self._get_configs():
-            rewards = (CombinedReward([self.reward, JointSFSReward(config)]),) * k
-            out[(slice(None),) + config] = self._estimate(rewards, start_time, end_times, center)
+            bin_rewards = tuple(CombinedReward([r, JointSFSReward(config)]) for r in rewards)
+            out[(slice(None),) + config] = self._estimate(bin_rewards, start_time, end_times, center)
 
         return out
 
@@ -4002,7 +4206,7 @@ class _EmpiricalTwoLocusSFSAccumulation(_EmpiricalAccumulation):  # pragma: no c
 
         indices = self._get_indices()
         n = self.lineage_config.n
-        out = np.zeros((len(end_times), n + 1, n + 1))
+        out = np.full((len(end_times), n + 1, n + 1), float(k == 0))
 
         records = self._coalescent._trajectory_records() if k > 0 else None
         lengths = {
