@@ -5,7 +5,7 @@ out = snakemake.output[0]
 
 inf = pg.Inference.from_file(file)
 
-bootstrap = inf.create_bootstrap()
+bootstrap = inf.create_bootstrap(index=int(snakemake.wildcards.i))
 
 bootstrap.run()
 

@@ -49,10 +49,9 @@ inf <- pg$Inference(
   observation = pg$SFS(c(177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652)),
   coal = function(t, Ne) pg$Coalescent(
     n = 10,
-    demography = pg$Demography(events = c(
-      pg$PopSizeChange(pop = "pop_0", time = 0, size = 1),
-      pg$PopSizeChange(pop = "pop_0", time = t, size = Ne)
-    ))
+    demography = pg$Demography(
+      pop_sizes = list(pop_0 = reticulate::py_dict(c(0, t), c(1, Ne)))
+    )
   ),
   loss = function(coal, obs) pg$PoissonLikelihood()$compute(
     observed = obs$normalize()$polymorphic,

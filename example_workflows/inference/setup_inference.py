@@ -16,8 +16,9 @@ inf = pg.Inference(
         observed=obs.normalize().polymorphic,
         modelled=coal.sfs.mean.normalize().polymorphic
     ),
-    resample=lambda sfs, _: sfs.resample(),
-    do_bootstrap=False
+    resample=lambda sfs, rng: sfs.resample(seed=rng),
+    do_bootstrap=False,
+    seed=42
 )
 
 inf.run()

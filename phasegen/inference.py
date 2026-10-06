@@ -1191,7 +1191,7 @@ class WeightedLoss:  # pragma: no cover
 
     @property
     def average(self) -> Dict[str, float]:
-        """
+        r"""
         Running average :math:`\bar{L}_c` of each loss component over its most recent ``n_max`` values, keyed by
         component.
         """

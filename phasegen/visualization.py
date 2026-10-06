@@ -160,12 +160,19 @@ class Visualization:
         :param file: File to save the plot to.
         :param show: Whether to show the plot.
         :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
-        :param label: Legend label replacing the labels of the curves, ``None`` to keep them.
+        :param label: Legend label of the curves, ``None`` to keep their own labels. Several curves are labelled
+            ``'<label> (<legend title> <curve label>)'``, e.g. ``'exact (bin 1)'``, and the legend has no title.
         :param title: Title replacing the title of the curves, ``None`` to keep it.
         :param kwargs: Additional line styling forwarded to the underlying plot (e.g. ``alpha``, ``lw``, ``ls``).
         :return: Axes.
         """
-        labels = data.labels if label is None else [label] * len(data.labels)
+        if label is None:
+            labels = data.labels
+        elif len(data.labels) > 1:
+            prefix = '' if data.legend_title is None else f'{data.legend_title} '
+            labels = [f'{label} ({prefix}{lab})' for lab in data.labels]
+        else:
+            labels = [label]
 
         for y, lab in zip(data.y, labels):
             sns.lineplot(x=data.x, y=y, ax=ax, label=lab or None, **kwargs)
@@ -174,7 +181,7 @@ class Visualization:
         ax.set_ylabel(data.ylabel)
         ax.set_title(data.title if title is None else title)
 
-        if data.legend_title is not None and any(labels):
+        if label is None and data.legend_title is not None and any(labels):
             ax.legend(title=data.legend_title)
 
         ax.margins(x=0)

@@ -81,7 +81,7 @@ class MomentEvaluator:
 
     @staticmethod
     def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False, heads: int = 1) -> 'sp.spmatrix | np.ndarray':
-        """
+        r"""
         The Van Loan matrix of ``PhaseTypeDistribution.moment``, assembled directly as sparse CSR when ``sparse``.
         With several ``heads`` (sparse only), the first block row and column are repeated once per head, each head
         coupled to the shared second block by its own reward.

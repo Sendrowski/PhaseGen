@@ -319,6 +319,30 @@ def test_single_reward_plot_has_no_legend():
         plt.close('all')
 
 
+def test_labelled_multi_curve_plots_name_each_curve():
+    """A label passed to a plot of several curves names each curve as ``'<label> (<legend title> <curve label>)'``,
+    as the R package does, and a single curve takes the label alone. Regression: every curve of a spectrum got the
+    same legend entry."""
+    coal = pg.Coalescent(n=4)
+
+    def legend(ax):
+        return [text.get_text() for text in ax.get_legend().get_texts()]
+
+    ax = coal.sfs.pdf.plot(n_points=9, show=False, label='exact')
+    coal.sfs.to_empirical(200, seed=0).pdf.plot(n_points=9, ax=ax, show=False, label='sampled')
+    assert legend(ax) == [f'{source} (bin {i})' for source in ('exact', 'sampled') for i in (1, 2, 3)]
+    assert ax.get_legend().get_title().get_text() == ''
+    plt.close('all')
+
+    ax = coal.sfs.plot_accumulation(end_times=np.linspace(0, 2, 5), show=False, label='exact')
+    assert legend(ax) == ['exact (bin 1)', 'exact (bin 2)', 'exact (bin 3)']
+    plt.close('all')
+
+    ax = coal.tree_height.pdf.plot(n_points=9, show=False, label='exact')
+    assert legend(ax) == ['exact']
+    plt.close('all')
+
+
 def test_empirical_folded_sfs_plots_its_polymorphic_bins():
     """The empirical folded SFS draws the bins ``1, ..., n // 2`` of the analytic one. Regression: its default curves
     ran over ``1, ..., n - 1`` and drew the empty upper bins as constant curves."""
